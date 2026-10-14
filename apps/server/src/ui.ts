@@ -1395,7 +1395,9 @@ export function renderAppHtml(): string {
       <header class="reader-toolbar">
         <div class="toolbar-meta" id="toolbar-meta">
           <span class="meta-pill course" id="cur-course">강의 선택</span>
-          <span class="meta-pill" id="cur-date">—</span>
+          <span class="meta-pill" id="cur-date" title="녹음 일시 (KST)">—</span>
+          <span class="meta-pill" id="cur-duration" style="display:none;" title="실제 녹음 길이">—</span>
+          <span class="meta-pill" id="cur-uuid" style="display:none;font-family:var(--elysium-font-mono);font-size:12px;" title="고유 노트 UUID">—</span>
           <span class="meta-pill" id="sse-status-pill" style="color:var(--elysium-status-success-text);background:var(--elysium-status-success-surface);">실시간 동기화</span>
         </div>
         <div class="toolbar-actions">
@@ -2160,6 +2162,23 @@ export function renderAppHtml(): string {
       fetchLectures();
     }
 
+    function formatDurationBadge(sec) {
+      const s = Number(sec || 0);
+      if (!s || s <= 0) return '';
+      const m = Math.floor(s / 60);
+      const rem = Math.floor(s % 60);
+      const h = Math.floor(m / 60);
+      if (h > 0) {
+        return h + '시간 ' + String(m % 60).padStart(2, '0') + '분 ' + String(rem).padStart(2, '0') + '초';
+      }
+      return String(m).padStart(2, '0') + ':' + String(rem).padStart(2, '0');
+    }
+
+    function shortUuidBadge(id) {
+      const clean = String(id || '').replace(/^[a-z]+_/i, '');
+      return clean.slice(0, 8);
+    }
+
     function renderLectureList() {
       const listEl = document.getElementById('lecture-list');
       if (!lectures.length) {
@@ -2175,6 +2194,14 @@ export function renderAppHtml(): string {
         const visBadge = item.is_public
           ? '<span style="font:600 12px/18px var(--elysium-font-sans);padding:2px 8px;border-radius:999px;background:var(--elysium-status-success-surface);color:var(--elysium-status-success-text);">공개</span>'
           : '<span style="font:600 12px/18px var(--elysium-font-sans);padding:2px 8px;border-radius:999px;background:var(--elysium-surface-subtle);color:var(--elysium-text-secondary);">비공개</span>';
+        const durLabel = formatDurationBadge(item.duration_sec);
+        const durBadge = durLabel
+          ? '<span style="font:600 12px/18px var(--elysium-font-mono);padding:2px 7px;border-radius:999px;background:var(--elysium-surface-subtle);color:var(--elysium-text-primary);">⏱ ' + escapeClientHtml(durLabel) + '</span>'
+          : '';
+        const uuidShort = shortUuidBadge(item.id);
+        const uuidBadge = uuidShort
+          ? '<span style="font:500 11px/16px var(--elysium-font-mono);color:var(--elysium-text-tertiary);" title="UUID: ' + escapeClientHtml(item.id) + '">#' + escapeClientHtml(uuidShort) + '</span>'
+          : '';
         const progHtml = item.status === 'processing'
           ? '<div class="card-progress"><div class="card-progress-bar" style="width:' + (item.progress || 15) + '%"></div></div><div style="font:600 13px/20px var(--elysium-font-sans);color:var(--elysium-text-brand);margin-top:4px;">' + escapeClientHtml(item.stage_message || '분석 중...') + ' (' + (item.progress || 15) + '%)</div>'
           : item.status === 'error'
@@ -2183,9 +2210,10 @@ export function renderAppHtml(): string {
         return '<div class="lecture-card ' + (isAct ? 'active' : '') + '" onclick="selectLecture(\\'' + item.id + '\\', true)">' +
           '<div class="card-top">' +
             '<span class="card-course">' + escapeClientHtml(item.course) + '</span>' +
-            '<span style="display:flex;align-items:center;gap:8px;">' + visBadge + '<span class="card-date">' + escapeClientHtml(item.date_label) + '</span></span>' +
+            '<span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' + durBadge + visBadge + uuidBadge + '</span>' +
           '</div>' +
           '<div class="card-title">' + escapeClientHtml(item.title) + '</div>' +
+          '<div style="font:500 12px/18px var(--elysium-font-mono);color:var(--elysium-text-secondary);margin-top:-2px;">녹음 일시: ' + escapeClientHtml(item.date_label) + '</div>' +
           '<div class="card-excerpt">' + escapeClientHtml(item.excerpt || '') + '</div>' +
           progHtml +
         '</div>';
@@ -2206,7 +2234,23 @@ export function renderAppHtml(): string {
       renderLectureList();
 
       document.getElementById('cur-course').textContent = currentLecture.course;
-      document.getElementById('cur-date').textContent = currentLecture.date_label;
+      document.getElementById('cur-date').textContent = '녹음 ' + (currentLecture.date_label || '');
+      const curDurEl = document.getElementById('cur-duration');
+      if (curDurEl) {
+        const durTxt = formatDurationBadge(currentLecture.duration_sec);
+        if (durTxt) {
+          curDurEl.style.display = 'inline-flex';
+          curDurEl.textContent = '길이 ' + durTxt;
+        } else {
+          curDurEl.style.display = 'none';
+        }
+      }
+      const curUuidEl = document.getElementById('cur-uuid');
+      if (curUuidEl) {
+        curUuidEl.style.display = 'inline-flex';
+        curUuidEl.textContent = 'UUID · ' + shortUuidBadge(currentLecture.id);
+        curUuidEl.title = '노트 고유 UUID: ' + currentLecture.id;
+      }
       updateVisibilityButtonsUI();
 
       const audioBar = document.getElementById('audio-bar');
@@ -2785,11 +2829,15 @@ export function renderAppHtml(): string {
 
           const courseNow = document.getElementById('rec-course').value.trim() || recCourseAtStart;
           const ext = (mediaRecorder.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
-          const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+          const recUuid = (window.crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : ('rec_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10));
+          const kstDate = new Date(Date.now() + 9 * 3600 * 1000);
+          const stamp = kstDate.toISOString().slice(0, 19).replace(/[:T]/g, '-');
           const safeCourse = courseNow.replace(/[\\\\/:*?"<>|\\s]+/g, '_');
-          const fileName = safeCourse + '_' + stamp + '.' + ext;
+          const fileName = safeCourse + '_' + stamp + '_' + recUuid.slice(0, 8) + '.' + ext;
           const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-          const localId = 'rec_' + recStartTime;
+          const localId = recUuid;
 
           await savePendingUploadToVault({
             localId,
@@ -2889,7 +2937,11 @@ export function renderAppHtml(): string {
 
     async function uploadAndDistillFile(file, sourceClient, existingLocalId, overrideCourse) {
       const course = overrideCourse || document.getElementById('rec-course').value.trim() || '대학교 전공 강의';
-      const localId = existingLocalId || ('upl_' + file.name + '_' + file.size + '_' + file.lastModified);
+      const localId = existingLocalId || (
+        (window.crypto && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : ('upl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10))
+      );
 
       if (!existingLocalId) {
         await savePendingUploadToVault({

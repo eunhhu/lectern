@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, dirname, extname } from "node:path";
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import {
   extractExcerpt,
   probeAudioDuration,
@@ -246,8 +246,28 @@ try {
   // ignore if already migrated
 }
 
+export function formatKstTimestamp(input?: string | Date): {
+  fullLabel: string;
+  shortLabel: string;
+  fileStamp: string;
+} {
+  const d = input ? new Date(input) : new Date();
+  const valid = Number.isNaN(d.getTime()) ? new Date() : d;
+  const kstMs = valid.getTime() + 9 * 60 * 60 * 1000;
+  const kstIso = new Date(kstMs).toISOString(); // YYYY-MM-DDTHH:MM:SS.sssZ in KST
+  const yyyyMmDd = kstIso.slice(0, 10);
+  const hhMmSs = kstIso.slice(11, 19);
+  const mmDd = yyyyMmDd.slice(5).replace("-", "/");
+  return {
+    fullLabel: `${yyyyMmDd} ${hhMmSs}`,
+    shortLabel: `${mmDd} ${hhMmSs}`,
+    fileStamp: `${yyyyMmDd.replace(/-/g, "")}_${hhMmSs.replace(/:/g, "")}`,
+  };
+}
+
 export function generateId(prefix = "lec"): string {
-  return `${prefix}_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`;
+  const uuid = randomUUID();
+  return prefix === "lec" ? uuid : `${prefix}_${uuid}`;
 }
 
 export function generateShareToken(seed?: string): string {
@@ -850,8 +870,14 @@ export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
       let audioSize = 0;
 
       for (const ext of [".m4a", ".mp3", ".wav", ".webm", ".ogg"]) {
-        const candidate = join(courseDir, `${baseStem}${ext}`);
-        if (existsSync(candidate)) {
+        const candidate1 = join(courseDir, `${baseStem}${ext}`);
+        const candidate2 = join(courseDir, `${baseStem}_원본${ext}`);
+        const candidate = existsSync(candidate1)
+          ? candidate1
+          : existsSync(candidate2)
+          ? candidate2
+          : null;
+        if (candidate) {
           audioPath = candidate;
           audioSize = statSync(candidate).size;
           audioMime =
@@ -1028,9 +1054,14 @@ export function createPendingLecture(input: {
   isPublic?: boolean;
 }): LectureRecord {
   const now = new Date().toISOString();
-  const dateLabel = now.slice(0, 10);
+  const kst = formatKstTimestamp(now);
+  const dateLabel = kst.fullLabel;
   const shareToken = generateShareToken();
   const ownerId = input.ownerId || ensureBootstrapOwner().id;
+  const initialTitle =
+    input.title && input.title.trim()
+      ? input.title.trim()
+      : `${input.course} (${kst.shortLabel})`;
 
   db.query(
     `INSERT INTO lectures (
@@ -1043,7 +1074,7 @@ export function createPendingLecture(input: {
     ownerId,
     shareToken,
     input.isPublic ? 1 : 0,
-    input.title,
+    initialTitle,
     input.course,
     dateLabel,
     input.audioPath,
@@ -1086,21 +1117,36 @@ export function completeLectureRecord(
   const now = new Date().toISOString();
   const rec = getLectureById(id);
   const owner = rec ? getUserById(rec.owner_id) : null;
-  const isTestClient = rec?.source_client === "bun-test" || id.startsWith("test_") || id.startsWith("unauth_");
+  const isTestClient =
+    rec?.source_client === "bun-test" ||
+    id.startsWith("test_") ||
+    id.startsWith("unauth_");
+  const kst = formatKstTimestamp(rec?.created_at || now);
+  const shortUuid =
+    id
+      .replace(/^[a-z]+_/i, "")
+      .replace(/-/g, "")
+      .slice(0, 8) || randomBytes(4).toString("hex");
 
   // Persist to /home/eunhhu/work/lectures/<course>/ only for real admin/owner lectures (never test runs)
   let mdSourcePath: string | null = null;
   if (!isTestClient && (!owner || owner.is_admin === 1)) {
     try {
-      const safeCourse = result.courseName.replace(/[\\/:*?"<>|]/g, "_").trim() || "기타강의";
+      const safeCourse =
+        result.courseName.replace(/[\\/:*?"<>|]/g, "_").trim() || "기타강의";
       const courseDir = join(LECTURES_ROOT, safeCourse);
       mkdirSync(courseDir, { recursive: true });
-      const stamp = now.slice(0, 10).replace(/-/g, "") + "_" + now.slice(11, 16).replace(":", "");
-      mdSourcePath = join(courseDir, `${stamp}_${safeCourse}_요약.md`);
+      mdSourcePath = join(
+        courseDir,
+        `${kst.fileStamp}_${safeCourse}_${shortUuid}_요약.md`
+      );
       writeFileSync(mdSourcePath, result.markdown + "\n", "utf8");
       if (rec?.audio_path && existsSync(rec.audio_path)) {
         const ext = extname(rec.audio_path) || ".m4a";
-        const archiveAudioPath = join(courseDir, `${stamp}_${safeCourse}_원본${ext}`);
+        const archiveAudioPath = join(
+          courseDir,
+          `${kst.fileStamp}_${safeCourse}_${shortUuid}_원본${ext}`
+        );
         if (!existsSync(archiveAudioPath)) {
           try {
             copyFileSync(rec.audio_path, archiveAudioPath);
@@ -1114,6 +1160,16 @@ export function completeLectureRecord(
     }
   }
 
+  let finalTitle =
+    result.title?.trim() || rec?.title || `${result.courseName} (${kst.shortLabel})`;
+  if (
+    finalTitle === `${result.courseName} 강의 노트` ||
+    finalTitle === result.courseName ||
+    /^.+\s·\s\d{4}-\d{2}-\d{2}$/.test(finalTitle)
+  ) {
+    finalTitle = `${result.courseName} (${kst.shortLabel})`;
+  }
+
   db.query(
     `UPDATE lectures
      SET status = 'done', stage = 'done', stage_message = '완료', progress = 100,
@@ -1121,7 +1177,7 @@ export function completeLectureRecord(
          duration_sec = ?, md_source_path = COALESCE(?, md_source_path), updated_at = ?
      WHERE id = ?`
   ).run(
-    result.title || rec?.title || `${result.courseName} 강의 노트`,
+    finalTitle,
     result.courseName,
     result.markdown,
     result.excerpt,

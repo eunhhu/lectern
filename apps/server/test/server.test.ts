@@ -419,6 +419,70 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     deleteUserAndData(adminOwner.id);
   });
 
+  test("Multiple recordings with identical course name get distinct UUIDs, KST timestamps, and never collide or overwrite", async () => {
+    const owner = ensureBootstrapOwner();
+    const id1 = generateId("lec");
+    const id2 = generateId("lec");
+    expect(id1).not.toBe(id2);
+    expect(id1).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(id2).toMatch(/^[0-9a-f-]{36}$/i);
+
+    const p1 = createPendingLecture({
+      id: id1,
+      ownerId: owner.id,
+      title: "",
+      course: "웹프",
+      audioPath: "/tmp/nonexistent1.m4a",
+      audioMime: "audio/mp4",
+      audioSize: 2048,
+      modelRequested: "gemini-flash-latest",
+      sourceClient: "web-mic",
+    });
+    const p2 = createPendingLecture({
+      id: id2,
+      ownerId: owner.id,
+      title: "",
+      course: "웹프",
+      audioPath: "/tmp/nonexistent2.m4a",
+      audioMime: "audio/mp4",
+      audioSize: 4096,
+      modelRequested: "gemini-flash-latest",
+      sourceClient: "web-mic",
+    });
+
+    // Both have full YYYY-MM-DD HH:MM:SS KST timestamp in date_label
+    expect(p1.date_label).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    expect(p2.date_label).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+
+    const d1 = completeLectureRecord(id1, {
+      title: "웹프 강의 노트",
+      courseName: "웹프",
+      markdown: "# 📚 웹프\n\n첫 번째 녹음 노트",
+      excerpt: "첫 번째 녹음 노트",
+      modelUsed: "gemini-3.8-flash",
+      durationSec: 185,
+    });
+    const d2 = completeLectureRecord(id2, {
+      title: "웹프 강의 노트",
+      courseName: "웹프",
+      markdown: "# 📚 웹프\n\n두 번째 녹음 노트",
+      excerpt: "두 번째 녹음 노트",
+      modelUsed: "gemini-3.8-flash",
+      durationSec: 240,
+    });
+
+    expect(d1.status).toBe("done");
+    expect(d2.status).toBe("done");
+    expect(d1.markdown).toContain("첫 번째 녹음 노트");
+    expect(d2.markdown).toContain("두 번째 녹음 노트");
+    if (d1.md_source_path && d2.md_source_path) {
+      expect(d1.md_source_path).not.toBe(d2.md_source_path);
+    }
+
+    deleteLectureById(id1);
+    deleteLectureById(id2);
+  });
+
   test("POST /api/cd/deploy rejects unauthorized requests", async () => {
     const res = await handleRequest(
       new Request("http://localhost/api/cd/deploy", { method: "POST" })

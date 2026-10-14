@@ -118,6 +118,7 @@ struct LectureSummary: Identifiable, Decodable, Equatable {
     let stage_message: String?
     let progress: Int?
     let excerpt: String
+    let duration_sec: Int?
     let model_used: String
     let has_audio: Bool
 }
@@ -138,9 +139,22 @@ struct LectureDetail: Decodable, Equatable {
     let stage_message: String?
     let error_message: String?
     let progress: Int?
+    let duration_sec: Int?
     var markdown: String
     let model_used: String
     let has_audio: Bool
+}
+
+func formatDurationMmSs(_ secOpt: Int?) -> String? {
+    guard let s = secOpt, s > 0 else { return nil }
+    let m = s / 60
+    let rem = s % 60
+    return String(format: "%02d:%02d", m, rem)
+}
+
+func shortLectureUuid(_ id: String) -> String {
+    let clean = id.replacingOccurrences(of: "lec_", with: "")
+    return String(clean.prefix(8))
 }
 
 struct LectureDetailResponse: Decodable {
@@ -315,6 +329,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private var recTimer: Timer?
     private var recStartTime: Date?
     private var recFileURL: URL?
+    private var recSessionUuid: String = ""
     private var maxRecordedPeakDb: Float = -160.0
     private var player: AVPlayer?
     private var playerLectureId: String?
@@ -651,8 +666,10 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyyMMdd_HHmmss"
         let stamp = fmt.string(from: Date())
+        let sessionUuid = UUID().uuidString.lowercased()
+        recSessionUuid = sessionUuid
         let safeCourse = recordCourse.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: " ", with: "_")
-        let fileURL = localVaultDir.appendingPathComponent("\(safeCourse)_\(stamp).m4a")
+        let fileURL = localVaultDir.appendingPathComponent("\(safeCourse)_\(stamp)_\(sessionUuid.prefix(8)).m4a")
         recFileURL = fileURL
         maxRecordedPeakDb = -160.0
 
@@ -736,7 +753,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         isUploading = true
         updateMenuBarLabel()
 
-        let localId = "mac_\(url.lastPathComponent)"
+        let localId = recSessionUuid.isEmpty ? UUID().uuidString.lowercased() : recSessionUuid
         let pendingItem = PendingLocalUpload(
             id: localId,
             filePath: url.path,
@@ -1397,6 +1414,15 @@ struct LecternPopoverView: View {
                                             Text(item.course)
                                                 .font(.system(size: 12, weight: .semibold))
                                                 .foregroundColor(Elysium.textBrand)
+                                            if let dur = formatDurationMmSs(item.duration_sec) {
+                                                Text("⏱ \(dur)")
+                                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                                    .foregroundColor(Elysium.textPrimary)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(Elysium.surfaceSubtle)
+                                                    .cornerRadius(999)
+                                            }
                                             Text((item.is_public ?? false) ? "공개" : "비공개")
                                                 .font(.system(size: 11, weight: .semibold))
                                                 .foregroundColor((item.is_public ?? false) ? Elysium.statusSuccessFg : Elysium.textSecondary)
@@ -1405,14 +1431,17 @@ struct LecternPopoverView: View {
                                                 .background((item.is_public ?? false) ? Elysium.statusSuccessBg : Elysium.surfaceSubtle)
                                                 .cornerRadius(999)
                                             Spacer()
-                                            Text(item.date_label)
-                                                .font(.system(size: 12, design: .monospaced))
-                                                .foregroundColor(Elysium.textSecondary)
+                                            Text("#\(shortLectureUuid(item.id))")
+                                                .font(.system(size: 11, design: .monospaced))
+                                                .foregroundColor(Elysium.textTertiary)
                                         }
                                         Text(item.title)
                                             .font(.system(size: 14.5, weight: .semibold))
                                             .foregroundColor(Elysium.textPrimary)
                                             .lineLimit(1)
+                                        Text("녹음 일시: \(item.date_label)")
+                                            .font(.system(size: 11.5, design: .monospaced))
+                                            .foregroundColor(Elysium.textSecondary)
                                         if item.status == "processing" {
                                             Text("\(item.stage_message ?? "분석 중...") (\(item.progress ?? 20)%)")
                                                 .font(.system(size: 12.5, weight: .semibold))
@@ -1506,9 +1535,21 @@ struct LecternPopoverView: View {
                                 .padding(.vertical, 5)
                                 .background(Elysium.actionPrimarySubtle)
                                 .cornerRadius(999)
-                            Text(lec.date_label)
-                                .font(.system(size: 12.5, design: .monospaced))
+                            Text("녹음 \(lec.date_label)")
+                                .font(.system(size: 12, design: .monospaced))
                                 .foregroundColor(Elysium.textSecondary)
+                            if let dur = formatDurationMmSs(lec.duration_sec) {
+                                Text("길이 \(dur)")
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(Elysium.textPrimary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Elysium.surfaceSubtle)
+                                    .cornerRadius(999)
+                            }
+                            Text("UUID · \(shortLectureUuid(lec.id))")
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .foregroundColor(Elysium.textTertiary)
 
                             Spacer()
 

@@ -23,6 +23,7 @@ import {
   deleteUserAndData,
   ensureBootstrapOwner,
   failLectureRecord,
+  formatKstTimestamp,
   generateId,
   getLectureByAudioSha256,
   getLectureById,
@@ -82,20 +83,23 @@ const BOOT_GIT_SHA = resolveGitSha();
 
 const bootstrapOwner = ensureBootstrapOwner();
 await syncLocalLecturesDir(bootstrapOwner.id);
-cleanupLecturesForUser(bootstrapOwner.id, { mode: "short_fragments" });
 
 type SSEController = ReadableStreamDefaultController<Uint8Array>;
 const sseClientsByOwner = new Map<string, Set<SSEController>>();
 const sseEncoder = new TextEncoder();
 
 export function toLectureSummaryDto(l: LectureRecord) {
+  const displayDateLabel =
+    l.date_label && l.date_label.length > 10
+      ? l.date_label
+      : formatKstTimestamp(l.created_at).fullLabel;
   return {
     id: l.id,
     share_token: l.share_token,
     is_public: Boolean(l.is_public),
     title: l.title,
     course: l.course,
-    date_label: l.date_label,
+    date_label: displayDateLabel,
     status: l.status,
     stage: l.stage,
     stage_message: l.stage_message,
@@ -464,7 +468,7 @@ async function saveIncomingAudio(
       audioSize: arrBuf.byteLength,
       audioSha256: sha256,
       course,
-      title: title || `${course} · ${new Date().toISOString().slice(0, 10)}`,
+      title: title || "",
       model,
       sourceClient,
       apiKey,
@@ -496,7 +500,7 @@ async function saveIncomingAudio(
     audioSize: buf.byteLength,
     audioSha256: sha256,
     course,
-    title: title || `${course} · ${new Date().toISOString().slice(0, 10)}`,
+    title: title || "",
     model,
     sourceClient,
     apiKey,
@@ -1488,9 +1492,14 @@ export async function handleRequest(req: Request): Promise<Response> {
 
       if (req.method === "GET" && !sub) {
         const rendered = renderMarkdownToHtml(rec.markdown || "");
+        const displayDateLabel =
+          rec.date_label && rec.date_label.length > 10
+            ? rec.date_label
+            : formatKstTimestamp(rec.created_at).fullLabel;
         return jsonResponse({
           lecture: {
             ...rec,
+            date_label: displayDateLabel,
             is_public: Boolean(rec.is_public),
             has_audio: Boolean(rec.audio_path && existsSync(rec.audio_path)),
           },
