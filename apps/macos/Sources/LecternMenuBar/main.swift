@@ -136,6 +136,7 @@ struct LectureDetail: Decodable, Equatable {
     let date_label: String
     let status: String
     let stage_message: String?
+    let error_message: String?
     let progress: Int?
     var markdown: String
     let model_used: String
@@ -314,6 +315,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private var recTimer: Timer?
     private var recStartTime: Date?
     private var recFileURL: URL?
+    private var maxRecordedPeakDb: Float = -160.0
     private var player: AVPlayer?
     private var playerLectureId: String?
     private var timeObserver: Any?
@@ -505,6 +507,9 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 let pct = decoded.lecture.progress ?? 20
                 self.parsedBlocks = parseMarkdownBlocks("# \(msg) (\(pct)%)\n\n쉬는 시간과 불필요한 잡담을 걸러내고 핵심 이론을 구조화하고 있습니다. 완료되면 자동으로 노트가 열립니다.")
                 ensureProcessingWatchLoop()
+            } else if decoded.lecture.status == "error" {
+                let errMsg = decoded.lecture.error_message ?? decoded.lecture.stage_message ?? "오디오 분석 중 오류가 발생했습니다."
+                self.parsedBlocks = parseMarkdownBlocks("# ⚠️ 오디오 분석 실패\n\n\(errMsg)")
             } else {
                 self.parsedBlocks = parseMarkdownBlocks(decoded.lecture.markdown)
             }
@@ -602,11 +607,46 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
     }
 
+    func openMicrophonePrivacySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func startRecording() {
         guard isAuthenticated else {
             showToast("먼저 계정에 로그인해주세요.")
             return
         }
+
+        let authStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch authStatus {
+        case .notDetermined:
+            NSApp.activate(ignoringOtherApps: true)
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    if granted {
+                        self.beginAudioRecorderSession()
+                    } else {
+                        self.showToast("마이크 권한이 거부되었습니다. 시스템 설정 > 마이크에서 Lectern을 허용해주세요.")
+                        self.openMicrophonePrivacySettings()
+                    }
+                }
+            }
+            return
+        case .denied, .restricted:
+            showToast("마이크 권한이 차단되어 있습니다. 시스템 설정 > 개인정보 보호 및 보안 > 마이크에서 Lectern을 켜주세요.")
+            openMicrophonePrivacySettings()
+            return
+        case .authorized:
+            beginAudioRecorderSession()
+        @unknown default:
+            beginAudioRecorderSession()
+        }
+    }
+
+    private func beginAudioRecorderSession() {
         UserDefaults.standard.set(recordCourse, forKey: "lectern_course")
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyyMMdd_HHmmss"
@@ -614,12 +654,13 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         let safeCourse = recordCourse.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: " ", with: "_")
         let fileURL = localVaultDir.appendingPathComponent("\(safeCourse)_\(stamp).m4a")
         recFileURL = fileURL
+        maxRecordedPeakDb = -160.0
 
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 16000,
+            AVSampleRateKey: 44100,
             AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 32000,
+            AVEncoderBitRateKey: 64000,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
 
@@ -627,13 +668,16 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             let rec = try AVAudioRecorder(url: fileURL, settings: settings)
             rec.isMeteringEnabled = true
             rec.delegate = self
-            rec.record()
+            guard rec.record() else {
+                showToast("마이크 녹음을 시작할 수 없습니다. 입력 장치를 확인해주세요.")
+                return
+            }
             self.recorder = rec
             self.recStartTime = Date()
             self.isRecording = true
             self.elapsedSeconds = 0
             self.updateMenuBarLabel()
-            showToast("로컬 원본 자동 저장 중: ~/Documents/LecternRecordings")
+            showToast("마이크 녹음 시작 · 로컬 원본 자동 보존 중")
 
             recTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
@@ -643,8 +687,15 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
                     strongSelf.elapsedSeconds = Int(Date().timeIntervalSince(st))
                     r.updateMeters()
                     let power = r.averagePower(forChannel: 0)
+                    let peak = r.peakPower(forChannel: 0)
+                    if peak > strongSelf.maxRecordedPeakDb {
+                        strongSelf.maxRecordedPeakDb = peak
+                    }
                     let normalized = max(0.05, min(1.0, (power + 55.0) / 55.0))
                     strongSelf.audioLevel = normalized
+                    if strongSelf.elapsedSeconds >= 4 && strongSelf.maxRecordedPeakDb <= -75.0 {
+                        strongSelf.statusBanner = "⚠️ 마이크 입력 신호가 없습니다(무음). 시스템 설정 > 마이크 권한을 확인하세요."
+                    }
                     strongSelf.updateMenuBarLabel()
                 }
             }
@@ -654,19 +705,36 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func stopAndUploadRecording() {
+        recorder?.updateMeters()
+        if let r = recorder {
+            let finalPeak = r.peakPower(forChannel: 0)
+            if finalPeak > maxRecordedPeakDb {
+                maxRecordedPeakDb = finalPeak
+            }
+        }
         recorder?.stop()
         recorder = nil
         recTimer?.invalidate()
         recTimer = nil
         isRecording = false
-        isUploading = true
-        updateMenuBarLabel()
 
         guard let url = recFileURL else {
             isUploading = false
             updateMenuBarLabel()
             return
         }
+
+        if maxRecordedPeakDb <= -75.0 {
+            try? FileManager.default.removeItem(at: url)
+            isUploading = false
+            updateMenuBarLabel()
+            showToast("녹음된 소리가 없습니다(무음). 시스템 설정 > 개인정보 보호 및 보안 > 마이크에서 Lectern 권한을 확인해주세요.")
+            openMicrophonePrivacySettings()
+            return
+        }
+
+        isUploading = true
+        updateMenuBarLabel()
 
         let localId = "mac_\(url.lastPathComponent)"
         let pendingItem = PendingLocalUpload(

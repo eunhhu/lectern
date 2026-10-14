@@ -208,6 +208,9 @@ function runBackgroundDistillation(
         return;
       } catch (err: any) {
         lastErr = err;
+        if (String(err?.message || "").includes("음성 신호가 감지되지 않았습니다")) {
+          break;
+        }
       }
     }
 

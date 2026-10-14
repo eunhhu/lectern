@@ -1223,6 +1223,17 @@ export function deleteLectureById(id: string): boolean {
           // ignore if read-only
         }
       }
+      const rawPrefix = rec.md_source_path.replace(/_요약\.md$/, "_원본");
+      if (rawPrefix !== rec.md_source_path) {
+        for (const ext of [".m4a", ".mp3", ".webm", ".wav", ".ogg"]) {
+          const candidate = `${rawPrefix}${ext}`;
+          if (existsSync(candidate)) {
+            try {
+              unlinkSync(candidate);
+            } catch {}
+          }
+        }
+      }
     }
     if (rec.audio_path && rec.audio_path.startsWith(join(DATA_DIR, "uploads")) && existsSync(rec.audio_path)) {
       try {

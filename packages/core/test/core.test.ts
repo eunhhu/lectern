@@ -46,11 +46,13 @@ describe("@lectern/core markdown & distillation helpers", () => {
     expect(ex).toContain("핵심 요약: 공개키 기반 구조(PKI)");
   });
 
-  test("buildDistillationPrompt embeds course name and break filter rules", () => {
-    const prompt = buildDistillationPrompt("자바프로그래밍", ["다형성", "인터페이스"]);
+  test("buildDistillationPrompt embeds course name, exact duration cap, and anti-hallucination rules", () => {
+    const prompt = buildDistillationPrompt("자바프로그래밍", ["다형성", "인터페이스"], 185);
     expect(prompt).toContain("자바프로그래밍");
     expect(prompt).toContain("쉬는 시간 생략");
     expect(prompt).toContain("수업 종료 후 녹음 절단");
     expect(prompt).toContain("다형성, 인터페이스");
+    expect(prompt).toContain("03:05");
+    expect(prompt).toContain("절대 환각(Hallucination) 및 가상 창작 금지");
   });
 });

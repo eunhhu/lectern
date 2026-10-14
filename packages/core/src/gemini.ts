@@ -143,21 +143,47 @@ async function deleteGeminiFile(apiKey: string, fileName: string): Promise<void>
   }
 }
 
+function formatDurationMmSs(sec?: number): { label: string; maxTs: string } {
+  if (!sec || sec <= 0) {
+    return { label: "오디오 실제 길이 기준", maxTs: "실제 오디오 끝 지점" };
+  }
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return {
+    label: m > 0 ? `약 ${m}분 ${s}초 (총 ${sec}초)` : `약 ${s}초`,
+    maxTs: `${mm}:${ss}`,
+  };
+}
+
 export function buildDistillationPrompt(
   courseName: string,
-  customVocabulary?: string[]
+  customVocabulary?: string[],
+  durationSec?: number
 ): string {
   const vocabHint =
     customVocabulary && customVocabulary.length > 0
       ? `\n- **과목 주요 용어 참고**: ${customVocabulary.join(", ")}`
       : "";
+  const dur = formatDurationMmSs(durationSec);
 
   return `당신은 대학교 강의 오디오 분석 및 시험 대비 학습 노트 증류(Distillation) 전문가입니다.
-첨부된 오디오는 **'${courseName}'** 수업의 실제 강의실 녹음본입니다.${vocabHint}
+첨부된 오디오는 **'${courseName}'** 과목 카테고리로 업로드된 실제 녹음본입니다.
+- **측정된 실제 오디오 재생 길이**: **${dur.label} (타임스탬프 범위: \`00:00 ~ ${dur.maxTs}\`)**${vocabHint}
+
+### 🚨 0단계: 절대 환각(Hallucination) 및 가상 창작 금지 (최우선 규칙)
+1. **오직 첨부된 오디오에서 실제로 들리는 음성(발화)만 정리하세요**:
+   - 과목명('${courseName}')이나 사전 배경지식만 보고 **오디오에서 실제로 발화되지 않은 이론, 코드, 예시, 강의 내용을 절대 추측하거나 창작하지 마세요.**
+2. **실제 오디오 길이(\`00:00 ~ ${dur.maxTs}\`) 엄수**:
+   - 이 오디오 파일의 끝 지점은 **\`${dur.maxTs}\`**입니다. 어떠한 경우에도 **\`${dur.maxTs}\`를 초과하는 타임스탬프나 분량을 지어내지 마세요.**
+3. **짧은 녹음·테스트 발화·음성 불분명 시 정직하게 기록**:
+   - 몇 분 이내의 짧은 녹음이거나 마이크 테스트, 일상 대화라면 실제로 들린 발화 내용과 실제 길이(\`${dur.label}\`)만 있는 그대로 요약하세요.
+   - 만약 소음만 있거나 음성이 명확히 들리지 않는다면 "오디오에서 명확한 강의 발화가 식별되지 않습니다"라고만 기록하고 가상의 강의 노트를 절대 작성하지 마세요.
 
 ### 🛡️ 1단계: 노이즈·쉬는시간·방치 녹음 자동 필터링 규칙 (필수)
 1. **쉬는 시간(Break Time) 감지 및 생략**:
-   - 수업 도중 교수님 발언이 멈추고 5~15분간 학생 잡담, 발소리, 침묵, 교실 소음만 이어지거나 "잠깐 쉬었다 합시다" 등의 멘트가 나오면 내용에서 완전히 제외하고 타임라인에만 \`[쉬는 시간 생략: MM:SS ~ MM:SS]\`로 표기하세요.
+   - 수업 도중 교수님 발언이 멈추고 학생 잡담, 발소리, 침묵, 교실 소음만 이어지거나 "잠깐 쉬었다 합시다" 등의 멘트가 나오면 내용에서 완전히 제외하고 타임라인에만 \`[쉬는 시간 생략: MM:SS ~ MM:SS]\`로 표기하세요.
 2. **수업 종료 후 미종료 녹음(Forgotten Recording Tail) 절단**:
    - "수고하셨습니다", "오늘 수업은 여기까지" 등 수업 종료 이후 녹음기를 끄지 않아 가방 싸는 소리, 복도 이동, 외부 대화, 무음 등이 이어지면 즉시 절단하고 \`[수업 종료 후 녹음 절단: MM:SS ~ 끝]\`으로만 기록하세요.
 3. **출석 호명 및 행정 잡담 제외**:
@@ -170,23 +196,22 @@ export function buildDistillationPrompt(
 # 📚 ${courseName} 강의 노트
 
 ## 📊 1. 녹음 타임라인 및 필터링 요약
-- **전체 녹음 길이 및 실제 수업 구간**: (예: 총 74분 중 실제 강의 00:00~48:20, 58:10~71:00)
+- **전체 녹음 길이 및 실제 발화 구간**: 총 ${dur.label} (\`00:00 ~ ${dur.maxTs}\`) 중 실제 발화 구간 표기
 - **자동 필터링 내역**:
-  - \`[쉬는 시간 생략: MM:SS ~ MM:SS]\` (해당 시)
-  - \`[수업 종료 후 녹음 절단: MM:SS ~ 끝]\` (해당 시)
-- **오늘 수업 한 줄 핵심**: (이번 강의가 다룬 핵심 주제를 한 문장으로 요약)
+  - \`[쉬는 시간 생략: MM:SS ~ MM:SS]\` (해당 시에만 기재, 없으면 '해당 없음')
+  - \`[수업 종료 후 녹음 절단: MM:SS ~ 끝]\` (해당 시에만 기재, 없으면 '해당 없음')
+- **녹음 핵심 요약**: (실제 오디오에서 들린 핵심 내용을 한 문장으로 요약)
 
-## 🎯 2. 교수님 강조 및 시험/과제 핵심 포인트
-- 교수님이 "시험에 나온다", "중요하다", "꼭 기억해라"라고 강조했거나 여러 번 반복 설명한 개념을 \`[MM:SS]\` 타임스탬프와 함께 정리하세요.
-- 언급된 과제, 퀴즈, 시험 범위나 일정이 있다면 빠짐없이 적으세요.
+## 🎯 2. 강조 사항 및 시험/과제 핵심 포인트
+- 오디오에서 실제로 강조되었거나 반복 설명된 개념을 \`[MM:SS]\` 타임스탬프(\`00:00 ~ ${dur.maxTs}\` 이내)와 함께 정리하세요. (언급이 없었다면 '별도 시험/과제 공지 언급 없음'으로 표기)
 
-## 📖 3. 강의 핵심 이론 및 상세 노트
-- 강의 흐름에 따라 대주제(###)와 소주제로 구조화하여, 수업 안 들은 사람도 완벽히 이해할 수 있을 만큼 탄탄하고 자세하게 정리하세요.
-- 각 섹션 제목 옆에 시작 타임스탬프 \`[MM:SS]\`를 표기하세요.
-- 등장하는 전공 용어, 공식, 알고리즘, 코드 예시, 비교표(불릿 또는 구조화 리스트)를 정확하게 복원하세요.
+## 📖 3. 핵심 내용 및 상세 노트
+- 실제 오디오 발화 흐름에 따라 대주제(###)와 소주제로 구조화하여 정리하세요.
+- 각 섹션 제목 옆에 실제 오디오 내 시작 타임스탬프 \`[MM:SS]\`를 표기하세요.
+- 오디오에서 실제로 설명된 용어, 공식, 알고리즘, 코드 예시만 정확하게 복원하세요.
 
-## 💬 4. 주요 개념 설명 발췌 (Verbatim Highlights)
-- 핵심 개념을 설명할 때 교수님의 실제 주요 발언/비유/설명을 \`[MM:SS]\` 타임스탬프와 함께 인용구(\`>\`)로 발췌하세요.
+## 💬 4. 주요 발언 발췌 (Verbatim Highlights)
+- 오디오에서 실제로 발화된 주요 문장이나 설명을 \`[MM:SS]\` 타임스탬프와 함께 인용구(\`>\`)로 발췌하세요.
 `;
 }
 
@@ -207,6 +232,14 @@ export async function distillLectureAudio(
   let uploaded: UploadedGeminiFile | null = null;
 
   try {
+    if (typeof prep.maxVolumeDb === "number" && prep.maxVolumeDb <= -60.0) {
+      throw new Error(
+        `녹음된 오디오에 음성 신호가 감지되지 않았습니다 (최대 음량 ${prep.maxVolumeDb.toFixed(
+          1
+        )}dB 무음 파일). 기기의 마이크 권한 허용 여부나 입력 마이크 설정을 확인해 주세요.`
+      );
+    }
+
     opts.onProgress?.({
       stage: "uploading",
       message: `오디오 스트림 전송 중 (${(prep.sizeBytes / 1048576).toFixed(1)} MB)...`,
@@ -232,7 +265,11 @@ export async function distillLectureAudio(
       progress: 65,
     });
 
-    const prompt = buildDistillationPrompt(courseName, opts.customVocabulary);
+    const prompt = buildDistillationPrompt(
+      courseName,
+      opts.customVocabulary,
+      prep.durationSec
+    );
     const genUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       modelRequested
     )}:generateContent?key=${encodeURIComponent(apiKey)}`;

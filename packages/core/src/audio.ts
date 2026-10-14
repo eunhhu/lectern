@@ -39,6 +39,48 @@ export async function probeAudioDuration(filePath: string): Promise<number> {
   }
 }
 
+export async function probeAudioVolume(
+  filePath: string
+): Promise<{ maxVolumeDb: number | null; meanVolumeDb: number | null }> {
+  try {
+    const proc = Bun.spawn(
+      [
+        "ffmpeg",
+        "-hide_banner",
+        "-nostats",
+        "-t",
+        "300",
+        "-i",
+        filePath,
+        "-af",
+        "volumedetect",
+        "-f",
+        "null",
+        "-",
+      ],
+      { stdout: "ignore", stderr: "pipe" }
+    );
+    const stderrText = await new Response(proc.stderr).text();
+    await proc.exited;
+    const maxMatch = stderrText.match(/max_volume:\s*([-\d.]+)\s*dB/);
+    const meanMatch = stderrText.match(/mean_volume:\s*([-\d.]+)\s*dB/);
+    const maxVolumeDb = maxMatch ? parseFloat(maxMatch[1]) : null;
+    const meanVolumeDb = meanMatch ? parseFloat(meanMatch[1]) : null;
+    return {
+      maxVolumeDb:
+        maxVolumeDb !== null && Number.isFinite(maxVolumeDb)
+          ? maxVolumeDb
+          : null,
+      meanVolumeDb:
+        meanVolumeDb !== null && Number.isFinite(meanVolumeDb)
+          ? meanVolumeDb
+          : null,
+    };
+  } catch {
+    return { maxVolumeDb: null, meanVolumeDb: null };
+  }
+}
+
 /**
  * Zero-overhead audio preparation:
  * - Compressed formats (.m4a, .mp3, .aac, .webm, .ogg) <= 75 MB bypass ffmpeg completely.
@@ -54,6 +96,7 @@ export async function prepareAudio(inputPath: string): Promise<PreparedAudio> {
   const sizeMb = sizeBytes / (1024 * 1024);
   const ext = extname(inputPath).toLowerCase();
   const durationSec = await probeAudioDuration(inputPath);
+  const vol = await probeAudioVolume(inputPath);
 
   const isCompactCompressed =
     [".m4a", ".mp3", ".aac", ".mp4", ".ogg", ".opus", ".webm"].includes(ext) &&
@@ -65,6 +108,8 @@ export async function prepareAudio(inputPath: string): Promise<PreparedAudio> {
       mimeType: DIRECT_MIME_MAP[ext] ?? "audio/mp4",
       sizeBytes,
       durationSec,
+      maxVolumeDb: vol.maxVolumeDb,
+      meanVolumeDb: vol.meanVolumeDb,
       isTemp: false,
     };
   }
@@ -108,6 +153,8 @@ export async function prepareAudio(inputPath: string): Promise<PreparedAudio> {
     mimeType: "audio/mp4",
     sizeBytes: outStat.size,
     durationSec: durationSec || (await probeAudioDuration(tmpOut)),
+    maxVolumeDb: vol.maxVolumeDb,
+    meanVolumeDb: vol.meanVolumeDb,
     isTemp: true,
   };
 }

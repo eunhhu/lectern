@@ -28,6 +28,8 @@ export interface PreparedAudio {
   mimeType: string;
   sizeBytes: number;
   durationSec: number;
+  maxVolumeDb?: number | null;
+  meanVolumeDb?: number | null;
   isTemp: boolean;
 }
 
