@@ -15,28 +15,46 @@ import {
   createPendingLecture,
   createSession,
   createUser,
+  deleteAllUserSessions,
   deleteLectureAudioOnly,
   deleteLectureById,
   deleteSession,
+  deleteUserAndData,
   ensureBootstrapOwner,
   failLectureRecord,
   generateId,
   getLectureByAudioSha256,
   getLectureById,
   getLectureByShareToken,
+  getSystemSettings,
   getUserByEmail,
+  getUserById,
   getUserBySessionOrApiToken,
+  getUserStorageUsageBytes,
+  listAllLecturesForAdmin,
+  listAuditLogs,
   listInterruptedLectures,
   listLecturesForUser,
+  listUsersCrmSummary,
+  recordAuditLog,
   resetLectureForRetry,
   rotateUserApiToken,
   setLectureVisibility,
   syncLocalLecturesDir,
+  touchUserLastLogin,
   updateLectureMarkdown,
   updateLectureProgress,
+  updateSystemSettings,
+  updateUserByAdmin,
+  updateUserPassword,
+  updateUserProfile,
   verifyPassword,
 } from "./db.ts";
-import { renderAppHtml, renderSharePageHtml } from "./ui.ts";
+import {
+  renderAdminPageHtml,
+  renderAppHtml,
+  renderSharePageHtml,
+} from "./ui.ts";
 
 const PORT = Number(process.env.PORT || 18775);
 const PUBLIC_BASE_URL =
@@ -274,7 +292,41 @@ export function authenticateRequest(req: Request): UserRecord | null {
   const url = new URL(req.url);
   const token = extractAuthToken(req, url);
   if (!token) return null;
-  return getUserBySessionOrApiToken(token);
+  const user = getUserBySessionOrApiToken(token);
+  if (!user) return null;
+  if (user.status === "suspended" || user.status === "pending") {
+    return null;
+  }
+  return user;
+}
+
+export function isAdminUser(user: UserRecord | null): boolean {
+  if (!user) return false;
+  return (
+    user.is_admin === 1 || user.role === "owner" || user.role === "admin"
+  );
+}
+
+export function toUserDto(user: UserRecord) {
+  const role = user.role || (user.is_admin === 1 ? "owner" : "member");
+  const isAdmin =
+    user.is_admin === 1 || role === "owner" || role === "admin";
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.display_name,
+    apiToken: user.api_token,
+    isAdmin,
+    role,
+    status: user.status || "active",
+    canIngest: user.can_ingest !== 0 && role !== "viewer",
+    canShare: user.can_share !== 0 && role !== "viewer",
+    canUseServerKey: user.can_use_server_key !== 0,
+    quotaMb: typeof user.quota_mb === "number" ? user.quota_mb : 2048,
+    memo: user.memo || "",
+    lastLoginAt: user.last_login_at || null,
+    createdAt: user.created_at,
+  };
 }
 
 function makeSessionCookieHeader(sessionToken: string, maxAgeSec = 30 * 86400): string {
@@ -439,9 +491,18 @@ export async function handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
-    // 1. Web App Root
+    // 1. Web App Root & Admin Page
     if (req.method === "GET" && path === "/") {
       return new Response(renderAppHtml(), {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
+
+    if (req.method === "GET" && path === "/admin") {
+      return new Response(renderAdminPageHtml(), {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "no-cache",
@@ -604,7 +665,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       });
     }
 
-    // 5. Auth Routes: /api/auth/{login,register,logout,me,rotate-token}
+    // 5. Auth Routes: /api/auth/{login,register,logout,me,password,profile,rotate-token}
     if (req.method === "POST" && path === "/api/auth/login") {
       try {
         const body: any = await req.json();
@@ -624,19 +685,34 @@ export async function handleRequest(req: Request): Promise<Response> {
             401
           );
         }
+        if (user.status === "suspended") {
+          return jsonResponse(
+            { error: "이용이 정지된 계정입니다. 관리자에게 문의하세요." },
+            403
+          );
+        }
+        if (user.status === "pending") {
+          return jsonResponse(
+            { error: "관리자 가입 승인 대기 중인 계정입니다." },
+            403
+          );
+        }
 
-        const sessionToken = createSession(user.id);
+        touchUserLastLogin(user.id);
+        const freshUser = getUserById(user.id) || user;
+        const sessionToken = createSession(freshUser.id);
+        recordAuditLog({
+          actorId: freshUser.id,
+          actorEmail: freshUser.email,
+          action: "auth.login",
+          detail: "로그인 성공",
+        });
+
         return jsonResponse(
           {
             ok: true,
             token: sessionToken,
-            user: {
-              id: user.id,
-              email: user.email,
-              displayName: user.display_name,
-              apiToken: user.api_token,
-              isAdmin: user.is_admin === 1,
-            },
+            user: toUserDto(freshUser),
           },
           200,
           { "Set-Cookie": makeSessionCookieHeader(sessionToken) }
@@ -648,6 +724,17 @@ export async function handleRequest(req: Request): Promise<Response> {
 
     if (req.method === "POST" && path === "/api/auth/register") {
       try {
+        const settings = getSystemSettings();
+        if (!settings.allow_public_signup) {
+          return jsonResponse(
+            {
+              error:
+                "현재 공개 회원가입이 비활성화되어 있습니다. 관리자에게 계정 생성을 요청하세요.",
+            },
+            403
+          );
+        }
+
         const body: any = await req.json();
         const email = String(body.email || "").trim().toLowerCase();
         const displayName = String(body.displayName || body.name || "").trim();
@@ -663,23 +750,47 @@ export async function handleRequest(req: Request): Promise<Response> {
           );
         }
 
+        const initStatus = settings.default_require_approval
+          ? "pending"
+          : "active";
         const user = createUser({
           email,
           displayName: displayName || email.split("@")[0],
           password,
+          role: settings.default_user_role,
+          status: initStatus,
+          canIngest: settings.default_user_role !== "viewer",
+          canShare: settings.default_user_role !== "viewer",
+          canUseServerKey: settings.default_can_use_server_key,
+          quotaMb: settings.default_quota_mb,
         });
+
+        recordAuditLog({
+          actorId: user.id,
+          actorEmail: user.email,
+          action: "auth.register",
+          detail: `신규 가입 (역할: ${user.role}, 상태: ${user.status})`,
+        });
+
+        if (initStatus === "pending") {
+          return jsonResponse(
+            {
+              ok: true,
+              pendingApproval: true,
+              message:
+                "가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다.",
+            },
+            201
+          );
+        }
+
+        touchUserLastLogin(user.id);
         const sessionToken = createSession(user.id);
         return jsonResponse(
           {
             ok: true,
             token: sessionToken,
-            user: {
-              id: user.id,
-              email: user.email,
-              displayName: user.display_name,
-              apiToken: user.api_token,
-              isAdmin: user.is_admin === 1,
-            },
+            user: toUserDto(user),
           },
           201,
           { "Set-Cookie": makeSessionCookieHeader(sessionToken) }
@@ -707,14 +818,93 @@ export async function handleRequest(req: Request): Promise<Response> {
         return jsonResponse({ error: "로그인이 필요합니다." }, 401);
       }
       return jsonResponse({
-        user: {
-          id: user.id,
-          email: user.email,
-          displayName: user.display_name,
-          apiToken: user.api_token,
-          isAdmin: user.is_admin === 1,
-        },
+        user: toUserDto(user),
       });
+    }
+
+    if (req.method === "POST" && path === "/api/auth/password") {
+      const user = authenticateRequest(req);
+      if (!user) {
+        return jsonResponse({ error: "로그인이 필요합니다." }, 401);
+      }
+      try {
+        const body: any = await req.json();
+        const currentPassword = String(body.currentPassword || "");
+        const newPassword = String(body.newPassword || "");
+
+        if (!currentPassword || !verifyPassword(currentPassword, user.password_hash)) {
+          return jsonResponse(
+            { error: "현재 비밀번호가 일치하지 않습니다." },
+            400
+          );
+        }
+        if (!newPassword || newPassword.length < 6) {
+          return jsonResponse(
+            { error: "새 비밀번호는 최소 6자 이상이어야 합니다." },
+            400
+          );
+        }
+        if (currentPassword === newPassword) {
+          return jsonResponse(
+            { error: "기존 비밀번호와 다른 새 비밀번호를 입력해주세요." },
+            400
+          );
+        }
+
+        updateUserPassword(user.id, newPassword);
+        const currentToken = extractAuthToken(req, url) || undefined;
+        deleteAllUserSessions(
+          user.id,
+          currentToken?.startsWith("ses_") ? currentToken : undefined
+        );
+        recordAuditLog({
+          actorId: user.id,
+          actorEmail: user.email,
+          action: "account.password_change",
+          targetId: user.id,
+          detail: "본인 비밀번호 변경 완료 (타 기기 세션 만료 처리)",
+        });
+        return jsonResponse({
+          ok: true,
+          message: "비밀번호가 안전하게 변경되었습니다.",
+        });
+      } catch (err: any) {
+        return jsonResponse(
+          { error: err?.message || "비밀번호 변경 실패" },
+          400
+        );
+      }
+    }
+
+    if (
+      (req.method === "PATCH" || req.method === "POST") &&
+      path === "/api/auth/profile"
+    ) {
+      const user = authenticateRequest(req);
+      if (!user) {
+        return jsonResponse({ error: "로그인이 필요합니다." }, 401);
+      }
+      try {
+        const body: any = await req.json();
+        const displayName = String(body.displayName || "").trim();
+        if (!displayName) {
+          return jsonResponse({ error: "표시할 이름을 입력해주세요." }, 400);
+        }
+        const updated = updateUserProfile(user.id, { displayName });
+        recordAuditLog({
+          actorId: user.id,
+          actorEmail: user.email,
+          action: "account.profile_update",
+          targetId: user.id,
+          detail: `이름 변경: ${displayName}`,
+        });
+        return jsonResponse({
+          ok: true,
+          user: toUserDto(updated || user),
+        });
+      } catch (err: any) {
+        return jsonResponse({ error: err?.message || "프로필 수정 실패" }, 400);
+      }
     }
 
     if (req.method === "POST" && path === "/api/auth/rotate-token") {
@@ -723,7 +913,247 @@ export async function handleRequest(req: Request): Promise<Response> {
         return jsonResponse({ error: "로그인이 필요합니다." }, 401);
       }
       const apiToken = rotateUserApiToken(user.id);
+      recordAuditLog({
+        actorId: user.id,
+        actorEmail: user.email,
+        action: "account.rotate_token",
+        targetId: user.id,
+        detail: "개인 API 토큰 재발급",
+      });
       return jsonResponse({ ok: true, apiToken });
+    }
+
+    // 5b. Admin & CRM Console Routes: /api/admin/{overview,users,users/:id,settings}
+    if (path.startsWith("/api/admin/")) {
+      const adminUser = authenticateRequest(req);
+      if (!adminUser) {
+        return jsonResponse({ error: "로그인이 필요합니다." }, 401);
+      }
+      if (!isAdminUser(adminUser)) {
+        return jsonResponse(
+          { error: "관리자(Owner/Admin) 권한이 필요한 기능입니다." },
+          403
+        );
+      }
+
+      if (req.method === "GET" && path === "/api/admin/overview") {
+        const users = listUsersCrmSummary();
+        const settings = getSystemSettings();
+        const recentLectures = listAllLecturesForAdmin(50).map((l) => ({
+          ...toLectureSummaryDto(l),
+          owner_id: l.owner_id,
+          owner_email: l.owner_email,
+          owner_name: l.owner_name,
+        }));
+        const auditLogs = listAuditLogs(60);
+
+        const metrics = {
+          totalUsers: users.length,
+          activeUsers: users.filter((u) => u.status === "active").length,
+          pendingUsers: users.filter((u) => u.status === "pending").length,
+          suspendedUsers: users.filter((u) => u.status === "suspended").length,
+          totalLectures: users.reduce((s, u) => s + u.lecture_count, 0),
+          publicLectures: users.reduce((s, u) => s + u.public_count, 0),
+          errorLectures: users.reduce((s, u) => s + u.error_count, 0),
+          totalAudioBytes: users.reduce((s, u) => s + u.audio_bytes, 0),
+        };
+
+        return jsonResponse({
+          ok: true,
+          metrics,
+          settings,
+          users,
+          recentLectures,
+          auditLogs,
+        });
+      }
+
+      if (req.method === "POST" && path === "/api/admin/users") {
+        try {
+          const body: any = await req.json();
+          const email = String(body.email || "").trim().toLowerCase();
+          const displayName = String(body.displayName || "").trim();
+          const password = String(body.password || "");
+          const role = (body.role || "member") as
+            | "owner"
+            | "admin"
+            | "member"
+            | "viewer";
+          const status = (body.status || "active") as
+            | "active"
+            | "pending"
+            | "suspended";
+
+          if (!email || email.length < 3) {
+            return jsonResponse({ error: "아이디 또는 이메일을 입력해주세요." }, 400);
+          }
+          if (!password || password.length < 6) {
+            return jsonResponse(
+              { error: "초기 비밀번호는 6자 이상이어야 합니다." },
+              400
+            );
+          }
+          if (role === "owner" && adminUser.role !== "owner") {
+            return jsonResponse(
+              { error: "Owner 역할 부여는 Owner 계정만 수행할 수 있습니다." },
+              403
+            );
+          }
+
+          const created = createUser({
+            email,
+            displayName: displayName || email.split("@")[0],
+            password,
+            role,
+            status,
+            canIngest:
+              typeof body.canIngest === "boolean"
+                ? body.canIngest
+                : role !== "viewer",
+            canShare:
+              typeof body.canShare === "boolean"
+                ? body.canShare
+                : role !== "viewer",
+            canUseServerKey:
+              typeof body.canUseServerKey === "boolean"
+                ? body.canUseServerKey
+                : true,
+            quotaMb:
+              typeof body.quotaMb === "number" ? body.quotaMb : 2048,
+            memo: String(body.memo || ""),
+          });
+
+          recordAuditLog({
+            actorId: adminUser.id,
+            actorEmail: adminUser.email,
+            action: "admin.user_create",
+            targetId: created.id,
+            detail: `회원 생성: ${created.email} (역할: ${created.role})`,
+          });
+
+          return jsonResponse(
+            { ok: true, user: toUserDto(created) },
+            201
+          );
+        } catch (err: any) {
+          return jsonResponse({ error: err?.message || "회원 생성 실패" }, 400);
+        }
+      }
+
+      if (req.method === "PATCH" && path === "/api/admin/settings") {
+        try {
+          const body: any = await req.json();
+          const updated = updateSystemSettings({
+            allow_public_signup: body.allow_public_signup,
+            default_user_role: body.default_user_role,
+            default_require_approval: body.default_require_approval,
+            default_can_use_server_key: body.default_can_use_server_key,
+            default_quota_mb:
+              typeof body.default_quota_mb === "number"
+                ? body.default_quota_mb
+                : undefined,
+          });
+          recordAuditLog({
+            actorId: adminUser.id,
+            actorEmail: adminUser.email,
+            action: "admin.settings_update",
+            detail: `가입허용=${updated.allow_public_signup}, 기본역할=${updated.default_user_role}, 승인제=${updated.default_require_approval}, 기본쿼터=${updated.default_quota_mb}MB`,
+          });
+          return jsonResponse({ ok: true, settings: updated });
+        } catch (err: any) {
+          return jsonResponse({ error: err?.message || "정책 저장 실패" }, 400);
+        }
+      }
+
+      const adminUserMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
+      if (adminUserMatch) {
+        const targetId = decodeURIComponent(adminUserMatch[1]);
+        const targetUser = getUserById(targetId);
+        if (!targetUser) {
+          return jsonResponse({ error: "대상 계정을 찾을 수 없습니다." }, 404);
+        }
+
+        if (req.method === "PATCH") {
+          try {
+            const body: any = await req.json();
+            if (
+              targetUser.role === "owner" &&
+              adminUser.role !== "owner"
+            ) {
+              return jsonResponse(
+                { error: "Owner 계정은 다른 Owner만 수정할 수 있습니다." },
+                403
+              );
+            }
+            if (
+              targetUser.id === adminUser.id &&
+              (body.status === "suspended" ||
+                (body.role && body.role !== "owner" && body.role !== "admin"))
+            ) {
+              return jsonResponse(
+                {
+                  error:
+                    "본인 계정의 관리자 권한을 해제하거나 정지시킬 수 없습니다.",
+                },
+                400
+              );
+            }
+
+            const updated = updateUserByAdmin(targetId, {
+              displayName: body.displayName,
+              role: body.role,
+              status: body.status,
+              canIngest: body.canIngest,
+              canShare: body.canShare,
+              canUseServerKey: body.canUseServerKey,
+              quotaMb:
+                typeof body.quotaMb === "number" ? body.quotaMb : undefined,
+              memo: body.memo,
+              newPassword: body.newPassword,
+              revokeSessions: body.revokeSessions,
+            });
+
+            recordAuditLog({
+              actorId: adminUser.id,
+              actorEmail: adminUser.email,
+              action: "admin.user_update",
+              targetId,
+              detail: `${targetUser.email} 권한/CRM 수정 (role=${updated?.role}, status=${updated?.status}, ingest=${updated?.can_ingest}, share=${updated?.can_share}${body.newPassword ? ", 비번초기화" : ""})`,
+            });
+
+            return jsonResponse({
+              ok: true,
+              user: updated ? toUserDto(updated) : null,
+            });
+          } catch (err: any) {
+            return jsonResponse({ error: err?.message || "회원 수정 실패" }, 400);
+          }
+        }
+
+        if (req.method === "DELETE") {
+          if (targetUser.id === adminUser.id) {
+            return jsonResponse(
+              { error: "본인 계정은 삭제할 수 없습니다." },
+              400
+            );
+          }
+          if (targetUser.role === "owner") {
+            return jsonResponse(
+              { error: "Owner 계정은 삭제할 수 없습니다." },
+              400
+            );
+          }
+          deleteUserAndData(targetId);
+          recordAuditLog({
+            actorId: adminUser.id,
+            actorEmail: adminUser.email,
+            action: "admin.user_delete",
+            targetId,
+            detail: `회원 및 소유 강의 삭제: ${targetUser.email}`,
+          });
+          return jsonResponse({ ok: true, deletedId: targetId });
+        }
+      }
     }
 
     // 6. iOS Shortcut Recipe Download
@@ -834,7 +1264,9 @@ export async function handleRequest(req: Request): Promise<Response> {
         Boolean(shareParam) &&
         shareParam === rec.share_token &&
         rec.is_public === 1;
-      const isOwner = Boolean(user && user.id === rec.owner_id);
+      const isOwner = Boolean(
+        user && (user.id === rec.owner_id || isAdminUser(user))
+      );
 
       if (
         !isOwner &&
@@ -947,7 +1379,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       }
 
       if ((req.method === "PATCH" || req.method === "POST") && sub === "visibility") {
-        if (!isOwner) {
+        if (!isOwner && !isAdminUser(user)) {
           return jsonResponse({ error: "수정 권한이 없습니다." }, 403);
         }
         const body: any = await req.json();
@@ -955,6 +1387,12 @@ export async function handleRequest(req: Request): Promise<Response> {
           typeof body.is_public === "boolean"
             ? body.is_public
             : !Boolean(rec.is_public);
+        if (nextPublic && user && user.can_share === 0 && !isAdminUser(user)) {
+          return jsonResponse(
+            { error: "외부 공유 링크 공개 권한이 제한된 계정입니다." },
+            403
+          );
+        }
         const updated = setLectureVisibility(
           id,
           nextPublic,
@@ -1039,6 +1477,32 @@ export async function handleRequest(req: Request): Promise<Response> {
           try { unlinkSync(incoming.audioPath); } catch {}
           return jsonResponse({ error: "로그인이 필요합니다." }, 401);
         }
+        if (user.can_ingest === 0 || user.role === "viewer") {
+          try { unlinkSync(incoming.audioPath); } catch {}
+          return jsonResponse(
+            { error: "오디오 업로드 및 노트 생성 권한이 없는 계정(뷰어)입니다." },
+            403
+          );
+        }
+        if (user.can_use_server_key === 0 && !incoming.apiKey) {
+          try { unlinkSync(incoming.audioPath); } catch {}
+          return jsonResponse(
+            { error: "이 계정은 개인 Gemini API 키(BYOK) 설정 후 분석할 수 있습니다." },
+            403
+          );
+        }
+        if (user.quota_mb > 0) {
+          const usedBytes = getUserStorageUsageBytes(user.id);
+          if (usedBytes + incoming.audioSize > user.quota_mb * 1024 * 1024) {
+            try { unlinkSync(incoming.audioPath); } catch {}
+            return jsonResponse(
+              {
+                error: `계정 오디오 저장 용량 한도(${user.quota_mb}MB)를 초과했습니다.`,
+              },
+              403
+            );
+          }
+        }
 
         // Idempotent Upload Deduplication: if this exact audio was already uploaded by this user
         const existing = getLectureByAudioSha256(user.id, incoming.audioSha256);
@@ -1119,6 +1583,32 @@ export async function handleRequest(req: Request): Promise<Response> {
             { error: "인증 토큰(X-Lectern-Token 또는 로그인 세션)이 필요합니다." },
             401
           );
+        }
+        if (user.can_ingest === 0 || user.role === "viewer") {
+          try { unlinkSync(incoming.audioPath); } catch {}
+          return jsonResponse(
+            { error: "오디오 업로드 및 노트 생성 권한이 없는 계정(뷰어)입니다." },
+            403
+          );
+        }
+        if (user.can_use_server_key === 0 && !incoming.apiKey) {
+          try { unlinkSync(incoming.audioPath); } catch {}
+          return jsonResponse(
+            { error: "이 계정은 개인 Gemini API 키(BYOK) 설정 후 분석할 수 있습니다." },
+            403
+          );
+        }
+        if (user.quota_mb > 0) {
+          const usedBytes = getUserStorageUsageBytes(user.id);
+          if (usedBytes + incoming.audioSize > user.quota_mb * 1024 * 1024) {
+            try { unlinkSync(incoming.audioPath); } catch {}
+            return jsonResponse(
+              {
+                error: `계정 오디오 저장 용량 한도(${user.quota_mb}MB)를 초과했습니다.`,
+              },
+              403
+            );
+          }
         }
 
         const existing = getLectureByAudioSha256(user.id, incoming.audioSha256);

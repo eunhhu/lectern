@@ -1370,12 +1370,15 @@ export function renderAppHtml(): string {
       <div class="sidebar-footer">
         <div class="user-bar">
           <span class="user-name" id="user-badge">로그인됨</span>
-          <button class="btn" style="height:32px;padding:0 12px;font-size:13px;" onclick="logoutAccount()">로그아웃</button>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <a href="/admin" class="btn" id="admin-nav-btn" style="display:none;height:32px;padding:0 10px;font-size:12.5px;color:var(--elysium-text-brand);border-color:var(--elysium-border-focus);background:var(--elysium-action-subtle);">어드민·CRM</a>
+            <button class="btn" style="height:32px;padding:0 10px;font-size:12.5px;" onclick="logoutAccount()">로그아웃</button>
+          </div>
         </div>
         <div class="footer-actions">
-          <button class="btn btn-subtle" onclick="openCleanupModal()">기록·용량 관리</button>
+          <button class="btn btn-subtle" onclick="openCleanupModal()">기록·용량</button>
           <button class="btn btn-subtle" onclick="openClientsModal()">기기 연동</button>
-          <button class="btn btn-subtle" onclick="openSettingsModal()">모델 설정</button>
+          <button class="btn btn-subtle" onclick="openSettingsModal()">계정·비번</button>
         </div>
       </div>
     </aside>
@@ -1574,24 +1577,77 @@ export function renderAppHtml(): string {
     </div>
   </div>
 
-  <!-- Settings (BYOK) Modal -->
+  <!-- Account, Password Change & Model Settings Modal -->
   <div class="modal-backdrop" id="settings-modal">
-    <div class="modal-card">
+    <div class="modal-card" style="max-width:580px;">
       <div class="modal-header">
-        <div class="modal-title">Gemini API & 요약 모델 설정</div>
+        <div class="modal-title">내 계정 · 비밀번호 변경 · AI 설정</div>
         <button class="btn btn-icon" onclick="closeModal('settings-modal')" aria-label="닫기">✕</button>
       </div>
-      <div class="field-group">
-        <label class="field-label" for="cfg-model">요약 모델 (기본: gemini-flash-latest → 최신 Flash 자동 매핑)</label>
-        <input type="text" id="cfg-model" class="field-input" value="gemini-flash-latest" />
+
+      <!-- Admin Console Banner (visible for Owner/Admin) -->
+      <div id="settings-admin-banner" style="display:none;padding:16px 20px;border-radius:var(--elysium-radius-12);background:var(--elysium-action-subtle);border:1px solid var(--elysium-border-focus);align-items:center;justify-content:space-between;gap:12px;">
+        <div>
+          <div style="font:600 15px/22px var(--elysium-font-sans);color:var(--elysium-text-brand);">관리자(Owner/Admin) 권한 활성화됨</div>
+          <div style="font:400 13px/20px var(--elysium-font-sans);color:var(--elysium-text-secondary);">회원 CRM, 가입 정책, 역할·세부 권한, 용량 쿼터를 관리할 수 있습니다.</div>
+        </div>
+        <a href="/admin" class="btn btn-primary" style="white-space:nowrap;">어드민·CRM 콘솔 열기</a>
       </div>
-      <div class="field-group">
-        <label class="field-label" for="cfg-apikey">개인 Gemini API Key (선택 · 비워두면 서버 기본 키 사용)</label>
-        <input type="password" id="cfg-apikey" class="field-input" placeholder="AIzaSy... (브라우저 로컬 스토리지에만 저장됨)" />
+
+      <!-- Profile & Role Info -->
+      <div style="padding:20px;border-radius:var(--elysium-radius-16);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);display:flex;flex-direction:column;gap:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+          <div style="font:600 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);">내 프로필 및 권한 상태</div>
+          <span id="account-role-badges" style="display:flex;gap:6px;flex-wrap:wrap;"></span>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="prof-display-name">표시 이름 (닉네임)</label>
+          <div style="display:flex;gap:10px;">
+            <input type="text" id="prof-display-name" class="field-input" style="flex:1;" placeholder="표시할 이름" />
+            <button type="button" class="btn" onclick="saveProfileDisplayName()">이름 변경</button>
+          </div>
+        </div>
       </div>
-      <div style="display:flex;justify-content:flex-end;gap:12px;">
-        <button class="btn" onclick="closeModal('settings-modal')">취소</button>
-        <button class="btn btn-primary" onclick="saveSettings()">설정 저장</button>
+
+      <!-- Self-Service Password Change -->
+      <form onsubmit="submitPasswordChange(event)" style="padding:20px;border-radius:var(--elysium-radius-16);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);display:flex;flex-direction:column;gap:14px;">
+        <div style="font:600 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);">비밀번호 변경</div>
+        <div class="field-group">
+          <label class="field-label" for="pw-current">현재 비밀번호</label>
+          <input type="password" id="pw-current" class="field-input" placeholder="현재 비밀번호 입력" autocomplete="current-password" required />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="field-group">
+            <label class="field-label" for="pw-new">새 비밀번호 (6자 이상)</label>
+            <input type="password" id="pw-new" class="field-input" placeholder="새 비밀번호" autocomplete="new-password" required />
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="pw-confirm">새 비밀번호 확인</label>
+            <input type="password" id="pw-confirm" class="field-input" placeholder="새 비밀번호 다시 입력" autocomplete="new-password" required />
+          </div>
+        </div>
+        <div id="pw-change-msg" style="display:none;padding:10px 14px;border-radius:var(--elysium-radius-8);font:600 13px/20px var(--elysium-font-sans);"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+          <button type="button" class="btn" onclick="rotateMyApiToken()">기기 연동 API 토큰 재발급</button>
+          <button type="submit" class="btn btn-primary">비밀번호 변경 저장</button>
+        </div>
+      </form>
+
+      <!-- Gemini Model & BYOK Settings -->
+      <div style="padding:20px;border-radius:var(--elysium-radius-16);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);display:flex;flex-direction:column;gap:14px;">
+        <div style="font:600 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);">Gemini 요약 모델 & 개인 API 키 (BYOK)</div>
+        <div class="field-group">
+          <label class="field-label" for="cfg-model">요약 모델 (기본: gemini-flash-latest)</label>
+          <input type="text" id="cfg-model" class="field-input" value="gemini-flash-latest" />
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="cfg-apikey">개인 Gemini API Key (선택 · 비워두면 서버 기본 키 사용)</label>
+          <input type="password" id="cfg-apikey" class="field-input" placeholder="AIzaSy... (브라우저 로컬 스토리지에만 저장됨)" />
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:12px;">
+          <button class="btn" onclick="closeModal('settings-modal')">닫기</button>
+          <button class="btn btn-primary" onclick="saveSettings()">AI 설정 저장</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1830,6 +1886,13 @@ export function renderAppHtml(): string {
         errEl.style.display = 'block';
         return;
       }
+      if (data.pendingApproval) {
+        errEl.style.background = 'var(--elysium-status-warning-surface)';
+        errEl.style.color = 'var(--elysium-status-warning-text)';
+        errEl.textContent = data.message || '가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다.';
+        errEl.style.display = 'block';
+        return;
+      }
       if (data.token) {
         localStorage.setItem('lectern_token', data.token);
       }
@@ -1840,7 +1903,26 @@ export function renderAppHtml(): string {
     function applyAuthenticatedUser(user) {
       currentUser = user;
       document.getElementById('auth-gate').classList.add('hidden');
-      document.getElementById('user-badge').textContent = user.displayName + ' (' + user.email + ')';
+      const roleLabel = (user.role || (user.isAdmin ? 'owner' : 'member')).toUpperCase();
+      document.getElementById('user-badge').textContent = user.displayName + ' · ' + roleLabel;
+      const adminBtn = document.getElementById('admin-nav-btn');
+      const adminBanner = document.getElementById('settings-admin-banner');
+      if (adminBtn) adminBtn.style.display = user.isAdmin ? 'inline-flex' : 'none';
+      if (adminBanner) adminBanner.style.display = user.isAdmin ? 'flex' : 'none';
+
+      const profNameInput = document.getElementById('prof-display-name');
+      if (profNameInput) profNameInput.value = user.displayName || '';
+
+      const badgesEl = document.getElementById('account-role-badges');
+      if (badgesEl) {
+        const quotaLabel = user.quotaMb === 0 ? '용량 무제한' : ('쿼터 ' + (user.quotaMb || 2048) + 'MB');
+        badgesEl.innerHTML =
+          '<span class="meta-pill course">' + escapeClientHtml(roleLabel) + '</span>' +
+          '<span class="meta-pill">' + (user.canIngest !== false ? '녹음·업로드 허용' : '뷰어 전용') + '</span>' +
+          '<span class="meta-pill">' + (user.canShare !== false ? '외부 공유 허용' : '공유 제한') + '</span>' +
+          '<span class="meta-pill">' + escapeClientHtml(quotaLabel) + '</span>';
+      }
+
       const tokEl = document.getElementById('my-api-token-code');
       if (tokEl && user.apiToken) tokEl.textContent = user.apiToken;
       const curlEl = document.getElementById('my-curl-snippet');
@@ -1848,6 +1930,83 @@ export function renderAppHtml(): string {
         curlEl.textContent = 'curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\\n  -H "X-Lectern-Token: ' + user.apiToken + '" \\\n  -H "X-Course: 정보보호개론" \\\n  -F "audio=@20261014_lecture.m4a"';
       }
       connectRealtimeSSE();
+    }
+
+    async function saveProfileDisplayName() {
+      const displayName = document.getElementById('prof-display-name').value.trim();
+      if (!displayName) {
+        showToast('표시할 이름을 입력해주세요.');
+        return;
+      }
+      const res = await fetch('/api/auth/profile', {
+        method: 'PATCH',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ displayName })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || '이름 변경 실패');
+        return;
+      }
+      applyAuthenticatedUser(data.user);
+      showToast('표시 이름이 변경되었습니다.');
+    }
+
+    async function submitPasswordChange(ev) {
+      ev.preventDefault();
+      const currentPassword = document.getElementById('pw-current').value;
+      const newPassword = document.getElementById('pw-new').value;
+      const confirmPassword = document.getElementById('pw-confirm').value;
+      const msgEl = document.getElementById('pw-change-msg');
+      msgEl.style.display = 'block';
+
+      if (newPassword !== confirmPassword) {
+        msgEl.style.background = 'var(--elysium-status-danger-surface)';
+        msgEl.style.color = 'var(--elysium-status-danger-text)';
+        msgEl.textContent = '새 비밀번호와 확인 비밀번호가 일치하지 않습니다.';
+        return;
+      }
+      if (newPassword.length < 6) {
+        msgEl.style.background = 'var(--elysium-status-danger-surface)';
+        msgEl.style.color = 'var(--elysium-status-danger-text)';
+        msgEl.textContent = '새 비밀번호는 최소 6자 이상이어야 합니다.';
+        return;
+      }
+
+      const res = await fetch('/api/auth/password', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        msgEl.style.background = 'var(--elysium-status-danger-surface)';
+        msgEl.style.color = 'var(--elysium-status-danger-text)';
+        msgEl.textContent = data.error || '비밀번호 변경에 실패했습니다.';
+        return;
+      }
+
+      document.getElementById('pw-current').value = '';
+      document.getElementById('pw-new').value = '';
+      document.getElementById('pw-confirm').value = '';
+      msgEl.style.background = 'var(--elysium-status-success-surface)';
+      msgEl.style.color = 'var(--elysium-status-success-text)';
+      msgEl.textContent = data.message || '비밀번호가 안전하게 변경되었습니다.';
+      showToast('비밀번호가 변경되었습니다.');
+    }
+
+    async function rotateMyApiToken() {
+      if (!confirm('기기 연동용 API 토큰을 새로 발급할까요? (기존 API 토큰은 즉시 무효화됩니다)')) return;
+      const res = await fetch('/api/auth/rotate-token', {
+        method: 'POST',
+        headers: authHeaders()
+      });
+      const data = await res.json();
+      if (res.ok && data.apiToken) {
+        currentUser.apiToken = data.apiToken;
+        applyAuthenticatedUser(currentUser);
+        showToast('새 API 토큰이 발급되었습니다.');
+      }
     }
 
     async function copyApiToken() {
@@ -2774,6 +2933,913 @@ export function renderAppHtml(): string {
     }
     recoverInterruptedCheckpointOnLoad();
     bootstrapAuth();
+  </script>
+</body>
+</html>`;
+}
+
+export function renderAdminPageHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="ko" data-theme="light" data-elysium-theme="Light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lectern Admin — CRM & 권한 관리 콘솔</title>
+  <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+  <style>
+    :root, [data-theme="light"], [data-elysium-theme="Light"] {
+      --elysium-surface-canvas: #F8F6FF;
+      --elysium-surface-default: #FFFFFF;
+      --elysium-surface-elevated: #FFFFFF;
+      --elysium-surface-subtle: #F0EFF9;
+      --elysium-surface-interactive: #E5E4F0;
+      --elysium-text-primary: #19181E;
+      --elysium-text-secondary: #53576F;
+      --elysium-text-tertiary: #6C718D;
+      --elysium-text-brand: #4C36F5;
+      --elysium-action-primary: #5650FF;
+      --elysium-action-primary-hover: #4C36F5;
+      --elysium-action-subtle: #EFF0FF;
+      --elysium-border-subtle: #CACBDC;
+      --elysium-border-control: #898EAA;
+      --elysium-border-focus: #5650FF;
+      --elysium-status-success-surface: #E1FCE9;
+      --elysium-status-success-text: #007A39;
+      --elysium-status-warning-surface: #FFF1E3;
+      --elysium-status-warning-text: #AD5100;
+      --elysium-status-danger-surface: #FFEFEF;
+      --elysium-status-danger-text: #BF0E08;
+      --elysium-status-danger-action: #E5484D;
+      --elysium-font-sans: "Pretendard Variable", "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --elysium-font-mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
+      --elysium-shadow-sm: 0 2px 8px rgba(25, 24, 30, 0.04);
+      --elysium-shadow-lg: 0 20px 48px rgba(25, 24, 30, 0.16);
+    }
+    [data-theme="dark"], [data-elysium-theme="Dark"] {
+      --elysium-surface-canvas: #111113;
+      --elysium-surface-default: #19181E;
+      --elysium-surface-elevated: #19181E;
+      --elysium-surface-subtle: #2F2D36;
+      --elysium-surface-interactive: #3D3B46;
+      --elysium-text-primary: #F0EFF9;
+      --elysium-text-secondary: #CACBDC;
+      --elysium-text-tertiary: #898EAA;
+      --elysium-text-brand: #9CA9FF;
+      --elysium-action-primary: #5650FF;
+      --elysium-action-primary-hover: #7372FF;
+      --elysium-action-subtle: #221679;
+      --elysium-border-subtle: #53576F;
+      --elysium-border-control: #898EAA;
+      --elysium-border-focus: #7372FF;
+      --elysium-status-success-surface: #003A19;
+      --elysium-status-success-text: #65E39C;
+      --elysium-status-warning-surface: #522400;
+      --elysium-status-warning-text: #FFB875;
+      --elysium-status-danger-surface: #5C0503;
+      --elysium-status-danger-text: #FFACA7;
+      --elysium-status-danger-action: #E5484D;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--elysium-surface-canvas);
+      color: var(--elysium-text-primary);
+      font-family: var(--elysium-font-sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    .admin-header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      height: 72px;
+      background: var(--elysium-surface-default);
+      border-bottom: 1px solid var(--elysium-border-subtle);
+      padding: 0 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font: 700 20px/28px var(--elysium-font-sans);
+    }
+    .brand-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: var(--elysium-action-primary);
+      box-shadow: 0 0 0 4px var(--elysium-action-subtle);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font: 600 12px/18px var(--elysium-font-sans);
+      background: var(--elysium-action-subtle);
+      color: var(--elysium-text-brand);
+    }
+    .badge.ok { background: var(--elysium-status-success-surface); color: var(--elysium-status-success-text); }
+    .badge.warn { background: var(--elysium-status-warning-surface); color: var(--elysium-status-warning-text); }
+    .badge.danger { background: var(--elysium-status-danger-surface); color: var(--elysium-status-danger-text); }
+    .badge.neutral { background: var(--elysium-surface-subtle); color: var(--elysium-text-secondary); }
+    .container {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 32px 40px 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+    }
+    .kpi-card {
+      background: var(--elysium-surface-default);
+      border: 1px solid var(--elysium-border-subtle);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: var(--elysium-shadow-sm);
+    }
+    .kpi-label {
+      font: 600 13px/20px var(--elysium-font-sans);
+      color: var(--elysium-text-secondary);
+      margin-bottom: 8px;
+    }
+    .kpi-val {
+      font: 700 28px/38px var(--elysium-font-sans);
+      font-variant-numeric: tabular-nums;
+      color: var(--elysium-text-primary);
+    }
+    .kpi-sub {
+      font: 400 13px/20px var(--elysium-font-sans);
+      color: var(--elysium-text-tertiary);
+      margin-top: 6px;
+    }
+    .section-card {
+      background: var(--elysium-surface-default);
+      border: 1px solid var(--elysium-border-subtle);
+      border-radius: 20px;
+      padding: 28px 32px;
+      box-shadow: var(--elysium-shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .section-title {
+      font: 700 20px/30px var(--elysium-font-sans);
+      margin: 0;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 40px;
+      padding: 0 16px;
+      border-radius: 12px;
+      border: 1px solid var(--elysium-border-control);
+      background: var(--elysium-surface-default);
+      color: var(--elysium-text-primary);
+      font: 600 14px/20px var(--elysium-font-sans);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .btn:hover { background: var(--elysium-surface-subtle); }
+    .btn-primary {
+      background: var(--elysium-action-primary);
+      border-color: var(--elysium-action-primary);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--elysium-action-primary-hover); }
+    .btn-danger {
+      background: var(--elysium-status-danger-surface);
+      border-color: var(--elysium-status-danger-text);
+      color: var(--elysium-status-danger-text);
+    }
+    .btn-sm { height: 34px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
+    .field-input, .field-select {
+      height: 40px;
+      padding: 0 12px;
+      border-radius: 8px;
+      border: 1px solid var(--elysium-border-control);
+      background: var(--elysium-surface-default);
+      color: var(--elysium-text-primary);
+      font: 400 14px/20px var(--elysium-font-sans);
+      outline: none;
+    }
+    .field-input:focus, .field-select:focus {
+      border: 2px solid var(--elysium-border-focus);
+    }
+    .crm-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--elysium-border-subtle);
+      border-radius: 14px;
+    }
+    .crm-table {
+      width: 100%;
+      border-collapse: collapse;
+      font: 400 14px/20px var(--elysium-font-sans);
+    }
+    .crm-table th, .crm-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--elysium-border-subtle);
+      text-align: left;
+      vertical-align: middle;
+    }
+    .crm-table th {
+      background: var(--elysium-surface-subtle);
+      font-weight: 600;
+      color: var(--elysium-text-secondary);
+      white-space: nowrap;
+    }
+    .crm-table tr:last-child td { border-bottom: none; }
+    .policy-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .policy-item {
+      padding: 18px 20px;
+      border-radius: 14px;
+      background: var(--elysium-surface-subtle);
+      border: 1px solid var(--elysium-border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      background: rgba(25, 24, 30, 0.52);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-card {
+      width: 100%;
+      max-width: 540px;
+      background: var(--elysium-surface-elevated);
+      border: 1px solid var(--elysium-border-subtle);
+      border-radius: 16px;
+      padding: 28px 32px;
+      box-shadow: var(--elysium-shadow-lg);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .toast {
+      position: fixed;
+      bottom: 32px;
+      right: 32px;
+      z-index: 100;
+      padding: 14px 20px;
+      border-radius: 12px;
+      background: var(--elysium-text-primary);
+      color: var(--elysium-surface-default);
+      font: 600 14px/20px var(--elysium-font-sans);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 200ms ease;
+    }
+    .toast.show { opacity: 1; }
+    @media (max-width: 1024px) {
+      .kpi-grid { grid-template-columns: 1fr 1fr; }
+      .container { padding: 20px; }
+      .admin-header { padding: 0 20px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="admin-header">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span>Lectern Admin</span>
+      <span class="badge">CRM & RBAC Console</span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <button class="btn btn-sm" onclick="toggleTheme()">라이트/다크 전환</button>
+      <button class="btn btn-sm" onclick="loadOverview()">새로고침</button>
+      <a href="/" class="btn btn-primary btn-sm">← 워크스페이스로 돌아가기</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="admin-auth-warning" style="display:none;padding:24px;border-radius:16px;background:var(--elysium-status-danger-surface);color:var(--elysium-status-danger-text);font:600 16px/24px var(--elysium-font-sans);">
+      관리자(Owner/Admin) 권한이 있는 계정으로 로그인해야 접근할 수 있습니다. <a href="/" style="color:inherit;text-decoration:underline;margin-left:8px;">로그인 페이지로 이동</a>
+    </div>
+
+    <!-- 1. KPI Summary -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">전체 회원 (CRM)</div>
+        <div class="kpi-val" id="kpi-users">—</div>
+        <div class="kpi-sub" id="kpi-users-sub">활성 / 승인대기 / 정지</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">누적 강의 노트</div>
+        <div class="kpi-val" id="kpi-lectures">—</div>
+        <div class="kpi-sub" id="kpi-lectures-sub">외부 공개 공유 노트 포함</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">분석 오류 · 점검 필요</div>
+        <div class="kpi-val" id="kpi-errors">—</div>
+        <div class="kpi-sub">원본 오디오 보존됨 (즉시 재분석 가능)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">오디오 스토리지 사용량</div>
+        <div class="kpi-val" id="kpi-storage">—</div>
+        <div class="kpi-sub">서버 원본 음성 아카이브 합계</div>
+      </div>
+    </section>
+
+    <!-- 2. Global Permission & Signup Policies -->
+    <section class="section-card">
+      <div class="section-head">
+        <div>
+          <h2 class="section-title">가입 및 기본 권한 정책 설정 (Global Access Policy)</h2>
+          <div style="font:400 14px/20px var(--elysium-font-sans);color:var(--elysium-text-secondary);margin-top:4px;">
+            신규 회원 가입 허용 여부, 관리자 승인제, 신규 회원의 기본 역할과 서버 AI 키 사용 권한을 제어합니다.
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="savePolicySettings()">권한 정책 저장</button>
+      </div>
+
+      <div class="policy-grid">
+        <label class="policy-item" style="cursor:pointer;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-weight:600;">공개 회원가입 허용</span>
+            <input type="checkbox" id="pol-allow-signup" style="width:20px;height:20px;accent-color:var(--elysium-action-primary);" />
+          </div>
+          <span style="font-size:13px;color:var(--elysium-text-secondary);">체크 해제 시 로그인 화면에서 자유 가입이 차단되며 관리자만 회원을 생성할 수 있습니다.</span>
+        </label>
+
+        <label class="policy-item" style="cursor:pointer;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-weight:600;">신규 가입 시 관리자 승인 필수</span>
+            <input type="checkbox" id="pol-require-approval" style="width:20px;height:20px;accent-color:var(--elysium-action-primary);" />
+          </div>
+          <span style="font-size:13px;color:var(--elysium-text-secondary);">활성화 시 신규 가입자가 '승인 대기(Pending)' 상태로 생성되며 승인 후 이용할 수 있습니다.</span>
+        </label>
+
+        <div class="policy-item">
+          <span style="font-weight:600;">신규 가입자 기본 역할 (Role)</span>
+          <select id="pol-default-role" class="field-select">
+            <option value="member">Member (녹음·노트 생성·공유 가능)</option>
+            <option value="viewer">Viewer (열람 전용 · 업로드 제한)</option>
+          </select>
+        </div>
+
+        <label class="policy-item" style="cursor:pointer;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-weight:600;">서버 기본 Gemini 키 사용 허용</span>
+            <input type="checkbox" id="pol-server-key" style="width:20px;height:20px;accent-color:var(--elysium-action-primary);" />
+          </div>
+          <span style="font-size:13px;color:var(--elysium-text-secondary);">체크 해제 시 신규 회원은 본인 Gemini API Key(BYOK)를 등록해야 분석할 수 있습니다.</span>
+        </label>
+
+        <div class="policy-item">
+          <span style="font-weight:600;">신규 회원 기본 오디오 쿼터 (MB)</span>
+          <input type="number" id="pol-default-quota" class="field-input" min="0" step="256" value="2048" />
+          <span style="font-size:13px;color:var(--elysium-text-secondary);">0 입력 시 무제한 (기본 2048MB = 2GB)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. User CRM & Role/Permission Matrix -->
+    <section class="section-card">
+      <div class="section-head">
+        <div>
+          <h2 class="section-title">회원 CRM 및 계정별 권한 관리</h2>
+          <div style="font:400 14px/20px var(--elysium-font-sans);color:var(--elysium-text-secondary);margin-top:4px;">
+            회원별 역할(Owner/Admin/Member/Viewer), 상태(활성/대기/정지), 녹음·공유·AI키 권한, 용량 한도, 비밀번호 재설정 및 CRM 메모를 관리합니다.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <input type="search" id="crm-search" class="field-input" placeholder="이름, 이메일, 메모 검색..." oninput="renderUsersTable()" />
+          <select id="crm-role-filter" class="field-select" onchange="renderUsersTable()">
+            <option value="ALL">전체 역할·상태</option>
+            <option value="owner">Owner</option>
+            <option value="admin">Admin</option>
+            <option value="member">Member</option>
+            <option value="viewer">Viewer</option>
+            <option value="pending">승인 대기 (Pending)</option>
+            <option value="suspended">정지됨 (Suspended)</option>
+          </select>
+          <button class="btn btn-primary" onclick="openCreateUserModal()">+ 신규 회원 추가</button>
+        </div>
+      </div>
+
+      <div class="crm-table-wrap">
+        <table class="crm-table">
+          <thead>
+            <tr>
+              <th>회원 (이름 / 아이디·이메일)</th>
+              <th>역할 (Role)</th>
+              <th>상태</th>
+              <th>세부 권한 (녹음 / 공유 / 서버AI)</th>
+              <th>강의 / 공개 / 오류</th>
+              <th>오디오 사용량 / 쿼터</th>
+              <th>최근 로그인 / 메모</th>
+              <th>관리</th>
+            </tr>
+          </thead>
+          <tbody id="crm-users-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 4. All Lectures & Audit Log -->
+    <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:24px;">
+      <section class="section-card">
+        <div class="section-head">
+          <h2 class="section-title">전체 강의 노트 운영 현황</h2>
+        </div>
+        <div class="crm-table-wrap">
+          <table class="crm-table">
+            <thead>
+              <tr>
+                <th>소유자</th>
+                <th>과목 · 제목</th>
+                <th>상태</th>
+                <th>관리</th>
+              </tr>
+            </thead>
+            <tbody id="admin-lectures-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section-card">
+        <div class="section-head">
+          <h2 class="section-title">보안 · 권한 감사 로그 (Audit Log)</h2>
+        </div>
+        <div class="crm-table-wrap">
+          <table class="crm-table">
+            <thead>
+              <tr>
+                <th>시각</th>
+                <th>계정</th>
+                <th>작업 / 상세</th>
+              </tr>
+            </thead>
+            <tbody id="admin-audit-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Edit User CRM & Permissions Modal -->
+  <div class="modal-backdrop" id="edit-user-modal">
+    <div class="modal-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font:700 20px/28px var(--elysium-font-sans);" id="eu-modal-title">회원 권한 및 CRM 설정</div>
+        <button class="btn btn-sm" onclick="closeAdminModal('edit-user-modal')">✕</button>
+      </div>
+      <input type="hidden" id="eu-id" />
+      <div>
+        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">표시 이름</label>
+        <input type="text" id="eu-name" class="field-input" style="width:100%;" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">역할 (Role)</label>
+          <select id="eu-role" class="field-select" style="width:100%;">
+            <option value="owner">Owner (최고 관리자)</option>
+            <option value="admin">Admin (운영 관리자)</option>
+            <option value="member">Member (일반 사용자)</option>
+            <option value="viewer">Viewer (열람 전용)</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">계정 상태 (Status)</label>
+          <select id="eu-status" class="field-select" style="width:100%;">
+            <option value="active">Active (정상 이용)</option>
+            <option value="pending">Pending (승인 대기)</option>
+            <option value="suspended">Suspended (이용 정지)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="padding:14px 16px;border-radius:12px;background:var(--elysium-surface-subtle);display:flex;flex-direction:column;gap:10px;">
+        <div style="font-weight:600;font-size:13px;">세부 기능 권한 (Granular Permissions)</div>
+        <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;">
+          <input type="checkbox" id="eu-can-ingest" style="width:18px;height:18px;accent-color:var(--elysium-action-primary);" />
+          <span>오디오 녹음 · 파일 업로드 · AI 노트 증류 허용 (<code>can_ingest</code>)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;">
+          <input type="checkbox" id="eu-can-share" style="width:18px;height:18px;accent-color:var(--elysium-action-primary);" />
+          <span>외부 공개 공유 링크(<code>/s/:token</code>) 전환 허용 (<code>can_share</code>)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;">
+          <input type="checkbox" id="eu-can-server-key" style="width:18px;height:18px;accent-color:var(--elysium-action-primary);" />
+          <span>서버 기본 Gemini API 키 사용 허용 (해제 시 개인 BYOK 키 필수)</span>
+        </label>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">오디오 저장 한도 (MB, 0=무제한)</label>
+          <input type="number" id="eu-quota" class="field-input" style="width:100%;" min="0" step="256" />
+        </div>
+        <div>
+          <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">비밀번호 강제 재설정 (선택)</label>
+          <input type="password" id="eu-password" class="field-input" style="width:100%;" placeholder="비워두면 유지 (6자 이상)" />
+        </div>
+      </div>
+
+      <div>
+        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">CRM 메모 (소속 / 학과 / 운영 비고)</label>
+        <input type="text" id="eu-memo" class="field-input" style="width:100%;" placeholder="예: 스마트융합보안학과 1학년 / 베타 테스터" />
+      </div>
+
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--elysium-text-secondary);cursor:pointer;">
+        <input type="checkbox" id="eu-revoke-sessions" style="width:18px;height:18px;accent-color:var(--elysium-action-primary);" />
+        <span>저장 시 이 회원의 모든 로그인 기기 세션 강제 만료</span>
+      </label>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+        <button class="btn btn-danger btn-sm" onclick="deleteTargetUser()">계정 및 데이터 삭제</button>
+        <div style="display:flex;gap:10px;">
+          <button class="btn" onclick="closeAdminModal('edit-user-modal')">취소</button>
+          <button class="btn btn-primary" onclick="saveTargetUser()">변경사항 저장</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create New User Modal -->
+  <div class="modal-backdrop" id="create-user-modal">
+    <div class="modal-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font:700 20px/28px var(--elysium-font-sans);">신규 회원 계정 직접 생성</div>
+        <button class="btn btn-sm" onclick="closeAdminModal('create-user-modal')">✕</button>
+      </div>
+      <div>
+        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">아이디 또는 이메일</label>
+        <input type="text" id="cu-email" class="field-input" style="width:100%;" placeholder="아이디 또는 이메일 주소" />
+      </div>
+      <div>
+        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">이름 (닉네임)</label>
+        <input type="text" id="cu-name" class="field-input" style="width:100%;" placeholder="예: 홍길동" />
+      </div>
+      <div>
+        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">초기 비밀번호 (6자 이상)</label>
+        <input type="password" id="cu-password" class="field-input" style="width:100%;" placeholder="초기 비밀번호 입력" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">역할 (Role)</label>
+          <select id="cu-role" class="field-select" style="width:100%;">
+            <option value="member">Member (일반 사용자)</option>
+            <option value="viewer">Viewer (열람 전용)</option>
+            <option value="admin">Admin (운영 관리자)</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">오디오 쿼터 (MB)</label>
+          <input type="number" id="cu-quota" class="field-input" style="width:100%;" value="2048" />
+        </div>
+      </div>
+      <div>
+        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px;">CRM 메모</label>
+        <input type="text" id="cu-memo" class="field-input" style="width:100%;" placeholder="소속/비고 메모" />
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px;">
+        <button class="btn" onclick="closeAdminModal('create-user-modal')">취소</button>
+        <button class="btn btn-primary" onclick="submitCreateUser()">회원 생성</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let allUsers = [];
+    let recentLectures = [];
+    let auditLogs = [];
+
+    const savedTheme = localStorage.getItem('lectern_theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    document.documentElement.setAttribute('data-elysium-theme', savedTheme === 'dark' ? 'Dark' : 'Light');
+    function toggleTheme() {
+      const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      document.documentElement.setAttribute('data-elysium-theme', next === 'dark' ? 'Dark' : 'Light');
+      localStorage.setItem('lectern_theme', next);
+    }
+
+    function authHeaders(extra) {
+      const h = Object.assign({}, extra || {});
+      const tok = localStorage.getItem('lectern_token');
+      if (tok) h['X-Lectern-Token'] = tok;
+      return h;
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+    }
+
+    function esc(s) {
+      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    async function loadOverview() {
+      const res = await fetch('/api/admin/overview', { headers: authHeaders() });
+      if (!res.ok) {
+        document.getElementById('admin-auth-warning').style.display = 'block';
+        return;
+      }
+      document.getElementById('admin-auth-warning').style.display = 'none';
+      const data = await res.json();
+      const m = data.metrics || {};
+      allUsers = data.users || [];
+      recentLectures = data.recentLectures || [];
+      auditLogs = data.auditLogs || [];
+
+      document.getElementById('kpi-users').textContent = m.totalUsers + '명';
+      document.getElementById('kpi-users-sub').textContent =
+        '활성 ' + m.activeUsers + ' · 대기 ' + m.pendingUsers + ' · 정지 ' + m.suspendedUsers;
+      document.getElementById('kpi-lectures').textContent = m.totalLectures + '건';
+      document.getElementById('kpi-lectures-sub').textContent =
+        '외부 공개 공유 노트 ' + m.publicLectures + '건';
+      document.getElementById('kpi-errors').textContent = m.errorLectures + '건';
+      document.getElementById('kpi-storage').textContent =
+        ((m.totalAudioBytes || 0) / 1048576).toFixed(1) + ' MB';
+
+      const s = data.settings || {};
+      document.getElementById('pol-allow-signup').checked = Boolean(s.allow_public_signup);
+      document.getElementById('pol-require-approval').checked = Boolean(s.default_require_approval);
+      document.getElementById('pol-default-role').value = s.default_user_role || 'member';
+      document.getElementById('pol-server-key').checked = Boolean(s.default_can_use_server_key);
+      document.getElementById('pol-default-quota').value = s.default_quota_mb ?? 2048;
+
+      renderUsersTable();
+      renderLecturesTable();
+      renderAuditTable();
+    }
+
+    function renderUsersTable() {
+      const q = (document.getElementById('crm-search').value || '').trim().toLowerCase();
+      const rf = document.getElementById('crm-role-filter').value;
+      const filtered = allUsers.filter(u => {
+        if (rf !== 'ALL') {
+          if (rf === 'pending' || rf === 'suspended') {
+            if (u.status !== rf) return false;
+          } else if (u.role !== rf) {
+            return false;
+          }
+        }
+        if (!q) return true;
+        return (
+          (u.display_name || '').toLowerCase().includes(q) ||
+          (u.email || '').toLowerCase().includes(q) ||
+          (u.memo || '').toLowerCase().includes(q)
+        );
+      });
+
+      const tbody = document.getElementById('crm-users-tbody');
+      tbody.innerHTML = filtered.map(u => {
+        const roleCls = u.role === 'owner' || u.role === 'admin' ? '' : 'neutral';
+        const statusCls = u.status === 'active' ? 'ok' : u.status === 'pending' ? 'warn' : 'danger';
+        const usedMb = ((u.audio_bytes || 0) / 1048576).toFixed(1);
+        const quotaLabel = u.quota_mb === 0 ? '무제한' : (u.quota_mb + ' MB');
+        const lastLogin = u.last_login_at ? u.last_login_at.slice(0, 16).replace('T', ' ') : '기록 없음';
+        const perms = [
+          u.can_ingest ? '<span class="badge ok">녹음</span>' : '<span class="badge danger">녹음제한</span>',
+          u.can_share ? '<span class="badge ok">공유</span>' : '<span class="badge warn">공유제한</span>',
+          u.can_use_server_key ? '<span class="badge neutral">서버AI</span>' : '<span class="badge warn">BYOK전용</span>'
+        ].join(' ');
+        const approveBtn = u.status === 'pending'
+          ? '<button class="btn btn-primary btn-sm" style="margin-right:6px;" onclick="quickApproveUser(\\'' + u.id + '\\')">승인</button>'
+          : '';
+        return '<tr>' +
+          '<td><div style="font-weight:600;">' + esc(u.display_name) + '</div><div style="font-size:12.5px;color:var(--elysium-text-secondary);font-family:var(--elysium-font-mono);">' + esc(u.email) + '</div></td>' +
+          '<td><span class="badge ' + roleCls + '">' + esc(u.role.toUpperCase()) + '</span></td>' +
+          '<td><span class="badge ' + statusCls + '">' + esc(u.status.toUpperCase()) + '</span></td>' +
+          '<td style="display:flex;gap:4px;flex-wrap:wrap;">' + perms + '</td>' +
+          '<td>' + u.lecture_count + '건 <span style="color:var(--elysium-text-tertiary);font-size:12.5px;">(공개 ' + u.public_count + ' / 오류 ' + u.error_count + ')</span></td>' +
+          '<td style="font-family:var(--elysium-font-mono);font-size:13px;">' + usedMb + ' MB / ' + quotaLabel + '</td>' +
+          '<td><div style="font-size:12.5px;color:var(--elysium-text-secondary);">' + esc(lastLogin) + '</div><div style="font-size:12.5px;color:var(--elysium-text-brand);">' + esc(u.memo || '—') + '</div></td>' +
+          '<td style="white-space:nowrap;">' + approveBtn + '<button class="btn btn-sm" onclick="openEditUserModal(\\'' + u.id + '\\')">권한·비번·메모</button></td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    function renderLecturesTable() {
+      const tbody = document.getElementById('admin-lectures-tbody');
+      if (!recentLectures.length) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--elysium-text-secondary);">등록된 강의 노트가 없습니다.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = recentLectures.slice(0, 25).map(l => {
+        const stBadge = l.status === 'done'
+          ? '<span class="badge ok">완료</span>'
+          : l.status === 'processing'
+          ? '<span class="badge warn">분석중</span>'
+          : '<span class="badge danger">오류</span>';
+        const retryBtn = l.status === 'error'
+          ? '<button class="btn btn-primary btn-sm" onclick="adminRetryLecture(\\'' + l.id + '\\')">재분석</button> '
+          : '';
+        return '<tr>' +
+          '<td><div style="font-weight:600;font-size:13px;">' + esc(l.owner_name || '—') + '</div><div style="font-size:12px;color:var(--elysium-text-secondary);">' + esc(l.owner_email || '') + '</div></td>' +
+          '<td><div style="font-weight:600;">[' + esc(l.course) + '] ' + esc(l.title) + '</div><div style="font-size:12px;color:var(--elysium-text-tertiary);">' + esc(l.date_label) + ' · ' + (l.is_public ? '공개' : '비공개') + '</div></td>' +
+          '<td>' + stBadge + '</td>' +
+          '<td style="white-space:nowrap;">' + retryBtn + '<a class="btn btn-sm" href="/?lecture=' + encodeURIComponent(l.id) + '">열람</a></td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    function renderAuditTable() {
+      const tbody = document.getElementById('admin-audit-tbody');
+      if (!auditLogs.length) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--elysium-text-secondary);">감사 로그가 없습니다.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = auditLogs.slice(0, 25).map(a => {
+        const ts = (a.created_at || '').slice(5, 19).replace('T', ' ');
+        return '<tr>' +
+          '<td style="font-family:var(--elysium-font-mono);font-size:12px;color:var(--elysium-text-secondary);white-space:nowrap;">' + esc(ts) + '</td>' +
+          '<td style="font-size:13px;font-weight:600;">' + esc(a.actor_email) + '</td>' +
+          '<td><div style="font-weight:600;font-size:12.5px;color:var(--elysium-text-brand);">' + esc(a.action) + '</div><div style="font-size:12.5px;color:var(--elysium-text-secondary);">' + esc(a.detail) + '</div></td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    async function savePolicySettings() {
+      const body = {
+        allow_public_signup: document.getElementById('pol-allow-signup').checked,
+        default_require_approval: document.getElementById('pol-require-approval').checked,
+        default_user_role: document.getElementById('pol-default-role').value,
+        default_can_use_server_key: document.getElementById('pol-server-key').checked,
+        default_quota_mb: Number(document.getElementById('pol-default-quota').value || 2048)
+      };
+      const res = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        showToast('가입 및 기본 권한 정책이 저장되었습니다.');
+        await loadOverview();
+      } else {
+        showToast('정책 저장에 실패했습니다.');
+      }
+    }
+
+    async function quickApproveUser(userId) {
+      const res = await fetch('/api/admin/users/' + encodeURIComponent(userId), {
+        method: 'PATCH',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ status: 'active' })
+      });
+      if (res.ok) {
+        showToast('회원 가입이 승인되었습니다.');
+        await loadOverview();
+      }
+    }
+
+    function openEditUserModal(userId) {
+      const u = allUsers.find(item => item.id === userId);
+      if (!u) return;
+      document.getElementById('eu-id').value = u.id;
+      document.getElementById('eu-modal-title').textContent = u.display_name + ' (' + u.email + ') 관리';
+      document.getElementById('eu-name').value = u.display_name || '';
+      document.getElementById('eu-role').value = u.role || 'member';
+      document.getElementById('eu-status').value = u.status || 'active';
+      document.getElementById('eu-can-ingest').checked = Boolean(u.can_ingest);
+      document.getElementById('eu-can-share').checked = Boolean(u.can_share);
+      document.getElementById('eu-can-server-key').checked = Boolean(u.can_use_server_key);
+      document.getElementById('eu-quota').value = u.quota_mb ?? 2048;
+      document.getElementById('eu-password').value = '';
+      document.getElementById('eu-memo').value = u.memo || '';
+      document.getElementById('eu-revoke-sessions').checked = false;
+      document.getElementById('edit-user-modal').classList.add('open');
+    }
+
+    async function saveTargetUser() {
+      const id = document.getElementById('eu-id').value;
+      const body = {
+        displayName: document.getElementById('eu-name').value.trim(),
+        role: document.getElementById('eu-role').value,
+        status: document.getElementById('eu-status').value,
+        canIngest: document.getElementById('eu-can-ingest').checked,
+        canShare: document.getElementById('eu-can-share').checked,
+        canUseServerKey: document.getElementById('eu-can-server-key').checked,
+        quotaMb: Number(document.getElementById('eu-quota').value || 0),
+        memo: document.getElementById('eu-memo').value.trim(),
+        revokeSessions: document.getElementById('eu-revoke-sessions').checked
+      };
+      const newPw = document.getElementById('eu-password').value;
+      if (newPw) body.newPassword = newPw;
+
+      const res = await fetch('/api/admin/users/' + encodeURIComponent(id), {
+        method: 'PATCH',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '수정에 실패했습니다.');
+        return;
+      }
+      closeAdminModal('edit-user-modal');
+      showToast('회원 권한 및 CRM 정보가 업데이트되었습니다.');
+      await loadOverview();
+    }
+
+    async function deleteTargetUser() {
+      const id = document.getElementById('eu-id').value;
+      const u = allUsers.find(item => item.id === id);
+      if (!u) return;
+      if (!confirm('정말 [' + u.display_name + ' (' + u.email + ')] 계정과 소유한 모든 강의 노트를 삭제할까요?')) return;
+      const res = await fetch('/api/admin/users/' + encodeURIComponent(id), {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '삭제 실패');
+        return;
+      }
+      closeAdminModal('edit-user-modal');
+      showToast('회원 계정이 삭제되었습니다.');
+      await loadOverview();
+    }
+
+    function openCreateUserModal() {
+      document.getElementById('cu-email').value = '';
+      document.getElementById('cu-name').value = '';
+      document.getElementById('cu-password').value = '';
+      document.getElementById('cu-role').value = 'member';
+      document.getElementById('cu-quota').value = '2048';
+      document.getElementById('cu-memo').value = '';
+      document.getElementById('create-user-modal').classList.add('open');
+    }
+
+    async function submitCreateUser() {
+      const body = {
+        email: document.getElementById('cu-email').value.trim(),
+        displayName: document.getElementById('cu-name').value.trim(),
+        password: document.getElementById('cu-password').value,
+        role: document.getElementById('cu-role').value,
+        quotaMb: Number(document.getElementById('cu-quota').value || 2048),
+        memo: document.getElementById('cu-memo').value.trim()
+      };
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '회원 생성 실패');
+        return;
+      }
+      closeAdminModal('create-user-modal');
+      showToast('신규 회원이 생성되었습니다.');
+      await loadOverview();
+    }
+
+    async function adminRetryLecture(id) {
+      const res = await fetch('/api/lectures/' + encodeURIComponent(id) + '/retry', {
+        method: 'POST',
+        headers: authHeaders()
+      });
+      if (res.ok) {
+        showToast('원본 오디오로 재분석이 시작되었습니다.');
+        await loadOverview();
+      }
+    }
+
+    function closeAdminModal(id) {
+      document.getElementById(id).classList.remove('open');
+    }
+
+    loadOverview();
   </script>
 </body>
 </html>`;

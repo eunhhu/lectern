@@ -23,7 +23,54 @@ export interface UserRecord {
   password_hash: string;
   api_token: string;
   is_admin: number;
+  role: "owner" | "admin" | "member" | "viewer";
+  status: "active" | "pending" | "suspended";
+  can_ingest: number;
+  can_share: number;
+  can_use_server_key: number;
+  quota_mb: number;
+  memo: string;
+  last_login_at: string | null;
   created_at: string;
+}
+
+export interface SystemSettings {
+  allow_public_signup: boolean;
+  default_user_role: "member" | "viewer";
+  default_require_approval: boolean;
+  default_can_use_server_key: boolean;
+  default_quota_mb: number;
+}
+
+export interface AuditLogRecord {
+  id: string;
+  actor_id: string;
+  actor_email: string;
+  action: string;
+  target_id: string;
+  detail: string;
+  created_at: string;
+}
+
+export interface UserCrmRow {
+  id: string;
+  email: string;
+  display_name: string;
+  is_admin: boolean;
+  role: "owner" | "admin" | "member" | "viewer";
+  status: "active" | "pending" | "suspended";
+  can_ingest: boolean;
+  can_share: boolean;
+  can_use_server_key: boolean;
+  quota_mb: number;
+  memo: string;
+  last_login_at: string | null;
+  created_at: string;
+  lecture_count: number;
+  public_count: number;
+  error_count: number;
+  audio_bytes: number;
+  session_count: number;
 }
 
 export interface LectureRecord {
@@ -129,8 +176,52 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_lectures_share ON lectures(share_token);
 `);
 
-// Schema migrations for existing lectures table
+// Schema migrations for existing users & lectures tables
 try {
+  const userCols = db.query(`PRAGMA table_info(users)`).all() as Array<{ name: string }>;
+  if (!userCols.some((c) => c.name === "role")) {
+    db.exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member'`);
+  }
+  if (!userCols.some((c) => c.name === "status")) {
+    db.exec(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
+  }
+  if (!userCols.some((c) => c.name === "can_ingest")) {
+    db.exec(`ALTER TABLE users ADD COLUMN can_ingest INTEGER NOT NULL DEFAULT 1`);
+  }
+  if (!userCols.some((c) => c.name === "can_share")) {
+    db.exec(`ALTER TABLE users ADD COLUMN can_share INTEGER NOT NULL DEFAULT 1`);
+  }
+  if (!userCols.some((c) => c.name === "can_use_server_key")) {
+    db.exec(`ALTER TABLE users ADD COLUMN can_use_server_key INTEGER NOT NULL DEFAULT 1`);
+  }
+  if (!userCols.some((c) => c.name === "quota_mb")) {
+    db.exec(`ALTER TABLE users ADD COLUMN quota_mb INTEGER NOT NULL DEFAULT 2048`);
+  }
+  if (!userCols.some((c) => c.name === "memo")) {
+    db.exec(`ALTER TABLE users ADD COLUMN memo TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!userCols.some((c) => c.name === "last_login_at")) {
+    db.exec(`ALTER TABLE users ADD COLUMN last_login_at TEXT`);
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS system_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      actor_id TEXT NOT NULL,
+      actor_email TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_id TEXT NOT NULL DEFAULT '',
+      detail TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+  `);
+
   const cols = db.query(`PRAGMA table_info(lectures)`).all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === "owner_id")) {
     db.exec(`ALTER TABLE lectures ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''`);
@@ -202,6 +293,13 @@ export function createUser(input: {
   displayName: string;
   password: string;
   isAdmin?: boolean;
+  role?: "owner" | "admin" | "member" | "viewer";
+  status?: "active" | "pending" | "suspended";
+  canIngest?: boolean;
+  canShare?: boolean;
+  canUseServerKey?: boolean;
+  quotaMb?: number;
+  memo?: string;
   fixedApiToken?: string;
 }): UserRecord {
   const normEmail = input.email.trim().toLowerCase();
@@ -214,17 +312,53 @@ export function createUser(input: {
   const now = new Date().toISOString();
   const passwordHash = hashPassword(input.password);
   const apiToken = input.fixedApiToken || generateApiToken();
+  const role = input.role || (input.isAdmin ? "admin" : "member");
+  const isAdmin = input.isAdmin || role === "owner" || role === "admin" ? 1 : 0;
+  const status = input.status || "active";
+  const canIngest =
+    typeof input.canIngest === "boolean"
+      ? input.canIngest
+        ? 1
+        : 0
+      : role === "viewer"
+      ? 0
+      : 1;
+  const canShare =
+    typeof input.canShare === "boolean"
+      ? input.canShare
+        ? 1
+        : 0
+      : role === "viewer"
+      ? 0
+      : 1;
+  const canUseServerKey =
+    typeof input.canUseServerKey === "boolean"
+      ? input.canUseServerKey
+        ? 1
+        : 0
+      : 1;
+  const quotaMb = typeof input.quotaMb === "number" ? input.quotaMb : 2048;
+  const memo = (input.memo || "").trim();
 
   db.query(
-    `INSERT INTO users (id, email, display_name, password_hash, api_token, is_admin, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO users (
+      id, email, display_name, password_hash, api_token, is_admin,
+      role, status, can_ingest, can_share, can_use_server_key, quota_mb, memo, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     normEmail,
     input.displayName.trim() || normEmail.split("@")[0],
     passwordHash,
     apiToken,
-    input.isAdmin ? 1 : 0,
+    isAdmin,
+    role,
+    status,
+    canIngest,
+    canShare,
+    canUseServerKey,
+    quotaMb,
+    memo,
     now
   );
 
@@ -239,10 +373,284 @@ export function updateUserPassword(userId: string, newPassword: string): void {
   );
 }
 
+export function updateUserProfile(
+  userId: string,
+  input: { displayName?: string }
+): UserRecord | null {
+  if (typeof input.displayName === "string" && input.displayName.trim()) {
+    db.query(`UPDATE users SET display_name = ? WHERE id = ?`).run(
+      input.displayName.trim(),
+      userId
+    );
+  }
+  return getUserById(userId);
+}
+
+export function touchUserLastLogin(userId: string): void {
+  db.query(`UPDATE users SET last_login_at = ? WHERE id = ?`).run(
+    new Date().toISOString(),
+    userId
+  );
+}
+
+export function deleteAllUserSessions(
+  userId: string,
+  exceptToken?: string
+): void {
+  if (exceptToken) {
+    db.query(`DELETE FROM sessions WHERE user_id = ? AND token != ?`).run(
+      userId,
+      exceptToken
+    );
+  } else {
+    db.query(`DELETE FROM sessions WHERE user_id = ?`).run(userId);
+  }
+}
+
 export function rotateUserApiToken(userId: string): string {
   const newToken = generateApiToken();
   db.query(`UPDATE users SET api_token = ? WHERE id = ?`).run(newToken, userId);
   return newToken;
+}
+
+export function getSystemSettings(): SystemSettings {
+  const rows = db
+    .query(`SELECT key, value FROM system_settings`)
+    .all() as Array<{ key: string; value: string }>;
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+  return {
+    allow_public_signup: map.get("allow_public_signup") !== "0",
+    default_user_role:
+      map.get("default_user_role") === "viewer" ? "viewer" : "member",
+    default_require_approval: map.get("default_require_approval") === "1",
+    default_can_use_server_key: map.get("default_can_use_server_key") !== "0",
+    default_quota_mb: Number(map.get("default_quota_mb") ?? "2048") || 2048,
+  };
+}
+
+export function updateSystemSettings(
+  patch: Partial<SystemSettings>
+): SystemSettings {
+  const cur = getSystemSettings();
+  const next: SystemSettings = {
+    allow_public_signup:
+      typeof patch.allow_public_signup === "boolean"
+        ? patch.allow_public_signup
+        : cur.allow_public_signup,
+    default_user_role:
+      patch.default_user_role === "viewer" ||
+      patch.default_user_role === "member"
+        ? patch.default_user_role
+        : cur.default_user_role,
+    default_require_approval:
+      typeof patch.default_require_approval === "boolean"
+        ? patch.default_require_approval
+        : cur.default_require_approval,
+    default_can_use_server_key:
+      typeof patch.default_can_use_server_key === "boolean"
+        ? patch.default_can_use_server_key
+        : cur.default_can_use_server_key,
+    default_quota_mb:
+      typeof patch.default_quota_mb === "number" && patch.default_quota_mb >= 0
+        ? Math.round(patch.default_quota_mb)
+        : cur.default_quota_mb,
+  };
+  const now = new Date().toISOString();
+  const upsert = db.query(
+    `INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)`
+  );
+  upsert.run("allow_public_signup", next.allow_public_signup ? "1" : "0", now);
+  upsert.run("default_user_role", next.default_user_role, now);
+  upsert.run(
+    "default_require_approval",
+    next.default_require_approval ? "1" : "0",
+    now
+  );
+  upsert.run(
+    "default_can_use_server_key",
+    next.default_can_use_server_key ? "1" : "0",
+    now
+  );
+  upsert.run("default_quota_mb", String(next.default_quota_mb), now);
+  return getSystemSettings();
+}
+
+export function recordAuditLog(input: {
+  actorId: string;
+  actorEmail: string;
+  action: string;
+  targetId?: string;
+  detail?: string;
+}): void {
+  db.query(
+    `INSERT INTO audit_logs (id, actor_id, actor_email, action, target_id, detail, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    generateId("audlog"),
+    input.actorId,
+    input.actorEmail,
+    input.action,
+    input.targetId || "",
+    input.detail || "",
+    new Date().toISOString()
+  );
+}
+
+export function listAuditLogs(limit = 50): AuditLogRecord[] {
+  return db
+    .query(`SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?`)
+    .all(limit) as AuditLogRecord[];
+}
+
+export function getUserStorageUsageBytes(userId: string): number {
+  const row = db
+    .query(
+      `SELECT COALESCE(SUM(audio_size), 0) AS total_bytes FROM lectures WHERE owner_id = ?`
+    )
+    .get(userId) as { total_bytes: number } | null;
+  return row?.total_bytes || 0;
+}
+
+export function listUsersCrmSummary(): UserCrmRow[] {
+  const users = db
+    .query(`SELECT * FROM users ORDER BY is_admin DESC, created_at ASC`)
+    .all() as UserRecord[];
+  return users.map((u) => {
+    const stats = db
+      .query(
+        `SELECT
+          COUNT(*) AS lecture_count,
+          COALESCE(SUM(CASE WHEN is_public = 1 THEN 1 ELSE 0 END), 0) AS public_count,
+          COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
+          COALESCE(SUM(audio_size), 0) AS audio_bytes
+         FROM lectures WHERE owner_id = ?`
+      )
+      .get(u.id) as {
+      lecture_count: number;
+      public_count: number;
+      error_count: number;
+      audio_bytes: number;
+    };
+    const sess = db
+      .query(`SELECT COUNT(*) AS cnt FROM sessions WHERE user_id = ?`)
+      .get(u.id) as { cnt: number };
+    const role = (u.role || (u.is_admin ? "owner" : "member")) as
+      | "owner"
+      | "admin"
+      | "member"
+      | "viewer";
+    const status = (u.status || "active") as "active" | "pending" | "suspended";
+    return {
+      id: u.id,
+      email: u.email,
+      display_name: u.display_name,
+      is_admin: Boolean(u.is_admin || role === "owner" || role === "admin"),
+      role,
+      status,
+      can_ingest: u.can_ingest !== 0,
+      can_share: u.can_share !== 0,
+      can_use_server_key: u.can_use_server_key !== 0,
+      quota_mb: typeof u.quota_mb === "number" ? u.quota_mb : 2048,
+      memo: u.memo || "",
+      last_login_at: u.last_login_at || null,
+      created_at: u.created_at,
+      lecture_count: stats?.lecture_count || 0,
+      public_count: stats?.public_count || 0,
+      error_count: stats?.error_count || 0,
+      audio_bytes: stats?.audio_bytes || 0,
+      session_count: sess?.cnt || 0,
+    };
+  });
+}
+
+export function updateUserByAdmin(
+  targetUserId: string,
+  patch: {
+    displayName?: string;
+    role?: "owner" | "admin" | "member" | "viewer";
+    status?: "active" | "pending" | "suspended";
+    canIngest?: boolean;
+    canShare?: boolean;
+    canUseServerKey?: boolean;
+    quotaMb?: number;
+    memo?: string;
+    newPassword?: string;
+    revokeSessions?: boolean;
+  }
+): UserRecord | null {
+  const cur = getUserById(targetUserId);
+  if (!cur) return null;
+
+  const nextRole = patch.role || cur.role || (cur.is_admin ? "owner" : "member");
+  const nextIsAdmin = nextRole === "owner" || nextRole === "admin" ? 1 : 0;
+  const nextStatus = patch.status || cur.status || "active";
+  const nextDisplayName =
+    typeof patch.displayName === "string" && patch.displayName.trim()
+      ? patch.displayName.trim()
+      : cur.display_name;
+  const nextCanIngest =
+    typeof patch.canIngest === "boolean"
+      ? patch.canIngest
+        ? 1
+        : 0
+      : cur.can_ingest ?? 1;
+  const nextCanShare =
+    typeof patch.canShare === "boolean"
+      ? patch.canShare
+        ? 1
+        : 0
+      : cur.can_share ?? 1;
+  const nextCanUseServerKey =
+    typeof patch.canUseServerKey === "boolean"
+      ? patch.canUseServerKey
+        ? 1
+        : 0
+      : cur.can_use_server_key ?? 1;
+  const nextQuotaMb =
+    typeof patch.quotaMb === "number" && patch.quotaMb >= 0
+      ? Math.round(patch.quotaMb)
+      : cur.quota_mb ?? 2048;
+  const nextMemo =
+    typeof patch.memo === "string" ? patch.memo.trim() : cur.memo || "";
+
+  db.query(
+    `UPDATE users
+     SET display_name = ?, is_admin = ?, role = ?, status = ?,
+         can_ingest = ?, can_share = ?, can_use_server_key = ?, quota_mb = ?, memo = ?
+     WHERE id = ?`
+  ).run(
+    nextDisplayName,
+    nextIsAdmin,
+    nextRole,
+    nextStatus,
+    nextCanIngest,
+    nextCanShare,
+    nextCanUseServerKey,
+    nextQuotaMb,
+    nextMemo,
+    targetUserId
+  );
+
+  if (typeof patch.newPassword === "string" && patch.newPassword.length >= 6) {
+    updateUserPassword(targetUserId, patch.newPassword);
+  }
+  if (patch.revokeSessions || nextStatus === "suspended") {
+    deleteAllUserSessions(targetUserId);
+  }
+
+  return getUserById(targetUserId);
+}
+
+export function deleteUserAndData(targetUserId: string): boolean {
+  const cur = getUserById(targetUserId);
+  if (!cur) return false;
+  const lectures = listLecturesForUser(targetUserId);
+  for (const lec of lectures) {
+    deleteLectureById(lec.id);
+  }
+  deleteAllUserSessions(targetUserId);
+  const res = db.query(`DELETE FROM users WHERE id = ?`).run(targetUserId);
+  return res.changes > 0;
 }
 
 export function createSession(userId: string, ttlDays = 30): string {
@@ -301,10 +709,19 @@ export function ensureBootstrapOwner(): UserRecord {
       displayName: ownerDisplayName,
       password: ownerPassword,
       isAdmin: true,
+      role: "owner",
+      status: "active",
+      quotaMb: 0,
       fixedApiToken: ownerApiToken,
     });
-  } else if (process.env.LECTERN_OWNER_PASSWORD) {
-    if (!verifyPassword(ownerPassword, owner.password_hash)) {
+  } else {
+    if (owner.role !== "owner" || owner.is_admin !== 1) {
+      db.query(
+        `UPDATE users SET is_admin = 1, role = 'owner', status = 'active' WHERE id = ?`
+      ).run(owner.id);
+      owner = getUserById(owner.id)!;
+    }
+    if (process.env.LECTERN_FORCE_RESET_OWNER_PASSWORD === "1") {
       updateUserPassword(owner.id, ownerPassword);
       owner = getUserById(owner.id)!;
     }
@@ -454,6 +871,22 @@ export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
       }
     }
   }
+}
+
+export function listAllLecturesForAdmin(limit = 100): Array<
+  LectureRecord & { owner_email: string; owner_name: string }
+> {
+  return db
+    .query(
+      `SELECT l.*, COALESCE(u.email, '') AS owner_email, COALESCE(u.display_name, '') AS owner_name
+       FROM lectures l
+       LEFT JOIN users u ON u.id = l.owner_id
+       ORDER BY l.created_at DESC
+       LIMIT ?`
+    )
+    .all(limit) as Array<
+    LectureRecord & { owner_email: string; owner_name: string }
+  >;
 }
 
 export function listLecturesForUser(

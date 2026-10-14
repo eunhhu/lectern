@@ -1390,6 +1390,20 @@ struct LecternPopoverView: View {
                                 .foregroundColor(Elysium.textPrimary)
                                 .lineLimit(1)
                             Spacer()
+                            Button(action: {
+                                if let u = URL(string: "\(store.serverBase)/admin") {
+                                    NSWorkspace.shared.open(u)
+                                }
+                            }) {
+                                Text("어드민·CRM")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundColor(Elysium.textBrand)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Elysium.actionPrimarySubtle)
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(.plain)
                         }
                         HStack(spacing: 8) {
                             ElysiumSecondaryButton(title: "정리") {

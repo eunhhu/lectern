@@ -3,6 +3,7 @@ import { handleRequest } from "../src/index.ts";
 import {
   completeLectureRecord,
   createPendingLecture,
+  createUser,
   deleteLectureById,
   ensureBootstrapOwner,
   generateId,
@@ -232,6 +233,112 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
 
     // Cleanup
     expect(deleteLectureById(id)).toBe(true);
+  });
+
+  test("Password change, Admin CRM Console, and RBAC permission management", async () => {
+    const adminOwner = createUser({
+      email: `owner_${Date.now()}@test.local`,
+      displayName: "테스트오너",
+      password: "old_password_123",
+      role: "owner",
+      isAdmin: true,
+    });
+    const memberUser = createUser({
+      email: `member_${Date.now()}@test.local`,
+      displayName: "일반회원",
+      password: "member_password_123",
+      role: "member",
+    });
+
+    // 1. Self-service password change
+    const pwFailRes = await handleRequest(
+      new Request("http://localhost/api/auth/password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Lectern-Token": memberUser.api_token,
+        },
+        body: JSON.stringify({
+          currentPassword: "wrong_password",
+          newPassword: "new_password_456",
+        }),
+      })
+    );
+    expect(pwFailRes.status).toBe(400);
+
+    const pwOkRes = await handleRequest(
+      new Request("http://localhost/api/auth/password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Lectern-Token": memberUser.api_token,
+        },
+        body: JSON.stringify({
+          currentPassword: "member_password_123",
+          newPassword: "new_password_456",
+        }),
+      })
+    );
+    expect(pwOkRes.status).toBe(200);
+
+    // Verify login works with new password
+    const loginNewRes = await handleRequest(
+      new Request("http://localhost/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: memberUser.email,
+          password: "new_password_456",
+        }),
+      })
+    );
+    expect(loginNewRes.status).toBe(200);
+
+    // 2. Non-admin blocked from /api/admin/overview
+    const nonAdminRes = await handleRequest(
+      new Request("http://localhost/api/admin/overview", {
+        headers: { "X-Lectern-Token": memberUser.api_token },
+      })
+    );
+    expect(nonAdminRes.status).toBe(403);
+
+    // 3. Admin can access /admin UI and /api/admin/overview CRM
+    const adminHtmlRes = await handleRequest(new Request("http://localhost/admin"));
+    expect(adminHtmlRes.status).toBe(200);
+    expect(await adminHtmlRes.text()).toContain("CRM & RBAC Console");
+
+    const crmRes = await handleRequest(
+      new Request("http://localhost/api/admin/overview", {
+        headers: { "X-Lectern-Token": adminOwner.api_token },
+      })
+    );
+    expect(crmRes.status).toBe(200);
+    const crmJson: any = await crmRes.json();
+    expect(crmJson.ok).toBe(true);
+    expect(Array.isArray(crmJson.users)).toBe(true);
+    expect(Array.isArray(crmJson.auditLogs)).toBe(true);
+
+    // 4. Admin updates member role to viewer (disables ingest) & adds CRM memo
+    const patchUserRes = await handleRequest(
+      new Request(`http://localhost/api/admin/users/${memberUser.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Lectern-Token": adminOwner.api_token,
+        },
+        body: JSON.stringify({
+          role: "viewer",
+          canIngest: false,
+          canShare: false,
+          memo: "열람 전용 테스터",
+        }),
+      })
+    );
+    expect(patchUserRes.status).toBe(200);
+    const patchUserJson: any = await patchUserRes.json();
+    expect(patchUserJson.user.role).toBe("viewer");
+    expect(patchUserJson.user.canIngest).toBe(false);
+    expect(patchUserJson.user.memo).toBe("열람 전용 테스터");
   });
 
   test("POST /api/cd/deploy rejects unauthorized requests", async () => {
