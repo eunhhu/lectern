@@ -12,8 +12,9 @@ let package = Package(
             path: "Sources/LecternMenuBar",
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedFramework("SwiftUI"),
                 .linkedFramework("AVFoundation"),
-                .linkedFramework("WebKit")
+                .linkedFramework("Carbon")
             ]
         )
     ]

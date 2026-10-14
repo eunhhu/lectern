@@ -11,7 +11,12 @@
     "dev": "bun --watch apps/server/src/index.ts",
     "start": "bun apps/server/src/index.ts",
     "cli": "bun packages/core/src/cli.ts",
+    "test": "bun test",
     "typecheck": "bun x tsc --noEmit"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "typescript": "^7.0.2"
+  }
 }

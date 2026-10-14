@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
+import { timingSafeEqual } from "node:crypto";
 import {
   distillLectureAudio,
   renderMarkdownToHtml,
@@ -11,7 +12,7 @@ import {
   createPendingLecture,
   deleteLectureById,
   failLectureRecord,
-   generateId,
+  generateId,
   getLectureById,
   getLectureByShareToken,
   listLectures,
@@ -25,6 +26,22 @@ const PORT = Number(process.env.PORT || 18775);
 const PUBLIC_BASE_URL =
   process.env.LECTERN_BASE_URL || "https://lectern.qucord.com";
 
+function resolveGitSha(): string {
+  try {
+    const res = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
+      cwd: "/home/eunhhu/work/lectern",
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const out = new TextDecoder().decode(res.stdout).trim();
+    return out || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+const BOOT_GIT_SHA = resolveGitSha();
+
 await syncLocalLecturesDir();
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -35,9 +52,16 @@ function jsonResponse(data: unknown, status = 200): Response {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers":
-        "Content-Type, Authorization, X-Course, X-Title, X-Model, X-Gemini-Key",
+        "Content-Type, Authorization, X-Course, X-Title, X-Model, X-Gemini-Key, X-Lectern-Deploy-Token",
     },
   });
+}
+
+function safeTokenCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length || bufA.length === 0) return false;
+  return timingSafeEqual(bufA, bufB);
 }
 
 async function saveIncomingAudio(
@@ -166,13 +190,7 @@ function serveAudioWithRange(
   });
 }
 
-const server = Bun.serve({
-  port: PORT,
-  hostname: "127.0.0.1",
-  maxRequestBodySize: 250 * 1024 * 1024, // 250 MB
-  idleTimeout: 255,
-
-  async fetch(req: Request): Promise<Response> {
+export async function handleRequest(req: Request): Promise<Response> {
     if (req.method === "OPTIONS") {
       return jsonResponse({ ok: true });
     }
@@ -223,8 +241,59 @@ const server = Bun.serve({
       return jsonResponse({
         status: "ok",
         service: "lectern",
+        version: "1.0.0",
+        gitSha: BOOT_GIT_SHA,
         runtime: `Bun ${Bun.version}`,
         defaultModel: DEFAULT_GEMINI_MODEL,
+        lectureCount: listLectures().length,
+      });
+    }
+
+    // 4b. Continuous Deployment Webhook: POST /api/cd/deploy
+    if (req.method === "POST" && path === "/api/cd/deploy") {
+      const configuredSecret = (process.env.LECTERN_DEPLOY_TOKEN || "").trim();
+      const providedSecret = (
+        req.headers.get("x-lectern-deploy-token") || ""
+      ).trim();
+
+      if (!configuredSecret || !safeTokenCompare(configuredSecret, providedSecret)) {
+        return jsonResponse({ error: "Unauthorized CD request" }, 401);
+      }
+
+      const repoDir = "/home/eunhhu/work/lectern";
+      const fetchProc = Bun.spawnSync(["git", "fetch", "origin", "main"], {
+        cwd: repoDir,
+      });
+      const resetProc = Bun.spawnSync(["git", "reset", "--hard", "origin/main"], {
+        cwd: repoDir,
+      });
+      const installProc = Bun.spawnSync(["bun", "install"], { cwd: repoDir });
+
+      const newSha = resolveGitSha();
+      const ok =
+        fetchProc.exitCode === 0 &&
+        resetProc.exitCode === 0 &&
+        installProc.exitCode === 0;
+
+      if (!ok) {
+        return jsonResponse(
+          {
+            ok: false,
+            error: "Git pull or bun install failed during CD",
+            newSha,
+          },
+          500
+        );
+      }
+
+      setTimeout(() => {
+        process.exit(0);
+      }, 350);
+
+      return jsonResponse({
+        ok: true,
+        deployedSha: newSha,
+        restarting: true,
       });
     }
 
@@ -461,7 +530,16 @@ const server = Bun.serve({
     }
 
     return jsonResponse({ error: "Not Found" }, 404);
-  },
-});
+}
 
-console.log(`🚀 Lectern Bun Server listening on http://127.0.0.1:${server.port}`);
+if (import.meta.main) {
+  const server = Bun.serve({
+    port: PORT,
+    hostname: "127.0.0.1",
+    maxRequestBodySize: 250 * 1024 * 1024, // 250 MB
+    idleTimeout: 255,
+    fetch: handleRequest,
+  });
+
+  console.log(`🚀 Lectern Bun Server listening on http://127.0.0.1:${server.port}`);
+}

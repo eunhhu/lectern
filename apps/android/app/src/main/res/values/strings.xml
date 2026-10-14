@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lectern</string>
+    <string name="quick_record_short">즉시 강의 녹음</string>
+    <string name="quick_record_long">강의 즉시 녹음 및 요약 시작</string>
+</resources>

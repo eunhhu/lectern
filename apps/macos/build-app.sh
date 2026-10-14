@@ -6,6 +6,7 @@ echo "🔨 Building native macOS Menu Bar app (Release)..."
 swift build -c release
 
 APP_DIR="Lectern.app/Contents"
+rm -rf "Lectern.app" "Lectern-macOS-arm64.zip"
 mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
 cp ".build/release/LecternMenuBar" "$APP_DIR/MacOS/Lectern"
 
@@ -24,6 +25,8 @@ cat > "$APP_DIR/Info.plist" << 'EOF'
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
   <string>1.0.0</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
   <key>LSUIElement</key>
   <true/>
   <key>NSMicrophoneUsageDescription</key>
@@ -32,4 +35,6 @@ cat > "$APP_DIR/Info.plist" << 'EOF'
 </plist>
 EOF
 
-echo "✅ Built Lectern.app (macOS Menu Bar agent)"
+codesign --force --deep --sign - "Lectern.app"
+ditto -c -k --sequesterRsrc --keepParent "Lectern.app" "Lectern-macOS-arm64.zip"
+echo "✅ Built & packaged Lectern.app -> Lectern-macOS-arm64.zip"

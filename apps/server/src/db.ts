@@ -34,6 +34,7 @@ export interface LectureRecord {
   model_used: string;
   source_client: string;
   error_message: string | null;
+  md_source_path?: string | null;
   created_at: string;
   updated_at: string;
 }
