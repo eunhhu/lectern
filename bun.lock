@@ -1,0 +1,28 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "lectern",
+    },
+    "apps/server": {
+      "name": "@lectern/server",
+      "version": "1.0.0",
+      "dependencies": {
+        "@lectern/core": "workspace:*",
+      },
+    },
+    "packages/core": {
+      "name": "@lectern/core",
+      "version": "1.0.0",
+      "bin": {
+        "lectern": "./src/cli.ts",
+      },
+    },
+  },
+  "packages": {
+    "@lectern/core": ["@lectern/core@workspace:packages/core"],
+
+    "@lectern/server": ["@lectern/server@workspace:apps/server"],
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "lectern",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Zero-overhead cross-platform lecture audio recorder, noise/break filter, and academic Markdown distillation engine powered by Bun & Gemini Flash.",
+  "workspaces": [
+    "packages/*",
+    "apps/server"
+  ],
+  "scripts": {
+    "dev": "bun --watch apps/server/src/index.ts",
+    "start": "bun apps/server/src/index.ts",
+    "cli": "bun packages/core/src/cli.ts",
+    "typecheck": "bun x tsc --noEmit"
+  },
+  "license": "MIT"
+}

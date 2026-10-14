@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+.DS_Store
+*.log
+.env
+.env.*
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+apps/macos/.build/
+apps/macos/Lectern.app/
+apps/android/.gradle/
+apps/android/app/build/
+apps/windows/bin/
+apps/windows/obj/

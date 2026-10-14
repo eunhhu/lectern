@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="quick_record"
+        android:enabled="true"
+        android:icon="@android:drawable/ic_btn_speak_now"
+        android:shortcutShortLabel="@string/quick_record_short"
+        android:shortcutLongLabel="@string/quick_record_long">
+        <intent
+            android:action="com.qucord.lectern.QUICK_RECORD"
+            android:targetPackage="com.qucord.lectern"
+            android:targetClass="com.qucord.lectern.MainActivity" />
+    </shortcut>
+</shortcuts>
