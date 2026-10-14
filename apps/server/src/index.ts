@@ -8,11 +8,14 @@ import {
 } from "../../../packages/core/src/index.ts";
 import {
   DATA_DIR,
+  type LectureRecord,
   type UserRecord,
+  cleanupLecturesForUser,
   completeLectureRecord,
   createPendingLecture,
   createSession,
   createUser,
+  deleteLectureAudioOnly,
   deleteLectureById,
   deleteSession,
   ensureBootstrapOwner,
@@ -24,6 +27,7 @@ import {
   getUserBySessionOrApiToken,
   listLecturesForUser,
   rotateUserApiToken,
+  setLectureVisibility,
   syncLocalLecturesDir,
   updateLectureMarkdown,
   updateLectureProgress,
@@ -55,6 +59,117 @@ const BOOT_GIT_SHA = resolveGitSha();
 
 const bootstrapOwner = ensureBootstrapOwner();
 await syncLocalLecturesDir(bootstrapOwner.id);
+cleanupLecturesForUser(bootstrapOwner.id, { mode: "short_fragments" });
+
+type SSEController = ReadableStreamDefaultController<Uint8Array>;
+const sseClientsByOwner = new Map<string, Set<SSEController>>();
+const sseEncoder = new TextEncoder();
+
+export function toLectureSummaryDto(l: LectureRecord) {
+  return {
+    id: l.id,
+    share_token: l.share_token,
+    is_public: Boolean(l.is_public),
+    title: l.title,
+    course: l.course,
+    date_label: l.date_label,
+    status: l.status,
+    stage: l.stage,
+    stage_message: l.stage_message,
+    progress: l.progress,
+    excerpt: l.excerpt,
+    duration_sec: l.duration_sec,
+    audio_size: l.audio_size,
+    model_used: l.model_used,
+    has_audio: Boolean(l.audio_path && existsSync(l.audio_path)),
+    created_at: l.created_at,
+    updated_at: l.updated_at,
+  };
+}
+
+export function broadcastLectureEvent(
+  ownerId: string,
+  payload: {
+    type: "created" | "progress" | "completed" | "error" | "updated" | "deleted";
+    id?: string;
+    ids?: string[];
+    lecture?: ReturnType<typeof toLectureSummaryDto>;
+    stage?: string;
+    stage_message?: string;
+    progress?: number;
+    error_message?: string | null;
+  }
+): void {
+  const clients = sseClientsByOwner.get(ownerId);
+  if (!clients || clients.size === 0) return;
+
+  const chunk = sseEncoder.encode(
+    `event: lecture_update\ndata: ${JSON.stringify(payload)}\n\n`
+  );
+  for (const ctrl of Array.from(clients)) {
+    try {
+      ctrl.enqueue(chunk);
+    } catch {
+      clients.delete(ctrl);
+    }
+  }
+}
+
+function runBackgroundDistillation(
+  id: string,
+  ownerId: string,
+  incoming: {
+    audioPath: string;
+    course: string;
+    title: string;
+    model: string;
+    apiKey?: string;
+  }
+) {
+  (async () => {
+    try {
+      const res = await distillLectureAudio({
+        audioPath: incoming.audioPath,
+        courseName: incoming.course,
+        title: incoming.title,
+        model: incoming.model,
+        apiKey: incoming.apiKey,
+        onProgress: (ev) => {
+          const updated = updateLectureProgress(
+            id,
+            ev.stage,
+            ev.message,
+            ev.progress ?? 50
+          );
+          if (updated) {
+            broadcastLectureEvent(ownerId, {
+              type: "progress",
+              id,
+              stage: updated.stage,
+              stage_message: updated.stage_message,
+              progress: updated.progress,
+              lecture: toLectureSummaryDto(updated),
+            });
+          }
+        },
+      });
+      const done = completeLectureRecord(id, res);
+      broadcastLectureEvent(ownerId, {
+        type: "completed",
+        id,
+        lecture: toLectureSummaryDto(done),
+      });
+    } catch (err: any) {
+      const failed = failLectureRecord(id, err?.message || String(err));
+      broadcastLectureEvent(ownerId, {
+        type: "error",
+        id,
+        error_message: err?.message || String(err),
+        lecture: failed ? toLectureSummaryDto(failed) : undefined,
+      });
+    }
+  })();
+}
 
 function jsonResponse(
   data: unknown,
@@ -66,7 +181,7 @@ function jsonResponse(
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
       "Access-Control-Allow-Headers":
         "Content-Type, Authorization, X-Lectern-Token, X-Course, X-Title, X-Model, X-Gemini-Key, X-Lectern-Deploy-Token",
       ...extraHeaders,
@@ -282,7 +397,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       });
     }
 
-    // 3. Public Share View: /s/:token
+    // 3. Public Share View: /s/:token (Requires lecture.is_public === 1 OR authenticated owner)
     if (req.method === "GET" && path.startsWith("/s/")) {
       const token = decodeURIComponent(path.slice(3));
       const lecture = getLectureByShareToken(token);
@@ -292,8 +407,74 @@ export async function handleRequest(req: Request): Promise<Response> {
           headers: { "Content-Type": "text/plain; charset=utf-8" },
         });
       }
+      const viewer = authenticateRequest(req);
+      const isOwner = Boolean(viewer && viewer.id === lecture.owner_id);
+      if (!lecture.is_public && !isOwner) {
+        return new Response(
+          "비공개로 설정된 강의 노트입니다. 소유자가 '공개'로 전환한 노트만 공유 링크로 열람할 수 있습니다.",
+          {
+            status: 403,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          }
+        );
+      }
       return new Response(renderSharePageHtml(lecture), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    // 3b. Real-Time Server-Sent Events Stream: GET /api/events
+    if (req.method === "GET" && path === "/api/events") {
+      const user = authenticateRequest(req);
+      if (!user) {
+        return jsonResponse({ error: "로그인이 필요합니다." }, 401);
+      }
+
+      let ctrlRef: SSEController | null = null;
+      let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          ctrlRef = controller;
+          let set = sseClientsByOwner.get(user.id);
+          if (!set) {
+            set = new Set();
+            sseClientsByOwner.set(user.id, set);
+          }
+          set.add(controller);
+
+          controller.enqueue(
+            sseEncoder.encode(
+              `event: connected\ndata: ${JSON.stringify({ ok: true, userId: user.id })}\n\n`
+            )
+          );
+
+          heartbeatTimer = setInterval(() => {
+            try {
+              controller.enqueue(sseEncoder.encode(`: heartbeat ${Date.now()}\n\n`));
+            } catch {
+              if (heartbeatTimer) clearInterval(heartbeatTimer);
+              if (ctrlRef) sseClientsByOwner.get(user.id)?.delete(ctrlRef);
+            }
+          }, 15000);
+        },
+        cancel() {
+          if (heartbeatTimer) clearInterval(heartbeatTimer);
+          if (ctrlRef) {
+            sseClientsByOwner.get(user.id)?.delete(ctrlRef);
+          }
+        },
+      });
+
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+          "Access-Control-Allow-Origin": "*",
+        },
       });
     }
 
@@ -513,28 +694,66 @@ export async function handleRequest(req: Request): Promise<Response> {
       const q = url.searchParams.get("q") || undefined;
       const all = listLecturesForUser(user.id);
       const courses = Array.from(new Set(all.map((l) => l.course)));
-      const filtered = listLecturesForUser(user.id, course, q).map((l) => ({
-        id: l.id,
-        share_token: l.share_token,
-        title: l.title,
-        course: l.course,
-        date_label: l.date_label,
-        status: l.status,
-        stage: l.stage,
-        stage_message: l.stage_message,
-        progress: l.progress,
-        excerpt: l.excerpt,
-        duration_sec: l.duration_sec,
-        model_used: l.model_used,
-        has_audio: Boolean(l.audio_path && existsSync(l.audio_path)),
-        created_at: l.created_at,
-      }));
+      const filtered = listLecturesForUser(user.id, course, q).map(toLectureSummaryDto);
       return jsonResponse({ lectures: filtered, courses });
     }
 
-    // 8. Single Lecture Detail / Edit / Delete / Audio / Markdown Download
-    const lecMatch = path.match(/^\/api\/lectures\/([^/]+)(?:\/(audio|markdown))?$/);
-    if (lecMatch && lecMatch[1] !== "ingest") {
+    // 7b. Batch Cleanup & Organization: POST /api/lectures/cleanup
+    if (req.method === "POST" && path === "/api/lectures/cleanup") {
+      const user = authenticateRequest(req);
+      if (!user) {
+        return jsonResponse({ error: "로그인이 필요합니다." }, 401);
+      }
+      const body: any = await req.json();
+      const mode = body.mode;
+      const result = cleanupLecturesForUser(user.id, {
+        mode,
+        ids: body.ids,
+        targetCourse: body.targetCourse,
+        isPublic: body.isPublic,
+      });
+
+      if (
+        mode === "failed" ||
+        mode === "short_fragments" ||
+        mode === "batch_delete"
+      ) {
+        if (result.affectedIds.length > 0) {
+          broadcastLectureEvent(user.id, {
+            type: "deleted",
+            ids: result.affectedIds,
+          });
+        }
+      } else {
+        for (const id of result.affectedIds) {
+          const updated = getLectureById(id);
+          if (updated) {
+            broadcastLectureEvent(user.id, {
+              type: "updated",
+              id,
+              lecture: toLectureSummaryDto(updated),
+            });
+          }
+        }
+      }
+
+      return jsonResponse({
+        ok: true,
+        affectedCount: result.affectedIds.length,
+        affectedIds: result.affectedIds,
+        reclaimedBytes: result.reclaimedBytes,
+      });
+    }
+
+    // 8. Single Lecture Detail / Edit / Visibility / Delete / Audio / Markdown Download
+    const lecMatch = path.match(
+      /^\/api\/lectures\/([^/]+)(?:\/(audio|markdown|visibility))?$/
+    );
+    if (
+      lecMatch &&
+      lecMatch[1] !== "ingest" &&
+      lecMatch[1] !== "cleanup"
+    ) {
       const id = decodeURIComponent(lecMatch[1]);
       const sub = lecMatch[2];
       const rec = getLectureById(id);
@@ -545,12 +764,21 @@ export async function handleRequest(req: Request): Promise<Response> {
       const user = authenticateRequest(req);
       const shareParam = (url.searchParams.get("share") || "").trim();
       const hasValidShareToken =
-        Boolean(shareParam) && shareParam === rec.share_token;
+        Boolean(shareParam) &&
+        shareParam === rec.share_token &&
+        rec.is_public === 1;
       const isOwner = Boolean(user && user.id === rec.owner_id);
 
-      if (!isOwner && !(hasValidShareToken && (sub === "audio" || sub === "markdown"))) {
+      if (
+        !isOwner &&
+        !(hasValidShareToken && (sub === "audio" || sub === "markdown"))
+      ) {
         return jsonResponse(
-          { error: user ? "접근 권한이 없는 강의 노트입니다." : "로그인이 필요합니다." },
+          {
+            error: user
+              ? "접근 권한이 없는 강의 노트입니다."
+              : "로그인이 필요합니다.",
+          },
           user ? 403 : 401
         );
       }
@@ -560,6 +788,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         return jsonResponse({
           lecture: {
             ...rec,
+            is_public: Boolean(rec.is_public),
             has_audio: Boolean(rec.audio_path && existsSync(rec.audio_path)),
           },
           rendered,
@@ -592,6 +821,66 @@ export async function handleRequest(req: Request): Promise<Response> {
         );
       }
 
+      if (req.method === "DELETE" && sub === "audio") {
+        if (!isOwner) {
+          return jsonResponse({ error: "권한이 없습니다." }, 403);
+        }
+        const res = deleteLectureAudioOnly(id);
+        if (res.lecture) {
+          broadcastLectureEvent(rec.owner_id, {
+            type: "updated",
+            id,
+            lecture: toLectureSummaryDto(res.lecture),
+          });
+        }
+        return jsonResponse({
+          ok: res.ok,
+          reclaimedBytes: res.reclaimedBytes,
+          lecture: res.lecture
+            ? {
+                ...res.lecture,
+                is_public: Boolean(res.lecture.is_public),
+                has_audio: false,
+              }
+            : null,
+        });
+      }
+
+      if ((req.method === "PATCH" || req.method === "POST") && sub === "visibility") {
+        if (!isOwner) {
+          return jsonResponse({ error: "수정 권한이 없습니다." }, 403);
+        }
+        const body: any = await req.json();
+        const nextPublic =
+          typeof body.is_public === "boolean"
+            ? body.is_public
+            : !Boolean(rec.is_public);
+        const updated = setLectureVisibility(
+          id,
+          nextPublic,
+          Boolean(body.rotate_token)
+        );
+        if (updated) {
+          broadcastLectureEvent(rec.owner_id, {
+            type: "updated",
+            id,
+            lecture: toLectureSummaryDto(updated),
+          });
+        }
+        return jsonResponse({
+          ok: true,
+          lecture: updated
+            ? {
+                ...updated,
+                is_public: Boolean(updated.is_public),
+                has_audio: Boolean(
+                  updated.audio_path && existsSync(updated.audio_path)
+                ),
+              }
+            : null,
+        });
+      }
+
       if (req.method === "PUT" && !sub) {
         if (!isOwner) {
           return jsonResponse({ error: "수정 권한이 없습니다." }, 403);
@@ -601,9 +890,27 @@ export async function handleRequest(req: Request): Promise<Response> {
           id,
           String(body.title || rec.title),
           String(body.course || rec.course),
-          String(body.markdown ?? rec.markdown)
+          String(body.markdown ?? rec.markdown),
+          typeof body.is_public === "boolean" ? body.is_public : undefined
         );
-        return jsonResponse({ lecture: updated });
+        if (updated) {
+          broadcastLectureEvent(rec.owner_id, {
+            type: "updated",
+            id,
+            lecture: toLectureSummaryDto(updated),
+          });
+        }
+        return jsonResponse({
+          lecture: updated
+            ? {
+                ...updated,
+                is_public: Boolean(updated.is_public),
+                has_audio: Boolean(
+                  updated.audio_path && existsSync(updated.audio_path)
+                ),
+              }
+            : null,
+        });
       }
 
       if (req.method === "DELETE" && !sub) {
@@ -611,7 +918,12 @@ export async function handleRequest(req: Request): Promise<Response> {
           return jsonResponse({ error: "삭제 권한이 없습니다." }, 403);
         }
         deleteLectureById(id);
-        return jsonResponse({ ok: true });
+        broadcastLectureEvent(rec.owner_id, {
+          type: "deleted",
+          id,
+          ids: [id],
+        });
+        return jsonResponse({ ok: true, deletedId: id });
       }
     }
 
@@ -640,33 +952,17 @@ export async function handleRequest(req: Request): Promise<Response> {
           sourceClient: incoming.sourceClient,
         });
 
-        // Kick off distillation in background
-        (async () => {
-          try {
-            const res = await distillLectureAudio({
-              audioPath: incoming.audioPath,
-              courseName: incoming.course,
-              title: incoming.title,
-              model: incoming.model,
-              apiKey: incoming.apiKey,
-              onProgress: (ev) => {
-                updateLectureProgress(
-                  id,
-                  ev.stage,
-                  ev.message,
-                  ev.progress ?? 50
-                );
-              },
-            });
-            completeLectureRecord(id, res);
-          } catch (err: any) {
-            failLectureRecord(id, err?.message || String(err));
-          }
-        })();
+        broadcastLectureEvent(user.id, {
+          type: "created",
+          id,
+          lecture: toLectureSummaryDto(pending),
+        });
+
+        runBackgroundDistillation(id, user.id, incoming);
 
         return jsonResponse({
           ok: true,
-          lecture: pending,
+          lecture: toLectureSummaryDto(pending),
           url: `${PUBLIC_BASE_URL}/?lecture=${id}`,
           shareUrl: `${PUBLIC_BASE_URL}/s/${pending.share_token}`,
         });
@@ -704,28 +1000,20 @@ export async function handleRequest(req: Request): Promise<Response> {
           sourceClient: incoming.sourceClient || "shortcut",
         });
 
+        broadcastLectureEvent(user.id, {
+          type: "created",
+          id,
+          lecture: toLectureSummaryDto(pending),
+        });
+
         if (!waitComplete) {
-          (async () => {
-            try {
-              const res = await distillLectureAudio({
-                audioPath: incoming.audioPath,
-                courseName: incoming.course,
-                title: incoming.title,
-                model: incoming.model,
-                apiKey: incoming.apiKey,
-                onProgress: (ev) =>
-                  updateLectureProgress(id, ev.stage, ev.message, ev.progress ?? 50),
-              });
-              completeLectureRecord(id, res);
-            } catch (err: any) {
-              failLectureRecord(id, err?.message || String(err));
-            }
-          })();
+          runBackgroundDistillation(id, user.id, incoming);
 
           return jsonResponse({
             ok: true,
             id,
             status: "processing",
+            lecture: toLectureSummaryDto(pending),
             url: `${PUBLIC_BASE_URL}/?lecture=${id}`,
             shareUrl: `${PUBLIC_BASE_URL}/s/${pending.share_token}`,
           });
@@ -737,10 +1025,31 @@ export async function handleRequest(req: Request): Promise<Response> {
           title: incoming.title,
           model: incoming.model,
           apiKey: incoming.apiKey,
-          onProgress: (ev) =>
-            updateLectureProgress(id, ev.stage, ev.message, ev.progress ?? 50),
+          onProgress: (ev) => {
+            const updated = updateLectureProgress(
+              id,
+              ev.stage,
+              ev.message,
+              ev.progress ?? 50
+            );
+            if (updated) {
+              broadcastLectureEvent(user!.id, {
+                type: "progress",
+                id,
+                stage: updated.stage,
+                stage_message: updated.stage_message,
+                progress: updated.progress,
+                lecture: toLectureSummaryDto(updated),
+              });
+            }
+          },
         });
         const done = completeLectureRecord(id, res);
+        broadcastLectureEvent(user.id, {
+          type: "completed",
+          id,
+          lecture: toLectureSummaryDto(done),
+        });
 
         return jsonResponse({
           ok: true,

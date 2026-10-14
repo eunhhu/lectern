@@ -1288,7 +1288,10 @@ export function renderAppHtml(): string {
 
       <div class="user-bar">
         <span id="user-badge" style="font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">로그인됨</span>
-        <button class="btn" style="height:26px;padding:0 8px;font-size:11.5px;" onclick="logoutAccount()">로그아웃</button>
+        <div style="display:flex;gap:4px;">
+          <button class="btn" style="height:26px;padding:0 8px;font-size:11.5px;" onclick="openCleanupModal()">기록 정리</button>
+          <button class="btn" style="height:26px;padding:0 8px;font-size:11.5px;" onclick="logoutAccount()">로그아웃</button>
+        </div>
       </div>
       <div class="sidebar-footer">
         <button class="btn" onclick="openClientsModal()">네이티브 앱·단축어</button>
@@ -1303,14 +1306,18 @@ export function renderAppHtml(): string {
           <span class="meta-pill course" id="cur-course">강의 선택</span>
           <span class="meta-pill" id="cur-date">—</span>
           <span class="meta-pill" id="cur-model">gemini-flash-latest</span>
+          <span class="meta-pill" id="sse-status-pill" style="font-size:11px;color:var(--status-success-fg);background:var(--status-success-bg);">실시간 동기화</span>
         </div>
         <div class="toolbar-actions">
           <button class="btn btn-icon" onclick="toggleTheme()" title="라이트/다크 테마 전환" aria-label="테마 전환">
             <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
           </button>
+          <button class="btn" id="btn-visibility" onclick="toggleCurrentVisibility()" title="공유 링크 공개/비공개 전환">비공개</button>
           <button class="btn" id="btn-edit" onclick="toggleEditor()">편집</button>
           <button class="btn" id="btn-md" onclick="downloadCurrentMarkdown()">MD</button>
           <button class="btn" id="btn-pdf" onclick="window.print()">PDF</button>
+          <button class="btn" id="btn-cleanup" onclick="openCleanupModal()" title="기록 정리 및 오디오 용량 관리">정리</button>
+          <button class="btn" id="btn-delete" style="color:var(--status-danger-fg);" onclick="deleteCurrentLecture()" title="현재 강의 노트 삭제">삭제</button>
           <button class="btn btn-primary" id="btn-share" onclick="shareCurrentLecture()">공유 링크</button>
         </div>
       </header>
@@ -1478,6 +1485,59 @@ export function renderAppHtml(): string {
     </div>
   </div>
 
+  <!-- Cleanup, Visibility & Record Management Modal -->
+  <div class="modal-backdrop" id="cleanup-modal">
+    <div class="modal-card" style="max-width:540px;">
+      <div class="modal-header">
+        <div class="modal-title">기록 정리 · 삭제 · 공개 설정</div>
+        <button class="btn btn-icon" onclick="closeModal('cleanup-modal')" aria-label="닫기">✕</button>
+      </div>
+
+      <div id="cleanup-current-box" style="padding:14px;border-radius:var(--radius-md);background:var(--surface-subtle);border:1px solid var(--border-default);margin-bottom:16px;">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;" id="cleanup-cur-title">현재 선택된 강의 노트</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <button class="btn" id="cleanup-vis-btn" onclick="toggleCurrentVisibility()">공개/비공개 전환</button>
+          <button class="btn" onclick="rotateCurrentShareToken()">공유 링크 재발급 (기존 링크 차단)</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;">
+          <input type="text" id="cleanup-move-course" class="field-input" style="margin-bottom:0;flex:1;height:34px;" placeholder="변경할 과목명 입력" />
+          <button class="btn" onclick="moveCurrentLectureCourse()">과목 이동</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" id="cleanup-audio-btn" onclick="deleteCurrentAudioOnly()">원본 오디오만 삭제 (노트 보존)</button>
+          <button class="btn" style="color:var(--status-danger-fg);border-color:var(--status-danger-fg);" onclick="deleteCurrentLecture()">이 강의 노트 영구 삭제</button>
+        </div>
+      </div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;">워크스페이스 일괄 기록 정리</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:var(--radius-sm);background:var(--surface-subtle);border:1px solid var(--border-subtle);">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);">실패·중단된 분석 기록 정리</div>
+            <div style="font-size:11.5px;color:var(--text-secondary);">오류 상태이거나 15분 이상 멈춘 미완료 기록과 임시 파일을 삭제합니다.</div>
+          </div>
+          <button class="btn" onclick="runWorkspaceCleanup('failed')">일괄 정리</button>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:var(--radius-sm);background:var(--surface-subtle);border:1px solid var(--border-subtle);">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);">짧은 테스트·단편 녹음(15초 미만) 정리</div>
+            <div style="font-size:11.5px;color:var(--text-secondary);">실수로 눌렸거나 테스트로 녹음된 짧은 단편 노트를 일괄 삭제합니다.</div>
+          </div>
+          <button class="btn" onclick="runWorkspaceCleanup('short_fragments')">단편 삭제</button>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:var(--radius-sm);background:var(--surface-subtle);border:1px solid var(--border-subtle);">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);">완료된 모든 노트의 원본 음성파일 비우기</div>
+            <div style="font-size:11.5px;color:var(--text-secondary);">마크다운 강의 노트는 영구 보존하고 대용량 원본 오디오만 정리합니다.</div>
+          </div>
+          <button class="btn" onclick="runWorkspaceCleanup('audio_only_all')">오디오 비우기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script>
@@ -1487,6 +1547,127 @@ export function renderAppHtml(): string {
     let searchQuery = '';
     let currentUser = null;
     let authMode = 'login';
+    let sseSource = null;
+
+    // Centralized Reactive State Helpers (SSE + Polling Unified)
+    function upsertLectureSummaryInState(summary) {
+      if (!summary || !summary.id) return;
+      const idx = lectures.findIndex(item => item.id === summary.id);
+      if (idx >= 0) {
+        lectures[idx] = Object.assign({}, lectures[idx], summary);
+      } else {
+        if (activeCourse === 'ALL' || summary.course === activeCourse) {
+          lectures.unshift(summary);
+        }
+      }
+      renderLectureList();
+    }
+
+    function removeLectureIdsFromState(ids) {
+      if (!Array.isArray(ids) || !ids.length) return;
+      const rmSet = new Set(ids);
+      lectures = lectures.filter(item => !rmSet.has(item.id));
+      renderLectureList();
+      if (currentLecture && rmSet.has(currentLecture.id)) {
+        currentLecture = null;
+        if (lectures.length > 0) {
+          selectLecture(lectures[0].id, false);
+        } else {
+          document.getElementById('md-article').innerHTML =
+            '<p style="color:var(--text-tertiary);">왼쪽 목록에서 강의 노트를 선택하거나 새 강의를 녹음/업로드하세요.</p>';
+          document.getElementById('toc-list').innerHTML = '';
+          document.getElementById('audio-bar').classList.remove('visible');
+        }
+      }
+    }
+
+    function connectRealtimeSSE() {
+      if (sseSource) {
+        try { sseSource.close(); } catch {}
+        sseSource = null;
+      }
+      const tok = localStorage.getItem('lectern_token') || '';
+      const url = '/api/events' + (tok ? '?token=' + encodeURIComponent(tok) : '');
+      const es = new EventSource(url);
+      sseSource = es;
+
+      const badge = document.getElementById('sse-status-pill');
+      es.addEventListener('connected', () => {
+        if (badge) {
+          badge.textContent = '실시간 동기화';
+          badge.style.color = 'var(--status-success-fg)';
+        }
+      });
+
+      es.addEventListener('lecture_update', async (ev) => {
+        try {
+          const payload = JSON.parse(ev.data || '{}');
+          if (payload.type === 'created' && payload.lecture) {
+            upsertLectureSummaryInState(payload.lecture);
+            if (!currentLecture) {
+              await selectLecture(payload.lecture.id, false);
+            }
+          } else if (payload.type === 'progress') {
+            if (payload.lecture) {
+              upsertLectureSummaryInState(payload.lecture);
+            }
+            if (currentLecture && currentLecture.id === payload.id) {
+              currentLecture.status = 'processing';
+              currentLecture.stage_message = payload.stage_message || '분석 중...';
+              currentLecture.progress = payload.progress || 50;
+              renderProcessingArticle(currentLecture);
+            }
+          } else if (payload.type === 'completed') {
+            if (payload.lecture) {
+              upsertLectureSummaryInState(payload.lecture);
+            } else {
+              await fetchLectures();
+            }
+            showToast('강의 오디오 증류가 완료되었습니다.');
+            if (!currentLecture || currentLecture.id === payload.id) {
+              await selectLecture(payload.id, false);
+            }
+          } else if (payload.type === 'error') {
+            if (payload.lecture) {
+              upsertLectureSummaryInState(payload.lecture);
+            }
+            if (currentLecture && currentLecture.id === payload.id) {
+              await selectLecture(payload.id, false);
+            }
+          } else if (payload.type === 'updated' && payload.lecture) {
+            upsertLectureSummaryInState(payload.lecture);
+            if (currentLecture && currentLecture.id === payload.id) {
+              await selectLecture(payload.id, false);
+            }
+          } else if (payload.type === 'deleted') {
+            const ids = payload.ids || (payload.id ? [payload.id] : []);
+            removeLectureIdsFromState(ids);
+          }
+        } catch (err) {
+          console.error('SSE lecture_update parse error:', err);
+        }
+      });
+
+      es.onerror = () => {
+        if (badge) {
+          badge.textContent = '재연결 중...';
+        }
+      };
+    }
+
+    function renderProcessingArticle(lec) {
+      const art = document.getElementById('md-article');
+      if (!art) return;
+      const pct = Math.max(8, Math.min(99, Number(lec.progress || 20)));
+      art.innerHTML =
+        '<div style="padding:48px 24px;text-align:center;max-width:520px;margin:0 auto;">' +
+          '<div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:10px;">' +
+            escapeClientHtml(lec.stage_message || '강의 오디오 증류 중...') +
+          ' (' + pct + '%)</div>' +
+          '<div class="card-progress" style="height:8px;margin-bottom:14px;"><div class="card-progress-bar" style="width:' + pct + '%"></div></div>' +
+          '<div style="color:var(--text-secondary);font-size:13.5px;word-break:keep-all;">쉬는 시간과 불필요한 잡담을 걸러내고 핵심 이론을 구조화하고 있습니다. 완료되면 새로고침 없이 즉시 노트가 열립니다.</div>' +
+        '</div>';
+    }
 
     // Theme setup (Elysium Light/Dark)
     const savedTheme = localStorage.getItem('lectern_theme') || 'dark';
@@ -1550,6 +1731,7 @@ export function renderAppHtml(): string {
       if (curlEl && user.apiToken) {
         curlEl.textContent = 'curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\\n  -H "X-Lectern-Token: ' + user.apiToken + '" \\\n  -H "X-Course: 정보보호개론" \\\n  -F "audio=@20261014_lecture.m4a"';
       }
+      connectRealtimeSSE();
     }
 
     async function copyApiToken() {
@@ -1563,6 +1745,10 @@ export function renderAppHtml(): string {
     }
 
     async function logoutAccount() {
+      if (sseSource) {
+        try { sseSource.close(); } catch {}
+        sseSource = null;
+      }
       await fetch('/api/auth/logout', { method: 'POST', headers: authHeaders() });
       localStorage.removeItem('lectern_token');
       currentUser = null;
@@ -1649,19 +1835,26 @@ export function renderAppHtml(): string {
       }
       listEl.innerHTML = lectures.map(item => {
         const isAct = currentLecture && currentLecture.id === item.id;
+        const visBadge = item.is_public
+          ? '<span style="font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:999px;background:var(--status-success-bg);color:var(--status-success-fg);">공개</span>'
+          : '<span style="font-size:10.5px;font-weight:500;padding:1px 6px;border-radius:999px;background:var(--surface-subtle);color:var(--text-tertiary);">비공개</span>';
         const progHtml = item.status === 'processing'
-          ? '<div class="card-progress"><div class="card-progress-bar" style="width:' + (item.progress || 15) + '%"></div></div><div style="font-size:11.5px;color:var(--action-primary);margin-top:4px;">' + (item.stage_message || '분석 중...') + '</div>'
+          ? '<div class="card-progress"><div class="card-progress-bar" style="width:' + (item.progress || 15) + '%"></div></div><div style="font-size:11.5px;color:var(--action-primary);margin-top:4px;font-weight:600;">' + escapeClientHtml(item.stage_message || '분석 중...') + ' (' + (item.progress || 15) + '%)</div>'
+          : item.status === 'error'
+          ? '<div style="font-size:11.5px;color:var(--status-danger-fg);margin-top:4px;font-weight:600;">분석 실패 · 정리 가능</div>'
           : '';
         return '<div class="lecture-card ' + (isAct ? 'active' : '') + '" onclick="selectLecture(\\'' + item.id + '\\', true)">' +
           '<div class="card-top">' +
             '<span class="card-course">' + escapeClientHtml(item.course) + '</span>' +
-            '<span class="card-date">' + escapeClientHtml(item.date_label) + '</span>' +
+            '<span style="display:flex;align-items:center;gap:4px;">' + visBadge + '<span class="card-date">' + escapeClientHtml(item.date_label) + '</span></span>' +
           '</div>' +
           '<div class="card-title">' + escapeClientHtml(item.title) + '</div>' +
           '<div class="card-excerpt">' + escapeClientHtml(item.excerpt || '') + '</div>' +
           progHtml +
         '</div>';
       }).join('');
+
+      ensureFallbackPolling();
     }
 
     function escapeClientHtml(s) {
@@ -1678,6 +1871,7 @@ export function renderAppHtml(): string {
       document.getElementById('cur-course').textContent = currentLecture.course;
       document.getElementById('cur-date').textContent = currentLecture.date_label;
       document.getElementById('cur-model').textContent = currentLecture.model_used || 'gemini-flash-latest';
+      updateVisibilityButtonsUI();
 
       const audioBar = document.getElementById('audio-bar');
       const audioEl = document.getElementById('lecture-audio');
@@ -1695,11 +1889,8 @@ export function renderAppHtml(): string {
 
       const art = document.getElementById('md-article');
       if (currentLecture.status === 'processing') {
-        art.innerHTML = '<div style="padding:48px 20px;text-align:center;">' +
-          '<div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:8px;">' + escapeClientHtml(currentLecture.stage_message || '강의 오디오 증류 중...') + '</div>' +
-          '<div style="color:var(--text-secondary);font-size:14px;">쉬는 시간과 불필요한 잡담을 걸러내고 핵심 이론을 구조화하고 있습니다. 완료되면 자동으로 표시됩니다.</div>' +
-        '</div>';
-        pollProcessingLecture(currentLecture.id);
+        renderProcessingArticle(currentLecture);
+        ensureFallbackPolling();
       } else if (currentLecture.status === 'error') {
         art.innerHTML = '<div style="padding:36px;color:var(--status-danger-fg);">분석 오류: ' + escapeClientHtml(currentLecture.error_message || '알 수 없는 오류') + '</div>';
       } else {
@@ -1717,11 +1908,169 @@ export function renderAppHtml(): string {
       }
     }
 
-    function pollProcessingLecture(id) {
+    function ensureFallbackPolling() {
       clearTimeout(window.__pollTimer);
+      const hasProcessing = lectures.some(l => l.status === 'processing') || (currentLecture && currentLecture.status === 'processing');
+      if (!hasProcessing) return;
       window.__pollTimer = setTimeout(async () => {
-        await fetchLectures(id);
-      }, 2200);
+        const prevProcIds = new Set(lectures.filter(l => l.status === 'processing').map(l => l.id));
+        const params = new URLSearchParams();
+        if (activeCourse !== 'ALL') params.set('course', activeCourse);
+        if (searchQuery) params.set('q', searchQuery);
+        const res = await fetch('/api/lectures?' + params.toString(), { headers: authHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          lectures = data.lectures || [];
+          renderLectureList();
+          if (currentLecture) {
+            const updatedItem = lectures.find(l => l.id === currentLecture.id);
+            if (updatedItem && (prevProcIds.has(currentLecture.id) || currentLecture.status === 'processing')) {
+              await selectLecture(currentLecture.id, false);
+            }
+          }
+        }
+      }, 2400);
+    }
+
+    function updateVisibilityButtonsUI() {
+      const btn = document.getElementById('btn-visibility');
+      const modalBtn = document.getElementById('cleanup-vis-btn');
+      const curTitle = document.getElementById('cleanup-cur-title');
+      const moveInput = document.getElementById('cleanup-move-course');
+      if (!currentLecture) {
+        if (btn) btn.textContent = '비공개';
+        return;
+      }
+      const isPub = Boolean(currentLecture.is_public);
+      if (btn) {
+        btn.textContent = isPub ? '공개중' : '비공개';
+        btn.style.color = isPub ? 'var(--status-success-fg)' : 'var(--text-secondary)';
+        btn.style.borderColor = isPub ? 'var(--status-success-fg)' : 'var(--border-default)';
+      }
+      if (modalBtn) {
+        modalBtn.textContent = isPub ? '현재: 공개중 → 비공개로 전환' : '현재: 비공개 → 공개로 전환';
+      }
+      if (curTitle) {
+        curTitle.textContent = '현재 노트: ' + currentLecture.title + (isPub ? ' (공유 링크 열림)' : ' (비공개)');
+      }
+      if (moveInput) {
+        moveInput.value = currentLecture.course || '';
+      }
+    }
+
+    async function toggleCurrentVisibility(forcePublic) {
+      if (!currentLecture) return;
+      const nextPublic = typeof forcePublic === 'boolean' ? forcePublic : !Boolean(currentLecture.is_public);
+      const res = await fetch('/api/lectures/' + encodeURIComponent(currentLecture.id) + '/visibility', {
+        method: 'PATCH',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ is_public: nextPublic })
+      });
+      if (!res.ok) {
+        showToast('공개 상태 변경에 실패했습니다.');
+        return;
+      }
+      const data = await res.json();
+      currentLecture = data.lecture;
+      upsertLectureSummaryInState(data.lecture);
+      updateVisibilityButtonsUI();
+      showToast(nextPublic ? '공유 링크 열람이 허용(공개)되었습니다.' : '비공개로 전환되어 외부 공유 링크 접근이 차단되었습니다.');
+    }
+
+    async function rotateCurrentShareToken() {
+      if (!currentLecture) return;
+      const res = await fetch('/api/lectures/' + encodeURIComponent(currentLecture.id) + '/visibility', {
+        method: 'PATCH',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ is_public: Boolean(currentLecture.is_public), rotate_token: true })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        currentLecture = data.lecture;
+        upsertLectureSummaryInState(data.lecture);
+        showToast('새 공유 토큰이 발급되어 기존 링크가 무효화되었습니다.');
+      }
+    }
+
+    async function deleteCurrentLecture() {
+      if (!currentLecture) return;
+      if (!confirm('[' + currentLecture.title + '] 강의 노트와 원본 오디오를 삭제할까요?')) return;
+      const targetId = currentLecture.id;
+      const res = await fetch('/api/lectures/' + encodeURIComponent(targetId), {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
+      if (res.ok) {
+        closeModal('cleanup-modal');
+        removeLectureIdsFromState([targetId]);
+        showToast('강의 노트가 삭제되었습니다.');
+      } else {
+        showToast('삭제에 실패했습니다.');
+      }
+    }
+
+    async function deleteCurrentAudioOnly() {
+      if (!currentLecture) return;
+      if (!currentLecture.has_audio) {
+        showToast('이 노트에는 삭제할 원본 오디오 파일이 없습니다.');
+        return;
+      }
+      if (!confirm('마크다운 노트는 그대로 보존하고 원본 오디오 파일만 삭제할까요?')) return;
+      const res = await fetch('/api/lectures/' + encodeURIComponent(currentLecture.id) + '/audio', {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
+      if (res.ok) {
+        const data = await res.json();
+        currentLecture.has_audio = false;
+        if (data.lecture) upsertLectureSummaryInState(data.lecture);
+        document.getElementById('audio-bar').classList.remove('visible');
+        showToast('원본 오디오 파일이 정리되었습니다 (노트 본문 보존).');
+      }
+    }
+
+    async function moveCurrentLectureCourse() {
+      if (!currentLecture) return;
+      const nextCourse = document.getElementById('cleanup-move-course').value.trim();
+      if (!nextCourse) return;
+      const res = await fetch('/api/lectures/' + encodeURIComponent(currentLecture.id), {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          title: currentLecture.title,
+          course: nextCourse,
+          markdown: currentLecture.markdown
+        })
+      });
+      if (res.ok) {
+        showToast('과목이 [' + nextCourse + '](으)로 이동되었습니다.');
+        await fetchLectures(currentLecture.id);
+      }
+    }
+
+    async function runWorkspaceCleanup(mode) {
+      const msgMap = {
+        failed: '오류 또는 중단된 분석 기록을 모두 정리할까요?',
+        short_fragments: '15초 미만의 짧은 테스트·단편 녹음 기록을 일괄 삭제할까요?',
+        audio_only_all: '완료된 모든 강의 노트의 마크다운은 보존하고 원본 오디오만 비울까요?'
+      };
+      if (msgMap[mode] && !confirm(msgMap[mode])) return;
+      const res = await fetch('/api/lectures/cleanup', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ mode })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const mb = (Number(data.reclaimedBytes || 0) / 1048576).toFixed(1);
+        showToast('정리 완료: ' + data.affectedCount + '건 처리 (' + mb + ' MB 확보)');
+        await fetchLectures();
+      }
+    }
+
+    function openCleanupModal() {
+      updateVisibilityButtonsUI();
+      document.getElementById('cleanup-modal').classList.add('open');
     }
 
     // Clickable [MM:SS] timestamp chips seek the audio player
@@ -1785,10 +2134,15 @@ export function renderAppHtml(): string {
 
     async function shareCurrentLecture() {
       if (!currentLecture) return;
+      if (!currentLecture.is_public) {
+        const ok = confirm('현재 이 강의 노트는 [비공개] 상태입니다.\n외부에서 공유 링크로 열람할 수 있도록 [공개]로 전환하고 링크를 복사할까요?');
+        if (!ok) return;
+        await toggleCurrentVisibility(true);
+      }
       const shareUrl = location.origin + '/s/' + currentLecture.share_token;
       try {
         await navigator.clipboard.writeText(shareUrl);
-        showToast('공유 링크가 복사되었습니다.');
+        showToast('공개 공유 링크가 클립보드에 복사되었습니다.');
       } catch {
         prompt('공유 링크를 복사하세요:', shareUrl);
       }

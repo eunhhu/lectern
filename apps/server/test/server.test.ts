@@ -120,7 +120,28 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     );
     expect(strangerDetailRes.status).toBe(403);
 
-    // Share page endpoint (/s/:token) works with explicit share_token
+    // By default, new lectures are private (is_public === 0), so /s/:token is 403 for unauthenticated strangers
+    const privateShareRes = await handleRequest(
+      new Request(`http://localhost/s/${done.share_token}`)
+    );
+    expect(privateShareRes.status).toBe(403);
+
+    // Owner toggles visibility to PUBLIC via PATCH /api/lectures/:id/visibility
+    const visRes = await handleRequest(
+      new Request(`http://localhost/api/lectures/${id}/visibility`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Lectern-Token": owner.api_token,
+        },
+        body: JSON.stringify({ is_public: true }),
+      })
+    );
+    expect(visRes.status).toBe(200);
+    const visJson: any = await visRes.json();
+    expect(visJson.lecture.is_public).toBe(true);
+
+    // Now Share page endpoint (/s/:token) works publicly
     const shareRes = await handleRequest(
       new Request(`http://localhost/s/${done.share_token}`)
     );
@@ -130,6 +151,23 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     expect(shareHtml).toContain("--surface-canvas: #0B0D11");
     expect(shareHtml).toContain("--action-primary: #3182F6");
     expect(shareHtml).toContain("Pretendard Variable");
+
+    // SSE endpoint (/api/events) requires auth (401 without token, 200 text/event-stream with token)
+    const unauthSse = await handleRequest(
+      new Request("http://localhost/api/events")
+    );
+    expect(unauthSse.status).toBe(401);
+
+    const authSse = await handleRequest(
+      new Request("http://localhost/api/events", {
+        headers: { "X-Lectern-Token": owner.api_token },
+      })
+    );
+    expect(authSse.status).toBe(200);
+    expect(authSse.headers.get("Content-Type")).toContain("text/event-stream");
+    try {
+      await authSse.body?.cancel();
+    } catch {}
 
     // Main App UI verifies Elysium Design System v1.0 Light & Dark tokens + Auth Gate
     const appRes = await handleRequest(new Request("http://localhost/"));

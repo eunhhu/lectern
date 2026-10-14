@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join, dirname } from "node:path";
@@ -28,6 +29,7 @@ export interface LectureRecord {
   id: string;
   owner_id: string;
   share_token: string;
+  is_public: number;
   title: string;
   course: string;
   date_label: string;
@@ -88,10 +90,16 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS deleted_sources (
+    md_source_path TEXT PRIMARY KEY,
+    deleted_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS lectures (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL DEFAULT '',
     share_token TEXT UNIQUE NOT NULL,
+    is_public INTEGER NOT NULL DEFAULT 0,
     title TEXT NOT NULL,
     course TEXT NOT NULL,
     date_label TEXT NOT NULL,
@@ -119,11 +127,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_lectures_share ON lectures(share_token);
 `);
 
-// Schema migration for existing lectures table without owner_id
+// Schema migrations for existing lectures table
 try {
   const cols = db.query(`PRAGMA table_info(lectures)`).all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === "owner_id")) {
     db.exec(`ALTER TABLE lectures ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!cols.some((c) => c.name === "is_public")) {
+    db.exec(`ALTER TABLE lectures ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0`);
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_lectures_owner ON lectures(owner_id)`);
 } catch {
@@ -290,7 +301,6 @@ export function ensureBootstrapOwner(): UserRecord {
     }
   }
 
-  // Assign any unowned or local-sync lectures exclusively to the bootstrap owner
   db.query(
     `UPDATE lectures SET owner_id = ? WHERE owner_id = '' OR source_client = 'local-sync'`
   ).run(owner.id);
@@ -314,6 +324,14 @@ export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
   if (!existsSync(LECTURES_ROOT)) return;
   const targetOwnerId = ownerId || ensureBootstrapOwner().id;
 
+  const deletedSet = new Set(
+    (
+      db.query(`SELECT md_source_path FROM deleted_sources`).all() as Array<{
+        md_source_path: string;
+      }>
+    ).map((r) => r.md_source_path)
+  );
+
   const entries = readdirSync(LECTURES_ROOT, { withFileTypes: true });
   for (const dirEntry of entries) {
     if (!dirEntry.isDirectory() || dirEntry.name.startsWith(".")) continue;
@@ -330,6 +348,8 @@ export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
     for (const file of files) {
       if (!file.endsWith("_요약.md") && !file.endsWith(".md")) continue;
       const mdPath = join(courseDir, file);
+      if (deletedSet.has(mdPath)) continue;
+
       const st = statSync(mdPath);
       const mdContent = readFileSync(mdPath, "utf8").trim();
       if (!mdContent) continue;
@@ -383,11 +403,11 @@ export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
 
         db.query(
           `INSERT INTO lectures (
-            id, owner_id, share_token, title, course, date_label, status, stage, stage_message,
+            id, owner_id, share_token, is_public, title, course, date_label, status, stage, stage_message,
             progress, markdown, excerpt, audio_path, audio_mime, audio_size,
             duration_sec, model_requested, model_used, source_client, md_source_path,
             created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, 'done', 'done', '완료', 100, ?, ?, ?, ?, ?, ?, 'gemini-flash-latest', 'gemini-3.8-flash', 'local-sync', ?, ?, ?)`
+          ) VALUES (?, ?, ?, 0, ?, ?, ?, 'done', 'done', '완료', 100, ?, ?, ?, ?, ?, ?, 'gemini-flash-latest', 'gemini-3.8-flash', 'local-sync', ?, ?, ?)`
         ).run(
           id,
           targetOwnerId,
@@ -469,6 +489,7 @@ export function createPendingLecture(input: {
   audioSize: number;
   modelRequested: string;
   sourceClient: string;
+  isPublic?: boolean;
 }): LectureRecord {
   const now = new Date().toISOString();
   const dateLabel = now.slice(0, 10);
@@ -477,14 +498,15 @@ export function createPendingLecture(input: {
 
   db.query(
     `INSERT INTO lectures (
-      id, owner_id, share_token, title, course, date_label, status, stage, stage_message,
+      id, owner_id, share_token, is_public, title, course, date_label, status, stage, stage_message,
       progress, markdown, excerpt, audio_path, audio_mime, audio_size,
       duration_sec, model_requested, model_used, source_client, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'processing', 'preparing', '오디오 준비 중...', 5, '', '분석 진행 중...', ?, ?, ?, 0, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processing', 'preparing', '오디오 준비 중...', 5, '', '분석 진행 중...', ?, ?, ?, 0, ?, ?, ?, ?, ?)`
   ).run(
     input.id,
     ownerId,
     shareToken,
+    input.isPublic ? 1 : 0,
     input.title,
     input.course,
     dateLabel,
@@ -506,10 +528,11 @@ export function updateLectureProgress(
   stage: string,
   message: string,
   progress: number
-): void {
+): LectureRecord | null {
   db.query(
     `UPDATE lectures SET stage = ?, stage_message = ?, progress = ?, updated_at = ? WHERE id = ?`
   ).run(stage, message, progress, new Date().toISOString(), id);
+  return getLectureById(id);
 }
 
 export function completeLectureRecord(
@@ -526,10 +549,11 @@ export function completeLectureRecord(
   const now = new Date().toISOString();
   const rec = getLectureById(id);
   const owner = rec ? getUserById(rec.owner_id) : null;
+  const isTestClient = rec?.source_client === "bun-test" || id.startsWith("test_") || id.startsWith("unauth_");
 
-  // Persist to /home/eunhhu/work/lectures/<course>/ only for admin/owner account
+  // Persist to /home/eunhhu/work/lectures/<course>/ only for real admin/owner lectures (never test runs)
   let mdSourcePath: string | null = null;
-  if (!owner || owner.is_admin === 1) {
+  if (!isTestClient && (!owner || owner.is_admin === 1)) {
     try {
       const safeCourse = result.courseName.replace(/[\\/:*?"<>|]/g, "_").trim() || "기타강의";
       const courseDir = join(LECTURES_ROOT, safeCourse);
@@ -563,28 +587,31 @@ export function completeLectureRecord(
   return getLectureById(id)!;
 }
 
-export function failLectureRecord(id: string, errorMessage: string): void {
+export function failLectureRecord(id: string, errorMessage: string): LectureRecord | null {
   db.query(
     `UPDATE lectures
      SET status = 'error', stage = 'error', stage_message = ?, error_message = ?, updated_at = ?
      WHERE id = ?`
   ).run(errorMessage, errorMessage, new Date().toISOString(), id);
+  return getLectureById(id);
 }
 
 export function updateLectureMarkdown(
   id: string,
   title: string,
   course: string,
-  markdown: string
+  markdown: string,
+  isPublic?: boolean
 ): LectureRecord | null {
   const rec = getLectureById(id);
   if (!rec) return null;
   const excerpt = extractExcerpt(markdown);
   const now = new Date().toISOString();
+  const nextPublic = typeof isPublic === "boolean" ? (isPublic ? 1 : 0) : rec.is_public;
 
   db.query(
-    `UPDATE lectures SET title = ?, course = ?, markdown = ?, excerpt = ?, updated_at = ? WHERE id = ?`
-  ).run(title, course, markdown, excerpt, now, id);
+    `UPDATE lectures SET title = ?, course = ?, markdown = ?, excerpt = ?, is_public = ?, updated_at = ? WHERE id = ?`
+  ).run(title, course, markdown, excerpt, nextPublic, now, id);
 
   if (rec.md_source_path && existsSync(dirname(rec.md_source_path))) {
     try {
@@ -596,9 +623,162 @@ export function updateLectureMarkdown(
   return getLectureById(id);
 }
 
+export function setLectureVisibility(
+  id: string,
+  isPublic: boolean,
+  rotateToken = false
+): LectureRecord | null {
+  const rec = getLectureById(id);
+  if (!rec) return null;
+  const now = new Date().toISOString();
+  const nextToken = rotateToken ? generateShareToken() : rec.share_token;
+  db.query(
+    `UPDATE lectures SET is_public = ?, share_token = ?, updated_at = ? WHERE id = ?`
+  ).run(isPublic ? 1 : 0, nextToken, now, id);
+  return getLectureById(id);
+}
+
+export function deleteLectureAudioOnly(id: string): { ok: boolean; reclaimedBytes: number; lecture: LectureRecord | null } {
+  const rec = getLectureById(id);
+  if (!rec) return { ok: false, reclaimedBytes: 0, lecture: null };
+  let reclaimedBytes = 0;
+
+  if (rec.audio_path && existsSync(rec.audio_path)) {
+    try {
+      reclaimedBytes = statSync(rec.audio_path).size;
+      if (rec.audio_path.startsWith(join(DATA_DIR, "uploads"))) {
+        unlinkSync(rec.audio_path);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  db.query(
+    `UPDATE lectures SET audio_path = NULL, audio_mime = NULL, audio_size = 0, updated_at = ? WHERE id = ?`
+  ).run(new Date().toISOString(), id);
+
+  return { ok: true, reclaimedBytes, lecture: getLectureById(id) };
+}
+
 export function deleteLectureById(id: string): boolean {
+  const rec = getLectureById(id);
+  if (rec) {
+    if (rec.md_source_path) {
+      db.query(
+        `INSERT OR REPLACE INTO deleted_sources (md_source_path, deleted_at) VALUES (?, ?)`
+      ).run(rec.md_source_path, new Date().toISOString());
+      if (existsSync(rec.md_source_path)) {
+        try {
+          unlinkSync(rec.md_source_path);
+        } catch {
+          // ignore if read-only
+        }
+      }
+    }
+    if (rec.audio_path && rec.audio_path.startsWith(join(DATA_DIR, "uploads")) && existsSync(rec.audio_path)) {
+      try {
+        unlinkSync(rec.audio_path);
+      } catch {
+        // ignore
+      }
+    }
+  }
   const res = db.query(`DELETE FROM lectures WHERE id = ?`).run(id);
   return res.changes > 0;
+}
+
+export function cleanupLecturesForUser(
+  ownerId: string,
+  options: {
+    mode:
+      | "failed"
+      | "short_fragments"
+      | "audio_only_all"
+      | "batch_delete"
+      | "batch_move"
+      | "batch_visibility";
+    ids?: string[];
+    targetCourse?: string;
+    isPublic?: boolean;
+  }
+): { affectedIds: string[]; reclaimedBytes: number } {
+  const all = listLecturesForUser(ownerId);
+  const affectedIds: string[] = [];
+  let reclaimedBytes = 0;
+
+  if (options.mode === "failed") {
+    const cutoff = Date.now() - 15 * 60 * 1000;
+    for (const item of all) {
+      const isStaleProcessing =
+        item.status === "processing" && new Date(item.updated_at).getTime() < cutoff;
+      if (item.status === "error" || isStaleProcessing) {
+        if (item.audio_size > 0) reclaimedBytes += item.audio_size;
+        if (deleteLectureById(item.id)) affectedIds.push(item.id);
+      }
+    }
+  } else if (options.mode === "short_fragments") {
+    for (const item of all) {
+      const isFragment =
+        (item.duration_sec > 0 && item.duration_sec < 15) ||
+        item.markdown.includes("극단적인 단편(Fragment)") ||
+        item.markdown === "# 📚 정보보호개론\n\n## 🎯 핵심\n- [10:15] AES-GCM 인증 암호화";
+      if (isFragment) {
+        if (item.audio_size > 0) reclaimedBytes += item.audio_size;
+        if (deleteLectureById(item.id)) affectedIds.push(item.id);
+      }
+    }
+  } else if (options.mode === "audio_only_all") {
+    for (const item of all) {
+      if (item.status === "done" && item.audio_path) {
+        const res = deleteLectureAudioOnly(item.id);
+        if (res.ok) {
+          reclaimedBytes += res.reclaimedBytes;
+          affectedIds.push(item.id);
+        }
+      }
+    }
+  } else if (options.mode === "batch_delete" && Array.isArray(options.ids)) {
+    const idSet = new Set(options.ids);
+    for (const item of all) {
+      if (idSet.has(item.id)) {
+        if (item.audio_size > 0) reclaimedBytes += item.audio_size;
+        if (deleteLectureById(item.id)) affectedIds.push(item.id);
+      }
+    }
+  } else if (
+    options.mode === "batch_move" &&
+    Array.isArray(options.ids) &&
+    options.targetCourse?.trim()
+  ) {
+    const idSet = new Set(options.ids);
+    const nextCourse = options.targetCourse.trim();
+    const now = new Date().toISOString();
+    for (const item of all) {
+      if (idSet.has(item.id)) {
+        db.query(`UPDATE lectures SET course = ?, updated_at = ? WHERE id = ?`).run(
+          nextCourse,
+          now,
+          item.id
+        );
+        affectedIds.push(item.id);
+      }
+    }
+  } else if (
+    options.mode === "batch_visibility" &&
+    Array.isArray(options.ids) &&
+    typeof options.isPublic === "boolean"
+  ) {
+    const idSet = new Set(options.ids);
+    for (const item of all) {
+      if (idSet.has(item.id)) {
+        setLectureVisibility(item.id, options.isPublic);
+        affectedIds.push(item.id);
+      }
+    }
+  }
+
+  return { affectedIds, reclaimedBytes };
 }
 
 export { DATA_DIR, LECTURES_ROOT };

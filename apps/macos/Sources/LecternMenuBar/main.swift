@@ -45,6 +45,7 @@ struct AuthLoginResponse: Decodable {
 struct LectureSummary: Identifiable, Decodable, Equatable {
     let id: String
     let share_token: String
+    let is_public: Bool?
     let title: String
     let course: String
     let date_label: String
@@ -64,11 +65,13 @@ struct LecturesListResponse: Decodable {
 struct LectureDetail: Decodable, Equatable {
     let id: String
     let share_token: String
+    var is_public: Bool?
     var title: String
     var course: String
     let date_label: String
     let status: String
     let stage_message: String?
+    let progress: Int?
     var markdown: String
     let model_used: String
     let has_audio: Bool
@@ -240,6 +243,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private var player: AVPlayer?
     private var playerLectureId: String?
     private var timeObserver: Any?
+    private var processingWatchTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -334,16 +338,41 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 return
             }
             let decoded = try JSONDecoder().decode(LecturesListResponse.self, from: data)
+            let prevProcessingIds = Set(self.lectures.filter { $0.status == "processing" }.map { $0.id })
             self.lectures = decoded.lectures
             if !decoded.courses.isEmpty {
                 self.courses = decoded.courses
             }
             let target = selectId ?? selectedLecture?.id ?? decoded.lectures.first?.id
-            if let t = target, selectedLecture?.id != t || selectId != nil {
-                await selectLecture(id: t)
+            if let t = target {
+                let justFinished = prevProcessingIds.contains(t) && (decoded.lectures.first(where: { $0.id == t })?.status == "done")
+                if selectedLecture?.id != t || selectId != nil || justFinished || selectedLecture?.status == "processing" {
+                    await selectLecture(id: t)
+                }
             }
+            ensureProcessingWatchLoop()
         } catch {
             self.statusBanner = "서버 연결 확인 필요: \(error.localizedDescription)"
+        }
+    }
+
+    private func ensureProcessingWatchLoop() {
+        let hasProcessing = lectures.contains(where: { $0.status == "processing" }) || selectedLecture?.status == "processing"
+        guard hasProcessing else {
+            processingWatchTask?.cancel()
+            processingWatchTask = nil
+            return
+        }
+        guard processingWatchTask == nil else { return }
+        processingWatchTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_200_000_000)
+                guard let strongSelf = self, strongSelf.isAuthenticated else { break }
+                let stillProcessing = strongSelf.lectures.contains(where: { $0.status == "processing" }) || strongSelf.selectedLecture?.status == "processing"
+                if !stillProcessing { break }
+                await strongSelf.fetchLectures()
+            }
+            self?.processingWatchTask = nil
         }
     }
 
@@ -362,15 +391,15 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 stopAudioPlayer()
             }
             self.selectedLecture = decoded.lecture
-            self.parsedBlocks = parseMarkdownBlocks(decoded.lecture.markdown)
-            self.isEditing = false
-
             if decoded.lecture.status == "processing" {
-                Task {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    await selectLecture(id: id)
-                }
+                let msg = decoded.lecture.stage_message ?? "강의 오디오 증류 중..."
+                let pct = decoded.lecture.progress ?? 20
+                self.parsedBlocks = parseMarkdownBlocks("# \(msg) (\(pct)%)\n\n쉬는 시간과 불필요한 잡담을 걸러내고 핵심 이론을 구조화하고 있습니다. 완료되면 자동으로 노트가 열립니다.")
+                ensureProcessingWatchLoop()
+            } else {
+                self.parsedBlocks = parseMarkdownBlocks(decoded.lecture.markdown)
             }
+            self.isEditing = false
         } catch {
             self.statusBanner = "노트 로드 실패: \(error.localizedDescription)"
         }
@@ -652,10 +681,73 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     func copyShareLink() {
         guard let lec = selectedLecture else { return }
+        if !(lec.is_public ?? false) {
+            Task {
+                await toggleVisibility(forcePublic: true)
+                let link = "\(serverBase)/s/\(lec.share_token)"
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(link, forType: .string)
+                showToast("노트를 '공개'로 전환하고 공유 링크를 복사했습니다.")
+            }
+            return
+        }
         let link = "\(serverBase)/s/\(lec.share_token)"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(link, forType: .string)
-        showToast("공유 링크 클립보드 복사 완료")
+        showToast("공개 공유 링크 클립보드 복사 완료")
+    }
+
+    func toggleVisibility(forcePublic: Bool? = nil) async {
+        guard let lec = selectedLecture,
+              let url = URL(string: "\(serverBase)/api/lectures/\(lec.id)/visibility") else { return }
+        let nextPublic = forcePublic ?? !(lec.is_public ?? false)
+        var req = authorizedRequest(url: url, method: "PATCH")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["is_public": nextPublic])
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            if (resp as? HTTPURLResponse)?.statusCode == 200 {
+                self.selectedLecture?.is_public = nextPublic
+                showToast(nextPublic ? "공유 링크 공개로 전환됨" : "비공개로 전환됨 (외부 접근 차단)")
+                await fetchLectures(selectId: lec.id)
+            }
+        } catch {
+            showToast("공개 설정 변경 실패: \(error.localizedDescription)")
+        }
+    }
+
+    func deleteLecture(id: String) async {
+        guard let url = URL(string: "\(serverBase)/api/lectures/\(id)") else { return }
+        let req = authorizedRequest(url: url, method: "DELETE")
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            if (resp as? HTTPURLResponse)?.statusCode == 200 {
+                if selectedLecture?.id == id {
+                    stopAudioPlayer()
+                    selectedLecture = nil
+                    parsedBlocks = []
+                }
+                showToast("강의 노트가 영구 삭제되었습니다.")
+                await fetchLectures()
+            }
+        } catch {
+            showToast("삭제 실패: \(error.localizedDescription)")
+        }
+    }
+
+    func cleanupShortAndFailedLectures() async {
+        guard let url = URL(string: "\(serverBase)/api/lectures/cleanup") else { return }
+        var req = authorizedRequest(url: url, method: "POST")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["mode": "short_fragments"])
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            let count = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["affectedCount"] as? Int ?? 0
+            showToast("짧은 테스트/실패 기록 \(count)건 정리 완료")
+            await fetchLectures()
+        } catch {
+            showToast("정리 실패: \(error.localizedDescription)")
+        }
     }
 
     func showToast(_ message: String) {
@@ -955,13 +1047,20 @@ struct LecternPopoverView: View {
                                     Task { await store.selectLecture(id: item.id) }
                                 }) {
                                     VStack(alignment: .leading, spacing: 4) {
-                                        HStack {
+                                        HStack(spacing: 4) {
                                             Text(item.course)
                                                 .font(.system(size: 10.5, weight: .semibold))
                                                 .foregroundColor(Elysium.actionPrimary)
                                                 .padding(.horizontal, 7)
                                                 .padding(.vertical, 2)
                                                 .background(Elysium.actionPrimarySubtle)
+                                                .cornerRadius(999)
+                                            Text((item.is_public ?? false) ? "공개" : "비공개")
+                                                .font(.system(size: 10, weight: .semibold))
+                                                .foregroundColor((item.is_public ?? false) ? Elysium.statusSuccessFg : Elysium.textTertiary)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 1)
+                                                .background((item.is_public ?? false) ? Elysium.statusSuccessBg : Elysium.surfaceCanvas)
                                                 .cornerRadius(999)
                                             Spacer()
                                             Text(item.date_label)
@@ -972,10 +1071,17 @@ struct LecternPopoverView: View {
                                             .font(.system(size: 13, weight: .semibold))
                                             .foregroundColor(Elysium.textPrimary)
                                             .lineLimit(1)
-                                        Text(item.excerpt)
-                                            .font(.system(size: 11.5))
-                                            .foregroundColor(Elysium.textSecondary)
-                                            .lineLimit(2)
+                                        if item.status == "processing" {
+                                            Text("\(item.stage_message ?? "분석 중...") (\(item.progress ?? 20)%)")
+                                                .font(.system(size: 11.5, weight: .semibold))
+                                                .foregroundColor(Elysium.actionPrimary)
+                                                .lineLimit(1)
+                                        } else {
+                                            Text(item.excerpt)
+                                                .font(.system(size: 11.5))
+                                                .foregroundColor(Elysium.textSecondary)
+                                                .lineLimit(2)
+                                        }
                                     }
                                     .padding(10)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -983,17 +1089,32 @@ struct LecternPopoverView: View {
                                     .cornerRadius(12)
                                 }
                                 .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button((item.is_public ?? false) ? "비공개로 전환" : "공유 링크 공개로 전환") {
+                                        Task {
+                                            await store.selectLecture(id: item.id)
+                                            await store.toggleVisibility()
+                                        }
+                                    }
+                                    Button("이 강의 노트 삭제", role: .destructive) {
+                                        Task { await store.deleteLecture(id: item.id) }
+                                    }
+                                }
                             }
                         }
                     }
 
                     // Account Footer
-                    HStack {
+                    HStack(spacing: 6) {
                         Text(store.currentUserLabel.isEmpty ? "인증됨" : store.currentUserLabel)
                             .font(.system(size: 11))
                             .foregroundColor(Elysium.textSecondary)
                             .lineLimit(1)
                         Spacer()
+                        Button("정리") {
+                            Task { await store.cleanupShortAndFailedLectures() }
+                        }
+                        .font(.system(size: 11))
                         Button("새로고침") {
                             Task { await store.fetchLectures() }
                         }
@@ -1032,11 +1153,17 @@ struct LecternPopoverView: View {
 
                             Spacer()
 
+                            Button((lec.is_public ?? false) ? "공개중" : "비공개") {
+                                Task { await store.toggleVisibility() }
+                            }
                             Button(store.isEditing ? "취소" : "편집") {
                                 if store.isEditing { store.isEditing = false } else { store.beginEditing() }
                             }
                             Button("MD") { store.exportMarkdownFile() }
                             Button("PDF") { store.exportPdfFile() }
+                            Button("삭제") {
+                                Task { await store.deleteLecture(id: lec.id) }
+                            }
                             Button("공유 링크") { store.copyShareLink() }
                         }
                         .padding(.horizontal, 16)
