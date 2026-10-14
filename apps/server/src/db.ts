@@ -39,10 +39,16 @@ export interface LectureRecord {
   updated_at: string;
 }
 
+const DEFAULT_BASE = existsSync("/home/eunhhu/work")
+  ? "/home/eunhhu/work/lectern"
+  : process.cwd();
 const DATA_DIR =
-  process.env.LECTERN_DATA_DIR || "/home/eunhhu/work/lectern/data";
+  process.env.LECTERN_DATA_DIR || join(DEFAULT_BASE, "data");
 const LECTURES_ROOT =
-  process.env.LECTERN_LECTURES_DIR || "/home/eunhhu/work/lectures";
+  process.env.LECTERN_LECTURES_DIR ||
+  (existsSync("/home/eunhhu/work/lectures")
+    ? "/home/eunhhu/work/lectures"
+    : join(DEFAULT_BASE, "lectures"));
 
 mkdirSync(DATA_DIR, { recursive: true });
 mkdirSync(join(DATA_DIR, "uploads"), { recursive: true });

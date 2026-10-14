@@ -1,6 +1,129 @@
 import { escapeHtml, renderMarkdownToHtml } from "../../../packages/core/src/index.ts";
 import type { LectureRecord } from "./db.ts";
 
+const ELYSIUM_TOKENS_CSS = `
+    :root {
+      /* Elysium Design System v1.0 — Light Mode (CoolNeutral + Elysium Blue) */
+      --surface-canvas: #F9FAFB;
+      --surface-elevated: #FFFFFF;
+      --surface-subtle: #F2F4F6;
+      --surface-interactive: #E5E8EB;
+      --surface-overlay: rgba(255, 255, 255, 0.82);
+      --surface-code: #F2F4F6;
+
+      --text-primary: #191F28;
+      --text-secondary: #4E5968;
+      --text-tertiary: #8B95A1;
+      --text-disabled: #B0B8C1;
+      --text-on-color: #FFFFFF;
+
+      --action-primary: #3182F6;
+      --action-primary-hover: #1B64DA;
+      --action-primary-pressed: #1952B8;
+      --action-primary-subtle: #E8F3FF;
+
+      --border-subtle: #F2F4F6;
+      --border-default: #E5E8EB;
+      --border-strong: #D1D6DB;
+      --border-focus: #3182F6;
+
+      --status-success-fg: #00B578;
+      --status-success-bg: #E8FAF0;
+      --status-warning-fg: #D97706;
+      --status-warning-bg: #FFF6E5;
+      --status-danger-fg: #F04452;
+      --status-danger-bg: #FFECEB;
+      --status-info-fg: #3182F6;
+      --status-info-bg: #E8F3FF;
+
+      --shadow-xs: 0 1px 2px rgba(25, 31, 40, 0.04);
+      --shadow-sm: 0 2px 8px rgba(25, 31, 40, 0.06), 0 1px 2px rgba(25, 31, 40, 0.04);
+      --shadow-md: 0 8px 24px rgba(25, 31, 40, 0.08), 0 2px 6px rgba(25, 31, 40, 0.04);
+      --shadow-lg: 0 20px 48px rgba(25, 31, 40, 0.14), 0 4px 12px rgba(25, 31, 40, 0.06);
+
+      /* Typography */
+      --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+
+      /* Spatial System (4px Base Grid) */
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-10: 40px;
+      --space-12: 48px;
+      --space-16: 64px;
+
+      /* Shape & Radius */
+      --radius-xs: 6px;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --radius-full: 9999px;
+
+      /* Motion */
+      --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --duration-fast: 140ms;
+      --duration-normal: 220ms;
+      --duration-slow: 360ms;
+    }
+
+    [data-theme="dark"] {
+      /* Elysium Design System v1.0 — Dark Mode (CoolNeutral 950..800 + Elysium Blue 450) */
+      --surface-canvas: #0B0D11;
+      --surface-elevated: #14171D;
+      --surface-subtle: #1C2028;
+      --surface-interactive: #262B35;
+      --surface-overlay: rgba(20, 23, 29, 0.80);
+      --surface-code: #0E1117;
+
+      --text-primary: #F2F4F6;
+      --text-secondary: #9EA6B2;
+      --text-tertiary: #6B7684;
+      --text-disabled: #4E5968;
+      --text-on-color: #FFFFFF;
+
+      --action-primary: #4593FC;
+      --action-primary-hover: #64A8FF;
+      --action-primary-pressed: #3182F6;
+      --action-primary-subtle: rgba(69, 147, 252, 0.14);
+
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --border-default: rgba(255, 255, 255, 0.10);
+      --border-strong: rgba(255, 255, 255, 0.18);
+      --border-focus: #4593FC;
+
+      --status-success-fg: #15C47E;
+      --status-success-bg: rgba(21, 196, 126, 0.14);
+      --status-warning-fg: #FFB020;
+      --status-warning-bg: rgba(255, 176, 32, 0.14);
+      --status-danger-fg: #F55864;
+      --status-danger-bg: rgba(245, 88, 100, 0.14);
+      --status-info-fg: #4593FC;
+      --status-info-bg: rgba(69, 147, 252, 0.14);
+
+      --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.28);
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.36), 0 0 0 1px rgba(255, 255, 255, 0.06);
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.64), 0 0 0 1px rgba(255, 255, 255, 0.10);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--border-focus);
+      outline-offset: 2px;
+    }
+`;
+
 export function renderSharePageHtml(lecture: LectureRecord): string {
   const rendered = renderMarkdownToHtml(lecture.markdown || "");
   const title = escapeHtml(lecture.title);
@@ -9,7 +132,7 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
   const hasAudio = Boolean(lecture.audio_path);
 
   return `<!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -19,24 +142,12 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
   <meta property="og:type" content="article" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <style>
-    :root {
-      --bg: #0b0c0e;
-      --surface: #121418;
-      --surface-2: #181b20;
-      --border: rgba(255, 255, 255, 0.08);
-      --text: #f2f4f8;
-      --text-muted: #949ba6;
-      --accent: #3b82f6;
-      --accent-soft: rgba(59, 130, 246, 0.14);
-      --amber: #f59e0b;
-      --emerald: #10b981;
-    }
-    * { box-sizing: border-box; }
+    ${ELYSIUM_TOKENS_CSS}
     body {
       margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: var(--surface-canvas);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
       line-height: 1.68;
       -webkit-font-smoothing: antialiased;
     }
@@ -47,161 +158,211 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 24px;
-      background: rgba(11, 12, 14, 0.85);
-      backdrop-filter: blur(16px);
-      border-bottom: 1px solid var(--border);
+      padding: var(--space-3) var(--space-6);
+      background: var(--surface-overlay);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-bottom: 1px solid var(--border-default);
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: var(--space-2);
       text-decoration: none;
-      color: var(--text);
+      color: var(--text-primary);
       font-weight: 700;
+      font-size: 16px;
       letter-spacing: -0.02em;
     }
-    .brand-dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 12px var(--accent);
+    .brand-mark {
+      width: 10px;
+      height: 10px;
+      border-radius: var(--radius-full);
+      background: var(--action-primary);
     }
-    .actions { display: flex; gap: 8px; }
+    .actions { display: flex; gap: var(--space-2); align-items: center; }
     .btn {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
-      padding: 7px 13px;
-      border-radius: 8px;
+      height: 36px;
+      padding: 0 var(--space-3);
+      border-radius: var(--radius-sm);
       font-size: 13px;
       font-weight: 600;
-      border: 1px solid var(--border);
-      background: var(--surface-2);
-      color: var(--text);
+      border: 1px solid var(--border-default);
+      background: var(--surface-elevated);
+      color: var(--text-primary);
       cursor: pointer;
       text-decoration: none;
+      transition: background var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-out-expo);
     }
-    .btn:hover { border-color: rgba(255,255,255,0.2); background: #20242c; }
-    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn:hover { background: var(--surface-subtle); border-color: var(--border-strong); }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary {
+      background: var(--action-primary);
+      border-color: var(--action-primary);
+      color: var(--text-on-color);
+    }
+    .btn-primary:hover {
+      background: var(--action-primary-hover);
+      border-color: var(--action-primary-hover);
+    }
     .container {
-      max-width: 860px;
+      max-width: 820px;
       margin: 0 auto;
-      padding: 36px 24px 80px;
+      padding: var(--space-10) var(--space-6) var(--space-16);
     }
     .meta-bar {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: var(--space-2);
       align-items: center;
-      margin-bottom: 20px;
+      margin-bottom: var(--space-6);
     }
     .badge {
       padding: 4px 10px;
-      border-radius: 6px;
+      border-radius: var(--radius-full);
       font-size: 12px;
       font-weight: 600;
-      background: var(--accent-soft);
-      color: #60a5fa;
+      background: var(--status-info-bg);
+      color: var(--status-info-fg);
+      font-variant-numeric: tabular-nums;
     }
     .badge-muted {
-      background: var(--surface-2);
-      color: var(--text-muted);
-      border: 1px solid var(--border);
+      background: var(--surface-subtle);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-default);
     }
     .audio-bar {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 12px 16px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      margin-bottom: 28px;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      margin-bottom: var(--space-8);
+      box-shadow: var(--shadow-xs);
     }
     .audio-bar audio { flex: 1; height: 36px; }
-    .md-body h1 { font-size: 28px; letter-spacing: -0.025em; margin: 0 0 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
-    .md-body h2 { font-size: 20px; margin: 34px 0 14px; color: #fff; letter-spacing: -0.015em; }
-    .md-body h3 { font-size: 16.5px; margin: 24px 0 10px; color: #dbeafe; }
-    .md-body p, .md-body li { font-size: 15px; color: #d6dae2; }
-    .md-body ul, .md-body ol { padding-left: 22px; margin: 10px 0; }
+    .md-body h1, .md-body h2, .md-body h3 {
+      word-break: keep-all;
+      overflow-wrap: break-word;
+      color: var(--text-primary);
+    }
+    .md-body h1 {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.022em;
+      line-height: 1.3;
+      margin: 0 0 var(--space-5);
+      padding-bottom: var(--space-4);
+      border-bottom: 1px solid var(--border-default);
+    }
+    .md-body h2 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.018em;
+      line-height: 1.38;
+      margin: var(--space-8) 0 var(--space-3);
+    }
+    .md-body h3 {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.014em;
+      line-height: 1.42;
+      margin: var(--space-6) 0 var(--space-2);
+    }
+    .md-body p, .md-body li {
+      font-size: 15px;
+      line-height: 1.65;
+      letter-spacing: -0.008em;
+      color: var(--text-secondary);
+    }
+    .md-body ul, .md-body ol { padding-left: 22px; margin: var(--space-3) 0; }
     .md-body li { margin: 6px 0; }
-    .md-body strong { color: #fff; font-weight: 650; }
+    .md-body strong { color: var(--text-primary); font-weight: 600; }
     .md-body code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family: var(--font-mono);
       font-size: 13.5px;
       padding: 2px 6px;
-      border-radius: 5px;
-      background: rgba(255,255,255,0.07);
-      color: #93c5fd;
+      border-radius: var(--radius-xs);
+      background: var(--surface-subtle);
+      color: var(--action-primary);
     }
     .md-code {
-      padding: 16px;
-      border-radius: 10px;
-      background: #0d0f13;
-      border: 1px solid var(--border);
+      padding: var(--space-4);
+      border-radius: var(--radius-md);
+      background: var(--surface-code);
+      border: 1px solid var(--border-default);
       overflow-x: auto;
     }
-    .md-code code { background: none; padding: 0; color: #e2e8f0; }
+    .md-code code { background: none; padding: 0; color: var(--text-primary); }
     .md-quote {
-      margin: 14px 0;
-      padding: 12px 16px;
-      border-left: 3px solid var(--accent);
-      background: rgba(59, 130, 246, 0.06);
-      border-radius: 0 8px 8px 0;
+      margin: var(--space-4) 0;
+      padding: var(--space-3) var(--space-4);
+      border-left: 3px solid var(--action-primary);
+      background: var(--action-primary-subtle);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      word-break: keep-all;
     }
     .ts-chip {
       display: inline-flex;
       align-items: center;
-      gap: 3px;
-      padding: 1px 7px;
+      gap: 4px;
+      padding: 2px 8px;
       margin: 0 2px;
-      border-radius: 5px;
-      border: 1px solid rgba(59, 130, 246, 0.32);
-      background: rgba(59, 130, 246, 0.12);
-      color: #60a5fa;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-default);
+      background: var(--status-info-bg);
+      color: var(--status-info-fg);
       font-size: 12px;
-      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
       cursor: pointer;
+      transition: background var(--duration-fast) var(--ease-standard);
     }
-    .ts-chip:hover { background: rgba(59, 130, 246, 0.25); }
+    .ts-chip:hover { background: var(--surface-interactive); }
     .filter-badge {
       display: inline-flex;
       align-items: center;
-      padding: 2px 9px;
-      border-radius: 6px;
-      font-size: 12.5px;
+      padding: 3px 10px;
+      border-radius: var(--radius-full);
+      font-size: 12px;
       font-weight: 600;
+      font-variant-numeric: tabular-nums;
     }
-    .filter-break { background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-    .filter-cut { background: rgba(16, 185, 129, 0.14); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .filter-break { background: var(--status-warning-bg); color: var(--status-warning-fg); }
+    .filter-cut { background: var(--status-success-bg); color: var(--status-success-fg); }
     @media print {
-      body { background: #fff; color: #111; }
+      body { background: #fff !important; color: #191F28 !important; }
       .share-topbar, .audio-bar { display: none !important; }
       .container { max-width: 100%; padding: 0; }
-      .md-body h1, .md-body h2, .md-body h3, .md-body strong { color: #000; }
-      .md-body p, .md-body li { color: #222; }
-      .ts-chip { border-color: #999; color: #333; background: #f3f4f6; }
+      .md-body h1, .md-body h2, .md-body h3, .md-body strong { color: #191F28 !important; }
+      .md-body p, .md-body li { color: #4E5968 !important; }
     }
   </style>
 </head>
 <body>
   <header class="share-topbar">
     <a class="brand" href="/">
-      <span class="brand-dot"></span>
-      <span>LECTERN</span>
+      <span class="brand-mark"></span>
+      <span>Lectern</span>
     </a>
     <div class="actions">
-      <a class="btn" href="/api/lectures/${encodeURIComponent(lecture.id)}/markdown" download>⬇️ MD 다운로드</a>
-      <button class="btn btn-primary" onclick="window.print()">📄 PDF 저장 / 인쇄</button>
+      <button class="btn" onclick="toggleTheme()" id="theme-btn" aria-label="테마 전환">테마 전환</button>
+      <a class="btn" href="/api/lectures/${encodeURIComponent(lecture.id)}/markdown" download>Markdown</a>
+      <button class="btn btn-primary" onclick="window.print()">PDF 인쇄</button>
     </div>
   </header>
   <main class="container">
     <div class="meta-bar">
       <span class="badge">${course}</span>
-      <span class="badge badge-muted">📅 ${escapeHtml(lecture.date_label)}</span>
-      <span class="badge badge-muted">⚡ ${escapeHtml(lecture.model_used)}</span>
+      <span class="badge badge-muted">${escapeHtml(lecture.date_label)}</span>
+      <span class="badge badge-muted">${escapeHtml(lecture.model_used)}</span>
     </div>
     ${
       hasAudio
@@ -217,6 +378,13 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
     </article>
   </main>
   <script>
+    const savedTheme = localStorage.getItem('lectern_theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    function toggleTheme() {
+      const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', cur);
+      localStorage.setItem('lectern_theme', cur);
+    }
     document.getElementById('md-root')?.addEventListener('click', (e) => {
       const btn = e.target.closest('.ts-chip');
       if (!btn) return;
@@ -234,64 +402,48 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
 
 export function renderAppHtml(): string {
   return `<!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="theme-color" content="#0b0c0e" />
+  <meta name="theme-color" content="#0B0D11" />
   <title>Lectern — Academic Audio Distillation & Markdown Reader</title>
   <link rel="manifest" href="/manifest.json" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <style>
-    :root {
-      --bg: #0b0c0e;
-      --sidebar: #101216;
-      --surface: #15181e;
-      --surface-hover: #1b1f27;
-      --surface-active: #202632;
-      --border: rgba(255, 255, 255, 0.075);
-      --border-strong: rgba(255, 255, 255, 0.14);
-      --text: #f3f5f8;
-      --text-secondary: #c5cad3;
-      --text-muted: #858d99;
-      --accent: #3b82f6;
-      --accent-hover: #2563eb;
-      --accent-soft: rgba(59, 130, 246, 0.14);
-      --danger: #ef4444;
-      --emerald: #10b981;
-      --amber: #f59e0b;
-      --radius: 11px;
-    }
+    ${ELYSIUM_TOKENS_CSS}
 
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
       margin: 0;
       padding: 0;
       height: 100%;
-      background: var(--bg);
-      color: var(--text);
-      font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-      font-size: 14px;
+      background: var(--surface-canvas);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.55;
+      letter-spacing: -0.01em;
       -webkit-font-smoothing: antialiased;
       overflow: hidden;
     }
 
-    /* App Layout */
+    /* App Shell (280px Sidebar + Fluid Reader Canvas) */
     .app-shell {
       display: grid;
-      grid-template-columns: 330px 1fr;
+      grid-template-columns: 320px 1fr;
       height: 100vh;
       width: 100vw;
+      background: var(--surface-canvas);
     }
 
     /* Sidebar */
     .sidebar {
       display: flex;
       flex-direction: column;
-      background: var(--sidebar);
-      border-right: 1px solid var(--border);
+      background: var(--surface-elevated);
+      border-right: 1px solid var(--border-default);
       height: 100vh;
       overflow: hidden;
     }
@@ -300,152 +452,205 @@ export function renderAppHtml(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 16px 16px 12px;
-      border-bottom: 1px solid var(--border);
+      height: 60px;
+      padding: 0 var(--space-4);
+      border-bottom: 1px solid var(--border-subtle);
     }
 
     .brand {
       display: flex;
       align-items: center;
-      gap: 9px;
-      font-weight: 750;
-      font-size: 15.5px;
+      gap: var(--space-2);
+      font-weight: 700;
+      font-size: 16px;
       letter-spacing: -0.02em;
+      color: var(--text-primary);
     }
     .brand-mark {
       width: 10px;
       height: 10px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 12px var(--accent);
+      border-radius: var(--radius-full);
+      background: var(--action-primary);
     }
     .brand-sub {
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 500;
-      color: var(--text-muted);
-      margin-left: 2px;
+      color: var(--text-tertiary);
+      font-variant-numeric: tabular-nums;
     }
 
+    /* Buttons (Elysium Component Spec: sm 32px, md 40px, radius-sm 8px / radius-md 12px) */
     .btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
-      padding: 7px 12px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      color: var(--text);
-      font-size: 12.5px;
+      height: 36px;
+      padding: 0 var(--space-3);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-default);
+      background: var(--surface-elevated);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.14s ease;
+      transition: background var(--duration-fast) var(--ease-standard),
+                  border-color var(--duration-fast) var(--ease-standard),
+                  transform var(--duration-fast) var(--ease-out-expo);
       white-space: nowrap;
       text-decoration: none;
     }
-    .btn:hover { background: var(--surface-hover); border-color: var(--border-strong); }
-    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-    .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-    .btn-danger { background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.35); color: #fca5a5; }
+    .btn:hover {
+      background: var(--surface-subtle);
+      border-color: var(--border-strong);
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+    .btn-primary {
+      background: var(--action-primary);
+      border-color: var(--action-primary);
+      color: var(--text-on-color);
+    }
+    .btn-primary:hover {
+      background: var(--action-primary-hover);
+      border-color: var(--action-primary-hover);
+    }
+    .btn-primary:active {
+      background: var(--action-primary-pressed);
+    }
+    .btn-danger {
+      background: var(--status-danger-bg);
+      border-color: transparent;
+      color: var(--status-danger-fg);
+    }
+    .btn-icon {
+      width: 36px;
+      padding: 0;
+    }
+    .icon-svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      stroke-width: 1.75;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+      flex-shrink: 0;
+    }
 
+    /* Search & Filter */
     .search-box {
-      padding: 10px 14px 6px;
+      padding: var(--space-3) var(--space-4) var(--space-2);
     }
     .search-input {
       width: 100%;
-      padding: 8px 11px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #0b0d10;
-      color: var(--text);
-      font-size: 13px;
+      height: 38px;
+      padding: 0 var(--space-3);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-default);
+      background: var(--surface-subtle);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13.5px;
       outline: none;
+      transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
     }
-    .search-input:focus { border-color: var(--accent); }
+    .search-input::placeholder { color: var(--text-tertiary); }
+    .search-input:focus {
+      background: var(--surface-elevated);
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--action-primary-subtle);
+    }
 
     .course-pills {
       display: flex;
       gap: 6px;
-      padding: 6px 14px 10px;
+      padding: var(--space-1) var(--space-4) var(--space-3);
       overflow-x: auto;
       scrollbar-width: none;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--border-subtle);
     }
     .course-pills::-webkit-scrollbar { display: none; }
     .pill {
-      padding: 4px 10px;
-      border-radius: 999px;
+      padding: 5px 11px;
+      border-radius: var(--radius-full);
+      font-family: var(--font-sans);
       font-size: 12px;
       font-weight: 600;
-      background: var(--surface);
-      color: var(--text-muted);
+      background: var(--surface-subtle);
+      color: var(--text-secondary);
       border: 1px solid transparent;
       cursor: pointer;
       white-space: nowrap;
+      transition: all var(--duration-fast) var(--ease-standard);
     }
+    .pill:hover { background: var(--surface-interactive); color: var(--text-primary); }
     .pill.active {
-      background: var(--accent-soft);
-      color: #60a5fa;
-      border-color: rgba(59, 130, 246, 0.35);
+      background: var(--action-primary-subtle);
+      color: var(--action-primary);
+      border-color: transparent;
     }
 
+    /* Lecture Cards List */
     .lecture-list {
       flex: 1;
       overflow-y: auto;
-      padding: 10px;
+      padding: var(--space-3);
       display: flex;
       flex-direction: column;
       gap: 6px;
     }
 
     .lecture-card {
-      padding: 12px 13px;
-      border-radius: 10px;
+      padding: var(--space-3) var(--space-4);
+      border-radius: var(--radius-md);
       background: transparent;
       border: 1px solid transparent;
       cursor: pointer;
-      transition: all 0.12s ease;
+      transition: background var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
     }
     .lecture-card:hover {
-      background: var(--surface);
-      border-color: var(--border);
+      background: var(--surface-subtle);
     }
     .lecture-card.active {
-      background: var(--surface-active);
-      border-color: rgba(59, 130, 246, 0.4);
+      background: var(--action-primary-subtle);
+      border-color: var(--border-focus);
     }
     .card-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 6px;
-      margin-bottom: 5px;
+      gap: var(--space-2);
+      margin-bottom: 6px;
     }
     .card-course {
-      font-size: 11px;
-      font-weight: 650;
-      padding: 2px 7px;
-      border-radius: 5px;
-      background: var(--accent-soft);
-      color: #60a5fa;
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      background: var(--status-info-bg);
+      color: var(--status-info-fg);
     }
     .card-date {
-      font-size: 11.5px;
-      color: var(--text-muted);
+      font-size: 12px;
+      color: var(--text-tertiary);
       font-variant-numeric: tabular-nums;
     }
     .card-title {
-      font-weight: 650;
-      font-size: 13.5px;
-      color: var(--text);
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text-primary);
       margin-bottom: 4px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      letter-spacing: -0.01em;
     }
     .card-excerpt {
-      font-size: 12px;
-      color: var(--text-muted);
+      font-size: 12.5px;
+      color: var(--text-secondary);
       display: -webkit-box;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
@@ -453,25 +658,25 @@ export function renderAppHtml(): string {
       line-height: 1.45;
     }
     .card-progress {
-      margin-top: 8px;
+      margin-top: var(--space-2);
       height: 4px;
-      background: rgba(255,255,255,0.08);
-      border-radius: 4px;
+      background: var(--surface-interactive);
+      border-radius: var(--radius-full);
       overflow: hidden;
     }
     .card-progress-bar {
       height: 100%;
-      background: var(--accent);
-      transition: width 0.3s ease;
+      background: var(--action-primary);
+      transition: width var(--duration-normal) var(--ease-out-expo);
     }
 
     .sidebar-footer {
-      padding: 10px 12px;
-      border-top: 1px solid var(--border);
+      padding: var(--space-3) var(--space-4);
+      border-top: 1px solid var(--border-subtle);
       display: flex;
-      gap: 6px;
+      gap: var(--space-2);
     }
-    .sidebar-footer .btn { flex: 1; font-size: 12px; padding: 7px 8px; }
+    .sidebar-footer .btn { flex: 1; font-size: 12.5px; }
 
     /* Main Reader Pane */
     .main-pane {
@@ -479,66 +684,71 @@ export function renderAppHtml(): string {
       flex-direction: column;
       height: 100vh;
       overflow: hidden;
-      background: var(--bg);
+      background: var(--surface-canvas);
     }
 
     .reader-toolbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 12px 24px;
-      border-bottom: 1px solid var(--border);
-      background: rgba(11, 12, 14, 0.85);
-      backdrop-filter: blur(12px);
-      min-height: 57px;
+      gap: var(--space-3);
+      height: 60px;
+      padding: 0 var(--space-6);
+      border-bottom: 1px solid var(--border-default);
+      background: var(--surface-overlay);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
     }
     .toolbar-meta {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: var(--space-2);
       overflow: hidden;
     }
     .meta-pill {
-      padding: 3px 9px;
-      border-radius: 6px;
-      font-size: 11.5px;
+      padding: 4px 10px;
+      border-radius: var(--radius-full);
+      font-size: 12px;
       font-weight: 600;
-      background: var(--surface);
+      background: var(--surface-subtle);
       color: var(--text-secondary);
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-default);
       white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
     .meta-pill.course {
-      background: var(--accent-soft);
-      color: #60a5fa;
-      border-color: rgba(59, 130, 246, 0.3);
+      background: var(--status-info-bg);
+      color: var(--status-info-fg);
+      border-color: transparent;
     }
     .toolbar-actions {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: var(--space-2);
     }
 
     /* Audio Player Bar */
     .audio-bar {
       display: none;
       align-items: center;
-      gap: 12px;
-      padding: 8px 24px;
-      background: #11141a;
-      border-bottom: 1px solid var(--border);
+      gap: var(--space-3);
+      padding: var(--space-2) var(--space-6);
+      background: var(--surface-elevated);
+      border-bottom: 1px solid var(--border-default);
     }
     .audio-bar.visible { display: flex; }
     .audio-bar audio { flex: 1; height: 34px; }
     .speed-select {
-      padding: 4px 8px;
-      border-radius: 6px;
-      background: var(--surface);
-      color: var(--text);
-      border: 1px solid var(--border);
+      height: 32px;
+      padding: 0 10px;
+      border-radius: var(--radius-xs);
+      background: var(--surface-subtle);
+      color: var(--text-primary);
+      border: 1px solid var(--border-default);
+      font-family: var(--font-sans);
       font-size: 12px;
       font-weight: 600;
+      font-variant-numeric: tabular-nums;
     }
 
     /* Reader Scroll Area */
@@ -546,137 +756,156 @@ export function renderAppHtml(): string {
       flex: 1;
       overflow-y: auto;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 230px;
-      gap: 32px;
-      padding: 32px 36px 96px;
-      max-width: 1220px;
+      grid-template-columns: minmax(0, 1fr) 220px;
+      gap: var(--space-10);
+      padding: var(--space-8) var(--space-10) var(--space-16);
+      max-width: 1180px;
       width: 100%;
       margin: 0 auto;
     }
 
-    /* Markdown Typography */
+    /* Markdown Article Typography (Elysium Type Scale & Korean Keep-All) */
     .md-article {
       min-width: 0;
-      line-height: 1.72;
+      line-height: 1.7;
+      color: var(--text-secondary);
+    }
+    .md-article h1, .md-article h2, .md-article h3, .md-article h4 {
+      color: var(--text-primary);
+      word-break: keep-all;
+      overflow-wrap: break-word;
     }
     .md-article h1 {
       font-size: 26px;
-      font-weight: 750;
-      letter-spacing: -0.025em;
-      margin: 0 0 20px;
-      padding-bottom: 14px;
-      border-bottom: 1px solid var(--border);
-      color: #fff;
+      font-weight: 700;
+      letter-spacing: -0.022em;
+      line-height: 1.3;
+      margin: 0 0 var(--space-5);
+      padding-bottom: var(--space-4);
+      border-bottom: 1px solid var(--border-default);
     }
     .md-article h2 {
-      font-size: 19.5px;
+      font-size: 20px;
       font-weight: 700;
-      letter-spacing: -0.015em;
-      margin: 34px 0 12px;
-      color: #f8fafc;
+      letter-spacing: -0.018em;
+      line-height: 1.38;
+      margin: var(--space-8) 0 var(--space-3);
       scroll-margin-top: 20px;
     }
     .md-article h3 {
-      font-size: 16px;
-      font-weight: 650;
-      margin: 24px 0 8px;
-      color: #bfdbfe;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.014em;
+      line-height: 1.42;
+      margin: var(--space-6) 0 var(--space-2);
       scroll-margin-top: 20px;
     }
     .md-article h4 {
-      font-size: 14.5px;
-      font-weight: 650;
-      margin: 18px 0 6px;
-      color: #e2e8f0;
+      font-size: 15px;
+      font-weight: 600;
+      margin: var(--space-4) 0 var(--space-2);
     }
     .md-article p, .md-article li {
-      font-size: 14.8px;
-      color: #d5dae2;
+      font-size: 15px;
+      line-height: 1.68;
+      letter-spacing: -0.008em;
+      color: var(--text-secondary);
     }
     .md-article ul, .md-article ol {
       padding-left: 22px;
-      margin: 8px 0 14px;
+      margin: var(--space-2) 0 var(--space-4);
     }
-    .md-article li { margin: 5px 0; }
-    .md-article strong { color: #fff; font-weight: 650; }
+    .md-article li { margin: 6px 0; }
+    .md-article strong { color: var(--text-primary); font-weight: 600; }
     .md-article code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family: var(--font-mono);
       font-size: 13px;
       padding: 2px 6px;
-      border-radius: 5px;
-      background: rgba(255, 255, 255, 0.075);
-      color: #93c5fd;
+      border-radius: var(--radius-xs);
+      background: var(--surface-subtle);
+      color: var(--action-primary);
     }
     .md-code {
-      padding: 15px 18px;
-      border-radius: 10px;
-      background: #0d0f14;
-      border: 1px solid var(--border);
+      padding: var(--space-4) var(--space-5);
+      border-radius: var(--radius-md);
+      background: var(--surface-code);
+      border: 1px solid var(--border-default);
       overflow-x: auto;
-      margin: 14px 0;
+      margin: var(--space-4) 0;
     }
-    .md-code code { background: none; padding: 0; color: #e2e8f0; }
+    .md-code code { background: none; padding: 0; color: var(--text-primary); }
     .md-quote {
-      margin: 14px 0;
-      padding: 11px 16px;
-      border-left: 3px solid var(--accent);
-      background: rgba(59, 130, 246, 0.06);
-      border-radius: 0 8px 8px 0;
+      margin: var(--space-4) 0;
+      padding: var(--space-3) var(--space-4);
+      border-left: 3px solid var(--action-primary);
+      background: var(--action-primary-subtle);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      word-break: keep-all;
     }
-    .md-quote p { margin: 4px 0; color: #e2e8f0; }
+    .md-quote p { margin: 4px 0; color: var(--text-primary); }
     .md-hr {
       border: 0;
-      border-top: 1px solid var(--border);
-      margin: 26px 0;
+      border-top: 1px solid var(--border-default);
+      margin: var(--space-8) 0;
     }
-    .md-table-wrap { overflow-x: auto; margin: 14px 0; }
+    .md-table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
     .md-table {
       width: 100%;
       border-collapse: collapse;
       font-size: 13.5px;
+      font-variant-numeric: tabular-nums;
     }
     .md-table th, .md-table td {
-      border: 1px solid var(--border);
-      padding: 8px 12px;
+      border-bottom: 1px solid var(--border-default);
+      padding: 10px 12px;
       text-align: left;
     }
-    .md-table th { background: var(--surface); color: #fff; }
+    .md-table th {
+      background: var(--surface-subtle);
+      color: var(--text-primary);
+      font-weight: 600;
+    }
 
+    /* Interactive Timestamp & Filter Badges */
     .ts-chip {
       display: inline-flex;
       align-items: center;
-      gap: 3px;
-      padding: 1px 7px;
+      gap: 4px;
+      padding: 2px 7px;
       margin: 0 2px;
-      border-radius: 5px;
-      border: 1px solid rgba(59, 130, 246, 0.32);
-      background: rgba(59, 130, 246, 0.12);
-      color: #60a5fa;
-      font-size: 11.8px;
-      font-family: ui-monospace, SFMono-Regular, monospace;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-default);
+      background: var(--status-info-bg);
+      color: var(--status-info-fg);
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
       cursor: pointer;
       vertical-align: baseline;
+      transition: background var(--duration-fast) var(--ease-standard);
     }
-    .ts-chip:hover { background: rgba(59, 130, 246, 0.25); }
+    .ts-chip:hover { background: var(--surface-interactive); }
 
     .filter-badge {
       display: inline-flex;
       align-items: center;
-      padding: 2px 9px;
-      border-radius: 6px;
+      padding: 3px 10px;
+      border-radius: var(--radius-full);
       font-size: 12px;
       font-weight: 600;
+      font-variant-numeric: tabular-nums;
     }
-    .filter-break { background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-    .filter-cut { background: rgba(16, 185, 129, 0.14); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .filter-break { background: var(--status-warning-bg); color: var(--status-warning-fg); }
+    .filter-cut { background: var(--status-success-bg); color: var(--status-success-fg); }
 
-    /* Right TOC Sidebar */
+    /* Right TOC Rail */
     .toc-rail {
       position: sticky;
       top: 0;
       align-self: start;
-      border-left: 1px solid var(--border);
-      padding-left: 16px;
+      border-left: 1px solid var(--border-default);
+      padding-left: var(--space-4);
       max-height: calc(100vh - 140px);
       overflow-y: auto;
     }
@@ -684,65 +913,70 @@ export function renderAppHtml(): string {
       font-size: 11.5px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
-      margin-bottom: 10px;
+      letter-spacing: 0.04em;
+      color: var(--text-tertiary);
+      margin-bottom: var(--space-3);
     }
     .toc-link {
       display: block;
       font-size: 12.5px;
-      color: var(--text-muted);
+      color: var(--text-tertiary);
       text-decoration: none;
-      padding: 4px 0;
+      padding: 5px 0;
       line-height: 1.4;
-      transition: color 0.12s;
+      transition: color var(--duration-fast) var(--ease-standard);
     }
-    .toc-link:hover { color: var(--text); }
-    .toc-link.lvl-3 { padding-left: 10px; font-size: 12px; }
+    .toc-link:hover { color: var(--text-primary); }
+    .toc-link.lvl-3 { padding-left: var(--space-3); font-size: 12px; }
 
     /* Markdown Editor View */
     .editor-pane {
       display: none;
       flex-direction: column;
-      gap: 10px;
+      gap: var(--space-3);
     }
     .editor-pane.visible { display: flex; }
     .editor-textarea {
       width: 100%;
       min-height: 62vh;
-      padding: 16px;
-      border-radius: 10px;
-      border: 1px solid var(--border-strong);
-      background: #0d0f13;
-      color: var(--text);
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      padding: var(--space-4);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-default);
+      background: var(--surface-elevated);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
       font-size: 13.5px;
-      line-height: 1.6;
+      line-height: 1.65;
       resize: vertical;
       outline: none;
     }
+    .editor-textarea:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--action-primary-subtle);
+    }
 
-    /* Modals */
+    /* Modals / Dialogs (Elysium radius-xl 20px + shadow-lg) */
     .modal-backdrop {
       position: fixed;
       inset: 0;
       z-index: 60;
-      background: rgba(0, 0, 0, 0.68);
-      backdrop-filter: blur(6px);
+      background: rgba(11, 13, 17, 0.56);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
       display: none;
       align-items: center;
       justify-content: center;
-      padding: 16px;
+      padding: var(--space-4);
     }
     .modal-backdrop.open { display: flex; }
     .modal-card {
       width: 100%;
-      max-width: 560px;
-      background: #14171d;
-      border: 1px solid var(--border-strong);
-      border-radius: 14px;
-      padding: 22px;
-      box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+      max-width: 540px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-xl);
+      padding: var(--space-6);
+      box-shadow: var(--shadow-lg);
       max-height: 90vh;
       overflow-y: auto;
     }
@@ -750,120 +984,147 @@ export function renderAppHtml(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 16px;
+      margin-bottom: var(--space-4);
     }
-    .modal-title { font-size: 17px; font-weight: 700; }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.018em;
+      color: var(--text-primary);
+    }
 
-    /* Recorder Box */
+    /* Recorder Visualizer */
     .rec-visualizer-wrap {
       position: relative;
-      height: 86px;
-      border-radius: 10px;
-      background: #0b0d11;
-      border: 1px solid var(--border);
+      height: 88px;
+      border-radius: var(--radius-md);
+      background: var(--surface-subtle);
+      border: 1px solid var(--border-default);
       overflow: hidden;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 14px;
+      margin-bottom: var(--space-4);
     }
     .rec-canvas { width: 100%; height: 100%; display: block; }
     .rec-timer {
       position: absolute;
       right: 12px;
       top: 10px;
-      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
       font-size: 13px;
       font-weight: 700;
-      color: #f87171;
-      background: rgba(0,0,0,0.6);
+      color: var(--status-danger-fg);
+      background: var(--status-danger-bg);
       padding: 2px 8px;
-      border-radius: 6px;
+      border-radius: var(--radius-xs);
     }
     .field-label {
       display: block;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
       color: var(--text-secondary);
       margin-bottom: 6px;
     }
     .field-input {
       width: 100%;
-      padding: 9px 12px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #0b0d11;
-      color: var(--text);
-      font-size: 13.5px;
-      margin-bottom: 12px;
+      height: 42px;
+      padding: 0 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-default);
+      background: var(--surface-subtle);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      margin-bottom: var(--space-3);
       outline: none;
+      transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
     }
-    .field-input:focus { border-color: var(--accent); }
+    .field-input:focus {
+      background: var(--surface-elevated);
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--action-primary-subtle);
+    }
 
     .dropzone {
       border: 1.5px dashed var(--border-strong);
-      border-radius: 10px;
-      padding: 18px;
+      border-radius: var(--radius-md);
+      padding: var(--space-5);
       text-align: center;
-      color: var(--text-muted);
+      color: var(--text-secondary);
+      background: var(--surface-subtle);
       cursor: pointer;
-      transition: all 0.15s;
-      margin-top: 10px;
+      transition: all var(--duration-fast) var(--ease-standard);
+      margin-top: var(--space-2);
     }
     .dropzone:hover, .dropzone.dragover {
-      border-color: var(--accent);
-      background: var(--accent-soft);
-      color: var(--text);
+      border-color: var(--action-primary);
+      background: var(--action-primary-subtle);
+      color: var(--text-primary);
     }
 
     /* Native Clients Grid */
     .client-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-top: 10px;
+      gap: var(--space-3);
+      margin-top: var(--space-3);
     }
     .client-box {
-      padding: 13px;
-      border-radius: 10px;
-      background: #0d1015;
-      border: 1px solid var(--border);
+      padding: var(--space-4);
+      border-radius: var(--radius-lg);
+      background: var(--surface-subtle);
+      border: 1px solid var(--border-default);
     }
-    .client-box h4 { margin: 0 0 6px; font-size: 13.5px; color: #fff; }
-    .client-box p { margin: 0 0 8px; font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+    .client-box h4 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      word-break: keep-all;
+    }
+    .client-box p {
+      margin: 0 0 12px;
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      word-break: keep-all;
+    }
 
     /* Toast */
     .toast {
       position: fixed;
-      bottom: 24px;
-      right: 24px;
+      bottom: var(--space-6);
+      right: var(--space-6);
       z-index: 100;
       padding: 10px 16px;
-      border-radius: 9px;
-      background: #1e293b;
-      border: 1px solid rgba(59, 130, 246, 0.4);
-      color: #fff;
+      border-radius: var(--radius-md);
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
       font-size: 13px;
       font-weight: 600;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+      box-shadow: var(--shadow-md);
       opacity: 0;
       transform: translateY(10px);
       pointer-events: none;
-      transition: all 0.2s ease;
+      transition: all var(--duration-normal) var(--ease-out-expo);
     }
     .toast.show { opacity: 1; transform: translateY(0); }
 
-    /* Mobile Bottom Tab Bar */
+    /* Mobile Bottom Tab Bar (56px + safe-area) */
     .mobile-tabbar {
       display: none;
       position: fixed;
       bottom: 0;
       left: 0;
       right: 0;
-      height: 60px;
-      background: rgba(16, 18, 22, 0.94);
-      backdrop-filter: blur(16px);
-      border-top: 1px solid var(--border);
+      height: calc(56px + env(safe-area-inset-bottom));
+      background: var(--surface-overlay);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-top: 1px solid var(--border-default);
       z-index: 45;
       justify-content: space-around;
       align-items: center;
@@ -872,29 +1133,32 @@ export function renderAppHtml(): string {
     .tab-btn {
       background: none;
       border: none;
-      color: var(--text-muted);
+      color: var(--text-tertiary);
+      font-family: var(--font-sans);
       font-size: 11px;
       font-weight: 600;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 3px;
+      gap: 4px;
       cursor: pointer;
+      min-width: 64px;
+      padding: 6px 0;
     }
-    .tab-btn.active { color: #60a5fa; }
+    .tab-btn.active { color: var(--action-primary); }
 
     @media (max-width: 960px) {
       .app-shell { grid-template-columns: 1fr; }
       .sidebar {
         position: fixed;
-        inset: 0 0 60px 0;
+        inset: 0 0 56px 0;
         z-index: 35;
         display: none;
       }
       .sidebar.mobile-open { display: flex; }
       .reader-scroll {
         grid-template-columns: 1fr;
-        padding: 20px 18px 90px;
+        padding: var(--space-5) var(--space-4) 96px;
       }
       .toc-rail { display: none; }
       .mobile-tabbar { display: flex; }
@@ -902,12 +1166,11 @@ export function renderAppHtml(): string {
     }
 
     @media print {
-      html, body { height: auto; overflow: visible; background: #fff; color: #000; }
+      html, body { height: auto; overflow: visible; background: #fff !important; color: #191F28 !important; }
       .sidebar, .reader-toolbar, .audio-bar, .toc-rail, .mobile-tabbar, .modal-backdrop { display: none !important; }
       .app-shell, .main-pane, .reader-scroll { display: block; height: auto; overflow: visible; padding: 0; margin: 0; }
-      .md-article h1, .md-article h2, .md-article h3, .md-article strong { color: #000; }
-      .md-article p, .md-article li { color: #222; }
-      .ts-chip { border-color: #888; color: #222; background: #f3f4f6; }
+      .md-article h1, .md-article h2, .md-article h3, .md-article strong { color: #191F28 !important; }
+      .md-article p, .md-article li { color: #4E5968 !important; }
     }
   </style>
 </head>
@@ -918,10 +1181,13 @@ export function renderAppHtml(): string {
       <div class="sidebar-header">
         <div class="brand">
           <span class="brand-mark"></span>
-          <span>LECTERN</span>
+          <span>Lectern</span>
           <span class="brand-sub">v1.0</span>
         </div>
-        <button class="btn btn-primary" onclick="openRecorderModal()">🎙️ 새 강의 녹음</button>
+        <button class="btn btn-primary" onclick="openRecorderModal()">
+          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+          <span>새 강의 녹음</span>
+        </button>
       </div>
 
       <div class="search-box">
@@ -933,8 +1199,8 @@ export function renderAppHtml(): string {
       <div class="lecture-list" id="lecture-list"></div>
 
       <div class="sidebar-footer">
-        <button class="btn" onclick="openClientsModal()">📱 네이티브·단축어</button>
-        <button class="btn" onclick="openSettingsModal()">🔑 API 설정</button>
+        <button class="btn" onclick="openClientsModal()">네이티브 앱·단축어</button>
+        <button class="btn" onclick="openSettingsModal()">모델·API 설정</button>
       </div>
     </aside>
 
@@ -947,15 +1213,18 @@ export function renderAppHtml(): string {
           <span class="meta-pill" id="cur-model">gemini-flash-latest</span>
         </div>
         <div class="toolbar-actions">
-          <button class="btn" id="btn-edit" onclick="toggleEditor()">✏️ 편집</button>
-          <button class="btn" id="btn-md" onclick="downloadCurrentMarkdown()">⬇️ MD</button>
-          <button class="btn" id="btn-pdf" onclick="window.print()">📄 PDF</button>
-          <button class="btn btn-primary" id="btn-share" onclick="shareCurrentLecture()">🔗 공유</button>
+          <button class="btn btn-icon" onclick="toggleTheme()" title="라이트/다크 테마 전환" aria-label="테마 전환">
+            <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+          </button>
+          <button class="btn" id="btn-edit" onclick="toggleEditor()">편집</button>
+          <button class="btn" id="btn-md" onclick="downloadCurrentMarkdown()">MD</button>
+          <button class="btn" id="btn-pdf" onclick="window.print()">PDF</button>
+          <button class="btn btn-primary" id="btn-share" onclick="shareCurrentLecture()">공유 링크</button>
         </div>
       </header>
 
       <div class="audio-bar" id="audio-bar">
-        <span style="font-size:12px;font-weight:650;color:var(--text-secondary);">🎧 원본 오디오</span>
+        <span style="font-size:12px;font-weight:600;color:var(--text-secondary);">원본 오디오</span>
         <audio id="lecture-audio" controls preload="metadata"></audio>
         <select class="speed-select" id="audio-speed" onchange="changeAudioSpeed(this.value)">
           <option value="1">1.0x</option>
@@ -969,7 +1238,7 @@ export function renderAppHtml(): string {
       <div class="reader-scroll" id="reader-scroll">
         <div>
           <article class="md-article" id="md-article">
-            <p style="color:var(--text-muted);">왼쪽 목록에서 강의 노트를 선택하거나 새 강의를 녹음/업로드하세요.</p>
+            <p style="color:var(--text-tertiary);">왼쪽 목록에서 강의 노트를 선택하거나 새 강의를 녹음/업로드하세요.</p>
           </article>
           <div class="editor-pane" id="editor-pane">
             <input type="text" id="edit-title" class="field-input" placeholder="강의 제목" />
@@ -977,12 +1246,12 @@ export function renderAppHtml(): string {
             <textarea id="edit-markdown" class="editor-textarea"></textarea>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
               <button class="btn" onclick="toggleEditor(false)">취소</button>
-              <button class="btn btn-primary" onclick="saveMarkdownEdit()">💾 저장</button>
+              <button class="btn btn-primary" onclick="saveMarkdownEdit()">변경사항 저장</button>
             </div>
           </div>
         </div>
         <nav class="toc-rail" id="toc-rail">
-          <div class="toc-title">목차 (On this page)</div>
+          <div class="toc-title">On this page</div>
           <div id="toc-list"></div>
         </nav>
       </div>
@@ -992,16 +1261,20 @@ export function renderAppHtml(): string {
   <!-- Mobile Bottom Tab Bar -->
   <nav class="mobile-tabbar">
     <button class="tab-btn" id="tab-list" onclick="switchMobileTab('list')">
-      <span>📚</span><span>목록</span>
+      <svg class="icon-svg" viewBox="0 0 24 24"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>
+      <span>강의 목록</span>
     </button>
     <button class="tab-btn active" id="tab-reader" onclick="switchMobileTab('reader')">
-      <span>📖</span><span>노트 리더</span>
+      <svg class="icon-svg" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      <span>노트 리더</span>
     </button>
     <button class="tab-btn" onclick="openRecorderModal()">
-      <span>🎙️</span><span>녹음/업로드</span>
+      <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+      <span>녹음·업로드</span>
     </button>
     <button class="tab-btn" onclick="openClientsModal()">
-      <span>📱</span><span>기기 연동</span>
+      <svg class="icon-svg" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+      <span>기기 연동</span>
     </button>
   </nav>
 
@@ -1009,31 +1282,31 @@ export function renderAppHtml(): string {
   <div class="modal-backdrop" id="recorder-modal">
     <div class="modal-card">
       <div class="modal-header">
-        <div class="modal-title">🎙️ 실시간 강의 녹음 & 오디오 증류</div>
-        <button class="btn" onclick="closeModal('recorder-modal')">✕</button>
+        <div class="modal-title">실시간 강의 녹음 및 오디오 증류</div>
+        <button class="btn btn-icon" onclick="closeModal('recorder-modal')" aria-label="닫기">✕</button>
       </div>
 
       <label class="field-label">과목명 (Course)</label>
       <input type="text" id="rec-course" class="field-input" placeholder="예: 정보보호개론, 자바프로그래밍, 영어읽기와토론" value="정보보호개론" />
-      <div id="quick-course-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>
+      <div id="quick-course-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;"></div>
 
       <div class="rec-visualizer-wrap">
-        <canvas id="rec-canvas" class="rec-canvas" width="480" height="86"></canvas>
+        <canvas id="rec-canvas" class="rec-canvas" width="480" height="88"></canvas>
         <div class="rec-timer" id="rec-timer">00:00</div>
       </div>
 
       <div style="display:flex;gap:8px;margin-bottom:14px;">
-        <button class="btn btn-primary" id="btn-rec-start" style="flex:1;padding:10px;" onclick="toggleMicRecording()">🔴 마이크 녹음 시작</button>
-        <button class="btn" id="btn-rec-pause" style="display:none;" onclick="pauseResumeRecording()">⏸ 일시정지</button>
+        <button class="btn btn-primary" id="btn-rec-start" style="flex:1;height:42px;" onclick="toggleMicRecording()">마이크 녹음 시작</button>
+        <button class="btn" id="btn-rec-pause" style="display:none;height:42px;" onclick="pauseResumeRecording()">일시정지</button>
       </div>
 
       <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
-        <div style="font-weight:650;margin-bottom:4px;">📂 또는 녹음 파일 드래그 앤 드롭 / 클릭하여 선택</div>
-        <div style="font-size:12px;">지원 포맷: .m4a (아이폰/맥 음성메모), .mp3, .webm, .wav, .ogg (최대 200MB)</div>
+        <div style="font-weight:600;color:var(--text-primary);margin-bottom:4px;">오디오 파일 드래그 앤 드롭 또는 클릭하여 선택</div>
+        <div style="font-size:12px;color:var(--text-tertiary);">지원 포맷: .m4a (음성메모), .mp3, .webm, .wav, .ogg (최대 200MB)</div>
         <input type="file" id="file-input" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg,.aac" style="display:none" onchange="handleFileSelect(this.files)" />
       </div>
 
-      <div id="ingest-status" style="margin-top:12px;font-size:12.5px;color:#60a5fa;display:none;"></div>
+      <div id="ingest-status" style="margin-top:12px;font-size:13px;font-weight:600;color:var(--action-primary);display:none;"></div>
     </div>
   </div>
 
@@ -1041,49 +1314,49 @@ export function renderAppHtml(): string {
   <div class="modal-backdrop" id="clients-modal">
     <div class="modal-card" style="max-width:640px;">
       <div class="modal-header">
-        <div class="modal-title">📱 멀티플랫폼 네이티브 & 퀵액션 연동</div>
-        <button class="btn" onclick="closeModal('clients-modal')">✕</button>
+        <div class="modal-title">멀티플랫폼 네이티브 앱 & 퀵액션 연동</div>
+        <button class="btn btn-icon" onclick="closeModal('clients-modal')" aria-label="닫기">✕</button>
       </div>
-      <p style="margin:0 0 12px;color:var(--text-muted);font-size:13px;">
+      <p style="margin:0 0 12px;color:var(--text-secondary);font-size:13.5px;">
         어느 기기에서 녹음하든 쉬는시간·방치녹음이 자동 제거된 뒤 이 리더 화면에 즉시 동기화됩니다.
       </p>
       <div class="client-grid">
         <div class="client-box">
-          <h4> macOS 상단 메뉴바 앱 (Native SwiftUI/AppKit)</h4>
+          <h4>macOS 상단 메뉴바 앱 (SwiftUI/AppKit)</h4>
           <p><code>NSStatusItem</code> 상단바 상주 · <code>⌥Space</code> 글로벌 핫키 무오버헤드 HE-AAC 녹음 및 네이티브 마크다운 리더 팝오버.</p>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <a class="btn btn-primary" href="https://github.com/eunhhu/lectern/releases/latest/download/Lectern-macOS-arm64.zip" target="_blank">⬇️ Lectern.app 다운로드</a>
-            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/macos" target="_blank">소스 ↗</a>
+            <a class="btn btn-primary" href="https://github.com/eunhhu/lectern/releases/latest/download/Lectern-macOS-arm64.zip" target="_blank">Lectern.app 다운로드</a>
+            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/macos" target="_blank">소스</a>
           </div>
         </div>
         <div class="client-box">
-          <h4>📱 iOS 단축어 / 뒷면 탭 / 액션 버튼</h4>
+          <h4>iOS 단축어 / 뒷면 탭 / 액션 버튼</h4>
           <p>음성 메모 공유 시트 또는 액션 버튼으로 <code>POST /api/ingest/shortcut</code> 즉시 전송 후 노트 자동 오픈.</p>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <a class="btn btn-primary" href="/api/clients/ios-shortcut" download="lectern-ios-shortcut.json">⬇️ 단축어 레시피</a>
-            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/ios" target="_blank">SwiftUI 소스 ↗</a>
+            <a class="btn btn-primary" href="/api/clients/ios-shortcut" download="lectern-ios-shortcut.json">단축어 레시피</a>
+            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/ios" target="_blank">SwiftUI 소스</a>
           </div>
         </div>
         <div class="client-box">
-          <h4>🤖 Android Jetpack Compose + 퀵세팅 타일</h4>
-          <p>100% 네이티브 Compose 마크다운 리더·녹음기 + 상단 퀵세팅 패널 타일(<code>LecternTileService</code>) 원탭 녹음.</p>
+          <h4>Android Jetpack Compose + 퀵세팅 타일</h4>
+          <p>네이티브 Compose 마크다운 리더·녹음기 + 상단 퀵세팅 패널 타일(<code>LecternTileService</code>) 원탭 녹음.</p>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <a class="btn btn-primary" href="https://github.com/eunhhu/lectern/releases/latest/download/Lectern-android-universal.apk" target="_blank">⬇️ APK 다운로드</a>
-            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/android" target="_blank">소스 ↗</a>
+            <a class="btn btn-primary" href="https://github.com/eunhhu/lectern/releases/latest/download/Lectern-android-universal.apk" target="_blank">APK 다운로드</a>
+            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/android" target="_blank">소스</a>
           </div>
         </div>
         <div class="client-box">
-          <h4>🪟 Windows 시스템 트레이 & 네이티브 리더 (.NET 8)</h4>
-          <p>시스템 트레이 상주 + 글로벌 핫키(<code>Alt+Shift+R</code>) 즉시 녹음 & 네이티브 다크모드 마크다운 리더.</p>
+          <h4>Windows 시스템 트레이 & 네이티브 리더 (.NET 8)</h4>
+          <p>시스템 트레이 상주 + 글로벌 핫키(<code>Alt+Shift+R</code>) 즉시 녹음 & 네이티브 마크다운 리더.</p>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <a class="btn btn-primary" href="https://github.com/eunhhu/lectern/releases/latest/download/LecternTray-win-x64.exe" target="_blank">⬇️ Windows EXE 다운로드</a>
-            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/windows" target="_blank">소스 ↗</a>
+            <a class="btn btn-primary" href="https://github.com/eunhhu/lectern/releases/latest/download/LecternTray-win-x64.exe" target="_blank">Windows EXE 다운로드</a>
+            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/windows" target="_blank">소스</a>
           </div>
         </div>
       </div>
-      <div style="margin-top:14px;padding:12px;border-radius:9px;background:#0b0d11;border:1px solid var(--border);font-size:12px;">
-        <div style="font-weight:650;color:#fff;margin-bottom:4px;">⚡ 원클릭 HTTP Ingest API (cURL / 단축어 / 서드파티 연동)</div>
-        <code style="display:block;white-space:pre-wrap;color:#93c5fd;">curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\
+      <div style="margin-top:14px;padding:14px;border-radius:var(--radius-md);background:var(--surface-code);border:1px solid var(--border-default);font-size:12px;">
+        <div style="font-weight:600;color:var(--text-primary);margin-bottom:6px;">원클릭 HTTP Ingest API (cURL / 단축어 / 서드파티 연동)</div>
+        <code style="display:block;white-space:pre-wrap;font-family:var(--font-mono);color:var(--action-primary);">curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\
   -H "X-Course: 정보보호개론" \\
   -F "audio=@20261014_lecture.m4a"</code>
       </div>
@@ -1094,15 +1367,15 @@ export function renderAppHtml(): string {
   <div class="modal-backdrop" id="settings-modal">
     <div class="modal-card">
       <div class="modal-header">
-        <div class="modal-title">🔑 Gemini API & 모델 설정</div>
-        <button class="btn" onclick="closeModal('settings-modal')">✕</button>
+        <div class="modal-title">Gemini API & 요약 모델 설정</div>
+        <button class="btn btn-icon" onclick="closeModal('settings-modal')" aria-label="닫기">✕</button>
       </div>
       <label class="field-label">요약 모델 (기본: gemini-flash-latest → 최신 Flash 자동 매핑)</label>
       <input type="text" id="cfg-model" class="field-input" value="gemini-flash-latest" />
       <label class="field-label">개인 Gemini API Key (선택 · 비워두면 서버 기본 키 사용)</label>
       <input type="password" id="cfg-apikey" class="field-input" placeholder="AIzaSy... (브라우저 로컬 스토리지에만 저장됨)" />
       <div style="display:flex;justify-content:flex-end;gap:8px;">
-        <button class="btn btn-primary" onclick="saveSettings()">저장</button>
+        <button class="btn btn-primary" onclick="saveSettings()">설정 저장</button>
       </div>
     </div>
   </div>
@@ -1114,6 +1387,15 @@ export function renderAppHtml(): string {
     let currentLecture = null;
     let activeCourse = 'ALL';
     let searchQuery = '';
+
+    // Theme setup (Elysium Light/Dark)
+    const savedTheme = localStorage.getItem('lectern_theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    function toggleTheme() {
+      const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('lectern_theme', next);
+    }
 
     // Load saved settings
     const savedModel = localStorage.getItem('lectern_model') || 'gemini-flash-latest';
@@ -1171,13 +1453,13 @@ export function renderAppHtml(): string {
     function renderLectureList() {
       const listEl = document.getElementById('lecture-list');
       if (!lectures.length) {
-        listEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">조건에 맞는 강의 노트가 없습니다.</div>';
+        listEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:13px;">조건에 맞는 강의 노트가 없습니다.</div>';
         return;
       }
       listEl.innerHTML = lectures.map(item => {
         const isAct = currentLecture && currentLecture.id === item.id;
         const progHtml = item.status === 'processing'
-          ? '<div class="card-progress"><div class="card-progress-bar" style="width:' + (item.progress || 15) + '%"></div></div><div style="font-size:11px;color:#60a5fa;margin-top:4px;">⚡ ' + (item.stage_message || '분석 중...') + '</div>'
+          ? '<div class="card-progress"><div class="card-progress-bar" style="width:' + (item.progress || 15) + '%"></div></div><div style="font-size:11.5px;color:var(--action-primary);margin-top:4px;">' + (item.stage_message || '분석 중...') + '</div>'
           : '';
         return '<div class="lecture-card ' + (isAct ? 'active' : '') + '" onclick="selectLecture(\\'' + item.id + '\\', true)">' +
           '<div class="card-top">' +
@@ -1222,12 +1504,12 @@ export function renderAppHtml(): string {
       const art = document.getElementById('md-article');
       if (currentLecture.status === 'processing') {
         art.innerHTML = '<div style="padding:48px 20px;text-align:center;">' +
-          '<div style="font-size:18px;font-weight:700;margin-bottom:8px;">⚡ ' + escapeClientHtml(currentLecture.stage_message || '강의 오디오 증류 중...') + '</div>' +
-          '<div style="color:var(--text-muted);font-size:13.5px;">쉬는 시간과 불필요한 잡담을 걸러내고 핵심 이론을 구조화하고 있습니다. 완료되면 자동으로 표시됩니다.</div>' +
+          '<div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:8px;">' + escapeClientHtml(currentLecture.stage_message || '강의 오디오 증류 중...') + '</div>' +
+          '<div style="color:var(--text-secondary);font-size:14px;">쉬는 시간과 불필요한 잡담을 걸러내고 핵심 이론을 구조화하고 있습니다. 완료되면 자동으로 표시됩니다.</div>' +
         '</div>';
         pollProcessingLecture(currentLecture.id);
       } else if (currentLecture.status === 'error') {
-        art.innerHTML = '<div style="padding:36px;color:#fca5a5;">❌ 분석 오류: ' + escapeClientHtml(currentLecture.error_message || '알 수 없는 오류') + '</div>';
+        art.innerHTML = '<div style="padding:36px;color:var(--status-danger-fg);">분석 오류: ' + escapeClientHtml(currentLecture.error_message || '알 수 없는 오류') + '</div>';
       } else {
         art.innerHTML = data.rendered.html;
       }
@@ -1259,7 +1541,7 @@ export function renderAppHtml(): string {
       if (currentLecture && currentLecture.has_audio && audioEl) {
         audioEl.currentTime = sec;
         audioEl.play().catch(() => {});
-        showToast('⏱ 오디오 ' + chip.textContent.replace('⏱', '').trim() + ' 지점으로 이동');
+        showToast('오디오 ' + chip.textContent.replace('⏱', '').trim() + ' 지점으로 이동');
       } else {
         showToast('이 노트에는 연결된 원본 오디오 파일이 없습니다.');
       }
@@ -1298,7 +1580,7 @@ export function renderAppHtml(): string {
         body: JSON.stringify({ title, course, markdown })
       });
       if (res.ok) {
-        showToast('✅ 강의 노트가 저장되었습니다.');
+        showToast('강의 노트가 저장되었습니다.');
         await fetchLectures(currentLecture.id);
       }
     }
@@ -1313,7 +1595,7 @@ export function renderAppHtml(): string {
       const shareUrl = location.origin + '/s/' + currentLecture.share_token;
       try {
         await navigator.clipboard.writeText(shareUrl);
-        showToast('🔗 공유 링크 복사 완료! (' + shareUrl + ')');
+        showToast('공유 링크가 복사되었습니다.');
       } catch {
         prompt('공유 링크를 복사하세요:', shareUrl);
       }
@@ -1344,7 +1626,7 @@ export function renderAppHtml(): string {
       localStorage.setItem('lectern_model', m);
       localStorage.setItem('lectern_apikey', k);
       closeModal('settings-modal');
-      showToast('🔑 설정이 저장되었습니다.');
+      showToast('설정이 저장되었습니다.');
     }
 
     function switchMobileTab(tab) {
@@ -1394,7 +1676,7 @@ export function renderAppHtml(): string {
           stream.getTracks().forEach(t => t.stop());
           if (wakeLock) { try { await wakeLock.release(); } catch {} wakeLock = null; }
 
-          document.getElementById('btn-rec-start').textContent = '🔴 마이크 녹음 시작';
+          document.getElementById('btn-rec-start').textContent = '마이크 녹음 시작';
           document.getElementById('btn-rec-start').classList.remove('btn-danger');
           document.getElementById('btn-rec-pause').style.display = 'none';
 
@@ -1406,7 +1688,7 @@ export function renderAppHtml(): string {
 
         mediaRecorder.start(1000);
         recStartTime = Date.now();
-        document.getElementById('btn-rec-start').textContent = '⏹ 녹음 종료 및 노트 요약 시작';
+        document.getElementById('btn-rec-start').textContent = '녹음 종료 및 노트 요약 시작';
         document.getElementById('btn-rec-start').classList.add('btn-danger');
         document.getElementById('btn-rec-pause').style.display = 'inline-flex';
 
@@ -1433,10 +1715,10 @@ export function renderAppHtml(): string {
       const btn = document.getElementById('btn-rec-pause');
       if (mediaRecorder.state === 'recording') {
         mediaRecorder.pause();
-        btn.textContent = '▶️ 재개';
+        btn.textContent = '재개';
       } else if (mediaRecorder.state === 'paused') {
         mediaRecorder.resume();
-        btn.textContent = '⏸ 일시정지';
+        btn.textContent = '일시정지';
       }
     }
 
@@ -1449,14 +1731,13 @@ export function renderAppHtml(): string {
       function render() {
         animFrame = requestAnimationFrame(render);
         analyser.getByteFrequencyData(data);
-        ctx.fillStyle = '#0b0d11';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         const barW = (canvas.width / bufLen) * 1.6;
         let x = 0;
         for (let i = 0; i < bufLen; i++) {
           const v = data[i] / 255;
-          const h = Math.max(4, v * (canvas.height - 12));
-          ctx.fillStyle = v > 0.6 ? '#60a5fa' : '#3b82f6';
+          const h = Math.max(4, v * (canvas.height - 14));
+          ctx.fillStyle = v > 0.6 ? '#4593FC' : '#3182F6';
           ctx.fillRect(x, (canvas.height - h) / 2, barW - 2, h);
           x += barW;
         }
@@ -1488,7 +1769,7 @@ export function renderAppHtml(): string {
 
       const statusEl = document.getElementById('ingest-status');
       statusEl.style.display = 'block';
-      statusEl.textContent = '🚀 오디오 업로드 중 (' + (file.size / 1048576).toFixed(1) + ' MB)...';
+      statusEl.textContent = '오디오 업로드 중 (' + (file.size / 1048576).toFixed(1) + ' MB)...';
 
       const form = new FormData();
       form.append('audio', file);
@@ -1506,13 +1787,13 @@ export function renderAppHtml(): string {
       });
       const data = await res.json();
       if (!res.ok) {
-        statusEl.textContent = '❌ 오류: ' + (data.error || '업로드 실패');
+        statusEl.textContent = '오류: ' + (data.error || '업로드 실패');
         return;
       }
 
       statusEl.style.display = 'none';
       closeModal('recorder-modal');
-      showToast('⚡ 강의 오디오 증류가 시작되었습니다!');
+      showToast('강의 오디오 증류가 시작되었습니다.');
       await fetchLectures(data.lecture.id);
     }
 

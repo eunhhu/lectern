@@ -69,35 +69,35 @@ internal sealed class TrayForm : Form
         ForeColor = Color.FromArgb(240, 242, 245);
         Font = new Font("Malgun Gothic", 10f);
 
-        // Split layout: Left Sidebar + Right Native Markdown Reader
+        // Split layout: Left Sidebar + Right Native Markdown Reader (Elysium Dark Tokens)
         var split = new SplitContainer
         {
             Dock = DockStyle.Fill,
             SplitterDistance = 320,
-            BackColor = Color.FromArgb(18, 20, 24)
+            BackColor = Color.FromArgb(20, 23, 29) // #14171D
         };
         Controls.Add(split);
 
         // Left Sidebar Controls
-        var leftPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12), BackColor = Color.FromArgb(18, 20, 24) };
+        var leftPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12), BackColor = Color.FromArgb(20, 23, 29) };
         split.Panel1.Controls.Add(leftPanel);
 
         _courseBox = new TextBox
         {
             Text = "정보보호개론",
             Dock = DockStyle.Top,
-            BackColor = Color.FromArgb(28, 32, 38),
-            ForeColor = Color.White,
+            BackColor = Color.FromArgb(28, 32, 40), // #1C2028
+            ForeColor = Color.FromArgb(242, 244, 246), // #F2F4F6
             BorderStyle = BorderStyle.FixedSingle
         };
 
         _recordButton = new Button
         {
-            Text = "🔴 즉시 강의 녹음 (Alt+Shift+R)",
+            Text = "즉시 강의 녹음 (Alt+Shift+R)",
             Dock = DockStyle.Top,
             Height = 38,
             FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(94, 158, 255),
+            BackColor = Color.FromArgb(69, 147, 252), // #4593FC (Elysium Action Primary)
             ForeColor = Color.White
         };
         _recordButton.Click += (_, _) => ToggleRecording();
@@ -107,15 +107,15 @@ internal sealed class TrayForm : Form
             Text = "준비됨 · 트레이 상주 중",
             Dock = DockStyle.Top,
             Height = 26,
-            ForeColor = Color.FromArgb(148, 163, 184),
+            ForeColor = Color.FromArgb(158, 166, 178), // #9EA6B2
             TextAlign = ContentAlignment.MiddleLeft
         };
 
         _lectureListBox = new ListBox
         {
             Dock = DockStyle.Fill,
-            BackColor = Color.FromArgb(15, 17, 21),
-            ForeColor = Color.FromArgb(226, 232, 240),
+            BackColor = Color.FromArgb(28, 32, 40), // #1C2028
+            ForeColor = Color.FromArgb(242, 244, 246), // #F2F4F6
             BorderStyle = BorderStyle.None,
             IntegralHeight = false
         };
@@ -179,8 +179,8 @@ internal sealed class TrayForm : Form
         {
             Dock = DockStyle.Fill,
             ReadOnly = true,
-            BackColor = Color.FromArgb(11, 12, 14),
-            ForeColor = Color.FromArgb(230, 234, 240),
+            BackColor = Color.FromArgb(11, 13, 17), // #0B0D11 (Elysium Surface Canvas)
+            ForeColor = Color.FromArgb(242, 244, 246), // #F2F4F6
             BorderStyle = BorderStyle.None,
             Font = new Font("Malgun Gothic", 11f),
             DetectUrls = true
@@ -191,11 +191,11 @@ internal sealed class TrayForm : Form
 
         // System Tray Menu
         var menu = new ContextMenuStrip();
-        _recordMenuItem = new ToolStripMenuItem("🔴 강의 녹음 시작 (Alt+Shift+R)", null, (_, _) => ToggleRecording());
-        var openReaderItem = new ToolStripMenuItem("📖 네이티브 리더 열기", null, (_, _) => ShowMainWindow());
+        _recordMenuItem = new ToolStripMenuItem("강의 녹음 시작 (Alt+Shift+R)", null, (_, _) => ToggleRecording());
+        var openReaderItem = new ToolStripMenuItem("네이티브 리더 열기", null, (_, _) => ShowMainWindow());
         var exitItem = new ToolStripMenuItem("종료", null, (_, _) =>
         {
-            _trayIcon.Visible = false;
+            if (_trayIcon != null) _trayIcon.Visible = false;
             Environment.Exit(0);
         });
 

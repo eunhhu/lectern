@@ -72,9 +72,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
-                    background = Color(0xFF0B0C0E),
-                    surface = Color(0xFF121418),
-                    primary = Color(0xFF5E9EFF),
+                    background = Color(0xFF0B0D11),
+                    surface = Color(0xFF14171D),
+                    primary = Color(0xFF4593FC),
                     onPrimary = Color.White
                 )
             ) {
@@ -260,25 +260,25 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
     }
 
     Scaffold(
-        containerColor = Color(0xFF0B0C0E),
+        containerColor = Color(0xFF0B0D11),
         topBar = {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("LECTERN", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                        Text("Lectern", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFFF2F4F6))
                         Spacer(Modifier.width(8.dp))
-                        Text("Native Compose", fontSize = 11.sp, color = Color(0xFF8E95A5))
+                        Text("Elysium", fontSize = 11.sp, color = Color(0xFF6B7684))
                     }
                 },
                 actions = {
                     Button(
                         onClick = { showRecorderSheet = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4593FC))
                     ) {
-                        Text("🔴 녹음")
+                        Text("새 강의 녹음", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF121418))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF14171D))
             )
         }
     ) { padding ->

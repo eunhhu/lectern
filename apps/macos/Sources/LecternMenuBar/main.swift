@@ -3,6 +3,29 @@ import SwiftUI
 import AVFoundation
 import Carbon
 
+// MARK: - Elysium Design System v1.0 Tokens (macOS Native Dark)
+
+enum Elysium {
+    static let surfaceCanvas = Color(red: 11/255, green: 13/255, blue: 17/255)      // #0B0D11
+    static let surfaceElevated = Color(red: 20/255, green: 23/255, blue: 29/255)    // #14171D
+    static let surfaceSubtle = Color(red: 28/255, green: 32/255, blue: 40/255)      // #1C2028
+    static let surfaceInteractive = Color(red: 38/255, green: 43/255, blue: 53/255) // #262B35
+
+    static let textPrimary = Color(red: 242/255, green: 244/255, blue: 246/255)     // #F2F4F6
+    static let textSecondary = Color(red: 158/255, green: 166/255, blue: 178/255)   // #9EA6B2
+    static let textTertiary = Color(red: 107/255, green: 118/255, blue: 132/255)    // #6B7684
+
+    static let actionPrimary = Color(red: 69/255, green: 147/255, blue: 252/255)    // #4593FC
+    static let actionPrimarySubtle = Color(red: 69/255, green: 147/255, blue: 252/255).opacity(0.14)
+
+    static let statusSuccessFg = Color(red: 21/255, green: 196/255, blue: 126/255)  // #15C47E
+    static let statusSuccessBg = Color(red: 21/255, green: 196/255, blue: 126/255).opacity(0.14)
+    static let statusWarningFg = Color(red: 255/255, green: 176/255, blue: 32/255)  // #FFB020
+    static let statusWarningBg = Color(red: 255/255, green: 176/255, blue: 32/255).opacity(0.14)
+    static let statusDangerFg = Color(red: 245/255, green: 88/255, blue: 100/255)   // #F55864
+    static let statusDangerBg = Color(red: 245/255, green: 88/255, blue: 100/255).opacity(0.14)
+}
+
 // MARK: - Models
 
 struct LectureSummary: Identifiable, Decodable, Equatable {
@@ -154,8 +177,9 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = av.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            Task { @MainActor in
-                self?.currentAudioTime = time.seconds.isFinite ? time.seconds : 0
+            let sec = time.seconds.isFinite ? time.seconds : 0
+            Task { @MainActor [weak self] in
+                self?.currentAudioTime = sec
             }
         }
     }
@@ -184,7 +208,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         isPlayingAudio = true
         let m = Int(seconds) / 60
         let s = Int(seconds) % 60
-        showToast(String(format: "⏱ 오디오 %02d:%02d 지점으로 이동", m, s))
+        showToast(String(format: "오디오 %02d:%02d 지점으로 이동", m, s))
     }
 
     func setSpeed(_ speed: Float) {
@@ -230,14 +254,16 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             self.updateMenuBarLabel()
 
             recTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self = self, let st = self.recStartTime, let r = self.recorder else { return }
-                    self.elapsedSeconds = Int(Date().timeIntervalSince(st))
+                Task { @MainActor [weak self] in
+                    guard let strongSelf = self,
+                          let st = strongSelf.recStartTime,
+                          let r = strongSelf.recorder else { return }
+                    strongSelf.elapsedSeconds = Int(Date().timeIntervalSince(st))
                     r.updateMeters()
-                    let power = r.averagePower(forChannel: 0) // -160..0
+                    let power = r.averagePower(forChannel: 0)
                     let normalized = max(0.05, min(1.0, (power + 55.0) / 55.0))
-                    self.audioLevel = normalized
-                    self.updateMenuBarLabel()
+                    strongSelf.audioLevel = normalized
+                    strongSelf.updateMenuBarLabel()
                 }
             }
         } catch {
@@ -317,7 +343,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             let (data, _) = try await URLSession.shared.data(for: req)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let newId = json["id"] as? String {
-                showToast("⚡ 오디오 업로드 완료! Gemini Flash 증류 시작")
+                showToast("오디오 업로드 완료 · Gemini Flash 증류 시작")
                 await fetchLectures(selectId: newId)
             }
         } catch {
@@ -350,7 +376,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         do {
             let (_, _) = try await URLSession.shared.data(for: req)
             isEditing = false
-            showToast("✅ 강의 노트 저장 완료")
+            showToast("강의 노트 저장 완료")
             await fetchLectures(selectId: lec.id)
         } catch {
             showToast("저장 실패: \(error.localizedDescription)")
@@ -363,7 +389,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         savePanel.nameFieldStringValue = "\(lec.course)_\(lec.date_label)_요약.md"
         if savePanel.runModal() == .OK, let targetURL = savePanel.url {
             try? (lec.markdown + "\n").write(to: targetURL, atomically: true, encoding: .utf8)
-            showToast("⬇️ 마크다운 파일 저장 완료")
+            showToast("마크다운 파일 저장 완료")
         }
     }
 
@@ -377,7 +403,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             textView.font = NSFont.systemFont(ofSize: 11.5)
             let pdfData = textView.dataWithPDF(inside: textView.bounds)
             try? pdfData.write(to: targetURL)
-            showToast("📄 PDF 파일 저장 완료")
+            showToast("PDF 파일 저장 완료")
         }
     }
 
@@ -386,7 +412,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         let link = "\(serverBase)/s/\(lec.share_token)"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(link, forType: .string)
-        showToast("🔗 공유 링크 클립보드 복사 완료")
+        showToast("공유 링크 클립보드 복사 완료")
     }
 
     func showToast(_ message: String) {
@@ -401,13 +427,13 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     private func updateMenuBarLabel() {
         if isUploading {
-            onStatusBarUpdate?("⚡ 증류 중...")
+            onStatusBarUpdate?("Lectern · 증류 중")
         } else if isRecording {
             let m = String(format: "%02d", elapsedSeconds / 60)
             let s = String(format: "%02d", elapsedSeconds % 60)
-            onStatusBarUpdate?("🔴 \(m):\(s)")
+            onStatusBarUpdate?("REC \(m):\(s)")
         } else {
-            onStatusBarUpdate?("📚 Lectern")
+            onStatusBarUpdate?("Lectern")
         }
     }
 }
@@ -513,13 +539,13 @@ struct NativeMarkdownLineView: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             if let ts = ts {
                 Button(action: { onSeek(ts.seconds) }) {
-                    Text("⏱ \(ts.label)")
+                    Text(ts.label)
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundColor(Color(red: 0.38, green: 0.65, blue: 0.98))
+                        .foregroundColor(Elysium.actionPrimary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.15))
-                        .cornerRadius(5)
+                        .background(Elysium.actionPrimarySubtle)
+                        .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
             }
@@ -547,53 +573,53 @@ struct NativeMarkdownView: View {
                         font: level == 1 ? .system(size: 22, weight: .bold) :
                               level == 2 ? .system(size: 17, weight: .bold) :
                               .system(size: 14.5, weight: .semibold),
-                        color: level <= 2 ? .white : Color(red: 0.75, green: 0.86, blue: 0.99),
+                        color: Elysium.textPrimary,
                         onSeek: onSeek
                     )
                     .padding(.top, level == 1 ? 4 : 10)
                 case .filterBadge(let isBreak, let text):
-                    Text(isBreak ? "☕ \(text)" : "✂️ \(text)")
+                    Text(text)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(isBreak ? Color.orange : Color.green)
+                        .foregroundColor(isBreak ? Elysium.statusWarningFg : Elysium.statusSuccessFg)
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background((isBreak ? Color.orange : Color.green).opacity(0.14))
-                        .cornerRadius(7)
+                        .padding(.vertical, 4)
+                        .background(isBreak ? Elysium.statusWarningBg : Elysium.statusSuccessBg)
+                        .cornerRadius(999)
                 case .codeBlock(let code):
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(code)
                             .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(Color(white: 0.9))
+                            .foregroundColor(Elysium.textPrimary)
                             .textSelection(.enabled)
                             .padding(12)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.black.opacity(0.45))
-                    .cornerRadius(8)
+                    .background(Elysium.surfaceElevated)
+                    .cornerRadius(12)
                 case .quote(let text):
                     HStack(spacing: 10) {
                         Rectangle()
-                            .fill(Color.blue)
+                            .fill(Elysium.actionPrimary)
                             .frame(width: 3)
                         NativeMarkdownLineView(
                             text: text,
                             font: .system(size: 13.5),
-                            color: Color(white: 0.9),
+                            color: Elysium.textPrimary,
                             onSeek: onSeek
                         )
                     }
                     .padding(.vertical, 6)
                     .padding(.horizontal, 10)
-                    .background(Color.blue.opacity(0.08))
-                    .cornerRadius(6)
+                    .background(Elysium.actionPrimarySubtle)
+                    .cornerRadius(8)
                 case .bullet(let indent, let text):
                     HStack(alignment: .top, spacing: 6) {
                         Text("•")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Elysium.textTertiary)
                         NativeMarkdownLineView(
                             text: text,
                             font: .system(size: 13.5),
-                            color: Color(white: 0.86),
+                            color: Elysium.textSecondary,
                             onSeek: onSeek
                         )
                     }
@@ -602,7 +628,7 @@ struct NativeMarkdownView: View {
                     NativeMarkdownLineView(
                         text: text,
                         font: .system(size: 13.5),
-                        color: Color(white: 0.86),
+                        color: Elysium.textSecondary,
                         onSeek: onSeek
                     )
                 case .divider:
@@ -620,20 +646,20 @@ struct LecternPopoverView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Left Sidebar
+            // Left Sidebar (Elysium Surface Elevated #14171D)
             VStack(alignment: .leading, spacing: 10) {
-                // Header + Recorder Box
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Circle()
-                            .fill(store.isRecording ? Color.red : Color.blue)
+                            .fill(store.isRecording ? Elysium.statusDangerFg : Elysium.actionPrimary)
                             .frame(width: 9, height: 9)
-                        Text("LECTERN")
-                            .font(.system(size: 14, weight: .heavy))
+                        Text("Lectern")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(Elysium.textPrimary)
                         Spacer()
                         Text("⌥Space")
                             .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Elysium.textTertiary)
                     }
 
                     HStack(spacing: 6) {
@@ -641,7 +667,8 @@ struct LecternPopoverView: View {
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 12))
                         Button(action: { store.pickAndUploadAudioFile() }) {
-                            Text("📂")
+                            Text("파일 선택")
+                                .font(.system(size: 11.5, weight: .semibold))
                         }
                         .help("오디오 파일 업로드")
                     }
@@ -650,9 +677,9 @@ struct LecternPopoverView: View {
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
                                 RoundedRectangle(cornerRadius: 4)
-                                    .fill(Color.white.opacity(0.08))
+                                    .fill(Elysium.surfaceInteractive)
                                 RoundedRectangle(cornerRadius: 4)
-                                    .fill(Color.red)
+                                    .fill(Elysium.statusDangerFg)
                                     .frame(width: max(8, geo.size.width * CGFloat(store.audioLevel)))
                             }
                         }
@@ -662,20 +689,20 @@ struct LecternPopoverView: View {
                     Button(action: { store.toggleRecording() }) {
                         HStack {
                             Spacer()
-                            Text(store.isRecording ? "⏹ 녹음 종료 및 노트 증류 (\(store.elapsedSeconds)s)" : "🔴 즉시 강의 녹음 시작")
+                            Text(store.isRecording ? "녹음 종료 및 노트 증류 (\(store.elapsedSeconds)s)" : "즉시 강의 녹음 시작")
                                 .font(.system(size: 12.5, weight: .semibold))
                             Spacer()
                         }
-                        .padding(.vertical, 6)
-                        .background(store.isRecording ? Color.red : Color.blue)
+                        .padding(.vertical, 7)
+                        .background(store.isRecording ? Elysium.statusDangerFg : Elysium.actionPrimary)
                         .foregroundColor(.white)
-                        .cornerRadius(7)
+                        .cornerRadius(8)
                     }
                     .buttonStyle(.plain)
                 }
                 .padding(12)
-                .background(Color.white.opacity(0.04))
-                .cornerRadius(10)
+                .background(Elysium.surfaceSubtle)
+                .cornerRadius(12)
 
                 // Search Field
                 TextField("강의 제목, 과목, 키워드 검색...", text: $store.searchQuery)
@@ -690,11 +717,11 @@ struct LecternPopoverView: View {
                             Button(action: { store.activeCourse = course }) {
                                 Text(course == "ALL" ? "전체" : course)
                                     .font(.system(size: 11.5, weight: .semibold))
-                                    .padding(.horizontal, 9)
+                                    .padding(.horizontal, 10)
                                     .padding(.vertical, 4)
-                                    .background(isAct ? Color.blue.opacity(0.22) : Color.white.opacity(0.06))
-                                    .foregroundColor(isAct ? Color(red: 0.4, green: 0.68, blue: 1.0) : .secondary)
-                                    .cornerRadius(12)
+                                    .background(isAct ? Elysium.actionPrimarySubtle : Elysium.surfaceSubtle)
+                                    .foregroundColor(isAct ? Elysium.actionPrimary : Elysium.textSecondary)
+                                    .cornerRadius(999)
                             }
                             .buttonStyle(.plain)
                         }
@@ -712,30 +739,30 @@ struct LecternPopoverView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
                                         Text(item.course)
-                                            .font(.system(size: 10.5, weight: .bold))
-                                            .foregroundColor(Color(red: 0.4, green: 0.68, blue: 1.0))
-                                            .padding(.horizontal, 6)
+                                            .font(.system(size: 10.5, weight: .semibold))
+                                            .foregroundColor(Elysium.actionPrimary)
+                                            .padding(.horizontal, 7)
                                             .padding(.vertical, 2)
-                                            .background(Color.blue.opacity(0.15))
-                                            .cornerRadius(4)
+                                            .background(Elysium.actionPrimarySubtle)
+                                            .cornerRadius(999)
                                         Spacer()
                                         Text(item.date_label)
                                             .font(.system(size: 11, design: .monospaced))
-                                            .foregroundColor(.secondary)
+                                            .foregroundColor(Elysium.textTertiary)
                                     }
                                     Text(item.title)
                                         .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(.white)
+                                        .foregroundColor(Elysium.textPrimary)
                                         .lineLimit(1)
                                     Text(item.excerpt)
                                         .font(.system(size: 11.5))
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(Elysium.textSecondary)
                                         .lineLimit(2)
                                 }
                                 .padding(10)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(selected ? Color.blue.opacity(0.18) : Color.white.opacity(0.03))
-                                .cornerRadius(8)
+                                .background(selected ? Elysium.actionPrimarySubtle : Elysium.surfaceSubtle)
+                                .cornerRadius(12)
                             }
                             .buttonStyle(.plain)
                         }
@@ -744,41 +771,41 @@ struct LecternPopoverView: View {
             }
             .padding(12)
             .frame(width: 290)
-            .background(Color(red: 0.06, green: 0.07, blue: 0.09))
+            .background(Elysium.surfaceElevated)
 
             Divider()
 
-            // Right Markdown Reader & Audio Pane
+            // Right Markdown Reader & Audio Pane (Elysium Surface Canvas #0B0D11)
             VStack(alignment: .leading, spacing: 0) {
                 if let lec = store.selectedLecture {
                     // Toolbar
                     HStack(spacing: 8) {
                         Text(lec.course)
-                            .font(.system(size: 11.5, weight: .bold))
-                            .foregroundColor(Color(red: 0.4, green: 0.68, blue: 1.0))
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundColor(Elysium.actionPrimary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(Color.blue.opacity(0.16))
-                            .cornerRadius(5)
+                            .background(Elysium.actionPrimarySubtle)
+                            .cornerRadius(999)
                         Text(lec.date_label)
                             .font(.system(size: 11.5, design: .monospaced))
-                            .foregroundColor(.secondary)
-                        Text("⚡ \(lec.model_used)")
+                            .foregroundColor(Elysium.textSecondary)
+                        Text(lec.model_used)
                             .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Elysium.textTertiary)
 
                         Spacer()
 
-                        Button(store.isEditing ? "취소" : "✏️ 편집") {
+                        Button(store.isEditing ? "취소" : "편집") {
                             if store.isEditing { store.isEditing = false } else { store.beginEditing() }
                         }
-                        Button("⬇️ MD") { store.exportMarkdownFile() }
-                        Button("📄 PDF") { store.exportPdfFile() }
-                        Button("🔗 공유") { store.copyShareLink() }
+                        Button("MD") { store.exportMarkdownFile() }
+                        Button("PDF") { store.exportPdfFile() }
+                        Button("공유 링크") { store.copyShareLink() }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.03))
+                    .background(Elysium.surfaceElevated)
 
                     Divider()
 
@@ -786,12 +813,12 @@ struct LecternPopoverView: View {
                     if lec.has_audio {
                         HStack(spacing: 12) {
                             Button(action: { store.toggleAudioPlayback() }) {
-                                Text(store.isPlayingAudio ? "⏸ 일시정지" : "▶️ 오디오 재생")
+                                Text(store.isPlayingAudio ? "일시정지" : "오디오 재생")
                                     .font(.system(size: 12, weight: .semibold))
                             }
                             Text(String(format: "%02d:%02d", Int(store.currentAudioTime) / 60, Int(store.currentAudioTime) % 60))
                                 .font(.system(size: 12, design: .monospaced))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(Elysium.textSecondary)
                             Spacer()
                             Picker("배속", selection: Binding(
                                 get: { store.playbackSpeed },
@@ -807,18 +834,18 @@ struct LecternPopoverView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(Color.blue.opacity(0.06))
+                        .background(Elysium.surfaceSubtle)
                         Divider()
                     }
 
                     if let banner = store.statusBanner {
                         Text(banner)
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Elysium.actionPrimary)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.blue.opacity(0.35))
+                            .background(Elysium.actionPrimarySubtle)
                     }
 
                     // Reader or Editor
@@ -832,7 +859,7 @@ struct LecternPopoverView: View {
                                 .font(.system(size: 13, design: .monospaced))
                             HStack {
                                 Spacer()
-                                Button("💾 변경사항 저장") {
+                                Button("변경사항 저장") {
                                     Task { await store.saveEdits() }
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -851,14 +878,14 @@ struct LecternPopoverView: View {
                     VStack {
                         Spacer()
                         Text("왼쪽 목록에서 강의 노트를 선택하거나 새 강의를 녹음하세요.")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Elysium.textTertiary)
                         Spacer()
                     }
                     .frame(maxWidth: .infinity)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(red: 0.04, green: 0.05, blue: 0.06))
+            .background(Elysium.surfaceCanvas)
         }
         .frame(width: 940, height: 640)
         .preferredColorScheme(.dark)
@@ -882,7 +909,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         store = LecternStore()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "📚 Lectern"
+        statusItem.button?.title = "Lectern"
 
         store.onStatusBarUpdate = { [weak self] label in
             self?.statusItem.button?.title = label

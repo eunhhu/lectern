@@ -59,6 +59,18 @@ describe("@lectern/server HTTP & SQLite E2E", () => {
     expect(shareRes.status).toBe(200);
     const shareHtml = await shareRes.text();
     expect(shareHtml).toContain("AES-GCM 인증 암호화");
+    expect(shareHtml).toContain("--surface-canvas: #0B0D11");
+    expect(shareHtml).toContain("--action-primary: #3182F6");
+    expect(shareHtml).toContain("Pretendard Variable");
+
+    // Main App UI verifies Elysium Design System v1.0 Light & Dark tokens
+    const appRes = await handleRequest(new Request("http://localhost/"));
+    expect(appRes.status).toBe(200);
+    const appHtml = await appRes.text();
+    expect(appHtml).toContain("--surface-canvas: #F9FAFB");
+    expect(appHtml).toContain("--surface-canvas: #0B0D11");
+    expect(appHtml).toContain("word-break: keep-all");
+    expect(appHtml).toContain("font-variant-numeric: tabular-nums");
 
     // Markdown download endpoint
     const mdRes = await handleRequest(
