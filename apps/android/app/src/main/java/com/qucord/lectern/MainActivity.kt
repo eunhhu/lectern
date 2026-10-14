@@ -95,7 +95,7 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
 
     val prefs = remember { context.getSharedPreferences("lectern_prefs", Context.MODE_PRIVATE) }
     var authToken by remember { mutableStateOf(prefs.getString("auth_token", "") ?: "") }
-    var loginEmail by remember { mutableStateOf("sunwoo") }
+    var loginEmail by remember { mutableStateOf("") }
     var loginPassword by remember { mutableStateOf("") }
     var loginError by remember { mutableStateOf<String?>(null) }
 

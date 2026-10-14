@@ -610,10 +610,12 @@ export async function handleRequest(req: Request): Promise<Response> {
         const body: any = await req.json();
         let rawId = String(body.email || body.username || "").trim().toLowerCase();
         const password = String(body.password || "");
-        if (rawId === "sunwoo" || rawId === "eunhhu") {
-          rawId = (
-            process.env.LECTERN_OWNER_EMAIL || "necpition205@gmail.com"
-          ).toLowerCase();
+        const ownerAliases = (process.env.LECTERN_OWNER_ALIASES || "")
+          .split(",")
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean);
+        if (ownerAliases.includes(rawId) && process.env.LECTERN_OWNER_EMAIL) {
+          rawId = process.env.LECTERN_OWNER_EMAIL.trim().toLowerCase();
         }
         const user = getUserByEmail(rawId);
         if (!user || !verifyPassword(password, user.password_hash)) {

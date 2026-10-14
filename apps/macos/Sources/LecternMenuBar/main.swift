@@ -277,7 +277,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         ?? ProcessInfo.processInfo.environment["LECTERN_TOKEN"]
         ?? ""
     @Published var currentUserLabel: String = UserDefaults.standard.string(forKey: "lectern_user_label") ?? ""
-    @Published var loginEmail: String = "sunwoo"
+    @Published var loginEmail: String = UserDefaults.standard.string(forKey: "lectern_login_email") ?? ""
     @Published var loginPassword: String = ""
     @Published var loginError: String? = nil
     @Published var isLoggingIn: Bool = false
@@ -1128,7 +1128,7 @@ struct LecternPopoverView: View {
                     Text("아이디 또는 이메일")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(Elysium.textPrimary)
-                    TextField("sunwoo 또는 이메일", text: $store.loginEmail)
+                    TextField("아이디 또는 이메일 주소", text: $store.loginEmail)
                         .textFieldStyle(.plain)
                         .font(.system(size: 14))
                         .foregroundColor(Elysium.textPrimary)

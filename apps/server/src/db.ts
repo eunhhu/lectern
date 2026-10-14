@@ -283,19 +283,22 @@ export function getUserBySessionOrApiToken(rawToken: string): UserRecord | null 
 
 export function ensureBootstrapOwner(): UserRecord {
   const ownerEmail = (
-    process.env.LECTERN_OWNER_EMAIL || "necpition205@gmail.com"
+    process.env.LECTERN_OWNER_EMAIL || "owner@lectern.local"
   )
     .trim()
     .toLowerCase();
+  const ownerDisplayName = (
+    process.env.LECTERN_OWNER_NAME || "Workspace Owner"
+  ).trim();
   const ownerPassword =
-    process.env.LECTERN_OWNER_PASSWORD || "sunwoo2026!lectern";
+    process.env.LECTERN_OWNER_PASSWORD || "lectern-local-dev-only";
   const ownerApiToken = process.env.LECTERN_OWNER_API_TOKEN || undefined;
 
   let owner = getUserByEmail(ownerEmail);
   if (!owner) {
     owner = createUser({
       email: ownerEmail,
-      displayName: "문선우",
+      displayName: ownerDisplayName,
       password: ownerPassword,
       isAdmin: true,
       fixedApiToken: ownerApiToken,

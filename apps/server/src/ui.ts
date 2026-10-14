@@ -1318,11 +1318,11 @@ export function renderAppHtml(): string {
       <form id="auth-form" onsubmit="submitAuthForm(event)" style="display:flex;flex-direction:column;gap:var(--elysium-space-16);">
         <div id="auth-name-wrap" class="field-group" style="display:none;">
           <label class="field-label" for="auth-name">이름 (닉네임)</label>
-          <input type="text" id="auth-name" class="field-input" placeholder="예: 문선우" autocomplete="name" />
+          <input type="text" id="auth-name" class="field-input" placeholder="예: 홍길동" autocomplete="name" />
         </div>
         <div class="field-group">
           <label class="field-label" for="auth-email">아이디 또는 이메일</label>
-          <input type="text" id="auth-email" class="field-input" placeholder="sunwoo 또는 이메일 주소" autocomplete="username" required />
+          <input type="text" id="auth-email" class="field-input" placeholder="아이디 또는 이메일 주소" autocomplete="username" required />
         </div>
         <div class="field-group">
           <label class="field-label" for="auth-password">비밀번호</label>
