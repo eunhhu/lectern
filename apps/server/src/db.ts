@@ -7,15 +7,26 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, basename, extname, dirname } from "node:path";
-import { createHash, randomBytes } from "node:crypto";
+import { join, dirname } from "node:path";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import {
   extractExcerpt,
   probeAudioDuration,
 } from "../../../packages/core/src/index.ts";
 
+export interface UserRecord {
+  id: string;
+  email: string;
+  display_name: string;
+  password_hash: string;
+  api_token: string;
+  is_admin: number;
+  created_at: string;
+}
+
 export interface LectureRecord {
   id: string;
+  owner_id: string;
   share_token: string;
   title: string;
   course: string;
@@ -60,8 +71,26 @@ db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA synchronous = NORMAL;
 
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    display_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    api_token TEXT UNIQUE NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS lectures (
     id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL DEFAULT '',
     share_token TEXT UNIQUE NOT NULL,
     title TEXT NOT NULL,
     course TEXT NOT NULL,
@@ -90,15 +119,183 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_lectures_share ON lectures(share_token);
 `);
 
+// Schema migration for existing lectures table without owner_id
+try {
+  const cols = db.query(`PRAGMA table_info(lectures)`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "owner_id")) {
+    db.exec(`ALTER TABLE lectures ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_lectures_owner ON lectures(owner_id)`);
+} catch {
+  // ignore if already migrated
+}
+
 export function generateId(prefix = "lec"): string {
   return `${prefix}_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`;
 }
 
 export function generateShareToken(seed?: string): string {
   if (seed) {
-    return createHash("sha256").update(seed).digest("base64url").slice(0, 12);
+    return createHash("sha256").update(seed).digest("base64url").slice(0, 14);
   }
-  return randomBytes(9).toString("base64url");
+  return randomBytes(12).toString("base64url");
+}
+
+export function generateApiToken(): string {
+  return `lct_${randomBytes(20).toString("base64url")}`;
+}
+
+export function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const derived = scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${derived}`;
+}
+
+export function verifyPassword(password: string, storedHash: string): boolean {
+  const [salt, keyHex] = storedHash.split(":");
+  if (!salt || !keyHex) return false;
+  const keyBuf = Buffer.from(keyHex, "hex");
+  const derivedBuf = scryptSync(password, salt, 64);
+  if (keyBuf.length !== derivedBuf.length) return false;
+  return timingSafeEqual(keyBuf, derivedBuf);
+}
+
+// MARK: - User & Session Management
+
+export function getUserByEmail(email: string): UserRecord | null {
+  const norm = email.trim().toLowerCase();
+  return db
+    .query(`SELECT * FROM users WHERE lower(email) = ?`)
+    .get(norm) as UserRecord | null;
+}
+
+export function getUserById(id: string): UserRecord | null {
+  return db.query(`SELECT * FROM users WHERE id = ?`).get(id) as UserRecord | null;
+}
+
+export function getUserByApiToken(apiToken: string): UserRecord | null {
+  if (!apiToken) return null;
+  return db
+    .query(`SELECT * FROM users WHERE api_token = ?`)
+    .get(apiToken.trim()) as UserRecord | null;
+}
+
+export function createUser(input: {
+  email: string;
+  displayName: string;
+  password: string;
+  isAdmin?: boolean;
+  fixedApiToken?: string;
+}): UserRecord {
+  const normEmail = input.email.trim().toLowerCase();
+  const existing = getUserByEmail(normEmail);
+  if (existing) {
+    throw new Error("이미 등록된 이메일(아이디)입니다.");
+  }
+
+  const id = generateId("usr");
+  const now = new Date().toISOString();
+  const passwordHash = hashPassword(input.password);
+  const apiToken = input.fixedApiToken || generateApiToken();
+
+  db.query(
+    `INSERT INTO users (id, email, display_name, password_hash, api_token, is_admin, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    normEmail,
+    input.displayName.trim() || normEmail.split("@")[0],
+    passwordHash,
+    apiToken,
+    input.isAdmin ? 1 : 0,
+    now
+  );
+
+  return getUserById(id)!;
+}
+
+export function updateUserPassword(userId: string, newPassword: string): void {
+  const passwordHash = hashPassword(newPassword);
+  db.query(`UPDATE users SET password_hash = ? WHERE id = ?`).run(
+    passwordHash,
+    userId
+  );
+}
+
+export function rotateUserApiToken(userId: string): string {
+  const newToken = generateApiToken();
+  db.query(`UPDATE users SET api_token = ? WHERE id = ?`).run(newToken, userId);
+  return newToken;
+}
+
+export function createSession(userId: string, ttlDays = 30): string {
+  const token = `ses_${randomBytes(24).toString("base64url")}`;
+  const now = new Date();
+  const expires = new Date(now.getTime() + ttlDays * 86400 * 1000);
+  db.query(
+    `INSERT INTO sessions (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`
+  ).run(token, userId, expires.toISOString(), now.toISOString());
+  return token;
+}
+
+export function deleteSession(token: string): void {
+  db.query(`DELETE FROM sessions WHERE token = ?`).run(token);
+}
+
+export function getUserBySessionOrApiToken(rawToken: string): UserRecord | null {
+  const token = rawToken.trim();
+  if (!token) return null;
+
+  if (token.startsWith("lct_")) {
+    return getUserByApiToken(token);
+  }
+
+  const row = db
+    .query(`SELECT user_id, expires_at FROM sessions WHERE token = ?`)
+    .get(token) as { user_id: string; expires_at: string } | null;
+
+  if (!row) {
+    return getUserByApiToken(token);
+  }
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    deleteSession(token);
+    return null;
+  }
+  return getUserById(row.user_id);
+}
+
+export function ensureBootstrapOwner(): UserRecord {
+  const ownerEmail = (
+    process.env.LECTERN_OWNER_EMAIL || "necpition205@gmail.com"
+  )
+    .trim()
+    .toLowerCase();
+  const ownerPassword =
+    process.env.LECTERN_OWNER_PASSWORD || "sunwoo2026!lectern";
+  const ownerApiToken = process.env.LECTERN_OWNER_API_TOKEN || undefined;
+
+  let owner = getUserByEmail(ownerEmail);
+  if (!owner) {
+    owner = createUser({
+      email: ownerEmail,
+      displayName: "문선우",
+      password: ownerPassword,
+      isAdmin: true,
+      fixedApiToken: ownerApiToken,
+    });
+  } else if (process.env.LECTERN_OWNER_PASSWORD) {
+    if (!verifyPassword(ownerPassword, owner.password_hash)) {
+      updateUserPassword(owner.id, ownerPassword);
+      owner = getUserById(owner.id)!;
+    }
+  }
+
+  // Assign any unowned or local-sync lectures exclusively to the bootstrap owner
+  db.query(
+    `UPDATE lectures SET owner_id = ? WHERE owner_id = '' OR source_client = 'local-sync'`
+  ).run(owner.id);
+
+  return owner;
 }
 
 function parseDateFromFilename(fname: string, fallbackMtime: Date): string {
@@ -113,8 +310,9 @@ function parseDateFromFilename(fname: string, fallbackMtime: Date): string {
   return fallbackMtime.toISOString().slice(0, 10);
 }
 
-export async function syncLocalLecturesDir(): Promise<void> {
+export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
   if (!existsSync(LECTURES_ROOT)) return;
+  const targetOwnerId = ownerId || ensureBootstrapOwner().id;
 
   const entries = readdirSync(LECTURES_ROOT, { withFileTypes: true });
   for (const dirEntry of entries) {
@@ -180,18 +378,19 @@ export async function syncLocalLecturesDir(): Promise<void> {
         const id =
           "lec_" +
           createHash("sha1").update(mdPath).digest("hex").slice(0, 12);
-        const shareToken = generateShareToken(mdPath);
+        const shareToken = generateShareToken(mdPath + ":" + targetOwnerId);
         const durationSec = audioPath ? await probeAudioDuration(audioPath) : 0;
 
         db.query(
           `INSERT INTO lectures (
-            id, share_token, title, course, date_label, status, stage, stage_message,
+            id, owner_id, share_token, title, course, date_label, status, stage, stage_message,
             progress, markdown, excerpt, audio_path, audio_mime, audio_size,
             duration_sec, model_requested, model_used, source_client, md_source_path,
             created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'done', 'done', '완료', 100, ?, ?, ?, ?, ?, ?, 'gemini-flash-latest', 'gemini-3.8-flash', 'local-sync', ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, 'done', 'done', '완료', 100, ?, ?, ?, ?, ?, ?, 'gemini-flash-latest', 'gemini-3.8-flash', 'local-sync', ?, ?, ?)`
         ).run(
           id,
+          targetOwnerId,
           shareToken,
           title,
           courseName,
@@ -209,11 +408,12 @@ export async function syncLocalLecturesDir(): Promise<void> {
       } else {
         db.query(
           `UPDATE lectures
-           SET markdown = ?, excerpt = ?, audio_path = COALESCE(?, audio_path),
+           SET owner_id = ?, markdown = ?, excerpt = ?, audio_path = COALESCE(?, audio_path),
                audio_mime = COALESCE(?, audio_mime),
                audio_size = CASE WHEN ? > 0 THEN ? ELSE audio_size END
            WHERE id = ?`
         ).run(
+          targetOwnerId,
           mdContent,
           excerpt,
           audioPath,
@@ -227,9 +427,13 @@ export async function syncLocalLecturesDir(): Promise<void> {
   }
 }
 
-export function listLectures(courseFilter?: string, search?: string): LectureRecord[] {
-  let sql = `SELECT * FROM lectures WHERE 1=1`;
-  const params: any[] = [];
+export function listLecturesForUser(
+  ownerId: string,
+  courseFilter?: string,
+  search?: string
+): LectureRecord[] {
+  let sql = `SELECT * FROM lectures WHERE owner_id = ?`;
+  const params: any[] = [ownerId];
 
   if (courseFilter && courseFilter !== "ALL") {
     sql += ` AND course = ?`;
@@ -257,6 +461,7 @@ export function getLectureByShareToken(token: string): LectureRecord | null {
 
 export function createPendingLecture(input: {
   id: string;
+  ownerId?: string;
   title: string;
   course: string;
   audioPath: string;
@@ -268,15 +473,17 @@ export function createPendingLecture(input: {
   const now = new Date().toISOString();
   const dateLabel = now.slice(0, 10);
   const shareToken = generateShareToken();
+  const ownerId = input.ownerId || ensureBootstrapOwner().id;
 
   db.query(
     `INSERT INTO lectures (
-      id, share_token, title, course, date_label, status, stage, stage_message,
+      id, owner_id, share_token, title, course, date_label, status, stage, stage_message,
       progress, markdown, excerpt, audio_path, audio_mime, audio_size,
       duration_sec, model_requested, model_used, source_client, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'processing', 'preparing', '오디오 준비 중...', 5, '', '분석 진행 중...', ?, ?, ?, 0, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, 'processing', 'preparing', '오디오 준비 중...', 5, '', '분석 진행 중...', ?, ?, ?, 0, ?, ?, ?, ?, ?)`
   ).run(
     input.id,
+    ownerId,
     shareToken,
     input.title,
     input.course,
@@ -318,18 +525,21 @@ export function completeLectureRecord(
 ): LectureRecord {
   const now = new Date().toISOString();
   const rec = getLectureById(id);
+  const owner = rec ? getUserById(rec.owner_id) : null;
 
-  // Also persist to /home/eunhhu/work/lectures/<course>/ for CLI & file sync compatibility
+  // Persist to /home/eunhhu/work/lectures/<course>/ only for admin/owner account
   let mdSourcePath: string | null = null;
-  try {
-    const safeCourse = result.courseName.replace(/[\\/:*?"<>|]/g, "_").trim() || "기타강의";
-    const courseDir = join(LECTURES_ROOT, safeCourse);
-    mkdirSync(courseDir, { recursive: true });
-    const stamp = now.slice(0, 10).replace(/-/g, "") + "_" + now.slice(11, 16).replace(":", "");
-    mdSourcePath = join(courseDir, `${stamp}_${safeCourse}_요약.md`);
-    writeFileSync(mdSourcePath, result.markdown + "\n", "utf8");
-  } catch {
-    // ignore if lectures root not writable
+  if (!owner || owner.is_admin === 1) {
+    try {
+      const safeCourse = result.courseName.replace(/[\\/:*?"<>|]/g, "_").trim() || "기타강의";
+      const courseDir = join(LECTURES_ROOT, safeCourse);
+      mkdirSync(courseDir, { recursive: true });
+      const stamp = now.slice(0, 10).replace(/-/g, "") + "_" + now.slice(11, 16).replace(":", "");
+      mdSourcePath = join(courseDir, `${stamp}_${safeCourse}_요약.md`);
+      writeFileSync(mdSourcePath, result.markdown + "\n", "utf8");
+    } catch {
+      // ignore if lectures root not writable
+    }
   }
 
   db.query(

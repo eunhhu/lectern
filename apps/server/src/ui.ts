@@ -354,7 +354,7 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
     </a>
     <div class="actions">
       <button class="btn" onclick="toggleTheme()" id="theme-btn" aria-label="테마 전환">테마 전환</button>
-      <a class="btn" href="/api/lectures/${encodeURIComponent(lecture.id)}/markdown" download>Markdown</a>
+      <a class="btn" href="/api/lectures/${encodeURIComponent(lecture.id)}/markdown?share=${encodeURIComponent(lecture.share_token)}" download>Markdown</a>
       <button class="btn btn-primary" onclick="window.print()">PDF 인쇄</button>
     </div>
   </header>
@@ -369,7 +369,7 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
         ? `<div class="audio-bar">
             <audio id="share-audio" controls preload="metadata" src="/api/lectures/${encodeURIComponent(
               lecture.id
-            )}/audio"></audio>
+            )}/audio?share=${encodeURIComponent(lecture.share_token)}"></audio>
           </div>`
         : ""
     }
@@ -1165,6 +1165,63 @@ export function renderAppHtml(): string {
       .client-grid { grid-template-columns: 1fr; }
     }
 
+    /* Auth Gate (Elysium Full-Viewport Account Isolation) */
+    .auth-gate {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+      background: var(--surface-canvas);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-4);
+    }
+    .auth-gate.hidden { display: none; }
+    .auth-card {
+      width: 100%;
+      max-width: 400px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-xl);
+      padding: var(--space-8) var(--space-6);
+      box-shadow: var(--shadow-lg);
+    }
+    .auth-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 4px;
+      background: var(--surface-subtle);
+      border-radius: var(--radius-sm);
+      margin-bottom: var(--space-5);
+    }
+    .auth-tab {
+      height: 34px;
+      border: none;
+      border-radius: var(--radius-xs);
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .auth-tab.active {
+      background: var(--surface-elevated);
+      color: var(--text-primary);
+      box-shadow: var(--shadow-xs);
+    }
+    .user-bar {
+      padding: var(--space-2) var(--space-4);
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-secondary);
+      background: var(--surface-subtle);
+    }
+
     @media print {
       html, body { height: auto; overflow: visible; background: #fff !important; color: #191F28 !important; }
       .sidebar, .reader-toolbar, .audio-bar, .toc-rail, .mobile-tabbar, .modal-backdrop { display: none !important; }
@@ -1175,6 +1232,37 @@ export function renderAppHtml(): string {
   </style>
 </head>
 <body>
+  <!-- Elysium Account Authentication Gate -->
+  <div class="auth-gate" id="auth-gate">
+    <div class="auth-card">
+      <div class="brand" style="margin-bottom:6px;font-size:19px;">
+        <span class="brand-mark"></span>
+        <span>Lectern</span>
+      </div>
+      <p style="margin:0 0 20px;color:var(--text-secondary);font-size:13.5px;word-break:keep-all;">
+        개인 강의 녹음과 마크다운 노트는 계정별로 철저히 분리·보호됩니다.
+      </p>
+
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" id="tab-login-btn" onclick="switchAuthMode('login')">로그인</button>
+        <button type="button" class="auth-tab" id="tab-reg-btn" onclick="switchAuthMode('register')">새 계정 만들기</button>
+      </div>
+
+      <form id="auth-form" onsubmit="submitAuthForm(event)">
+        <div id="auth-name-wrap" style="display:none;">
+          <label class="field-label">이름 (닉네임)</label>
+          <input type="text" id="auth-name" class="field-input" placeholder="예: 문선우" autocomplete="name" />
+        </div>
+        <label class="field-label">아이디 또는 이메일</label>
+        <input type="text" id="auth-email" class="field-input" placeholder="sunwoo 또는 이메일 주소" autocomplete="username" required />
+        <label class="field-label">비밀번호</label>
+        <input type="password" id="auth-password" class="field-input" placeholder="비밀번호 입력" autocomplete="current-password" required />
+        <div id="auth-error" style="display:none;margin-bottom:12px;font-size:12.5px;font-weight:600;color:var(--status-danger-fg);"></div>
+        <button type="submit" class="btn btn-primary" id="auth-submit-btn" style="width:100%;height:42px;font-size:14px;">내 워크스페이스 열기</button>
+      </form>
+    </div>
+  </div>
+
   <div class="app-shell">
     <!-- Left Sidebar -->
     <aside class="sidebar" id="sidebar">
@@ -1198,6 +1286,10 @@ export function renderAppHtml(): string {
 
       <div class="lecture-list" id="lecture-list"></div>
 
+      <div class="user-bar">
+        <span id="user-badge" style="font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">로그인됨</span>
+        <button class="btn" style="height:26px;padding:0 8px;font-size:11.5px;" onclick="logoutAccount()">로그아웃</button>
+      </div>
       <div class="sidebar-footer">
         <button class="btn" onclick="openClientsModal()">네이티브 앱·단축어</button>
         <button class="btn" onclick="openSettingsModal()">모델·API 설정</button>
@@ -1355,8 +1447,14 @@ export function renderAppHtml(): string {
         </div>
       </div>
       <div style="margin-top:14px;padding:14px;border-radius:var(--radius-md);background:var(--surface-code);border:1px solid var(--border-default);font-size:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-weight:600;color:var(--text-primary);">내 계정 전용 API 토큰 (네이티브 앱 / iOS 단축어 연동용)</span>
+          <button class="btn" style="height:26px;padding:0 10px;font-size:11.5px;" onclick="copyApiToken()">토큰 복사</button>
+        </div>
+        <code id="my-api-token-code" style="display:block;margin-bottom:10px;padding:6px 8px;background:var(--surface-subtle);border-radius:var(--radius-xs);font-family:var(--font-mono);color:var(--action-primary);">lct_...</code>
         <div style="font-weight:600;color:var(--text-primary);margin-bottom:6px;">원클릭 HTTP Ingest API (cURL / 단축어 / 서드파티 연동)</div>
-        <code style="display:block;white-space:pre-wrap;font-family:var(--font-mono);color:var(--action-primary);">curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\
+        <code id="my-curl-snippet" style="display:block;white-space:pre-wrap;font-family:var(--font-mono);color:var(--text-secondary);">curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\
+  -H "X-Lectern-Token: <내_API_토큰>" \\
   -H "X-Course: 정보보호개론" \\
   -F "audio=@20261014_lecture.m4a"</code>
       </div>
@@ -1387,6 +1485,8 @@ export function renderAppHtml(): string {
     let currentLecture = null;
     let activeCourse = 'ALL';
     let searchQuery = '';
+    let currentUser = null;
+    let authMode = 'login';
 
     // Theme setup (Elysium Light/Dark)
     const savedTheme = localStorage.getItem('lectern_theme') || 'dark';
@@ -1395,6 +1495,93 @@ export function renderAppHtml(): string {
       const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
       localStorage.setItem('lectern_theme', next);
+    }
+
+    function authHeaders(extra) {
+      const h = Object.assign({}, extra || {});
+      const tok = localStorage.getItem('lectern_token');
+      if (tok) h['X-Lectern-Token'] = tok;
+      return h;
+    }
+
+    function switchAuthMode(mode) {
+      authMode = mode;
+      document.getElementById('tab-login-btn').classList.toggle('active', mode === 'login');
+      document.getElementById('tab-reg-btn').classList.toggle('active', mode === 'register');
+      document.getElementById('auth-name-wrap').style.display = mode === 'register' ? 'block' : 'none';
+      document.getElementById('auth-submit-btn').textContent = mode === 'register' ? '새 계정 생성 및 시작' : '내 워크스페이스 열기';
+      document.getElementById('auth-error').style.display = 'none';
+    }
+
+    async function submitAuthForm(ev) {
+      ev.preventDefault();
+      const email = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const displayName = document.getElementById('auth-name').value.trim();
+      const errEl = document.getElementById('auth-error');
+      errEl.style.display = 'none';
+
+      const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, displayName })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errEl.textContent = data.error || '인증에 실패했습니다.';
+        errEl.style.display = 'block';
+        return;
+      }
+      if (data.token) {
+        localStorage.setItem('lectern_token', data.token);
+      }
+      applyAuthenticatedUser(data.user);
+      await fetchLectures();
+    }
+
+    function applyAuthenticatedUser(user) {
+      currentUser = user;
+      document.getElementById('auth-gate').classList.add('hidden');
+      document.getElementById('user-badge').textContent = user.displayName + ' (' + user.email + ')';
+      const tokEl = document.getElementById('my-api-token-code');
+      if (tokEl && user.apiToken) tokEl.textContent = user.apiToken;
+      const curlEl = document.getElementById('my-curl-snippet');
+      if (curlEl && user.apiToken) {
+        curlEl.textContent = 'curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\\n  -H "X-Lectern-Token: ' + user.apiToken + '" \\\n  -H "X-Course: 정보보호개론" \\\n  -F "audio=@20261014_lecture.m4a"';
+      }
+    }
+
+    async function copyApiToken() {
+      if (!currentUser || !currentUser.apiToken) return;
+      try {
+        await navigator.clipboard.writeText(currentUser.apiToken);
+        showToast('API 토큰이 클립보드에 복사되었습니다.');
+      } catch {
+        prompt('내 API 토큰 복사:', currentUser.apiToken);
+      }
+    }
+
+    async function logoutAccount() {
+      await fetch('/api/auth/logout', { method: 'POST', headers: authHeaders() });
+      localStorage.removeItem('lectern_token');
+      currentUser = null;
+      lectures = [];
+      currentLecture = null;
+      document.getElementById('lecture-list').innerHTML = '';
+      document.getElementById('md-article').innerHTML = '';
+      document.getElementById('auth-gate').classList.remove('hidden');
+    }
+
+    async function bootstrapAuth() {
+      const res = await fetch('/api/auth/me', { headers: authHeaders() });
+      if (!res.ok) {
+        document.getElementById('auth-gate').classList.remove('hidden');
+        return;
+      }
+      const data = await res.json();
+      applyAuthenticatedUser(data.user);
+      await fetchLectures();
     }
 
     // Load saved settings
@@ -1415,7 +1602,11 @@ export function renderAppHtml(): string {
       const params = new URLSearchParams();
       if (activeCourse !== 'ALL') params.set('course', activeCourse);
       if (searchQuery) params.set('q', searchQuery);
-      const res = await fetch('/api/lectures?' + params.toString());
+      const res = await fetch('/api/lectures?' + params.toString(), { headers: authHeaders() });
+      if (res.status === 401) {
+        document.getElementById('auth-gate').classList.remove('hidden');
+        return;
+      }
       const data = await res.json();
       lectures = data.lectures || [];
       renderCoursePills(data.courses || []);
@@ -1478,7 +1669,7 @@ export function renderAppHtml(): string {
     }
 
     async function selectLecture(id, closeMobileList) {
-      const res = await fetch('/api/lectures/' + encodeURIComponent(id));
+      const res = await fetch('/api/lectures/' + encodeURIComponent(id), { headers: authHeaders() });
       if (!res.ok) return;
       const data = await res.json();
       currentLecture = data.lecture;
@@ -1492,7 +1683,8 @@ export function renderAppHtml(): string {
       const audioEl = document.getElementById('lecture-audio');
       if (currentLecture.has_audio) {
         audioBar.classList.add('visible');
-        const targetSrc = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/audio';
+        const tok = localStorage.getItem('lectern_token') || '';
+        const targetSrc = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/audio' + (tok ? '?token=' + encodeURIComponent(tok) : '');
         if (!audioEl.src.endsWith(targetSrc)) {
           audioEl.src = targetSrc;
         }
@@ -1576,7 +1768,7 @@ export function renderAppHtml(): string {
       const markdown = document.getElementById('edit-markdown').value;
       const res = await fetch('/api/lectures/' + encodeURIComponent(currentLecture.id), {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ title, course, markdown })
       });
       if (res.ok) {
@@ -1587,7 +1779,8 @@ export function renderAppHtml(): string {
 
     function downloadCurrentMarkdown() {
       if (!currentLecture) return;
-      window.location.href = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/markdown';
+      const tok = localStorage.getItem('lectern_token') || '';
+      window.location.href = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/markdown' + (tok ? '?token=' + encodeURIComponent(tok) : '');
     }
 
     async function shareCurrentLecture() {
@@ -1777,7 +1970,7 @@ export function renderAppHtml(): string {
       form.append('model', model);
       form.append('source', sourceClient);
 
-      const headers = {};
+      const headers = authHeaders();
       if (apiKey) headers['X-Gemini-Key'] = apiKey;
 
       const res = await fetch('/api/lectures/ingest', {
@@ -1797,7 +1990,7 @@ export function renderAppHtml(): string {
       await fetchLectures(data.lecture.id);
     }
 
-    fetchLectures();
+    bootstrapAuth();
   </script>
 </body>
 </html>`;

@@ -93,6 +93,12 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    val prefs = remember { context.getSharedPreferences("lectern_prefs", Context.MODE_PRIVATE) }
+    var authToken by remember { mutableStateOf(prefs.getString("auth_token", "") ?: "") }
+    var loginEmail by remember { mutableStateOf("sunwoo") }
+    var loginPassword by remember { mutableStateOf("") }
+    var loginError by remember { mutableStateOf<String?>(null) }
+
     var lectures by remember { mutableStateOf<List<LectureItem>>(emptyList()) }
     var courses by remember { mutableStateOf(listOf("정보보호개론", "자바프로그래밍", "영어읽기와토론", "대순사상과상생윤리")) }
     var selectedCourse by remember { mutableStateOf("ALL") }
@@ -123,12 +129,17 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
     }
 
     suspend fun loadLectureList(selectId: String? = null) {
+        if (authToken.isBlank()) {
+            isLoading = false
+            return
+        }
         isLoading = true
         try {
             val result = withContext(Dispatchers.IO) {
                 val conn = (URL("$serverBase/api/lectures").openConnection() as HttpURLConnection).apply {
                     connectTimeout = 8000
                     readTimeout = 8000
+                    setRequestProperty("X-Lectern-Token", authToken)
                 }
                 val body = conn.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONObject(body)
@@ -156,7 +167,9 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
             val target = selectId ?: activeLecture?.id ?: result.firstOrNull()?.id
             if (target != null) {
                 val detail = withContext(Dispatchers.IO) {
-                    val conn = URL("$serverBase/api/lectures/$target").openConnection() as HttpURLConnection
+                    val conn = (URL("$serverBase/api/lectures/$target").openConnection() as HttpURLConnection).apply {
+                        setRequestProperty("X-Lectern-Token", authToken)
+                    }
                     val body = conn.inputStream.bufferedReader().use { it.readText() }
                     val o = JSONObject(body).getJSONObject("lecture")
                     LectureItem(
@@ -257,6 +270,74 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
     val filtered = lectures.filter {
         (selectedCourse == "ALL" || it.course == selectedCourse) &&
             (searchQuery.isBlank() || it.title.contains(searchQuery, true) || it.excerpt.contains(searchQuery, true))
+    }
+
+    if (authToken.isBlank()) {
+        Surface(color = Color(0xFF0B0D11), modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(28.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Lectern", color = Color(0xFFF2F4F6), fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text("내 계정에 로그인하여 강의 녹음과 마크다운 노트를 불러오세요.", color = Color(0xFF9EA6B2), fontSize = 13.sp)
+                Spacer(Modifier.height(20.dp))
+                OutlinedTextField(
+                    value = loginEmail,
+                    onValueChange = { loginEmail = it },
+                    label = { Text("아이디 또는 이메일") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = loginPassword,
+                    onValueChange = { loginPassword = it },
+                    label = { Text("비밀번호") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (loginError != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(loginError!!, color = Color(0xFFF55864), fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                val tok = withContext(Dispatchers.IO) {
+                                    val conn = (URL("$serverBase/api/auth/login").openConnection() as HttpURLConnection).apply {
+                                        requestMethod = "POST"
+                                        doOutput = true
+                                        setRequestProperty("Content-Type", "application/json")
+                                    }
+                                    val payload = JSONObject().put("email", loginEmail).put("password", loginPassword).toString()
+                                    conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                                    val resp = conn.inputStream.bufferedReader().use { it.readText() }
+                                    JSONObject(resp).getJSONObject("user").optString("apiToken")
+                                }
+                                if (tok.isNotBlank()) {
+                                    prefs.edit().putString("auth_token", tok).apply()
+                                    authToken = tok
+                                    loadLectureList()
+                                }
+                            } catch (e: Exception) {
+                                loginError = "로그인 실패: 아이디/비밀번호를 확인하세요."
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4593FC)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("내 워크스페이스 열기", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        return
     }
 
     Scaffold(
@@ -468,8 +549,8 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
                             showRecorderSheet = false
                             if (f != null && f.exists()) {
                                 scope.launch {
-                                    Toast.makeText(context, "⚡ Gemini Flash 증류 업로드 중...", Toast.LENGTH_SHORT).show()
-                                    val newId = uploadAudioMultipart(serverBase, f, recordCourse)
+                                    Toast.makeText(context, "Gemini Flash 증류 업로드 중...", Toast.LENGTH_SHORT).show()
+                                    val newId = uploadAudioMultipart(serverBase, authToken, f, recordCourse)
                                     f.delete()
                                     loadLectureList(newId)
                                 }
@@ -596,7 +677,7 @@ fun NativeComposeMarkdownReader(
     }
 }
 
-suspend fun uploadAudioMultipart(serverBase: String, file: File, course: String): String? = withContext(Dispatchers.IO) {
+suspend fun uploadAudioMultipart(serverBase: String, authToken: String, file: File, course: String): String? = withContext(Dispatchers.IO) {
     try {
         val boundary = "Boundary-${System.currentTimeMillis()}"
         val conn = (URL("$serverBase/api/ingest/shortcut?wait=false").openConnection() as HttpURLConnection).apply {
@@ -604,6 +685,7 @@ suspend fun uploadAudioMultipart(serverBase: String, file: File, course: String)
             doOutput = true
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
             setRequestProperty("X-Client", "android-compose")
+            setRequestProperty("X-Lectern-Token", authToken)
         }
         DataOutputStream(conn.outputStream).use { out ->
             out.writeBytes("--$boundary\r\n")

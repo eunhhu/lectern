@@ -8,17 +8,26 @@ import {
 } from "../../../packages/core/src/index.ts";
 import {
   DATA_DIR,
+  type UserRecord,
   completeLectureRecord,
   createPendingLecture,
+  createSession,
+  createUser,
   deleteLectureById,
+  deleteSession,
+  ensureBootstrapOwner,
   failLectureRecord,
   generateId,
   getLectureById,
   getLectureByShareToken,
-  listLectures,
+  getUserByEmail,
+  getUserBySessionOrApiToken,
+  listLecturesForUser,
+  rotateUserApiToken,
   syncLocalLecturesDir,
   updateLectureMarkdown,
   updateLectureProgress,
+  verifyPassword,
 } from "./db.ts";
 import { renderAppHtml, renderSharePageHtml } from "./ui.ts";
 
@@ -29,7 +38,9 @@ const PUBLIC_BASE_URL =
 function resolveGitSha(): string {
   try {
     const res = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
-      cwd: "/home/eunhhu/work/lectern",
+      cwd: existsSync("/home/eunhhu/work/lectern")
+        ? "/home/eunhhu/work/lectern"
+        : process.cwd(),
       stdout: "pipe",
       stderr: "ignore",
     });
@@ -42,9 +53,14 @@ function resolveGitSha(): string {
 
 const BOOT_GIT_SHA = resolveGitSha();
 
-await syncLocalLecturesDir();
+const bootstrapOwner = ensureBootstrapOwner();
+await syncLocalLecturesDir(bootstrapOwner.id);
 
-function jsonResponse(data: unknown, status = 200): Response {
+function jsonResponse(
+  data: unknown,
+  status = 200,
+  extraHeaders: Record<string, string> = {}
+): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
@@ -52,7 +68,8 @@ function jsonResponse(data: unknown, status = 200): Response {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers":
-        "Content-Type, Authorization, X-Course, X-Title, X-Model, X-Gemini-Key, X-Lectern-Deploy-Token",
+        "Content-Type, Authorization, X-Lectern-Token, X-Course, X-Title, X-Model, X-Gemini-Key, X-Lectern-Deploy-Token",
+      ...extraHeaders,
     },
   });
 }
@@ -62,6 +79,44 @@ function safeTokenCompare(a: string, b: string): boolean {
   const bufB = Buffer.from(b);
   if (bufA.length !== bufB.length || bufA.length === 0) return false;
   return timingSafeEqual(bufA, bufB);
+}
+
+function parseSessionCookie(cookieHeader: string | null): string | null {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(";");
+  for (const part of parts) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === "lectern_session") {
+      return decodeURIComponent(v.join("=").trim());
+    }
+  }
+  return null;
+}
+
+export function extractAuthToken(req: Request, url: URL): string | null {
+  const authHeader = (req.headers.get("authorization") || "").trim();
+  if (authHeader.toLowerCase().startsWith("bearer ")) {
+    const tok = authHeader.slice(7).trim();
+    if (tok) return tok;
+  }
+  const xTok = (req.headers.get("x-lectern-token") || "").trim();
+  if (xTok) return xTok;
+  const qTok = (url.searchParams.get("token") || "").trim();
+  if (qTok) return qTok;
+  return parseSessionCookie(req.headers.get("cookie"));
+}
+
+export function authenticateRequest(req: Request): UserRecord | null {
+  const url = new URL(req.url);
+  const token = extractAuthToken(req, url);
+  if (!token) return null;
+  return getUserBySessionOrApiToken(token);
+}
+
+function makeSessionCookieHeader(sessionToken: string, maxAgeSec = 30 * 86400): string {
+  return `lectern_session=${encodeURIComponent(
+    sessionToken
+  )}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}`;
 }
 
 async function saveIncomingAudio(
@@ -75,6 +130,7 @@ async function saveIncomingAudio(
   model: string;
   sourceClient: string;
   apiKey?: string;
+  formToken?: string;
 }> {
   const contentType = req.headers.get("content-type") || "";
   let course =
@@ -85,6 +141,7 @@ async function saveIncomingAudio(
     (req.headers.get("x-model") || "").trim() || DEFAULT_GEMINI_MODEL;
   let sourceClient = (req.headers.get("x-client") || "api").trim();
   const apiKey = (req.headers.get("x-gemini-key") || "").trim() || undefined;
+  let formToken: string | undefined;
 
   const id = generateId("aud");
 
@@ -99,6 +156,9 @@ async function saveIncomingAudio(
     if (form.get("model")) model = String(form.get("model")).trim() || model;
     if (form.get("source")) {
       sourceClient = String(form.get("source")).trim() || sourceClient;
+    }
+    if (form.get("token")) {
+      formToken = String(form.get("token")).trim() || undefined;
     }
 
     const origExt = extname(fileField.name || "").toLowerCase() || ".m4a";
@@ -115,6 +175,7 @@ async function saveIncomingAudio(
       model,
       sourceClient,
       apiKey,
+      formToken,
     };
   }
 
@@ -236,16 +297,16 @@ export async function handleRequest(req: Request): Promise<Response> {
       });
     }
 
-    // 4. Health check
+    // 4. Health check (no private lecture count exposed)
     if (req.method === "GET" && path === "/api/health") {
       return jsonResponse({
         status: "ok",
         service: "lectern",
         version: "1.0.0",
+        authRequired: true,
         gitSha: BOOT_GIT_SHA,
         runtime: `Bun ${Bun.version}`,
         defaultModel: DEFAULT_GEMINI_MODEL,
-        lectureCount: listLectures().length,
       });
     }
 
@@ -297,13 +358,135 @@ export async function handleRequest(req: Request): Promise<Response> {
       });
     }
 
-    // 5. iOS Shortcut Recipe Download
+    // 5. Auth Routes: /api/auth/{login,register,logout,me,rotate-token}
+    if (req.method === "POST" && path === "/api/auth/login") {
+      try {
+        const body: any = await req.json();
+        let rawId = String(body.email || body.username || "").trim().toLowerCase();
+        const password = String(body.password || "");
+        if (rawId === "sunwoo" || rawId === "eunhhu") {
+          rawId = (
+            process.env.LECTERN_OWNER_EMAIL || "necpition205@gmail.com"
+          ).toLowerCase();
+        }
+        const user = getUserByEmail(rawId);
+        if (!user || !verifyPassword(password, user.password_hash)) {
+          return jsonResponse(
+            { error: "아이디(이메일) 또는 비밀번호가 올바르지 않습니다." },
+            401
+          );
+        }
+
+        const sessionToken = createSession(user.id);
+        return jsonResponse(
+          {
+            ok: true,
+            token: sessionToken,
+            user: {
+              id: user.id,
+              email: user.email,
+              displayName: user.display_name,
+              apiToken: user.api_token,
+              isAdmin: user.is_admin === 1,
+            },
+          },
+          200,
+          { "Set-Cookie": makeSessionCookieHeader(sessionToken) }
+        );
+      } catch (err: any) {
+        return jsonResponse({ error: err?.message || "로그인 실패" }, 400);
+      }
+    }
+
+    if (req.method === "POST" && path === "/api/auth/register") {
+      try {
+        const body: any = await req.json();
+        const email = String(body.email || "").trim().toLowerCase();
+        const displayName = String(body.displayName || body.name || "").trim();
+        const password = String(body.password || "");
+
+        if (!email || email.length < 3) {
+          return jsonResponse({ error: "이메일(또는 아이디)을 입력해주세요." }, 400);
+        }
+        if (!password || password.length < 6) {
+          return jsonResponse(
+            { error: "비밀번호는 최소 6자 이상이어야 합니다." },
+            400
+          );
+        }
+
+        const user = createUser({
+          email,
+          displayName: displayName || email.split("@")[0],
+          password,
+        });
+        const sessionToken = createSession(user.id);
+        return jsonResponse(
+          {
+            ok: true,
+            token: sessionToken,
+            user: {
+              id: user.id,
+              email: user.email,
+              displayName: user.display_name,
+              apiToken: user.api_token,
+              isAdmin: user.is_admin === 1,
+            },
+          },
+          201,
+          { "Set-Cookie": makeSessionCookieHeader(sessionToken) }
+        );
+      } catch (err: any) {
+        return jsonResponse({ error: err?.message || "회원가입 실패" }, 400);
+      }
+    }
+
+    if (req.method === "POST" && path === "/api/auth/logout") {
+      const tok = extractAuthToken(req, url);
+      if (tok && tok.startsWith("ses_")) {
+        deleteSession(tok);
+      }
+      return jsonResponse(
+        { ok: true },
+        200,
+        { "Set-Cookie": makeSessionCookieHeader("", 0) }
+      );
+    }
+
+    if (req.method === "GET" && path === "/api/auth/me") {
+      const user = authenticateRequest(req);
+      if (!user) {
+        return jsonResponse({ error: "로그인이 필요합니다." }, 401);
+      }
+      return jsonResponse({
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.display_name,
+          apiToken: user.api_token,
+          isAdmin: user.is_admin === 1,
+        },
+      });
+    }
+
+    if (req.method === "POST" && path === "/api/auth/rotate-token") {
+      const user = authenticateRequest(req);
+      if (!user) {
+        return jsonResponse({ error: "로그인이 필요합니다." }, 401);
+      }
+      const apiToken = rotateUserApiToken(user.id);
+      return jsonResponse({ ok: true, apiToken });
+    }
+
+    // 6. iOS Shortcut Recipe Download
     if (req.method === "GET" && path === "/api/clients/ios-shortcut") {
+      const user = authenticateRequest(req);
       return jsonResponse({
         name: "Lectern 강의 녹음 요약",
         endpoint: `${PUBLIC_BASE_URL}/api/ingest/shortcut`,
         method: "POST",
         headers: {
+          "X-Lectern-Token": user ? user.api_token : "<내_계정_API_토큰>",
           "X-Course": "정보보호개론",
         },
         formField: "audio",
@@ -311,20 +494,26 @@ export async function handleRequest(req: Request): Promise<Response> {
         instructions: [
           "1. iOS '단축어(Shortcuts)' 앱에서 새 단축어 생성",
           "2. '오디오 녹음' 또는 공유 시트에서 '오디오 파일' 입력 받기 추가",
-          "3. 'URL 내용 가져오기' 액션 추가 → URL: https://lectern.qucord.com/api/ingest/shortcut, 메소드: POST, 요청 본문: 폼(Form), 필드명 'audio'에 녹음 파일 연결",
-          "4. '사전 값 가져오기'로 'url' 추출 후 'URL 열기' 액션 연결 → 녹음 직후 마크다운 리더가 바로 열립니다.",
+          "3. 'URL 내용 가져오기' 액션 추가 → URL: https://lectern.qucord.com/api/ingest/shortcut, 메소드: POST, 헤더에 X-Lectern-Token 추가, 요청 본문: 폼(Form), 필드명 'audio'에 녹음 파일 연결",
+          "4. '사전 값 가져오기'로 'url' 추출 후 'URL 열기' 액션 연결 → 내 계정에 노트가 저장되고 즉시 열립니다.",
         ],
       });
     }
 
-    // 6. List Lectures
+    // 7. List Lectures (Requires Authentication; Strictly Scoped to User's Account)
     if (req.method === "GET" && path === "/api/lectures") {
-      await syncLocalLecturesDir();
+      const user = authenticateRequest(req);
+      if (!user) {
+        return jsonResponse({ error: "로그인이 필요합니다." }, 401);
+      }
+      if (user.is_admin === 1) {
+        await syncLocalLecturesDir(user.id);
+      }
       const course = url.searchParams.get("course") || undefined;
       const q = url.searchParams.get("q") || undefined;
-      const all = listLectures();
+      const all = listLecturesForUser(user.id);
       const courses = Array.from(new Set(all.map((l) => l.course)));
-      const filtered = listLectures(course, q).map((l) => ({
+      const filtered = listLecturesForUser(user.id, course, q).map((l) => ({
         id: l.id,
         share_token: l.share_token,
         title: l.title,
@@ -343,7 +532,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       return jsonResponse({ lectures: filtered, courses });
     }
 
-    // 7. Single Lecture Detail / Edit / Delete / Audio / Markdown Download
+    // 8. Single Lecture Detail / Edit / Delete / Audio / Markdown Download
     const lecMatch = path.match(/^\/api\/lectures\/([^/]+)(?:\/(audio|markdown))?$/);
     if (lecMatch && lecMatch[1] !== "ingest") {
       const id = decodeURIComponent(lecMatch[1]);
@@ -351,6 +540,19 @@ export async function handleRequest(req: Request): Promise<Response> {
       const rec = getLectureById(id);
       if (!rec) {
         return jsonResponse({ error: "Lecture not found" }, 404);
+      }
+
+      const user = authenticateRequest(req);
+      const shareParam = (url.searchParams.get("share") || "").trim();
+      const hasValidShareToken =
+        Boolean(shareParam) && shareParam === rec.share_token;
+      const isOwner = Boolean(user && user.id === rec.owner_id);
+
+      if (!isOwner && !(hasValidShareToken && (sub === "audio" || sub === "markdown"))) {
+        return jsonResponse(
+          { error: user ? "접근 권한이 없는 강의 노트입니다." : "로그인이 필요합니다." },
+          user ? 403 : 401
+        );
       }
 
       if (req.method === "GET" && !sub) {
@@ -391,6 +593,9 @@ export async function handleRequest(req: Request): Promise<Response> {
       }
 
       if (req.method === "PUT" && !sub) {
+        if (!isOwner) {
+          return jsonResponse({ error: "수정 권한이 없습니다." }, 403);
+        }
         const body: any = await req.json();
         const updated = updateLectureMarkdown(
           id,
@@ -402,18 +607,30 @@ export async function handleRequest(req: Request): Promise<Response> {
       }
 
       if (req.method === "DELETE" && !sub) {
+        if (!isOwner) {
+          return jsonResponse({ error: "삭제 권한이 없습니다." }, 403);
+        }
         deleteLectureById(id);
         return jsonResponse({ ok: true });
       }
     }
 
-    // 8. Async Web/Native Ingest: POST /api/lectures/ingest
+    // 9. Async Web/Native Ingest: POST /api/lectures/ingest
     if (req.method === "POST" && path === "/api/lectures/ingest") {
       try {
+        let user = authenticateRequest(req);
         const incoming = await saveIncomingAudio(req);
+        if (!user && incoming.formToken) {
+          user = getUserBySessionOrApiToken(incoming.formToken);
+        }
+        if (!user) {
+          return jsonResponse({ error: "로그인이 필요합니다." }, 401);
+        }
+
         const id = generateId("lec");
         const pending = createPendingLecture({
           id,
+          ownerId: user.id,
           title: incoming.title,
           course: incoming.course,
           audioPath: incoming.audioPath,
@@ -458,14 +675,26 @@ export async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
-    // 9. Quick-Action / iOS Shortcut / Menu Bar / Android Tile Ingest: POST /api/ingest/shortcut
+    // 10. Quick-Action / iOS Shortcut / Menu Bar / Android Tile Ingest: POST /api/ingest/shortcut
     if (req.method === "POST" && path === "/api/ingest/shortcut") {
       try {
+        let user = authenticateRequest(req);
         const waitComplete = url.searchParams.get("wait") !== "false";
         const incoming = await saveIncomingAudio(req);
+        if (!user && incoming.formToken) {
+          user = getUserBySessionOrApiToken(incoming.formToken);
+        }
+        if (!user) {
+          return jsonResponse(
+            { error: "인증 토큰(X-Lectern-Token 또는 로그인 세션)이 필요합니다." },
+            401
+          );
+        }
+
         const id = generateId("lec");
         const pending = createPendingLecture({
           id,
+          ownerId: user.id,
           title: incoming.title,
           course: incoming.course,
           audioPath: incoming.audioPath,

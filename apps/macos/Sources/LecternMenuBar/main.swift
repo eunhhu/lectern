@@ -28,6 +28,20 @@ enum Elysium {
 
 // MARK: - Models
 
+struct AuthUser: Decodable {
+    let id: String
+    let email: String
+    let displayName: String
+    let apiToken: String
+}
+
+struct AuthLoginResponse: Decodable {
+    let ok: Bool?
+    let token: String?
+    let user: AuthUser?
+    let error: String?
+}
+
 struct LectureSummary: Identifiable, Decodable, Equatable {
     let id: String
     let share_token: String
@@ -47,7 +61,7 @@ struct LecturesListResponse: Decodable {
     let courses: [String]
 }
 
-struct LectureDetail: Decodable {
+struct LectureDetail: Decodable, Equatable {
     let id: String
     let share_token: String
     var title: String
@@ -64,15 +78,142 @@ struct LectureDetailResponse: Decodable {
     let lecture: LectureDetail
 }
 
+// MARK: - Pre-Parsed Deterministic Markdown Block Model (No Dynamic UUID Hang)
+
+enum MarkdownBlockKind: Equatable {
+    case heading(level: Int)
+    case filterBadge(isBreak: Bool)
+    case codeBlock
+    case quote
+    case bullet(indent: Int)
+    case paragraph
+    case divider
+}
+
+struct MarkdownBlock: Identifiable, Equatable {
+    let id: Int
+    let kind: MarkdownBlockKind
+    let text: String
+    let tsLabel: String?
+    let tsSeconds: Double?
+}
+
+private let timestampRegex: NSRegularExpression? = try? NSRegularExpression(
+    pattern: #"\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*[~-]\s*\d{1,2}:\d{2}(?::\d{2})?)?\]"#
+)
+
+func extractFirstTimestampSeconds(_ text: String) -> (label: String, seconds: Double)? {
+    guard let regex = timestampRegex,
+          let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+          let fullRange = Range(match.range(at: 0), in: text),
+          let r1 = Range(match.range(at: 1), in: text),
+          let r2 = Range(match.range(at: 2), in: text) else {
+        return nil
+    }
+    let label = String(text[fullRange]).trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+    let p1 = Int(text[r1]) ?? 0
+    let p2 = Int(text[r2]) ?? 0
+    var total = p1 * 60 + p2
+    if match.range(at: 3).location != NSNotFound, let r3 = Range(match.range(at: 3), in: text) {
+        let p3 = Int(text[r3]) ?? 0
+        total = p1 * 3600 + p2 * 60 + p3
+    }
+    return (label, Double(total))
+}
+
+func parseMarkdownBlocks(_ md: String) -> [MarkdownBlock] {
+    var blocks: [MarkdownBlock] = []
+    let lines = md.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+    var inCode = false
+    var codeLines: [String] = []
+    var nextId = 0
+
+    func appendBlock(_ kind: MarkdownBlockKind, rawText: String, parseTs: Bool = true) {
+        let ts = parseTs ? extractFirstTimestampSeconds(rawText) : nil
+        let cleaned = parseTs ? rawText.replacingOccurrences(of: "**", with: "") : rawText
+        blocks.append(
+            MarkdownBlock(
+                id: nextId,
+                kind: kind,
+                text: cleaned,
+                tsLabel: ts?.label,
+                tsSeconds: ts?.seconds
+            )
+        )
+        nextId += 1
+    }
+
+    for raw in lines {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("```") {
+            if inCode {
+                appendBlock(.codeBlock, rawText: codeLines.joined(separator: "\n"), parseTs: false)
+                codeLines.removeAll()
+                inCode = false
+            } else {
+                inCode = true
+            }
+            continue
+        }
+        if inCode {
+            codeLines.append(raw)
+            continue
+        }
+        if trimmed.isEmpty { continue }
+        if trimmed == "---" || trimmed == "***" {
+            appendBlock(.divider, rawText: "", parseTs: false)
+            continue
+        }
+        if trimmed.contains("[쉬는 시간 생략") {
+            appendBlock(.filterBadge(isBreak: true), rawText: trimmed.replacingOccurrences(of: "`", with: ""), parseTs: false)
+            continue
+        }
+        if trimmed.contains("[수업 종료 후 녹음 절단") {
+            appendBlock(.filterBadge(isBreak: false), rawText: trimmed.replacingOccurrences(of: "`", with: ""), parseTs: false)
+            continue
+        }
+        if trimmed.hasPrefix("#### ") {
+            appendBlock(.heading(level: 4), rawText: String(trimmed.dropFirst(5)))
+        } else if trimmed.hasPrefix("### ") {
+            appendBlock(.heading(level: 3), rawText: String(trimmed.dropFirst(4)))
+        } else if trimmed.hasPrefix("## ") {
+            appendBlock(.heading(level: 2), rawText: String(trimmed.dropFirst(3)))
+        } else if trimmed.hasPrefix("# ") {
+            appendBlock(.heading(level: 1), rawText: String(trimmed.dropFirst(2)))
+        } else if trimmed.hasPrefix(">") {
+            let q = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
+            appendBlock(.quote, rawText: q)
+        } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+            let leadingSpaces = raw.prefix(while: { $0 == " " }).count
+            appendBlock(.bullet(indent: min(2, leadingSpaces / 2)), rawText: String(trimmed.dropFirst(2)))
+        } else {
+            appendBlock(.paragraph, rawText: trimmed)
+        }
+    }
+    return blocks
+}
+
 // MARK: - ViewModel (ObservableObject)
 
 @MainActor
 final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
+    @Published var authToken: String = UserDefaults.standard.string(forKey: "lectern_auth_token")
+        ?? ProcessInfo.processInfo.environment["LECTERN_TOKEN"]
+        ?? ""
+    @Published var currentUserLabel: String = UserDefaults.standard.string(forKey: "lectern_user_label") ?? ""
+    @Published var loginEmail: String = "sunwoo"
+    @Published var loginPassword: String = ""
+    @Published var loginError: String? = nil
+    @Published var isLoggingIn: Bool = false
+
     @Published var lectures: [LectureSummary] = []
     @Published var courses: [String] = ["정보보호개론", "자바프로그래밍", "영어읽기와토론", "대순사상과상생윤리"]
     @Published var activeCourse: String = "ALL"
     @Published var searchQuery: String = ""
     @Published var selectedLecture: LectureDetail? = nil
+    @Published var parsedBlocks: [MarkdownBlock] = []
+    @Published var isLoadingLectures: Bool = false
+
     @Published var isEditing: Bool = false
     @Published var editTitle: String = ""
     @Published var editCourse: String = ""
@@ -97,11 +238,18 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private var recStartTime: Date?
     private var recFileURL: URL?
     private var player: AVPlayer?
+    private var playerLectureId: String?
     private var timeObserver: Any?
 
     override init() {
         super.init()
-        Task { await fetchLectures() }
+        if !authToken.isEmpty {
+            Task { await fetchLectures() }
+        }
+    }
+
+    var isAuthenticated: Bool {
+        !authToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var filteredLectures: [LectureSummary] {
@@ -116,17 +264,82 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
     }
 
-    func fetchLectures(selectId: String? = nil) async {
-        guard let url = URL(string: "\(serverBase)/api/lectures") else { return }
+    private func authorizedRequest(url: URL, method: String = "GET") -> URLRequest {
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        req.timeoutInterval = 15
+        if !authToken.isEmpty {
+            req.setValue(authToken, forHTTPHeaderField: "X-Lectern-Token")
+        }
+        return req
+    }
+
+    func performLogin() async {
+        guard let url = URL(string: "\(serverBase)/api/auth/login") else { return }
+        isLoggingIn = true
+        loginError = nil
+        defer { isLoggingIn = false }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String] = [
+            "email": loginEmail.trimmingCharacters(in: .whitespacesAndNewlines),
+            "password": loginPassword
+        ]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let http = resp as? HTTPURLResponse
+            let decoded = try JSONDecoder().decode(AuthLoginResponse.self, from: data)
+            if http?.statusCode == 200, let user = decoded.user {
+                self.authToken = user.apiToken
+                self.currentUserLabel = "\(user.displayName) (\(user.email))"
+                UserDefaults.standard.set(user.apiToken, forKey: "lectern_auth_token")
+                UserDefaults.standard.set(self.currentUserLabel, forKey: "lectern_user_label")
+                self.loginPassword = ""
+                await fetchLectures()
+            } else {
+                self.loginError = decoded.error ?? "로그인에 실패했습니다."
+            }
+        } catch {
+            self.loginError = "서버 연결 오류: \(error.localizedDescription)"
+        }
+    }
+
+    func logout() {
+        stopAudioPlayer()
+        authToken = ""
+        currentUserLabel = ""
+        lectures = []
+        selectedLecture = nil
+        parsedBlocks = []
+        UserDefaults.standard.removeObject(forKey: "lectern_auth_token")
+        UserDefaults.standard.removeObject(forKey: "lectern_user_label")
+    }
+
+    func fetchLectures(selectId: String? = nil) async {
+        guard isAuthenticated, !isLoadingLectures else { return }
+        guard let url = URL(string: "\(serverBase)/api/lectures") else { return }
+        isLoadingLectures = true
+        defer { isLoadingLectures = false }
+
+        do {
+            let req = authorizedRequest(url: url)
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            if (resp as? HTTPURLResponse)?.statusCode == 401 {
+                logout()
+                loginError = "세션이 만료되었습니다. 다시 로그인해주세요."
+                return
+            }
             let decoded = try JSONDecoder().decode(LecturesListResponse.self, from: data)
             self.lectures = decoded.lectures
             if !decoded.courses.isEmpty {
                 self.courses = decoded.courses
             }
             let target = selectId ?? selectedLecture?.id ?? decoded.lectures.first?.id
-            if let t = target {
+            if let t = target, selectedLecture?.id != t || selectId != nil {
                 await selectLecture(id: t)
             }
         } catch {
@@ -135,18 +348,27 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func selectLecture(id: String) async {
+        guard isAuthenticated else { return }
         guard let url = URL(string: "\(serverBase)/api/lectures/\(id)") else { return }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let req = authorizedRequest(url: url)
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            if (resp as? HTTPURLResponse)?.statusCode == 401 {
+                logout()
+                return
+            }
             let decoded = try JSONDecoder().decode(LectureDetailResponse.self, from: data)
+            if playerLectureId != decoded.lecture.id {
+                stopAudioPlayer()
+            }
             self.selectedLecture = decoded.lecture
+            self.parsedBlocks = parseMarkdownBlocks(decoded.lecture.markdown)
             self.isEditing = false
-            setupAudioPlayer(for: decoded.lecture)
 
             if decoded.lecture.status == "processing" {
                 Task {
-                    try? await Task.sleep(nanoseconds: 2_500_000_000)
-                    await fetchLectures(selectId: id)
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    await selectLecture(id: id)
                 }
             }
         } catch {
@@ -154,58 +376,72 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
     }
 
-    // MARK: - Audio Player & Timestamp Seeking
+    // MARK: - Lazy Audio Player & Timestamp Seeking
 
-    private func setupAudioPlayer(for lecture: LectureDetail) {
+    private func stopAudioPlayer() {
         if let obs = timeObserver {
             player?.removeTimeObserver(obs)
             timeObserver = nil
         }
         player?.pause()
+        player = nil
+        playerLectureId = nil
         isPlayingAudio = false
         currentAudioTime = 0
+    }
 
-        guard lecture.has_audio,
-              let audioURL = URL(string: "\(serverBase)/api/lectures/\(lecture.id)/audio") else {
-            player = nil
-            return
+    private func ensureAudioPlayer() -> AVPlayer? {
+        guard let lecture = selectedLecture, lecture.has_audio else { return nil }
+        if let existing = player, playerLectureId == lecture.id {
+            return existing
+        }
+        stopAudioPlayer()
+        let encodedTok = authToken.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        guard let audioURL = URL(string: "\(serverBase)/api/lectures/\(lecture.id)/audio?token=\(encodedTok)") else {
+            return nil
         }
 
         let item = AVPlayerItem(url: audioURL)
         let av = AVPlayer(playerItem: item)
         self.player = av
+        self.playerLectureId = lecture.id
 
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
         timeObserver = av.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             let sec = time.seconds.isFinite ? time.seconds : 0
             Task { @MainActor [weak self] in
-                self?.currentAudioTime = sec
+                guard let self = self else { return }
+                if abs(self.currentAudioTime - sec) >= 0.8 {
+                    self.currentAudioTime = sec
+                }
             }
         }
+        return av
     }
 
     func toggleAudioPlayback() {
-        guard let player = player else { return }
+        guard let av = ensureAudioPlayer() else { return }
         if isPlayingAudio {
-            player.pause()
+            av.pause()
             isPlayingAudio = false
         } else {
-            player.play()
-            player.rate = playbackSpeed
+            av.play()
+            av.rate = playbackSpeed
             isPlayingAudio = true
         }
     }
 
     func seekAudio(to seconds: Double) {
-        guard let player = player else {
+        guard let av = ensureAudioPlayer() else {
             showToast("이 노트에는 연결된 원본 오디오가 없습니다.")
             return
         }
         let target = CMTime(seconds: seconds, preferredTimescale: 600)
-        player.seek(to: target)
-        player.play()
-        player.rate = playbackSpeed
+        av.seek(to: target)
+        av.play()
+        av.rate = playbackSpeed
         isPlayingAudio = true
+        currentAudioTime = seconds
         let m = Int(seconds) / 60
         let s = Int(seconds) % 60
         showToast(String(format: "오디오 %02d:%02d 지점으로 이동", m, s))
@@ -229,6 +465,10 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func startRecording() {
+        guard isAuthenticated else {
+            showToast("먼저 계정에 로그인해주세요.")
+            return
+        }
         UserDefaults.standard.set(recordCourse, forKey: "lectern_course")
         let tmp = FileManager.default.temporaryDirectory
         let fileURL = tmp.appendingPathComponent("lectern_\(Int(Date().timeIntervalSince1970)).m4a")
@@ -253,7 +493,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             self.elapsedSeconds = 0
             self.updateMenuBarLabel()
 
-            recTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            recTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let strongSelf = self,
                           let st = strongSelf.recStartTime,
@@ -292,6 +532,10 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func pickAndUploadAudioFile() {
+        guard isAuthenticated else {
+            showToast("먼저 계정에 로그인해주세요.")
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -322,8 +566,8 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
 
         let boundary = "Boundary-\(UUID().uuidString)"
-        var req = URLRequest(url: endpoint)
-        req.httpMethod = "POST"
+        var req = authorizedRequest(url: endpoint, method: "POST")
+        req.timeoutInterval = 120
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.setValue("macos-native-menubar", forHTTPHeaderField: "X-Client")
 
@@ -364,8 +608,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func saveEdits() async {
         guard let lec = selectedLecture,
               let url = URL(string: "\(serverBase)/api/lectures/\(lec.id)") else { return }
-        var req = URLRequest(url: url)
-        req.httpMethod = "PUT"
+        var req = authorizedRequest(url: url, method: "PUT")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let payload: [String: String] = [
             "title": editTitle,
@@ -377,7 +620,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             let (_, _) = try await URLSession.shared.data(for: req)
             isEditing = false
             showToast("강의 노트 저장 완료")
-            await fetchLectures(selectId: lec.id)
+            await selectLecture(id: lec.id)
         } catch {
             showToast("저장 실패: \(error.localizedDescription)")
         }
@@ -438,108 +681,19 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 }
 
-// MARK: - Native Markdown AST & SwiftUI Renderer
-
-enum MarkdownBlock: Identifiable {
-    case heading(level: Int, text: String)
-    case filterBadge(isBreak: Bool, text: String)
-    case codeBlock(code: String)
-    case quote(text: String)
-    case bullet(indent: Int, text: String)
-    case paragraph(text: String)
-    case divider
-
-    var id: UUID { UUID() }
-}
-
-func parseMarkdownBlocks(_ md: String) -> [MarkdownBlock] {
-    var blocks: [MarkdownBlock] = []
-    let lines = md.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
-    var inCode = false
-    var codeLines: [String] = []
-
-    for raw in lines {
-        let trimmed = raw.trimmingCharacters(in: .whitespaces)
-        if trimmed.hasPrefix("```") {
-            if inCode {
-                blocks.append(.codeBlock(code: codeLines.joined(separator: "\n")))
-                codeLines.removeAll()
-                inCode = false
-            } else {
-                inCode = true
-            }
-            continue
-        }
-        if inCode {
-            codeLines.append(raw)
-            continue
-        }
-        if trimmed.isEmpty { continue }
-        if trimmed == "---" || trimmed == "***" {
-            blocks.append(.divider)
-            continue
-        }
-        if trimmed.contains("[쉬는 시간 생략") {
-            blocks.append(.filterBadge(isBreak: true, text: trimmed.replacingOccurrences(of: "`", with: "")))
-            continue
-        }
-        if trimmed.contains("[수업 종료 후 녹음 절단") {
-            blocks.append(.filterBadge(isBreak: false, text: trimmed.replacingOccurrences(of: "`", with: "")))
-            continue
-        }
-        if trimmed.hasPrefix("#### ") {
-            blocks.append(.heading(level: 4, text: String(trimmed.dropFirst(5))))
-        } else if trimmed.hasPrefix("### ") {
-            blocks.append(.heading(level: 3, text: String(trimmed.dropFirst(4))))
-        } else if trimmed.hasPrefix("## ") {
-            blocks.append(.heading(level: 2, text: String(trimmed.dropFirst(3))))
-        } else if trimmed.hasPrefix("# ") {
-            blocks.append(.heading(level: 1, text: String(trimmed.dropFirst(2))))
-        } else if trimmed.hasPrefix(">") {
-            let q = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
-            blocks.append(.quote(text: q))
-        } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
-            let leadingSpaces = raw.prefix(while: { $0 == " " }).count
-            blocks.append(.bullet(indent: min(2, leadingSpaces / 2), text: String(trimmed.dropFirst(2))))
-        } else {
-            blocks.append(.paragraph(text: trimmed))
-        }
-    }
-    return blocks
-}
-
-func extractFirstTimestampSeconds(_ text: String) -> (label: String, seconds: Double)? {
-    let pattern = #"\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*[~-]\s*\d{1,2}:\d{2}(?::\d{2})?)?\]"#
-    guard let regex = try? NSRegularExpression(pattern: pattern),
-          let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else {
-        return nil
-    }
-    let fullRange = Range(match.range(at: 0), in: text)!
-    let label = String(text[fullRange]).trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-
-    let p1 = Int(text[Range(match.range(at: 1), in: text)!]) ?? 0
-    let p2 = Int(text[Range(match.range(at: 2), in: text)!]) ?? 0
-    var total = p1 * 60 + p2
-    if match.range(at: 3).location != NSNotFound, let r3 = Range(match.range(at: 3), in: text) {
-        let p3 = Int(text[r3]) ?? 0
-        total = p1 * 3600 + p2 * 60 + p3
-    }
-    return (label, Double(total))
-}
+// MARK: - Native Markdown Line & View (Deterministic, Non-Recursive Layout)
 
 struct NativeMarkdownLineView: View {
-    let text: String
+    let block: MarkdownBlock
     let font: Font
     let color: Color
     let onSeek: (Double) -> Void
 
     var body: some View {
-        let ts = extractFirstTimestampSeconds(text)
-        let cleaned = text.replacingOccurrences(of: "**", with: "")
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            if let ts = ts {
-                Button(action: { onSeek(ts.seconds) }) {
-                    Text(ts.label)
+            if let label = block.tsLabel, let sec = block.tsSeconds {
+                Button(action: { onSeek(sec) }) {
+                    Text(label)
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundColor(Elysium.actionPrimary)
                         .padding(.horizontal, 6)
@@ -549,60 +703,57 @@ struct NativeMarkdownLineView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text(cleaned)
+            Text(block.text)
                 .font(font)
                 .foregroundColor(color)
-                .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
 
 struct NativeMarkdownView: View {
-    let markdown: String
+    let blocks: [MarkdownBlock]
     let onSeek: (Double) -> Void
 
     var body: some View {
-        let blocks = parseMarkdownBlocks(markdown)
-        LazyVStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(blocks) { block in
-                switch block {
-                case .heading(let level, let text):
+                switch block.kind {
+                case .heading(let level):
                     NativeMarkdownLineView(
-                        text: text,
-                        font: level == 1 ? .system(size: 22, weight: .bold) :
-                              level == 2 ? .system(size: 17, weight: .bold) :
-                              .system(size: 14.5, weight: .semibold),
+                        block: block,
+                        font: level == 1 ? .system(size: 21, weight: .bold) :
+                              level == 2 ? .system(size: 16.5, weight: .bold) :
+                              .system(size: 14, weight: .semibold),
                         color: Elysium.textPrimary,
                         onSeek: onSeek
                     )
                     .padding(.top, level == 1 ? 4 : 10)
-                case .filterBadge(let isBreak, let text):
-                    Text(text)
+                case .filterBadge(let isBreak):
+                    Text(block.text)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(isBreak ? Elysium.statusWarningFg : Elysium.statusSuccessFg)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(isBreak ? Elysium.statusWarningBg : Elysium.statusSuccessBg)
                         .cornerRadius(999)
-                case .codeBlock(let code):
+                case .codeBlock:
                     ScrollView(.horizontal, showsIndicators: false) {
-                        Text(code)
+                        Text(block.text)
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundColor(Elysium.textPrimary)
-                            .textSelection(.enabled)
                             .padding(12)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Elysium.surfaceElevated)
                     .cornerRadius(12)
-                case .quote(let text):
+                case .quote:
                     HStack(spacing: 10) {
                         Rectangle()
                             .fill(Elysium.actionPrimary)
                             .frame(width: 3)
                         NativeMarkdownLineView(
-                            text: text,
+                            block: block,
                             font: .system(size: 13.5),
                             color: Elysium.textPrimary,
                             onSeek: onSeek
@@ -612,21 +763,21 @@ struct NativeMarkdownView: View {
                     .padding(.horizontal, 10)
                     .background(Elysium.actionPrimarySubtle)
                     .cornerRadius(8)
-                case .bullet(let indent, let text):
+                case .bullet(let indent):
                     HStack(alignment: .top, spacing: 6) {
                         Text("•")
                             .foregroundColor(Elysium.textTertiary)
                         NativeMarkdownLineView(
-                            text: text,
+                            block: block,
                             font: .system(size: 13.5),
                             color: Elysium.textSecondary,
                             onSeek: onSeek
                         )
                     }
                     .padding(.leading, CGFloat(indent * 14))
-                case .paragraph(let text):
+                case .paragraph:
                     NativeMarkdownLineView(
-                        text: text,
+                        block: block,
                         font: .system(size: 13.5),
                         color: Elysium.textSecondary,
                         onSeek: onSeek
@@ -636,6 +787,7 @@ struct NativeMarkdownView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -645,250 +797,335 @@ struct LecternPopoverView: View {
     @ObservedObject var store: LecternStore
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Left Sidebar (Elysium Surface Elevated #14171D)
-            VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Circle()
-                            .fill(store.isRecording ? Elysium.statusDangerFg : Elysium.actionPrimary)
-                            .frame(width: 9, height: 9)
-                        Text("Lectern")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(Elysium.textPrimary)
-                        Spacer()
-                        Text("⌥Space")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(Elysium.textTertiary)
-                    }
+        if !store.isAuthenticated {
+            // Elysium Native Login Gate
+            VStack(spacing: 16) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Elysium.actionPrimary)
+                        .frame(width: 10, height: 10)
+                    Text("Lectern")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(Elysium.textPrimary)
+                }
+                Text("내 계정에 로그인하여 개인 강의 녹음과 마크다운 노트를 동기화하세요.")
+                    .font(.system(size: 13))
+                    .foregroundColor(Elysium.textSecondary)
+                    .multilineTextAlignment(.center)
 
-                    HStack(spacing: 6) {
-                        TextField("과목명", text: $store.recordCourse)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 12))
-                        Button(action: { store.pickAndUploadAudioFile() }) {
-                            Text("파일 선택")
-                                .font(.system(size: 11.5, weight: .semibold))
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("아이디 또는 이메일")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Elysium.textSecondary)
+                    TextField("sunwoo 또는 이메일", text: $store.loginEmail)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 300)
+
+                    Text("비밀번호")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Elysium.textSecondary)
+                    SecureField("비밀번호 입력", text: $store.loginPassword)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 300)
+                        .onSubmit {
+                            Task { await store.performLogin() }
                         }
-                        .help("오디오 파일 업로드")
+
+                    if let err = store.loginError {
+                        Text(err)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Elysium.statusDangerFg)
                     }
 
-                    if store.isRecording {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(Elysium.surfaceInteractive)
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(Elysium.statusDangerFg)
-                                    .frame(width: max(8, geo.size.width * CGFloat(store.audioLevel)))
-                            }
-                        }
-                        .frame(height: 6)
-                    }
-
-                    Button(action: { store.toggleRecording() }) {
+                    Button(action: {
+                        Task { await store.performLogin() }
+                    }) {
                         HStack {
                             Spacer()
-                            Text(store.isRecording ? "녹음 종료 및 노트 증류 (\(store.elapsedSeconds)s)" : "즉시 강의 녹음 시작")
-                                .font(.system(size: 12.5, weight: .semibold))
+                            Text(store.isLoggingIn ? "로그인 중..." : "내 워크스페이스 열기")
+                                .font(.system(size: 13.5, weight: .semibold))
                             Spacer()
                         }
-                        .padding(.vertical, 7)
-                        .background(store.isRecording ? Elysium.statusDangerFg : Elysium.actionPrimary)
+                        .padding(.vertical, 8)
+                        .background(Elysium.actionPrimary)
                         .foregroundColor(.white)
                         .cornerRadius(8)
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 300)
+                    .disabled(store.isLoggingIn)
                 }
-                .padding(12)
-                .background(Elysium.surfaceSubtle)
-                .cornerRadius(12)
-
-                // Search Field
-                TextField("강의 제목, 과목, 키워드 검색...", text: $store.searchQuery)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12.5))
-
-                // Course Filter Chips
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(["ALL"] + store.courses, id: \.self) { course in
-                            let isAct = store.activeCourse == course
-                            Button(action: { store.activeCourse = course }) {
-                                Text(course == "ALL" ? "전체" : course)
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
-                                    .background(isAct ? Elysium.actionPrimarySubtle : Elysium.surfaceSubtle)
-                                    .foregroundColor(isAct ? Elysium.actionPrimary : Elysium.textSecondary)
-                                    .cornerRadius(999)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-
-                // Lecture Cards List
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 6) {
-                        ForEach(store.filteredLectures) { item in
-                            let selected = store.selectedLecture?.id == item.id
-                            Button(action: {
-                                Task { await store.selectLecture(id: item.id) }
-                            }) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text(item.course)
-                                            .font(.system(size: 10.5, weight: .semibold))
-                                            .foregroundColor(Elysium.actionPrimary)
-                                            .padding(.horizontal, 7)
-                                            .padding(.vertical, 2)
-                                            .background(Elysium.actionPrimarySubtle)
-                                            .cornerRadius(999)
-                                        Spacer()
-                                        Text(item.date_label)
-                                            .font(.system(size: 11, design: .monospaced))
-                                            .foregroundColor(Elysium.textTertiary)
-                                    }
-                                    Text(item.title)
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(Elysium.textPrimary)
-                                        .lineLimit(1)
-                                    Text(item.excerpt)
-                                        .font(.system(size: 11.5))
-                                        .foregroundColor(Elysium.textSecondary)
-                                        .lineLimit(2)
-                                }
-                                .padding(10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(selected ? Elysium.actionPrimarySubtle : Elysium.surfaceSubtle)
-                                .cornerRadius(12)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
+                .padding(24)
+                .background(Elysium.surfaceElevated)
+                .cornerRadius(16)
             }
-            .padding(12)
-            .frame(width: 290)
-            .background(Elysium.surfaceElevated)
-
-            Divider()
-
-            // Right Markdown Reader & Audio Pane (Elysium Surface Canvas #0B0D11)
-            VStack(alignment: .leading, spacing: 0) {
-                if let lec = store.selectedLecture {
-                    // Toolbar
-                    HStack(spacing: 8) {
-                        Text(lec.course)
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .foregroundColor(Elysium.actionPrimary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Elysium.actionPrimarySubtle)
-                            .cornerRadius(999)
-                        Text(lec.date_label)
-                            .font(.system(size: 11.5, design: .monospaced))
-                            .foregroundColor(Elysium.textSecondary)
-                        Text(lec.model_used)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(Elysium.textTertiary)
-
-                        Spacer()
-
-                        Button(store.isEditing ? "취소" : "편집") {
-                            if store.isEditing { store.isEditing = false } else { store.beginEditing() }
-                        }
-                        Button("MD") { store.exportMarkdownFile() }
-                        Button("PDF") { store.exportPdfFile() }
-                        Button("공유 링크") { store.copyShareLink() }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Elysium.surfaceElevated)
-
-                    Divider()
-
-                    // Audio Player Bar
-                    if lec.has_audio {
-                        HStack(spacing: 12) {
-                            Button(action: { store.toggleAudioPlayback() }) {
-                                Text(store.isPlayingAudio ? "일시정지" : "오디오 재생")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            Text(String(format: "%02d:%02d", Int(store.currentAudioTime) / 60, Int(store.currentAudioTime) % 60))
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundColor(Elysium.textSecondary)
+            .frame(width: 940, height: 640)
+            .background(Elysium.surfaceCanvas)
+            .preferredColorScheme(.dark)
+        } else {
+            HStack(spacing: 0) {
+                // Left Sidebar (Elysium Surface Elevated #14171D)
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Circle()
+                                .fill(store.isRecording ? Elysium.statusDangerFg : Elysium.actionPrimary)
+                                .frame(width: 9, height: 9)
+                            Text("Lectern")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(Elysium.textPrimary)
                             Spacer()
-                            Picker("배속", selection: Binding(
-                                get: { store.playbackSpeed },
-                                set: { store.setSpeed($0) }
-                            )) {
-                                Text("1.0x").tag(Float(1.0))
-                                Text("1.25x").tag(Float(1.25))
-                                Text("1.5x").tag(Float(1.5))
-                                Text("2.0x").tag(Float(2.0))
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(width: 190)
+                            Text("⌥Space")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(Elysium.textTertiary)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Elysium.surfaceSubtle)
-                        Divider()
-                    }
 
-                    if let banner = store.statusBanner {
-                        Text(banner)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Elysium.actionPrimary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Elysium.actionPrimarySubtle)
-                    }
+                        HStack(spacing: 6) {
+                            TextField("과목명", text: $store.recordCourse)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 12))
+                            Button(action: { store.pickAndUploadAudioFile() }) {
+                                Text("파일 선택")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                            }
+                            .help("오디오 파일 업로드")
+                        }
 
-                    // Reader or Editor
-                    if store.isEditing {
-                        VStack(alignment: .leading, spacing: 8) {
-                            TextField("제목", text: $store.editTitle)
-                                .textFieldStyle(.roundedBorder)
-                            TextField("과목", text: $store.editCourse)
-                                .textFieldStyle(.roundedBorder)
-                            TextEditor(text: $store.editMarkdown)
-                                .font(.system(size: 13, design: .monospaced))
+                        if store.isRecording {
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Elysium.surfaceInteractive)
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Elysium.statusDangerFg)
+                                        .frame(width: max(8, geo.size.width * CGFloat(store.audioLevel)))
+                                }
+                            }
+                            .frame(height: 6)
+                        }
+
+                        Button(action: { store.toggleRecording() }) {
                             HStack {
                                 Spacer()
-                                Button("변경사항 저장") {
-                                    Task { await store.saveEdits() }
+                                Text(store.isRecording ? "녹음 종료 및 노트 증류 (\(store.elapsedSeconds)s)" : "즉시 강의 녹음 시작")
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                Spacer()
+                            }
+                            .padding(.vertical, 7)
+                            .background(store.isRecording ? Elysium.statusDangerFg : Elysium.actionPrimary)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(12)
+                    .background(Elysium.surfaceSubtle)
+                    .cornerRadius(12)
+
+                    // Search Field
+                    TextField("강의 제목, 과목, 키워드 검색...", text: $store.searchQuery)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12.5))
+
+                    // Course Filter Chips
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(["ALL"] + store.courses, id: \.self) { course in
+                                let isAct = store.activeCourse == course
+                                Button(action: { store.activeCourse = course }) {
+                                    Text(course == "ALL" ? "전체" : course)
+                                        .font(.system(size: 11.5, weight: .semibold))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(isAct ? Elysium.actionPrimarySubtle : Elysium.surfaceSubtle)
+                                        .foregroundColor(isAct ? Elysium.actionPrimary : Elysium.textSecondary)
+                                        .cornerRadius(999)
                                 }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.plain)
                             }
                         }
-                        .padding(16)
-                    } else {
-                        ScrollView {
-                            NativeMarkdownView(markdown: lec.markdown) { sec in
-                                store.seekAudio(to: sec)
+                    }
+
+                    // Lecture Cards List (Standard VStack to avoid NSPopover LazyVStack Hang)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(store.filteredLectures) { item in
+                                let selected = store.selectedLecture?.id == item.id
+                                Button(action: {
+                                    Task { await store.selectLecture(id: item.id) }
+                                }) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            Text(item.course)
+                                                .font(.system(size: 10.5, weight: .semibold))
+                                                .foregroundColor(Elysium.actionPrimary)
+                                                .padding(.horizontal, 7)
+                                                .padding(.vertical, 2)
+                                                .background(Elysium.actionPrimarySubtle)
+                                                .cornerRadius(999)
+                                            Spacer()
+                                            Text(item.date_label)
+                                                .font(.system(size: 11, design: .monospaced))
+                                                .foregroundColor(Elysium.textTertiary)
+                                        }
+                                        Text(item.title)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(Elysium.textPrimary)
+                                            .lineLimit(1)
+                                        Text(item.excerpt)
+                                            .font(.system(size: 11.5))
+                                            .foregroundColor(Elysium.textSecondary)
+                                            .lineLimit(2)
+                                    }
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(selected ? Elysium.actionPrimarySubtle : Elysium.surfaceSubtle)
+                                    .cornerRadius(12)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .padding(20)
                         }
                     }
-                } else {
-                    VStack {
+
+                    // Account Footer
+                    HStack {
+                        Text(store.currentUserLabel.isEmpty ? "인증됨" : store.currentUserLabel)
+                            .font(.system(size: 11))
+                            .foregroundColor(Elysium.textSecondary)
+                            .lineLimit(1)
                         Spacer()
-                        Text("왼쪽 목록에서 강의 노트를 선택하거나 새 강의를 녹음하세요.")
-                            .foregroundColor(Elysium.textTertiary)
-                        Spacer()
+                        Button("새로고침") {
+                            Task { await store.fetchLectures() }
+                        }
+                        .font(.system(size: 11))
+                        Button("로그아웃") {
+                            store.logout()
+                        }
+                        .font(.system(size: 11))
                     }
-                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
                 }
+                .padding(12)
+                .frame(width: 290)
+                .background(Elysium.surfaceElevated)
+
+                Divider()
+
+                // Right Markdown Reader & Audio Pane (Elysium Surface Canvas #0B0D11)
+                VStack(alignment: .leading, spacing: 0) {
+                    if let lec = store.selectedLecture {
+                        // Toolbar
+                        HStack(spacing: 8) {
+                            Text(lec.course)
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(Elysium.actionPrimary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Elysium.actionPrimarySubtle)
+                                .cornerRadius(999)
+                            Text(lec.date_label)
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .foregroundColor(Elysium.textSecondary)
+                            Text(lec.model_used)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(Elysium.textTertiary)
+
+                            Spacer()
+
+                            Button(store.isEditing ? "취소" : "편집") {
+                                if store.isEditing { store.isEditing = false } else { store.beginEditing() }
+                            }
+                            Button("MD") { store.exportMarkdownFile() }
+                            Button("PDF") { store.exportPdfFile() }
+                            Button("공유 링크") { store.copyShareLink() }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Elysium.surfaceElevated)
+
+                        Divider()
+
+                        // Audio Player Bar
+                        if lec.has_audio {
+                            HStack(spacing: 12) {
+                                Button(action: { store.toggleAudioPlayback() }) {
+                                    Text(store.isPlayingAudio ? "일시정지" : "오디오 재생")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                Text(String(format: "%02d:%02d", Int(store.currentAudioTime) / 60, Int(store.currentAudioTime) % 60))
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundColor(Elysium.textSecondary)
+                                Spacer()
+                                Picker("배속", selection: Binding(
+                                    get: { store.playbackSpeed },
+                                    set: { store.setSpeed($0) }
+                                )) {
+                                    Text("1.0x").tag(Float(1.0))
+                                    Text("1.25x").tag(Float(1.25))
+                                    Text("1.5x").tag(Float(1.5))
+                                    Text("2.0x").tag(Float(2.0))
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(width: 190)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Elysium.surfaceSubtle)
+                            Divider()
+                        }
+
+                        if let banner = store.statusBanner {
+                            Text(banner)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Elysium.actionPrimary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Elysium.actionPrimarySubtle)
+                        }
+
+                        // Reader or Editor
+                        if store.isEditing {
+                            VStack(alignment: .leading, spacing: 8) {
+                                TextField("제목", text: $store.editTitle)
+                                    .textFieldStyle(.roundedBorder)
+                                TextField("과목", text: $store.editCourse)
+                                    .textFieldStyle(.roundedBorder)
+                                TextEditor(text: $store.editMarkdown)
+                                    .font(.system(size: 13, design: .monospaced))
+                                HStack {
+                                    Spacer()
+                                    Button("변경사항 저장") {
+                                        Task { await store.saveEdits() }
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+                            }
+                            .padding(16)
+                        } else {
+                            ScrollView {
+                                NativeMarkdownView(blocks: store.parsedBlocks) { sec in
+                                    store.seekAudio(to: sec)
+                                }
+                                .padding(20)
+                            }
+                        }
+                    } else {
+                        VStack {
+                            Spacer()
+                            Text(store.isLoadingLectures ? "강의 노트를 불러오는 중..." : "왼쪽 목록에서 강의 노트를 선택하거나 새 강의를 녹음하세요.")
+                                .foregroundColor(Elysium.textTertiary)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Elysium.surfaceCanvas)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Elysium.surfaceCanvas)
+            .frame(width: 940, height: 640)
+            .preferredColorScheme(.dark)
         }
-        .frame(width: 940, height: 640)
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -939,9 +1176,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if popover.isShown {
                 popover.performClose(sender)
             } else if let button = statusItem.button {
-                Task { await store.fetchLectures() }
                 popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
                 NSApp.activate(ignoringOtherApps: true)
+                if store.lectures.isEmpty && store.isAuthenticated {
+                    Task { await store.fetchLectures() }
+                }
             }
         }
     }

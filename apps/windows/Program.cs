@@ -51,6 +51,7 @@ internal sealed class TrayForm : Form
     private readonly ListBox _lectureListBox;
     private readonly RichTextBox _markdownReader;
     private readonly TextBox _courseBox;
+    private readonly TextBox _tokenBox;
     private readonly Button _recordButton;
     private readonly Label _statusLabel;
 
@@ -89,6 +90,20 @@ internal sealed class TrayForm : Form
             BackColor = Color.FromArgb(28, 32, 40), // #1C2028
             ForeColor = Color.FromArgb(242, 244, 246), // #F2F4F6
             BorderStyle = BorderStyle.FixedSingle
+        };
+
+        _tokenBox = new TextBox
+        {
+            Text = Environment.GetEnvironmentVariable("LECTERN_TOKEN") ?? "",
+            PlaceholderText = "내 계정 API 토큰 (lct_...)",
+            Dock = DockStyle.Top,
+            BackColor = Color.FromArgb(28, 32, 40),
+            ForeColor = Color.FromArgb(242, 244, 246),
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        _tokenBox.KeyDown += async (_, e) =>
+        {
+            if (e.KeyCode == Keys.Enter) await RefreshLecturesAsync();
         };
 
         _recordButton = new Button
@@ -131,6 +146,7 @@ internal sealed class TrayForm : Form
         leftPanel.Controls.Add(_statusLabel);
         leftPanel.Controls.Add(_recordButton);
         leftPanel.Controls.Add(_courseBox);
+        leftPanel.Controls.Add(_tokenBox);
 
         // Right Panel: Action Toolbar + Native RichText Markdown Reader
         var rightPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(16), BackColor = Color.FromArgb(11, 12, 14) };
@@ -272,6 +288,10 @@ internal sealed class TrayForm : Form
         try
         {
             using var client = new HttpClient();
+            if (!string.IsNullOrWhiteSpace(_tokenBox.Text))
+            {
+                client.DefaultRequestHeaders.Add("X-Lectern-Token", _tokenBox.Text.Trim());
+            }
             var json = await client.GetStringAsync($"{_serverBase}/api/lectures");
             using var doc = JsonDocument.Parse(json);
             var arr = doc.RootElement.GetProperty("lectures");
@@ -311,6 +331,10 @@ internal sealed class TrayForm : Form
         try
         {
             using var client = new HttpClient();
+            if (!string.IsNullOrWhiteSpace(_tokenBox.Text))
+            {
+                client.DefaultRequestHeaders.Add("X-Lectern-Token", _tokenBox.Text.Trim());
+            }
             var json = await client.GetStringAsync($"{_serverBase}/api/lectures/{id}");
             using var doc = JsonDocument.Parse(json);
             var lec = doc.RootElement.GetProperty("lecture");
@@ -415,6 +439,10 @@ internal sealed class TrayForm : Form
         try
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            if (!string.IsNullOrWhiteSpace(_tokenBox.Text))
+            {
+                client.DefaultRequestHeaders.Add("X-Lectern-Token", _tokenBox.Text.Trim());
+            }
             using var form = new MultipartFormDataContent();
             form.Add(new StringContent(course), "course");
             form.Add(new StringContent("windows-native-tray"), "source");
