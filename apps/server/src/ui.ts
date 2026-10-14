@@ -1536,35 +1536,31 @@ export function renderAppHtml(): string {
       </p>
       <div class="client-grid">
         <div class="client-box">
-          <h4>macOS 상단 메뉴바 앱 (SwiftUI/AppKit)</h4>
-          <p><code>NSStatusItem</code> 상단바 상주 · <code>⌥Space</code> 글로벌 핫키 HE-AAC 녹음 및 네이티브 마크다운 리더 팝오버.</p>
+          <h4>macOS 상단 메뉴바 앱</h4>
+          <p>상단 메뉴바에 상주하며 <code>⌥Space</code> 글로벌 단축키로 즉시 녹음하고 마크다운 노트를 열람합니다.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <a class="btn btn-primary" href="https://github.com/eunhhu/lectern/releases/latest/download/Lectern-macOS-arm64.zip" target="_blank">Lectern.app 다운로드</a>
-            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/macos" target="_blank">소스</a>
           </div>
         </div>
         <div class="client-box">
-          <h4>iOS 단축어 / 뒷면 탭 / 액션 버튼</h4>
-          <p>음성 메모 공유 시트 또는 액션 버튼으로 <code>POST /api/ingest/shortcut</code> 즉시 전송 후 노트 자동 오픈.</p>
+          <h4>iOS 단축어 / 액션 버튼</h4>
+          <p>음성 메모 공유 시트 또는 아이폰 액션 버튼으로 녹음본을 즉시 전송하고 노트를 엽니다.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <a class="btn btn-primary" href="/api/clients/ios-shortcut" download="lectern-ios-shortcut.json">단축어 레시피</a>
-            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/ios" target="_blank">SwiftUI 소스</a>
+            <a class="btn btn-primary" href="/api/clients/ios-shortcut" download="lectern-ios-shortcut.json">단축어 파일 다운로드</a>
           </div>
         </div>
         <div class="client-box">
-          <h4>Android Jetpack Compose + 퀵세팅 타일</h4>
-          <p>네이티브 Compose 마크다운 리더·녹음기 + 상단 퀵세팅 패널 타일(<code>LecternTileService</code>) 원탭 녹음.</p>
+          <h4>Android 앱 & 상단 퀵세팅 타일</h4>
+          <p>모바일 강의 노트 리더·녹음기와 상단 퀵세팅 패널 원탭 녹음 타일을 제공합니다.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <a class="btn btn-primary" href="https://github.com/eunhhu/lectern/releases/latest/download/Lectern-android-universal.apk" target="_blank">APK 다운로드</a>
-            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/android" target="_blank">소스</a>
           </div>
         </div>
         <div class="client-box">
-          <h4>Windows 시스템 트레이 & 네이티브 리더 (.NET 8)</h4>
-          <p>시스템 트레이 상주 + 글로벌 핫키(<code>Alt+Shift+R</code>) 즉시 녹음 & 네이티브 마크다운 리더.</p>
+          <h4>Windows 시스템 트레이 앱</h4>
+          <p>시스템 트레이에 상주하며 <code>Alt+Shift+R</code> 단축키로 즉시 녹음하고 노트를 확인합니다.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <a class="btn btn-primary" href="https://github.com/eunhhu/lectern/releases/latest/download/LecternTray-win-x64.exe" target="_blank">Windows EXE 다운로드</a>
-            <a class="btn" href="https://github.com/eunhhu/lectern/tree/main/apps/windows" target="_blank">소스</a>
           </div>
         </div>
       </div>
