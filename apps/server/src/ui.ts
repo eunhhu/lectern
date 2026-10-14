@@ -1394,9 +1394,22 @@ export function renderAppHtml(): string {
         <div class="rec-timer" id="rec-timer">00:00</div>
       </div>
 
-      <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
         <button class="btn btn-primary" id="btn-rec-start" style="flex:1;height:42px;" onclick="toggleMicRecording()">마이크 녹음 시작</button>
         <button class="btn" id="btn-rec-pause" style="display:none;height:42px;" onclick="pauseResumeRecording()">일시정지</button>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;cursor:pointer;">
+        <input type="checkbox" id="chk-local-save" checked onchange="localStorage.setItem('lectern_autosave_local', this.checked ? '1' : '0')" />
+        <span>녹음 종료 시 내 기기에 원본 오디오 파일 즉시 로컬 백업 + 브라우저 금고(IndexedDB) 이중 보호</span>
+      </label>
+
+      <div id="local-vault-box" style="display:none;padding:12px;border-radius:var(--radius-md);background:var(--surface-subtle);border:1px solid var(--status-warning-fg);margin-bottom:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:12.5px;font-weight:700;color:var(--status-warning-fg);" id="local-vault-title">미전송 로컬 녹음 보관함 (네트워크 장애 보호됨)</span>
+          <button class="btn" style="height:26px;padding:0 8px;font-size:11.5px;" onclick="retryAllPendingLocalUploads()">전체 재업로드</button>
+        </div>
+        <div id="local-vault-list" style="display:flex;flex-direction:column;gap:6px;"></div>
       </div>
 
       <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
@@ -1892,7 +1905,17 @@ export function renderAppHtml(): string {
         renderProcessingArticle(currentLecture);
         ensureFallbackPolling();
       } else if (currentLecture.status === 'error') {
-        art.innerHTML = '<div style="padding:36px;color:var(--status-danger-fg);">분석 오류: ' + escapeClientHtml(currentLecture.error_message || '알 수 없는 오류') + '</div>';
+        art.innerHTML =
+          '<div style="padding:36px;border-radius:var(--radius-md);background:var(--surface-subtle);border:1px solid var(--border-default);max-width:560px;margin:24px auto;">' +
+            '<div style="font-size:16px;font-weight:700;color:var(--status-danger-fg);margin-bottom:8px;">분석 중 일시적 장애가 발생했습니다</div>' +
+            '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;word-break:break-all;">' + escapeClientHtml(currentLecture.error_message || '알 수 없는 오류') + '</div>' +
+            '<div style="font-size:12.5px;color:var(--text-primary);margin-bottom:16px;">서버 디스크에 원본 음성 파일이 안전하게 보존되어 있습니다. 아래 버튼으로 즉시 재분석하거나 원본 음성을 다운로드할 수 있습니다.</div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+              '<button class="btn btn-primary" onclick="retryLectureDistillation(\\'' + currentLecture.id + '\\')">보존된 원본 오디오로 재분석</button>' +
+              '<button class="btn" onclick="downloadCurrentRawAudio()">원본 오디오 다운로드</button>' +
+              '<button class="btn" style="color:var(--status-danger-fg);" onclick="deleteCurrentLecture()">기록 삭제</button>' +
+            '</div>' +
+          '</div>';
       } else {
         art.innerHTML = data.rendered.html;
       }
@@ -2132,6 +2155,39 @@ export function renderAppHtml(): string {
       window.location.href = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/markdown' + (tok ? '?token=' + encodeURIComponent(tok) : '');
     }
 
+    function downloadCurrentRawAudio() {
+      if (!currentLecture || !currentLecture.has_audio) {
+        showToast('원본 오디오 파일이 없습니다.');
+        return;
+      }
+      const tok = localStorage.getItem('lectern_token') || '';
+      const a = document.createElement('a');
+      a.href = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/audio' + (tok ? '?token=' + encodeURIComponent(tok) : '');
+      a.download = (currentLecture.course || 'lecture') + '_' + (currentLecture.date_label || 'audio') + '.m4a';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    async function retryLectureDistillation(id) {
+      const targetId = id || (currentLecture && currentLecture.id);
+      if (!targetId) return;
+      const res = await fetch('/api/lectures/' + encodeURIComponent(targetId) + '/retry', {
+        method: 'POST',
+        headers: authHeaders()
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || '재분석 요청에 실패했습니다.');
+        return;
+      }
+      showToast('보존된 원본 오디오로 재분석을 시작합니다.');
+      if (data.lecture) {
+        upsertLectureSummaryInState(data.lecture);
+      }
+      await selectLecture(targetId, false);
+    }
+
     async function shareCurrentLecture() {
       if (!currentLecture) return;
       if (!currentLecture.is_public) {
@@ -2183,7 +2239,7 @@ export function renderAppHtml(): string {
       sb.classList.toggle('mobile-open', tab === 'list');
     }
 
-    // Live Web Microphone Recorder with Waveform & WakeLock
+    // Live Web Microphone Recorder with IndexedDB Local Vault, Auto-Checkpoint & Offline Upload Retry
     let mediaRecorder = null;
     let recChunks = [];
     let recStartTime = 0;
@@ -2192,6 +2248,186 @@ export function renderAppHtml(): string {
     let analyser = null;
     let animFrame = null;
     let wakeLock = null;
+    let vaultDbPromise = null;
+
+    function openVaultDb() {
+      if (vaultDbPromise) return vaultDbPromise;
+      vaultDbPromise = new Promise((resolve, reject) => {
+        if (!('indexedDB' in window)) return resolve(null);
+        const req = indexedDB.open('lectern_audio_vault_v1', 1);
+        req.onupgradeneeded = (e) => {
+          const idb = e.target.result;
+          if (!idb.objectStoreNames.contains('checkpoints')) {
+            idb.createObjectStore('checkpoints', { keyPath: 'id' });
+          }
+          if (!idb.objectStoreNames.contains('pending_uploads')) {
+            idb.createObjectStore('pending_uploads', { keyPath: 'localId' });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+      return vaultDbPromise;
+    }
+
+    async function saveRecordingCheckpoint(course, mimeType, chunks) {
+      const idb = await openVaultDb();
+      if (!idb || !chunks.length) return;
+      try {
+        const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+        const tx = idb.transaction('checkpoints', 'readwrite');
+        tx.objectStore('checkpoints').put({
+          id: 'active_session',
+          course: course || '대학교 전공 강의',
+          mimeType: blob.type,
+          startedAt: recStartTime || Date.now(),
+          updatedAt: Date.now(),
+          blob
+        });
+      } catch {}
+    }
+
+    async function clearRecordingCheckpoint() {
+      const idb = await openVaultDb();
+      if (!idb) return;
+      try {
+        const tx = idb.transaction('checkpoints', 'readwrite');
+        tx.objectStore('checkpoints').delete('active_session');
+      } catch {}
+    }
+
+    async function savePendingUploadToVault(entry) {
+      const idb = await openVaultDb();
+      if (!idb) return;
+      await new Promise((resolve) => {
+        const tx = idb.transaction('pending_uploads', 'readwrite');
+        tx.objectStore('pending_uploads').put(entry);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      });
+      await renderLocalVaultList();
+    }
+
+    async function removePendingUploadFromVault(localId) {
+      const idb = await openVaultDb();
+      if (!idb) return;
+      await new Promise((resolve) => {
+        const tx = idb.transaction('pending_uploads', 'readwrite');
+        tx.objectStore('pending_uploads').delete(localId);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      });
+      await renderLocalVaultList();
+    }
+
+    async function listPendingUploadsFromVault() {
+      const idb = await openVaultDb();
+      if (!idb) return [];
+      return new Promise((resolve) => {
+        const tx = idb.transaction('pending_uploads', 'readonly');
+        const req = tx.objectStore('pending_uploads').getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      });
+    }
+
+    async function recoverInterruptedCheckpointOnLoad() {
+      const idb = await openVaultDb();
+      if (!idb) return;
+      const cp = await new Promise((resolve) => {
+        const tx = idb.transaction('checkpoints', 'readonly');
+        const req = tx.objectStore('checkpoints').get('active_session');
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      });
+      if (cp && cp.blob && cp.blob.size > 1024) {
+        const ext = (cp.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
+        const localId = 'rec_' + (cp.startedAt || Date.now());
+        await savePendingUploadToVault({
+          localId,
+          fileName: (cp.course || '강의') + '_' + new Date(cp.startedAt || Date.now()).toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.' + ext,
+          course: cp.course || '대학교 전공 강의',
+          mimeType: cp.mimeType || 'audio/webm',
+          size: cp.blob.size,
+          createdAt: cp.updatedAt || Date.now(),
+          sourceClient: 'web-mic-recovered',
+          lastError: '이전 녹음 중 브라우저 종료로부터 자동 복구됨',
+          blob: cp.blob
+        });
+        await clearRecordingCheckpoint();
+        showToast('이전에 비정상 종료된 녹음 원본을 로컬 금고에서 복구했습니다!');
+      }
+      await renderLocalVaultList();
+    }
+
+    function triggerLocalBlobDownload(blob, fileName) {
+      try {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      } catch {}
+    }
+
+    async function renderLocalVaultList() {
+      const items = await listPendingUploadsFromVault();
+      const box = document.getElementById('local-vault-box');
+      const listEl = document.getElementById('local-vault-list');
+      const titleEl = document.getElementById('local-vault-title');
+      if (!box || !listEl) return;
+      if (!items.length) {
+        box.style.display = 'none';
+        return;
+      }
+      box.style.display = 'block';
+      titleEl.textContent = '미전송 로컬 녹음 보관함 (' + items.length + '건 안전 보관 중)';
+      listEl.innerHTML = items.map(item => {
+        const mb = ((item.size || 0) / 1048576).toFixed(1);
+        return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--surface-elevated);border:1px solid var(--border-subtle);">' +
+          '<div style="min-width:0;flex:1;">' +
+            '<div style="font-size:12.5px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">[' + escapeClientHtml(item.course) + '] ' + escapeClientHtml(item.fileName) + ' (' + mb + ' MB)</div>' +
+            '<div style="font-size:11px;color:var(--status-danger-fg);">' + escapeClientHtml(item.lastError || '업로드 대기 중') + '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:4px;flex-shrink:0;">' +
+            '<button class="btn btn-primary" style="height:26px;padding:0 8px;font-size:11px;" onclick="retrySingleVaultUpload(\\'' + item.localId + '\\')">재업로드</button>' +
+            '<button class="btn" style="height:26px;padding:0 8px;font-size:11px;" onclick="downloadVaultItem(\\'' + item.localId + '\\')">원본 저장</button>' +
+            '<button class="btn" style="height:26px;padding:0 8px;font-size:11px;color:var(--status-danger-fg);" onclick="removePendingUploadFromVault(\\'' + item.localId + '\\')">삭제</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    async function downloadVaultItem(localId) {
+      const items = await listPendingUploadsFromVault();
+      const target = items.find(i => i.localId === localId);
+      if (target && target.blob) {
+        triggerLocalBlobDownload(target.blob, target.fileName || (localId + '.m4a'));
+      }
+    }
+
+    async function retrySingleVaultUpload(localId) {
+      const items = await listPendingUploadsFromVault();
+      const target = items.find(i => i.localId === localId);
+      if (!target || !target.blob) return;
+      const file = new File([target.blob], target.fileName, { type: target.mimeType || 'audio/mp4' });
+      await uploadAndDistillFile(file, target.sourceClient || 'web-vault-retry', target.localId, target.course);
+    }
+
+    async function retryAllPendingLocalUploads() {
+      const items = await listPendingUploadsFromVault();
+      for (const item of items) {
+        await retrySingleVaultUpload(item.localId);
+      }
+    }
+
+    window.addEventListener('online', () => {
+      showToast('네트워크 연결 복구됨: 미전송 로컬 녹음 자동 업로드를 확인합니다.');
+      retryAllPendingLocalUploads();
+    });
 
     async function toggleMicRecording() {
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -2214,8 +2450,16 @@ export function renderAppHtml(): string {
 
         mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
         recChunks = [];
+        recStartTime = Date.now();
+        const recCourseAtStart = document.getElementById('rec-course').value.trim() || '대학교 전공 강의';
+
         mediaRecorder.ondataavailable = (ev) => {
-          if (ev.data && ev.data.size > 0) recChunks.push(ev.data);
+          if (ev.data && ev.data.size > 0) {
+            recChunks.push(ev.data);
+            if (recChunks.length % 3 === 0) {
+              saveRecordingCheckpoint(recCourseAtStart, mediaRecorder.mimeType, recChunks);
+            }
+          }
         };
         mediaRecorder.onstop = async () => {
           cancelAnimationFrame(animFrame);
@@ -2227,14 +2471,40 @@ export function renderAppHtml(): string {
           document.getElementById('btn-rec-start').classList.remove('btn-danger');
           document.getElementById('btn-rec-pause').style.display = 'none';
 
+          const courseNow = document.getElementById('rec-course').value.trim() || recCourseAtStart;
           const ext = (mediaRecorder.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
+          const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+          const safeCourse = courseNow.replace(/[\\/:*?"<>|\s]+/g, '_');
+          const fileName = safeCourse + '_' + stamp + '.' + ext;
           const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-          const file = new File([blob], 'lecture_' + Date.now() + '.' + ext, { type: blob.type });
-          await uploadAndDistillFile(file, 'web-mic');
+          const localId = 'rec_' + recStartTime;
+
+          // 1) Save to IndexedDB Pending Vault first (Zero-Data-Loss guarantee)
+          await savePendingUploadToVault({
+            localId,
+            fileName,
+            course: courseNow,
+            mimeType: blob.type,
+            size: blob.size,
+            createdAt: Date.now(),
+            sourceClient: 'web-mic',
+            lastError: '업로드 진행 중...',
+            blob
+          });
+          await clearRecordingCheckpoint();
+
+          // 2) Auto-save raw audio file to user's local disk if checkbox is enabled
+          const autoSaveChk = document.getElementById('chk-local-save');
+          if (!autoSaveChk || autoSaveChk.checked) {
+            triggerLocalBlobDownload(blob, fileName);
+          }
+
+          // 3) Upload with automatic retry + idempotency key
+          const file = new File([blob], fileName, { type: blob.type });
+          await uploadAndDistillFile(file, 'web-mic', localId, courseNow);
         };
 
         mediaRecorder.start(1000);
-        recStartTime = Date.now();
         document.getElementById('btn-rec-start').textContent = '녹음 종료 및 노트 요약 시작';
         document.getElementById('btn-rec-start').classList.add('btn-danger');
         document.getElementById('btn-rec-pause').style.display = 'inline-flex';
@@ -2309,41 +2579,101 @@ export function renderAppHtml(): string {
       await uploadAndDistillFile(files[0], 'web-upload');
     }
 
-    async function uploadAndDistillFile(file, sourceClient) {
-      const course = document.getElementById('rec-course').value.trim() || '대학교 전공 강의';
+    async function uploadAndDistillFile(file, sourceClient, existingLocalId, overrideCourse) {
+      const course = overrideCourse || document.getElementById('rec-course').value.trim() || '대학교 전공 강의';
       const model = localStorage.getItem('lectern_model') || 'gemini-flash-latest';
       const apiKey = localStorage.getItem('lectern_apikey') || '';
+      const localId = existingLocalId || ('upl_' + file.name + '_' + file.size + '_' + file.lastModified);
+
+      // Persist file in IndexedDB Pending Vault before upload so network failures never lose data
+      if (!existingLocalId) {
+        await savePendingUploadToVault({
+          localId,
+          fileName: file.name,
+          course,
+          mimeType: file.type || 'audio/mp4',
+          size: file.size,
+          createdAt: Date.now(),
+          sourceClient: sourceClient || 'web-upload',
+          lastError: '업로드 진행 중...',
+          blob: file
+        });
+      }
 
       const statusEl = document.getElementById('ingest-status');
       statusEl.style.display = 'block';
-      statusEl.textContent = '오디오 업로드 중 (' + (file.size / 1048576).toFixed(1) + ' MB)...';
 
-      const form = new FormData();
-      form.append('audio', file);
-      form.append('course', course);
-      form.append('model', model);
-      form.append('source', sourceClient);
+      const maxAttempts = 3;
+      let lastErrorMsg = '네트워크 연결 오류';
 
-      const headers = authHeaders();
-      if (apiKey) headers['X-Gemini-Key'] = apiKey;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          statusEl.textContent =
+            (attempt > 1 ? '[재시도 ' + attempt + '/' + maxAttempts + '] ' : '') +
+            '오디오 업로드 중 (' + (file.size / 1048576).toFixed(1) + ' MB)...';
 
-      const res = await fetch('/api/lectures/ingest', {
-        method: 'POST',
-        headers,
-        body: form
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        statusEl.textContent = '오류: ' + (data.error || '업로드 실패');
-        return;
+          const form = new FormData();
+          form.append('audio', file);
+          form.append('course', course);
+          form.append('model', model);
+          form.append('source', sourceClient);
+          form.append('idempotency_key', localId);
+
+          const headers = authHeaders({ 'X-Idempotency-Key': localId });
+          if (apiKey) headers['X-Gemini-Key'] = apiKey;
+
+          const res = await fetch('/api/lectures/ingest', {
+            method: 'POST',
+            headers,
+            body: form
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            lastErrorMsg = data.error || ('HTTP ' + res.status);
+            if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+              break;
+            }
+            throw new Error(lastErrorMsg);
+          }
+
+          // Upload succeeded! Remove from Pending Vault
+          await removePendingUploadFromVault(localId);
+          statusEl.style.display = 'none';
+          closeModal('recorder-modal');
+          showToast('오디오 업로드 완료 · 실시간 증류가 시작되었습니다.');
+          await fetchLectures(data.lecture.id);
+          return;
+        } catch (err) {
+          lastErrorMsg = err.message || '네트워크 장애';
+          if (attempt < maxAttempts) {
+            await new Promise(r => setTimeout(r, 2000 * attempt));
+          }
+        }
       }
 
-      statusEl.style.display = 'none';
-      closeModal('recorder-modal');
-      showToast('강의 오디오 증류가 시작되었습니다.');
-      await fetchLectures(data.lecture.id);
+      // If all attempts failed, update the entry in IndexedDB Pending Vault & alert user
+      await savePendingUploadToVault({
+        localId,
+        fileName: file.name,
+        course,
+        mimeType: file.type || 'audio/mp4',
+        size: file.size,
+        createdAt: Date.now(),
+        sourceClient: sourceClient || 'web-upload',
+        lastError: '업로드 실패 (' + lastErrorMsg + ') · 로컬 금고에 안전 보관됨',
+        blob: file
+      });
+      statusEl.textContent =
+        '업로드 중 네트워크 장애가 발생했지만 원본 오디오가 브라우저 로컬 금고에 안전하게 보관되었습니다. 네트워크 복구 시 자동 재업로드되거나 위 보관함에서 즉시 재시도/다운로드할 수 있습니다.';
+      showToast('업로드 지연: 원본 오디오가 로컬 보관함에 안전하게 보호되었습니다.');
     }
 
+    const savedAutoSave = localStorage.getItem('lectern_autosave_local');
+    if (savedAutoSave === '0') {
+      const chk = document.getElementById('chk-local-save');
+      if (chk) chk.checked = false;
+    }
+    recoverInterruptedCheckpointOnLoad();
     bootstrapAuth();
   </script>
 </body>

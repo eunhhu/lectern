@@ -403,7 +403,10 @@ internal sealed class TrayForm : Form
     {
         if (!_isRecording)
         {
-            _currentWavPath = Path.Combine(Path.GetTempPath(), $"lectern_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}.wav");
+            var vaultDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "LecternRecordings");
+            Directory.CreateDirectory(vaultDir);
+            var safeCourse = string.Join("_", _courseBox.Text.Split(Path.GetInvalidFileNameChars()));
+            _currentWavPath = Path.Combine(vaultDir, $"{safeCourse}_{DateTime.Now:yyyyMMdd_HHmmss}.wav");
             mciSendString("open new Type waveaudio Alias lecternrec", null, 0, IntPtr.Zero);
             mciSendString("set lecternrec time format ms bitspersample 16 channels 1 samplespersec 16000", null, 0, IntPtr.Zero);
             mciSendString("record lecternrec", null, 0, IntPtr.Zero);
@@ -436,32 +439,45 @@ internal sealed class TrayForm : Form
     private async Task UploadAndRefreshAsync(string filePath, string course)
     {
         if (!File.Exists(filePath)) return;
-        try
+        var idempotencyKey = $"win_{Path.GetFileName(filePath)}";
+        for (int attempt = 1; attempt <= 3; attempt++)
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            if (!string.IsNullOrWhiteSpace(_tokenBox.Text))
+            try
             {
-                client.DefaultRequestHeaders.Add("X-Lectern-Token", _tokenBox.Text.Trim());
+                if (attempt > 1)
+                {
+                    _statusLabel.Text = $"업로드 자동 재시도 중 ({attempt}/3)...";
+                    await Task.Delay(attempt * 2000);
+                }
+                using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+                if (!string.IsNullOrWhiteSpace(_tokenBox.Text))
+                {
+                    client.DefaultRequestHeaders.Add("X-Lectern-Token", _tokenBox.Text.Trim());
+                }
+                client.DefaultRequestHeaders.Add("X-Idempotency-Key", idempotencyKey);
+                using var form = new MultipartFormDataContent();
+                form.Add(new StringContent(course), "course");
+                form.Add(new StringContent("windows-native-tray"), "source");
+                form.Add(new StringContent(idempotencyKey), "idempotency_key");
+
+                var bytes = await File.ReadAllBytesAsync(filePath);
+                var fileContent = new ByteArrayContent(bytes);
+                fileContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
+                form.Add(fileContent, "audio", Path.GetFileName(filePath));
+
+                var res = await client.PostAsync($"{_serverBase}/api/ingest/shortcut?wait=false", form);
+                res.EnsureSuccessStatusCode();
+                var body = await res.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(body);
+                var newId = doc.RootElement.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                await RefreshLecturesAsync(newId);
+                ShowMainWindow();
+                return;
             }
-            using var form = new MultipartFormDataContent();
-            form.Add(new StringContent(course), "course");
-            form.Add(new StringContent("windows-native-tray"), "source");
-
-            var bytes = await File.ReadAllBytesAsync(filePath);
-            var fileContent = new ByteArrayContent(bytes);
-            fileContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
-            form.Add(fileContent, "audio", Path.GetFileName(filePath));
-
-            var res = await client.PostAsync($"{_serverBase}/api/ingest/shortcut?wait=false", form);
-            var body = await res.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(body);
-            var newId = doc.RootElement.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            await RefreshLecturesAsync(newId);
-            ShowMainWindow();
-        }
-        finally
-        {
-            try { File.Delete(filePath); } catch { }
+            catch (Exception ex)
+            {
+                _statusLabel.Text = $"업로드 지연 (원본 보존됨: Documents\\LecternRecordings): {ex.Message}";
+            }
         }
     }
 

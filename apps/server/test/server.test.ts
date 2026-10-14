@@ -178,6 +178,45 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     expect(appHtml).toContain("word-break: keep-all");
     expect(appHtml).toContain("font-variant-numeric: tabular-nums");
     expect(appHtml).toContain("id=\"auth-gate\"");
+    expect(appHtml).toContain("lectern_audio_vault_v1");
+    expect(appHtml).toContain("retryLectureDistillation");
+
+    // Verify Idempotent Upload Deduplication by Audio SHA-256 / Idempotency Key
+    const idemKey = `test_idem_${Date.now()}`;
+    const idemId = generateId("test_idem");
+    createPendingLecture({
+      id: idemId,
+      ownerId: owner.id,
+      title: "네트워크 재전송 방지 테스트",
+      course: "정보보호개론",
+      audioPath: "/tmp/nonexistent_idem.m4a",
+      audioMime: "audio/mp4",
+      audioSize: 2048,
+      audioSha256: idemKey,
+      modelRequested: "gemini-flash-latest",
+      sourceClient: "bun-test",
+    });
+
+    const form = new FormData();
+    form.append("audio", new File([new Uint8Array([1, 2, 3, 4])], "retry.m4a", { type: "audio/mp4" }));
+    form.append("course", "정보보호개론");
+    form.append("idempotency_key", idemKey);
+
+    const dupRes = await handleRequest(
+      new Request("http://localhost/api/lectures/ingest", {
+        method: "POST",
+        headers: {
+          "X-Lectern-Token": owner.api_token,
+          "X-Idempotency-Key": idemKey,
+        },
+        body: form,
+      })
+    );
+    expect(dupRes.status).toBe(200);
+    const dupJson: any = await dupRes.json();
+    expect(dupJson.deduplicated).toBe(true);
+    expect(dupJson.lecture.id).toBe(idemId);
+    deleteLectureById(idemId);
 
     // Owner Markdown download endpoint
     const mdRes = await handleRequest(

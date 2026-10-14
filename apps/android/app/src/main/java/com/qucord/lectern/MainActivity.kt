@@ -518,7 +518,9 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
                 Button(
                     onClick = {
                         if (!isRecording) {
-                            val f = File(context.cacheDir, "lectern_${System.currentTimeMillis()}.m4a")
+                            val vaultDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "LecternRecordings")
+                            vaultDir.mkdirs()
+                            val f = File(vaultDir, "${recordCourse.replace(" ", "_")}_${System.currentTimeMillis()}.m4a")
                             val r = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                 MediaRecorder(context)
                             } else {
@@ -549,10 +551,13 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
                             showRecorderSheet = false
                             if (f != null && f.exists()) {
                                 scope.launch {
-                                    Toast.makeText(context, "Gemini Flash 증류 업로드 중...", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "로컬 원본 저장 완료 · 서버 증류 업로드 중...", Toast.LENGTH_SHORT).show()
                                     val newId = uploadAudioMultipart(serverBase, authToken, f, recordCourse)
-                                    f.delete()
-                                    loadLectureList(newId)
+                                    if (newId != null) {
+                                        loadLectureList(newId)
+                                    } else {
+                                        Toast.makeText(context, "네트워크 장애: 원본이 LecternRecordings 폴더에 안전 보관되었습니다.", Toast.LENGTH_LONG).show()
+                                    }
                                 }
                             }
                         }
@@ -678,28 +683,39 @@ fun NativeComposeMarkdownReader(
 }
 
 suspend fun uploadAudioMultipart(serverBase: String, authToken: String, file: File, course: String): String? = withContext(Dispatchers.IO) {
-    try {
-        val boundary = "Boundary-${System.currentTimeMillis()}"
-        val conn = (URL("$serverBase/api/ingest/shortcut?wait=false").openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            doOutput = true
-            setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
-            setRequestProperty("X-Client", "android-compose")
-            setRequestProperty("X-Lectern-Token", authToken)
+    val idempotencyKey = "and_${file.name}_${file.length()}"
+    for (attempt in 1..3) {
+        try {
+            if (attempt > 1) kotlinx.coroutines.delay(attempt * 2000L)
+            val boundary = "Boundary-${System.currentTimeMillis()}"
+            val conn = (URL("$serverBase/api/ingest/shortcut?wait=false").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = 20000
+                readTimeout = 120000
+                setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                setRequestProperty("X-Client", "android-compose")
+                setRequestProperty("X-Lectern-Token", authToken)
+                setRequestProperty("X-Idempotency-Key", idempotencyKey)
+            }
+            DataOutputStream(conn.outputStream).use { out ->
+                out.writeBytes("--$boundary\r\n")
+                out.writeBytes("Content-Disposition: form-data; name=\"course\"\r\n\r\n")
+                out.write(course.toByteArray(Charsets.UTF_8))
+                out.writeBytes("\r\n--$boundary\r\n")
+                out.writeBytes("Content-Disposition: form-data; name=\"idempotency_key\"\r\n\r\n")
+                out.write(idempotencyKey.toByteArray(Charsets.UTF_8))
+                out.writeBytes("\r\n--$boundary\r\n")
+                out.writeBytes("Content-Disposition: form-data; name=\"audio\"; filename=\"${file.name}\"\r\n")
+                out.writeBytes("Content-Type: audio/mp4\r\n\r\n")
+                out.write(file.readBytes())
+                out.writeBytes("\r\n--$boundary--\r\n")
+            }
+            val resp = conn.inputStream.bufferedReader().use { it.readText() }
+            val id = JSONObject(resp).optString("id").takeIf { it.isNotEmpty() }
+            if (id != null) return@withContext id
+        } catch (_: Exception) {
         }
-        DataOutputStream(conn.outputStream).use { out ->
-            out.writeBytes("--$boundary\r\n")
-            out.writeBytes("Content-Disposition: form-data; name=\"course\"\r\n\r\n")
-            out.write(course.toByteArray(Charsets.UTF_8))
-            out.writeBytes("\r\n--$boundary\r\n")
-            out.writeBytes("Content-Disposition: form-data; name=\"audio\"; filename=\"${file.name}\"\r\n")
-            out.writeBytes("Content-Type: audio/mp4\r\n\r\n")
-            out.write(file.readBytes())
-            out.writeBytes("\r\n--$boundary--\r\n")
-        }
-        val resp = conn.inputStream.bufferedReader().use { it.readText() }
-        JSONObject(resp).optString("id").takeIf { it.isNotEmpty() }
-    } catch (_: Exception) {
-        null
     }
+    null
 }

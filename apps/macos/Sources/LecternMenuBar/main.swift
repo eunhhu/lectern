@@ -196,6 +196,14 @@ func parseMarkdownBlocks(_ md: String) -> [MarkdownBlock] {
     return blocks
 }
 
+struct PendingLocalUpload: Codable, Identifiable {
+    let id: String
+    let filePath: String
+    let course: String
+    let createdAt: String
+    var lastError: String
+}
+
 // MARK: - ViewModel (ObservableObject)
 
 @MainActor
@@ -228,6 +236,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var elapsedSeconds: Int = 0
     @Published var audioLevel: Float = 0.08
     @Published var statusBanner: String? = nil
+    @Published var pendingUploads: [PendingLocalUpload] = []
 
     @Published var isPlayingAudio: Bool = false
     @Published var playbackSpeed: Float = 1.0
@@ -245,11 +254,46 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private var timeObserver: Any?
     private var processingWatchTask: Task<Void, Never>?
 
+    var localVaultDir: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
+        let dir = docs.appendingPathComponent("LecternRecordings", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    var pendingManifestURL: URL {
+        localVaultDir.appendingPathComponent("pending_uploads.json")
+    }
+
     override init() {
         super.init()
+        loadPendingUploadsManifest()
         if !authToken.isEmpty {
-            Task { await fetchLectures() }
+            Task {
+                await fetchLectures()
+                await retryAllPendingUploads()
+            }
         }
+    }
+
+    func loadPendingUploadsManifest() {
+        guard let data = try? Data(contentsOf: pendingManifestURL),
+              let list = try? JSONDecoder().decode([PendingLocalUpload].self, from: data) else {
+            pendingUploads = []
+            return
+        }
+        pendingUploads = list.filter { FileManager.default.fileExists(atPath: $0.filePath) }
+    }
+
+    func savePendingUploadsManifest() {
+        if let data = try? JSONEncoder().encode(pendingUploads) {
+            try? data.write(to: pendingManifestURL, options: .atomic)
+        }
+    }
+
+    func openLocalVaultFolder() {
+        NSWorkspace.shared.open(localVaultDir)
     }
 
     var isAuthenticated: Bool {
@@ -499,8 +543,11 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             return
         }
         UserDefaults.standard.set(recordCourse, forKey: "lectern_course")
-        let tmp = FileManager.default.temporaryDirectory
-        let fileURL = tmp.appendingPathComponent("lectern_\(Int(Date().timeIntervalSince1970)).m4a")
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyyMMdd_HHmmss"
+        let stamp = fmt.string(from: Date())
+        let safeCourse = recordCourse.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: " ", with: "_")
+        let fileURL = localVaultDir.appendingPathComponent("\(safeCourse)_\(stamp).m4a")
         recFileURL = fileURL
 
         let settings: [String: Any] = [
@@ -521,6 +568,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             self.isRecording = true
             self.elapsedSeconds = 0
             self.updateMenuBarLabel()
+            showToast("로컬 원본 자동 저장 중: ~/Documents/LecternRecordings")
 
             recTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
@@ -555,8 +603,20 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             return
         }
 
+        let localId = "mac_\(url.lastPathComponent)"
+        let pendingItem = PendingLocalUpload(
+            id: localId,
+            filePath: url.path,
+            course: recordCourse,
+            createdAt: ISO8601DateFormatter().string(from: Date()),
+            lastError: "업로드 대기 중..."
+        )
+        pendingUploads.removeAll { $0.id == localId }
+        pendingUploads.insert(pendingItem, at: 0)
+        savePendingUploadsManifest()
+
         Task {
-            await uploadAudioFile(fileURL: url, course: recordCourse, deleteAfter: true)
+            await uploadAudioFile(fileURL: url, course: recordCourse, idempotencyKey: localId)
         }
     }
 
@@ -573,17 +633,45 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         if panel.runModal() == .OK, let url = panel.url {
             isUploading = true
             updateMenuBarLabel()
+            let localId = "mac_pick_\(url.lastPathComponent)_\(Int(Date().timeIntervalSince1970))"
             Task {
-                await uploadAudioFile(fileURL: url, course: recordCourse, deleteAfter: false)
+                await uploadAudioFile(fileURL: url, course: recordCourse, idempotencyKey: localId)
             }
         }
     }
 
-    func uploadAudioFile(fileURL: URL, course: String, deleteAfter: Bool) async {
-        defer {
-            if deleteAfter {
-                try? FileManager.default.removeItem(at: fileURL)
+    func retryAllPendingUploads() async {
+        guard isAuthenticated, !pendingUploads.isEmpty else { return }
+        let items = pendingUploads
+        for item in items {
+            let url = URL(fileURLWithPath: item.filePath)
+            if FileManager.default.fileExists(atPath: item.filePath) {
+                await uploadAudioFile(fileURL: url, course: item.course, idempotencyKey: item.id)
+            } else {
+                pendingUploads.removeAll { $0.id == item.id }
+                savePendingUploadsManifest()
             }
+        }
+    }
+
+    func retryServerDistillation(id: String) async {
+        guard let url = URL(string: "\(serverBase)/api/lectures/\(id)/retry") else { return }
+        let req = authorizedRequest(url: url, method: "POST")
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            if (resp as? HTTPURLResponse)?.statusCode == 200 {
+                showToast("보존된 원본 오디오로 재분석을 시작합니다.")
+                await fetchLectures(selectId: id)
+            } else {
+                showToast("재분석 요청 실패")
+            }
+        } catch {
+            showToast("서버 연결 오류: \(error.localizedDescription)")
+        }
+    }
+
+    func uploadAudioFile(fileURL: URL, course: String, idempotencyKey: String) async {
+        defer {
             isUploading = false
             updateMenuBarLabel()
         }
@@ -594,34 +682,73 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             return
         }
 
-        let boundary = "Boundary-\(UUID().uuidString)"
-        var req = authorizedRequest(url: endpoint, method: "POST")
-        req.timeoutInterval = 120
-        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        req.setValue("macos-native-menubar", forHTTPHeaderField: "X-Client")
+        let maxAttempts = 3
+        var lastErrorMsg = "네트워크 오류"
 
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"course\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(course)\r\n".data(using: .utf8)!)
-
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(fileURL.lastPathComponent)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
-        body.append(audioData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        req.httpBody = body
-
-        do {
-            let (data, _) = try await URLSession.shared.data(for: req)
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let newId = json["id"] as? String {
-                showToast("오디오 업로드 완료 · Gemini Flash 증류 시작")
-                await fetchLectures(selectId: newId)
+        for attempt in 1...maxAttempts {
+            if attempt > 1 {
+                showToast("업로드 자동 재시도 중 (\(attempt)/\(maxAttempts))...")
+                try? await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)
             }
-        } catch {
-            showToast("업로드 실패: \(error.localizedDescription)")
+
+            let boundary = "Boundary-\(UUID().uuidString)"
+            var req = authorizedRequest(url: endpoint, method: "POST")
+            req.timeoutInterval = 180
+            req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            req.setValue("macos-native-menubar", forHTTPHeaderField: "X-Client")
+            req.setValue(idempotencyKey, forHTTPHeaderField: "X-Idempotency-Key")
+
+            var body = Data()
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"course\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(course)\r\n".data(using: .utf8)!)
+
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"idempotency_key\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(idempotencyKey)\r\n".data(using: .utf8)!)
+
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(fileURL.lastPathComponent)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
+            body.append(audioData)
+            body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+            req.httpBody = body
+
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                if code >= 200 && code < 300,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let newId = json["id"] as? String {
+                    pendingUploads.removeAll { $0.id == idempotencyKey }
+                    savePendingUploadsManifest()
+                    showToast("업로드 완료 (원본 로컬 보존됨) · 실시간 증류 시작")
+                    await fetchLectures(selectId: newId)
+                    return
+                } else {
+                    lastErrorMsg = "HTTP \(code)"
+                }
+            } catch {
+                lastErrorMsg = error.localizedDescription
+            }
         }
+
+        if let idx = pendingUploads.firstIndex(where: { $0.id == idempotencyKey }) {
+            pendingUploads[idx].lastError = "업로드 지연 (\(lastErrorMsg)) · 로컬 보존됨"
+        } else {
+            pendingUploads.insert(
+                PendingLocalUpload(
+                    id: idempotencyKey,
+                    filePath: fileURL.path,
+                    course: course,
+                    createdAt: ISO8601DateFormatter().string(from: Date()),
+                    lastError: "업로드 지연 (\(lastErrorMsg)) · 로컬 보존됨"
+                ),
+                at: 0
+            )
+        }
+        savePendingUploadsManifest()
+        showToast("업로드 지연: 원본이 ~/Documents/LecternRecordings 에 안전 보관되었습니다.")
     }
 
     // MARK: - Edit, Export & Share
@@ -977,10 +1104,32 @@ struct LecternPopoverView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 12))
                             Button(action: { store.pickAndUploadAudioFile() }) {
-                                Text("파일 선택")
+                                Text("파일")
                                     .font(.system(size: 11.5, weight: .semibold))
                             }
                             .help("오디오 파일 업로드")
+                            Button(action: { store.openLocalVaultFolder() }) {
+                                Text("원본폴더")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                            }
+                            .help("로컬 원본 녹음 보관 폴더 열기 (~/Documents/LecternRecordings)")
+                        }
+
+                        if !store.pendingUploads.isEmpty {
+                            HStack(spacing: 6) {
+                                Text("미전송 원본 \(store.pendingUploads.count)건 보호됨")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(Elysium.statusWarningFg)
+                                Spacer()
+                                Button("재업로드") {
+                                    Task { await store.retryAllPendingUploads() }
+                                }
+                                .font(.system(size: 11, weight: .semibold))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Elysium.statusWarningBg)
+                            .cornerRadius(6)
                         }
 
                         if store.isRecording {
@@ -1153,6 +1302,11 @@ struct LecternPopoverView: View {
 
                             Spacer()
 
+                            if lec.status == "error" {
+                                Button("원본 재분석") {
+                                    Task { await store.retryServerDistillation(id: lec.id) }
+                                }
+                            }
                             Button((lec.is_public ?? false) ? "공개중" : "비공개") {
                                 Task { await store.toggleVisibility() }
                             }

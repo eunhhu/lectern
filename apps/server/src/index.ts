@@ -1,6 +1,6 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, unlinkSync } from "node:fs";
 import { extname, join } from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   distillLectureAudio,
   renderMarkdownToHtml,
@@ -21,11 +21,14 @@ import {
   ensureBootstrapOwner,
   failLectureRecord,
   generateId,
+  getLectureByAudioSha256,
   getLectureById,
   getLectureByShareToken,
   getUserByEmail,
   getUserBySessionOrApiToken,
+  listInterruptedLectures,
   listLecturesForUser,
+  resetLectureForRetry,
   rotateUserApiToken,
   setLectureVisibility,
   syncLocalLecturesDir,
@@ -127,48 +130,94 @@ function runBackgroundDistillation(
   }
 ) {
   (async () => {
-    try {
-      const res = await distillLectureAudio({
-        audioPath: incoming.audioPath,
-        courseName: incoming.course,
-        title: incoming.title,
-        model: incoming.model,
-        apiKey: incoming.apiKey,
-        onProgress: (ev) => {
-          const updated = updateLectureProgress(
+    const maxAttempts = 3;
+    let lastErr: any = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        if (attempt > 1) {
+          const retryUpdate = updateLectureProgress(
             id,
-            ev.stage,
-            ev.message,
-            ev.progress ?? 50
+            "retrying",
+            `일시적 네트워크/API 오류 자동 재시도 중 (${attempt}/${maxAttempts})...`,
+            15
           );
-          if (updated) {
+          if (retryUpdate) {
             broadcastLectureEvent(ownerId, {
               type: "progress",
               id,
-              stage: updated.stage,
-              stage_message: updated.stage_message,
-              progress: updated.progress,
-              lecture: toLectureSummaryDto(updated),
+              stage: retryUpdate.stage,
+              stage_message: retryUpdate.stage_message,
+              progress: retryUpdate.progress,
+              lecture: toLectureSummaryDto(retryUpdate),
             });
           }
-        },
-      });
-      const done = completeLectureRecord(id, res);
-      broadcastLectureEvent(ownerId, {
-        type: "completed",
-        id,
-        lecture: toLectureSummaryDto(done),
-      });
-    } catch (err: any) {
-      const failed = failLectureRecord(id, err?.message || String(err));
-      broadcastLectureEvent(ownerId, {
-        type: "error",
-        id,
-        error_message: err?.message || String(err),
-        lecture: failed ? toLectureSummaryDto(failed) : undefined,
-      });
+          await new Promise((r) => setTimeout(r, 2500 * attempt));
+        }
+
+        const res = await distillLectureAudio({
+          audioPath: incoming.audioPath,
+          courseName: incoming.course,
+          title: incoming.title,
+          model: incoming.model,
+          apiKey: incoming.apiKey,
+          onProgress: (ev) => {
+            const updated = updateLectureProgress(
+              id,
+              ev.stage,
+              ev.message,
+              ev.progress ?? 50
+            );
+            if (updated) {
+              broadcastLectureEvent(ownerId, {
+                type: "progress",
+                id,
+                stage: updated.stage,
+                stage_message: updated.stage_message,
+                progress: updated.progress,
+                lecture: toLectureSummaryDto(updated),
+              });
+            }
+          },
+        });
+        const done = completeLectureRecord(id, res);
+        broadcastLectureEvent(ownerId, {
+          type: "completed",
+          id,
+          lecture: toLectureSummaryDto(done),
+        });
+        return;
+      } catch (err: any) {
+        lastErr = err;
+      }
     }
+
+    const errMsg = lastErr?.message || String(lastErr);
+    const failed = failLectureRecord(id, errMsg);
+    broadcastLectureEvent(ownerId, {
+      type: "error",
+      id,
+      error_message: errMsg,
+      lecture: failed ? toLectureSummaryDto(failed) : undefined,
+    });
   })();
+}
+
+// Auto-resume any lecture that was interrupted mid-processing (e.g., server restart)
+for (const item of listInterruptedLectures()) {
+  if (
+    item.audio_path &&
+    existsSync(item.audio_path) &&
+    item.source_client !== "bun-test" &&
+    !item.id.startsWith("test_") &&
+    !item.id.startsWith("unauth_")
+  ) {
+    runBackgroundDistillation(item.id, item.owner_id, {
+      audioPath: item.audio_path,
+      course: item.course,
+      title: item.title,
+      model: item.model_requested || DEFAULT_GEMINI_MODEL,
+    });
+  }
 }
 
 function jsonResponse(
@@ -183,7 +232,7 @@ function jsonResponse(
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
       "Access-Control-Allow-Headers":
-        "Content-Type, Authorization, X-Lectern-Token, X-Course, X-Title, X-Model, X-Gemini-Key, X-Lectern-Deploy-Token",
+        "Content-Type, Authorization, X-Lectern-Token, X-Idempotency-Key, X-Course, X-Title, X-Model, X-Gemini-Key, X-Lectern-Deploy-Token",
       ...extraHeaders,
     },
   });
@@ -240,6 +289,7 @@ async function saveIncomingAudio(
   audioPath: string;
   audioMime: string;
   audioSize: number;
+  audioSha256: string;
   course: string;
   title: string;
   model: string;
@@ -256,6 +306,7 @@ async function saveIncomingAudio(
     (req.headers.get("x-model") || "").trim() || DEFAULT_GEMINI_MODEL;
   let sourceClient = (req.headers.get("x-client") || "api").trim();
   const apiKey = (req.headers.get("x-gemini-key") || "").trim() || undefined;
+  let idempotencyKey = (req.headers.get("x-idempotency-key") || "").trim();
   let formToken: string | undefined;
 
   const id = generateId("aud");
@@ -275,16 +326,26 @@ async function saveIncomingAudio(
     if (form.get("token")) {
       formToken = String(form.get("token")).trim() || undefined;
     }
+    if (form.get("idempotency_key")) {
+      idempotencyKey = String(form.get("idempotency_key")).trim() || idempotencyKey;
+    }
 
     const origExt = extname(fileField.name || "").toLowerCase() || ".m4a";
     const audioPath = join(DATA_DIR, "uploads", `${id}${origExt}`);
-    await Bun.write(audioPath, fileField);
-    const st = statSync(audioPath);
+    const arrBuf = await fileField.arrayBuffer();
+    if (!arrBuf.byteLength) {
+      throw new Error("빈 오디오 파일입니다.");
+    }
+    await Bun.write(audioPath, arrBuf);
+    const sha256 =
+      idempotencyKey ||
+      createHash("sha256").update(Buffer.from(arrBuf)).digest("hex");
 
     return {
       audioPath,
       audioMime: fileField.type || "audio/mp4",
-      audioSize: st.size,
+      audioSize: arrBuf.byteLength,
+      audioSha256: sha256,
       course,
       title: title || `${course} · ${new Date().toISOString().slice(0, 10)}`,
       model,
@@ -308,11 +369,15 @@ async function saveIncomingAudio(
     throw new Error("빈 오디오 데이터입니다.");
   }
   await Bun.write(audioPath, buf);
+  const sha256 =
+    idempotencyKey ||
+    createHash("sha256").update(Buffer.from(buf)).digest("hex");
 
   return {
     audioPath,
     audioMime: contentType || "audio/mp4",
     audioSize: buf.byteLength,
+    audioSha256: sha256,
     course,
     title: title || `${course} · ${new Date().toISOString().slice(0, 10)}`,
     model,
@@ -745,9 +810,9 @@ export async function handleRequest(req: Request): Promise<Response> {
       });
     }
 
-    // 8. Single Lecture Detail / Edit / Visibility / Delete / Audio / Markdown Download
+    // 8. Single Lecture Detail / Edit / Visibility / Retry / Delete / Audio / Markdown Download
     const lecMatch = path.match(
-      /^\/api\/lectures\/([^/]+)(?:\/(audio|markdown|visibility))?$/
+      /^\/api\/lectures\/([^/]+)(?:\/(audio|markdown|visibility|retry))?$/
     );
     if (
       lecMatch &&
@@ -846,6 +911,39 @@ export async function handleRequest(req: Request): Promise<Response> {
         });
       }
 
+      if (req.method === "POST" && sub === "retry") {
+        if (!isOwner) {
+          return jsonResponse({ error: "재분석 권한이 없습니다." }, 403);
+        }
+        if (!rec.audio_path || !existsSync(rec.audio_path)) {
+          return jsonResponse(
+            { error: "서버에 보존된 원본 오디오 파일이 없어 재분석할 수 없습니다." },
+            400
+          );
+        }
+        const reset = resetLectureForRetry(id);
+        if (reset) {
+          broadcastLectureEvent(rec.owner_id, {
+            type: "progress",
+            id,
+            stage: reset.stage,
+            stage_message: reset.stage_message,
+            progress: reset.progress,
+            lecture: toLectureSummaryDto(reset),
+          });
+        }
+        runBackgroundDistillation(id, rec.owner_id, {
+          audioPath: rec.audio_path,
+          course: rec.course,
+          title: rec.title,
+          model: rec.model_requested || DEFAULT_GEMINI_MODEL,
+        });
+        return jsonResponse({
+          ok: true,
+          lecture: reset ? toLectureSummaryDto(reset) : null,
+        });
+      }
+
       if ((req.method === "PATCH" || req.method === "POST") && sub === "visibility") {
         if (!isOwner) {
           return jsonResponse({ error: "수정 권한이 없습니다." }, 403);
@@ -936,7 +1034,39 @@ export async function handleRequest(req: Request): Promise<Response> {
           user = getUserBySessionOrApiToken(incoming.formToken);
         }
         if (!user) {
+          try { unlinkSync(incoming.audioPath); } catch {}
           return jsonResponse({ error: "로그인이 필요합니다." }, 401);
+        }
+
+        // Idempotent Upload Deduplication: if this exact audio was already uploaded by this user
+        const existing = getLectureByAudioSha256(user.id, incoming.audioSha256);
+        if (existing) {
+          try { unlinkSync(incoming.audioPath); } catch {}
+          if (existing.status === "error" && existing.audio_path && existsSync(existing.audio_path)) {
+            const retried = resetLectureForRetry(existing.id);
+            runBackgroundDistillation(existing.id, user.id, {
+              audioPath: existing.audio_path,
+              course: existing.course,
+              title: existing.title,
+              model: incoming.model || existing.model_requested,
+              apiKey: incoming.apiKey,
+            });
+            return jsonResponse({
+              ok: true,
+              deduplicated: true,
+              retried: true,
+              lecture: toLectureSummaryDto(retried || existing),
+              url: `${PUBLIC_BASE_URL}/?lecture=${existing.id}`,
+              shareUrl: `${PUBLIC_BASE_URL}/s/${existing.share_token}`,
+            });
+          }
+          return jsonResponse({
+            ok: true,
+            deduplicated: true,
+            lecture: toLectureSummaryDto(existing),
+            url: `${PUBLIC_BASE_URL}/?lecture=${existing.id}`,
+            shareUrl: `${PUBLIC_BASE_URL}/s/${existing.share_token}`,
+          });
         }
 
         const id = generateId("lec");
@@ -948,6 +1078,7 @@ export async function handleRequest(req: Request): Promise<Response> {
           audioPath: incoming.audioPath,
           audioMime: incoming.audioMime,
           audioSize: incoming.audioSize,
+          audioSha256: incoming.audioSha256,
           modelRequested: incoming.model,
           sourceClient: incoming.sourceClient,
         });
@@ -981,10 +1112,46 @@ export async function handleRequest(req: Request): Promise<Response> {
           user = getUserBySessionOrApiToken(incoming.formToken);
         }
         if (!user) {
+          try { unlinkSync(incoming.audioPath); } catch {}
           return jsonResponse(
             { error: "인증 토큰(X-Lectern-Token 또는 로그인 세션)이 필요합니다." },
             401
           );
+        }
+
+        const existing = getLectureByAudioSha256(user.id, incoming.audioSha256);
+        if (existing) {
+          try { unlinkSync(incoming.audioPath); } catch {}
+          if (existing.status === "error" && existing.audio_path && existsSync(existing.audio_path)) {
+            const retried = resetLectureForRetry(existing.id);
+            runBackgroundDistillation(existing.id, user.id, {
+              audioPath: existing.audio_path,
+              course: existing.course,
+              title: existing.title,
+              model: incoming.model || existing.model_requested,
+              apiKey: incoming.apiKey,
+            });
+            return jsonResponse({
+              ok: true,
+              deduplicated: true,
+              retried: true,
+              id: existing.id,
+              status: "processing",
+              lecture: toLectureSummaryDto(retried || existing),
+              url: `${PUBLIC_BASE_URL}/?lecture=${existing.id}`,
+              shareUrl: `${PUBLIC_BASE_URL}/s/${existing.share_token}`,
+            });
+          }
+          return jsonResponse({
+            ok: true,
+            deduplicated: true,
+            id: existing.id,
+            status: existing.status,
+            lecture: toLectureSummaryDto(existing),
+            url: `${PUBLIC_BASE_URL}/?lecture=${existing.id}`,
+            shareUrl: `${PUBLIC_BASE_URL}/s/${existing.share_token}`,
+            markdown: existing.markdown,
+          });
         }
 
         const id = generateId("lec");
@@ -996,6 +1163,7 @@ export async function handleRequest(req: Request): Promise<Response> {
           audioPath: incoming.audioPath,
           audioMime: incoming.audioMime,
           audioSize: incoming.audioSize,
+          audioSha256: incoming.audioSha256,
           modelRequested: incoming.model,
           sourceClient: incoming.sourceClient || "shortcut",
         });

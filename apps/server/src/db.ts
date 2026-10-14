@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -8,7 +9,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, extname } from "node:path";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import {
   extractExcerpt,
@@ -42,12 +43,13 @@ export interface LectureRecord {
   audio_path: string | null;
   audio_mime: string | null;
   audio_size: number;
+  audio_sha256?: string | null;
   duration_sec: number;
   model_requested: string;
   model_used: string;
   source_client: string;
   error_message: string | null;
-  md_source_path?: string | null;
+  md_source_path: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -136,7 +138,11 @@ try {
   if (!cols.some((c) => c.name === "is_public")) {
     db.exec(`ALTER TABLE lectures ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!cols.some((c) => c.name === "audio_sha256")) {
+    db.exec(`ALTER TABLE lectures ADD COLUMN audio_sha256 TEXT`);
+  }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_lectures_owner ON lectures(owner_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_lectures_sha256 ON lectures(owner_id, audio_sha256)`);
 } catch {
   // ignore if already migrated
 }
@@ -479,6 +485,35 @@ export function getLectureByShareToken(token: string): LectureRecord | null {
     .get(token) as LectureRecord | null;
 }
 
+export function getLectureByAudioSha256(
+  ownerId: string,
+  audioSha256: string
+): LectureRecord | null {
+  if (!ownerId || !audioSha256) return null;
+  return db
+    .query(
+      `SELECT * FROM lectures WHERE owner_id = ? AND audio_sha256 = ? ORDER BY created_at DESC LIMIT 1`
+    )
+    .get(ownerId, audioSha256) as LectureRecord | null;
+}
+
+export function resetLectureForRetry(id: string): LectureRecord | null {
+  const now = new Date().toISOString();
+  db.query(
+    `UPDATE lectures
+     SET status = 'processing', stage = 'retrying', stage_message = '원본 오디오로 재분석 준비 중...',
+         progress = 10, error_message = NULL, updated_at = ?
+     WHERE id = ?`
+  ).run(now, id);
+  return getLectureById(id);
+}
+
+export function listInterruptedLectures(): LectureRecord[] {
+  return db
+    .query(`SELECT * FROM lectures WHERE status = 'processing'`)
+    .all() as LectureRecord[];
+}
+
 export function createPendingLecture(input: {
   id: string;
   ownerId?: string;
@@ -487,6 +522,7 @@ export function createPendingLecture(input: {
   audioPath: string;
   audioMime: string;
   audioSize: number;
+  audioSha256?: string;
   modelRequested: string;
   sourceClient: string;
   isPublic?: boolean;
@@ -499,9 +535,9 @@ export function createPendingLecture(input: {
   db.query(
     `INSERT INTO lectures (
       id, owner_id, share_token, is_public, title, course, date_label, status, stage, stage_message,
-      progress, markdown, excerpt, audio_path, audio_mime, audio_size,
+      progress, markdown, excerpt, audio_path, audio_mime, audio_size, audio_sha256,
       duration_sec, model_requested, model_used, source_client, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processing', 'preparing', '오디오 준비 중...', 5, '', '분석 진행 중...', ?, ?, ?, 0, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processing', 'preparing', '오디오 준비 중...', 5, '', '분석 진행 중...', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
   ).run(
     input.id,
     ownerId,
@@ -513,6 +549,7 @@ export function createPendingLecture(input: {
     input.audioPath,
     input.audioMime,
     input.audioSize,
+    input.audioSha256 || null,
     input.modelRequested,
     input.modelRequested,
     input.sourceClient,
@@ -561,6 +598,17 @@ export function completeLectureRecord(
       const stamp = now.slice(0, 10).replace(/-/g, "") + "_" + now.slice(11, 16).replace(":", "");
       mdSourcePath = join(courseDir, `${stamp}_${safeCourse}_요약.md`);
       writeFileSync(mdSourcePath, result.markdown + "\n", "utf8");
+      if (rec?.audio_path && existsSync(rec.audio_path)) {
+        const ext = extname(rec.audio_path) || ".m4a";
+        const archiveAudioPath = join(courseDir, `${stamp}_${safeCourse}_원본${ext}`);
+        if (!existsSync(archiveAudioPath)) {
+          try {
+            copyFileSync(rec.audio_path, archiveAudioPath);
+          } catch {
+            // ignore
+          }
+        }
+      }
     } catch {
       // ignore if lectures root not writable
     }
