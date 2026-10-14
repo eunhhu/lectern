@@ -209,7 +209,7 @@ export async function distillLectureAudio(
   try {
     opts.onProgress?.({
       stage: "uploading",
-      message: `Gemini File API로 오디오 업로드 중 (${(prep.sizeBytes / 1048576).toFixed(1)} MB)...`,
+      message: `오디오 스트림 전송 중 (${(prep.sizeBytes / 1048576).toFixed(1)} MB)...`,
       progress: 25,
     });
 
@@ -220,7 +220,7 @@ export async function distillLectureAudio(
       (pct) => {
         opts.onProgress?.({
           stage: "uploading",
-          message: `오디오 업로드 중 (${pct}%)...`,
+          message: `오디오 스트림 전송 중 (${pct}%)...`,
           progress: 25 + Math.round(pct * 0.3),
         });
       }
@@ -228,7 +228,7 @@ export async function distillLectureAudio(
 
     opts.onProgress?.({
       stage: "analyzing",
-      message: `${modelRequested} 모델이 쉬는시간 필터링 및 강의 노트 증류 중...`,
+      message: `쉬는시간 필터링 및 강의 핵심 노트 구조화 중...`,
       progress: 65,
     });
 
@@ -279,7 +279,7 @@ export async function distillLectureAudio(
 
     opts.onProgress?.({
       stage: "done",
-      message: `분석 완료 (${modelUsed})`,
+      message: `강의 노트 정리 완료`,
       progress: 100,
     });
 

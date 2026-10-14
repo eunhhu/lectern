@@ -12,6 +12,7 @@ import {
   type UserRecord,
   cleanupLecturesForUser,
   completeLectureRecord,
+  createEmailVerificationCode,
   createPendingLecture,
   createSession,
   createUser,
@@ -48,6 +49,7 @@ import {
   updateUserByAdmin,
   updateUserPassword,
   updateUserProfile,
+  verifyEmailVerificationCode,
   verifyPassword,
 } from "./db.ts";
 import {
@@ -254,6 +256,66 @@ function jsonResponse(
       ...extraHeaders,
     },
   });
+}
+
+async function sendResendVerificationEmail(
+  toEmail: string,
+  code: string,
+  purpose: "signup" | "reset"
+): Promise<{ sent: boolean; id?: string }> {
+  const apiKey = (process.env.RESEND_API_KEY || "").trim();
+  const from = (
+    process.env.RESEND_FROM_EMAIL || "Lectern <noreply@qucord.com>"
+  ).trim();
+  if (!apiKey) {
+    return { sent: false };
+  }
+
+  const subject =
+    purpose === "reset"
+      ? `[Lectern] 비밀번호 재설정 인증번호 (${code})`
+      : `[Lectern] 회원가입 이메일 인증번호 (${code})`;
+  const titleText =
+    purpose === "reset"
+      ? "비밀번호 재설정 인증번호"
+      : "회원가입 이메일 인증번호";
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 28px; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 16px; color: #111827;">
+      <div style="font-size: 18px; font-weight: 700; margin-bottom: 8px; color: #111827;">Lectern</div>
+      <div style="font-size: 15px; font-weight: 600; color: #374151; margin-bottom: 20px;">${titleText}</div>
+      <p style="font-size: 14px; line-height: 22px; color: #4b5563; margin: 0 0 20px;">
+        아래 6자리 인증번호를 입력 화면에 입력해주세요. 인증번호는 10분간 유효합니다.
+      </p>
+      <div style="padding: 18px 24px; background: #f3f4f6; border-radius: 12px; text-align: center; font-family: monospace; font-size: 28px; font-weight: 700; letter-spacing: 6px; color: #111827; margin-bottom: 20px;">
+        ${code}
+      </div>
+      <p style="font-size: 12px; color: #9ca3af; margin: 0;">
+        본인이 요청하지 않은 경우 이 메일을 무시하셔도 안전합니다.
+      </p>
+    </div>
+  `;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [toEmail],
+      subject,
+      html,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`이메일 발송 실패 (${res.status}): ${errText}`);
+  }
+  const data: any = await res.json();
+  return { sent: true, id: data?.id };
 }
 
 function safeTokenCompare(a: string, b: string): boolean {
@@ -613,7 +675,6 @@ export async function handleRequest(req: Request): Promise<Response> {
         authRequired: true,
         gitSha: BOOT_GIT_SHA,
         runtime: `Bun ${Bun.version}`,
-        defaultModel: DEFAULT_GEMINI_MODEL,
       });
     }
 
@@ -722,6 +783,124 @@ export async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
+    if (req.method === "POST" && path === "/api/auth/send-code") {
+      try {
+        const body: any = await req.json();
+        const email = String(body.email || "").trim().toLowerCase();
+        const purpose = body.purpose === "reset" ? "reset" : "signup";
+
+        if (!email || !email.includes("@") || email.length < 5) {
+          return jsonResponse(
+            { error: "유효한 이메일 주소를 입력해주세요." },
+            400
+          );
+        }
+
+        if (purpose === "signup") {
+          const settings = getSystemSettings();
+          if (!settings.allow_public_signup) {
+            return jsonResponse(
+              {
+                error:
+                  "현재 공개 회원가입이 비활성화되어 있습니다. 관리자에게 문의하세요.",
+              },
+              403
+            );
+          }
+          if (getUserByEmail(email)) {
+            return jsonResponse(
+              { error: "이미 가입된 이메일 주소입니다." },
+              400
+            );
+          }
+        } else {
+          if (!getUserByEmail(email)) {
+            return jsonResponse(
+              { error: "해당 이메일로 가입된 계정을 찾을 수 없습니다." },
+              404
+            );
+          }
+        }
+
+        const code = createEmailVerificationCode(email, purpose, 10);
+        await sendResendVerificationEmail(email, code, purpose);
+        recordAuditLog({
+          actorId: "anonymous",
+          actorEmail: email,
+          action: `auth.send_code.${purpose}`,
+          detail: "이메일 인증번호 발송 완료",
+        });
+
+        return jsonResponse({
+          ok: true,
+          message: "이메일로 6자리 인증번호를 발송했습니다. (10분간 유효)",
+        });
+      } catch (err: any) {
+        return jsonResponse(
+          { error: err?.message || "인증번호 발송에 실패했습니다." },
+          400
+        );
+      }
+    }
+
+    if (req.method === "POST" && path === "/api/auth/reset-password") {
+      try {
+        const body: any = await req.json();
+        const email = String(body.email || "").trim().toLowerCase();
+        const verificationCode = String(
+          body.verificationCode || body.code || ""
+        ).trim();
+        const newPassword = String(body.newPassword || "");
+
+        if (!email || !verificationCode) {
+          return jsonResponse(
+            { error: "이메일과 6자리 인증번호를 입력해주세요." },
+            400
+          );
+        }
+        if (!newPassword || newPassword.length < 6) {
+          return jsonResponse(
+            { error: "새 비밀번호는 최소 6자 이상이어야 합니다." },
+            400
+          );
+        }
+
+        const user = getUserByEmail(email);
+        if (!user) {
+          return jsonResponse(
+            { error: "계정을 찾을 수 없습니다." },
+            404
+          );
+        }
+        if (!verifyEmailVerificationCode(email, verificationCode, "reset", true)) {
+          return jsonResponse(
+            { error: "인증번호가 올바르지 않거나 만료되었습니다." },
+            400
+          );
+        }
+
+        updateUserPassword(user.id, newPassword);
+        deleteAllUserSessions(user.id);
+        recordAuditLog({
+          actorId: user.id,
+          actorEmail: user.email,
+          action: "account.password_reset",
+          targetId: user.id,
+          detail: "이메일 인증을 통한 비밀번호 재설정 완료",
+        });
+
+        return jsonResponse({
+          ok: true,
+          message: "비밀번호가 재설정되었습니다. 새 비밀번호로 로그인해주세요.",
+        });
+      } catch (err: any) {
+        return jsonResponse(
+          { error: err?.message || "비밀번호 재설정 실패" },
+          400
+        );
+      }
+    }
+
     if (req.method === "POST" && path === "/api/auth/register") {
       try {
         const settings = getSystemSettings();
@@ -739,15 +918,37 @@ export async function handleRequest(req: Request): Promise<Response> {
         const email = String(body.email || "").trim().toLowerCase();
         const displayName = String(body.displayName || body.name || "").trim();
         const password = String(body.password || "");
+        const verificationCode = String(
+          body.verificationCode || body.code || ""
+        ).trim();
 
-        if (!email || email.length < 3) {
-          return jsonResponse({ error: "이메일(또는 아이디)을 입력해주세요." }, 400);
+        if (!email || !email.includes("@") || email.length < 5) {
+          return jsonResponse({ error: "유효한 이메일 주소를 입력해주세요." }, 400);
         }
         if (!password || password.length < 6) {
           return jsonResponse(
             { error: "비밀번호는 최소 6자 이상이어야 합니다." },
             400
           );
+        }
+
+        const mustVerifyEmail =
+          Boolean(process.env.RESEND_API_KEY) || Boolean(verificationCode);
+        if (mustVerifyEmail) {
+          if (!verificationCode) {
+            return jsonResponse(
+              { error: "이메일로 발송된 6자리 인증번호를 입력해주세요." },
+              400
+            );
+          }
+          if (
+            !verifyEmailVerificationCode(email, verificationCode, "signup", true)
+          ) {
+            return jsonResponse(
+              { error: "이메일 인증번호가 올바르지 않거나 만료되었습니다." },
+              400
+            );
+          }
         }
 
         const initStatus = settings.default_require_approval
@@ -1487,7 +1688,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         if (user.can_use_server_key === 0 && !incoming.apiKey) {
           try { unlinkSync(incoming.audioPath); } catch {}
           return jsonResponse(
-            { error: "이 계정은 개인 Gemini API 키(BYOK) 설정 후 분석할 수 있습니다." },
+            { error: "노트 자동 분석 권한이 제한된 계정입니다. 관리자에게 문의하세요." },
             403
           );
         }
@@ -1594,7 +1795,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         if (user.can_use_server_key === 0 && !incoming.apiKey) {
           try { unlinkSync(incoming.audioPath); } catch {}
           return jsonResponse(
-            { error: "이 계정은 개인 Gemini API 키(BYOK) 설정 후 분석할 수 있습니다." },
+            { error: "노트 자동 분석 권한이 제한된 계정입니다. 관리자에게 문의하세요." },
             403
           );
         }

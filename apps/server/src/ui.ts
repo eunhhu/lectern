@@ -43,49 +43,49 @@ export const ELYSIUM_TOKENS_CSS = `
   --elysium-size-button-mobile: 56px;
   --elysium-size-container-max: 1200px;
 
-  /* Semantic Color Tokens — Light Mode (CoolNeutral + Blue/40 #5650FF) */
-  --elysium-surface-canvas: #F8F6FF;
+  /* Semantic Color Tokens — Light Mode (Neutral Surface + Subtle Borders) */
+  --elysium-surface-canvas: #F8F9FA;
   --elysium-surface-default: #FFFFFF;
-  --elysium-surface-subtle: #F0EFF9;
+  --elysium-surface-subtle: #F2F4F7;
   --elysium-surface-elevated: #FFFFFF;
-  --elysium-surface-inverse: #19181E;
+  --elysium-surface-inverse: #111827;
 
-  --elysium-text-primary: #19181E;
-  --elysium-text-secondary: #53576F;
-  --elysium-text-tertiary: #53576F;
-  --elysium-text-disabled: #898EAA;
+  --elysium-text-primary: #111827;
+  --elysium-text-secondary: #4B5563;
+  --elysium-text-tertiary: #6B7280;
+  --elysium-text-disabled: #9CA3AF;
   --elysium-text-on-action: #FFFFFF;
-  --elysium-text-brand: #412AD8;
+  --elysium-text-brand: #4F46E5;
 
-  --elysium-border-subtle: #E1E1EC;
-  --elysium-border-control: #53576F;
-  --elysium-border-focus: #4C36F5;
+  --elysium-border-subtle: #EAECF0;
+  --elysium-border-control: #DFE3E8;
+  --elysium-border-focus: #4F46E5;
 
-  --elysium-action-primary: #5650FF;
-  --elysium-action-primary-hover: #4C36F5;
-  --elysium-action-primary-pressed: #412AD8;
-  --elysium-action-subtle: #ECF0FF;
-  --elysium-action-subtle-hover: #DDE3FF;
-  --elysium-action-subtle-pressed: #C2CCFF;
-  --elysium-action-disabled: #E1E1EC;
+  --elysium-action-primary: #4F46E5;
+  --elysium-action-primary-hover: #4338CA;
+  --elysium-action-primary-pressed: #3730A3;
+  --elysium-action-subtle: #EEF2FF;
+  --elysium-action-subtle-hover: #E0E7FF;
+  --elysium-action-subtle-pressed: #C7D2FE;
+  --elysium-action-disabled: #EAECF0;
 
-  --elysium-status-success-text: #176516;
-  --elysium-status-success-surface: #DEFCDC;
-  --elysium-status-success-icon: #188015;
-  --elysium-status-warning-text: #A1360B;
-  --elysium-status-warning-surface: #FFEFD3;
-  --elysium-status-warning-icon: #A1360B;
+  --elysium-status-success-text: #15803D;
+  --elysium-status-success-surface: #DCFCE7;
+  --elysium-status-success-icon: #16A34A;
+  --elysium-status-warning-text: #B45309;
+  --elysium-status-warning-surface: #FEF3C7;
+  --elysium-status-warning-icon: #D97706;
   --elysium-status-danger-text: #B91C1C;
   --elysium-status-danger-surface: #FEE2E2;
-  --elysium-status-danger-icon: #B91C1C;
-  --elysium-status-danger-action: #B91C1C;
-  --elysium-status-info-text: #044F88;
-  --elysium-status-info-surface: #DFEFFF;
-  --elysium-status-info-icon: #005DA5;
+  --elysium-status-danger-icon: #DC2626;
+  --elysium-status-danger-action: #DC2626;
+  --elysium-status-info-text: #1D4ED8;
+  --elysium-status-info-surface: #DBEAFE;
+  --elysium-status-info-icon: #2563EB;
 
-  --elysium-shadow-sm: 0 2px 8px rgba(25, 24, 30, 0.05);
-  --elysium-shadow-md: 0 8px 24px rgba(25, 24, 30, 0.08);
-  --elysium-shadow-lg: 0 20px 48px rgba(25, 24, 30, 0.14);
+  --elysium-shadow-sm: 0 1px 3px rgba(17, 24, 39, 0.04);
+  --elysium-shadow-md: 0 6px 18px rgba(17, 24, 39, 0.07);
+  --elysium-shadow-lg: 0 20px 44px rgba(17, 24, 39, 0.12);
 
   /* Compatibility aliases */
   --surface-canvas: var(--elysium-surface-canvas);
@@ -103,31 +103,31 @@ export const ELYSIUM_TOKENS_CSS = `
 
 [data-elysium-theme="Dark"],
 [data-theme="dark"] {
-  /* Semantic Color Tokens — Dark Mode (Section 3.2 & 12.1) */
-  --elysium-surface-canvas: #111113;
-  --elysium-surface-default: #19181E;
-  --elysium-surface-subtle: #2F2D36;
-  --elysium-surface-elevated: #2F2D36;
-  --elysium-surface-inverse: #F0EFF9;
+  /* Semantic Color Tokens — Dark Mode (Neutral Dark Surface + Subtle Borders) */
+  --elysium-surface-canvas: #111214;
+  --elysium-surface-default: #17181C;
+  --elysium-surface-subtle: #212329;
+  --elysium-surface-elevated: #1D1F25;
+  --elysium-surface-inverse: #F3F4F6;
 
-  --elysium-text-primary: #F0EFF9;
-  --elysium-text-secondary: #CACBDC;
-  --elysium-text-tertiary: #CACBDC;
-  --elysium-text-disabled: #898EAA;
+  --elysium-text-primary: #F3F4F6;
+  --elysium-text-secondary: #9CA3AF;
+  --elysium-text-tertiary: #6B7280;
+  --elysium-text-disabled: #4B5563;
   --elysium-text-on-action: #FFFFFF;
-  --elysium-text-brand: #9CA9FF;
+  --elysium-text-brand: #818CF8;
 
-  --elysium-border-subtle: #53576F;
-  --elysium-border-control: #898EAA;
-  --elysium-border-focus: #9CA9FF;
+  --elysium-border-subtle: #252830;
+  --elysium-border-control: #2E323C;
+  --elysium-border-focus: #6366F1;
 
-  --elysium-action-primary: #5650FF;
-  --elysium-action-primary-hover: #4C36F5;
-  --elysium-action-primary-pressed: #412AD8;
-  --elysium-action-subtle: #1D1650;
-  --elysium-action-subtle-hover: #261F69;
-  --elysium-action-subtle-pressed: #3B20B2;
-  --elysium-action-disabled: #53576F;
+  --elysium-action-primary: #4F46E5;
+  --elysium-action-primary-hover: #6366F1;
+  --elysium-action-primary-pressed: #4338CA;
+  --elysium-action-subtle: rgba(79, 70, 229, 0.16);
+  --elysium-action-subtle-hover: rgba(99, 102, 241, 0.24);
+  --elysium-action-subtle-pressed: rgba(99, 102, 241, 0.32);
+  --elysium-action-disabled: #252830;
 
   --elysium-status-success-text: #B0F4B2;
   --elysium-status-success-surface: #053C01;
@@ -399,7 +399,6 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       <div class="meta-bar">
         <span class="badge">${course}</span>
         <span class="badge badge-muted">${escapeHtml(lecture.date_label)}</span>
-        <span class="badge badge-muted">${escapeHtml(lecture.model_used)}</span>
       </div>
       ${
         hasAudio
@@ -627,8 +626,8 @@ export function renderAppHtml(): string {
       color: var(--elysium-text-disabled);
     }
     .field-input:focus, .search-input:focus {
-      border: 2px solid var(--elysium-border-focus);
-      padding: 7px 13px;
+      border-color: var(--elysium-border-focus);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
     }
 
     /* Elysium/Desktop/Chip (8186:4067) — Filter Chip H40, Radius 999, Padding 0 16, Gap 8 */
@@ -1048,7 +1047,8 @@ export function renderAppHtml(): string {
       outline: none;
     }
     .editor-textarea:focus {
-      border: 2px solid var(--elysium-border-focus);
+      border-color: var(--elysium-border-focus);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
     }
 
     /* Elysium/Desktop/Overlay (8186:4412) — PC W480~560, Radius 16, Padding 24, Gap 16 */
@@ -1268,10 +1268,9 @@ export function renderAppHtml(): string {
       flex-direction: column;
       gap: var(--elysium-space-24);
     }
-    /* Elysium/Desktop/Tabs (8186:4121) — H40, Brand indicator 2px */
     .auth-tabs {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
       border-bottom: 1px solid var(--elysium-border-subtle);
     }
     .auth-tab {
@@ -1280,7 +1279,7 @@ export function renderAppHtml(): string {
       border-bottom: 2px solid transparent;
       background: transparent;
       color: var(--elysium-text-secondary);
-      font: 600 16px/24px var(--elysium-font-sans);
+      font: 600 14px/20px var(--elysium-font-sans);
       cursor: pointer;
     }
     .auth-tab.active {
@@ -1296,36 +1295,44 @@ export function renderAppHtml(): string {
   </style>
 </head>
 <body>
-  <!-- Elysium Account Authentication Gate -->
+  <!-- Account Authentication Gate -->
   <div class="auth-gate" id="auth-gate">
     <div class="auth-card">
       <div>
         <div class="brand" style="margin-bottom:8px;">
           <span class="brand-mark"></span>
           <span>Lectern</span>
-          <span class="brand-sub">Elysium 1.0</span>
+          <span class="brand-sub">Workspace</span>
         </div>
-        <p style="margin:0;color:var(--elysium-text-secondary);font:400 16px/24px var(--elysium-font-sans);word-break:keep-all;">
+        <p style="margin:0;color:var(--elysium-text-secondary);font:400 15px/22px var(--elysium-font-sans);word-break:keep-all;">
           개인 강의 녹음과 마크다운 노트는 계정별로 안전하게 분리·보호됩니다.
         </p>
       </div>
 
       <div class="auth-tabs" role="tablist">
         <button type="button" class="auth-tab active" id="tab-login-btn" onclick="switchAuthMode('login')">로그인</button>
-        <button type="button" class="auth-tab" id="tab-reg-btn" onclick="switchAuthMode('register')">새 계정 만들기</button>
+        <button type="button" class="auth-tab" id="tab-reg-btn" onclick="switchAuthMode('register')">회원가입</button>
+        <button type="button" class="auth-tab" id="tab-reset-btn" onclick="switchAuthMode('reset')">비번 재설정</button>
       </div>
 
       <form id="auth-form" onsubmit="submitAuthForm(event)" style="display:flex;flex-direction:column;gap:var(--elysium-space-16);">
         <div id="auth-name-wrap" class="field-group" style="display:none;">
           <label class="field-label" for="auth-name">이름 (닉네임)</label>
-          <input type="text" id="auth-name" class="field-input" placeholder="예: 홍길동" autocomplete="name" />
+          <input type="text" id="auth-name" class="field-input" placeholder="표시할 이름 입력" autocomplete="name" />
         </div>
         <div class="field-group">
-          <label class="field-label" for="auth-email">아이디 또는 이메일</label>
-          <input type="text" id="auth-email" class="field-input" placeholder="아이디 또는 이메일 주소" autocomplete="username" required />
+          <label class="field-label" for="auth-email" id="auth-email-label">아이디 또는 이메일</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="auth-email" class="field-input" style="flex:1;" placeholder="아이디 또는 이메일 주소" autocomplete="username" required />
+            <button type="button" class="btn" id="btn-send-code" style="display:none;flex-shrink:0;" onclick="sendEmailVerificationCode()">인증번호 발송</button>
+          </div>
+        </div>
+        <div id="auth-code-wrap" class="field-group" style="display:none;">
+          <label class="field-label" for="auth-code">이메일 인증번호 (6자리)</label>
+          <input type="text" id="auth-code" class="field-input" placeholder="이메일로 받은 6자리 숫자 입력" maxlength="6" inputmode="numeric" />
         </div>
         <div class="field-group">
-          <label class="field-label" for="auth-password">비밀번호</label>
+          <label class="field-label" for="auth-password" id="auth-password-label">비밀번호</label>
           <input type="password" id="auth-password" class="field-input" placeholder="비밀번호 입력" autocomplete="current-password" required />
         </div>
         <div id="auth-error" style="display:none;padding:12px 16px;border-radius:var(--elysium-radius-12);background:var(--elysium-status-danger-surface);color:var(--elysium-status-danger-text);font:600 14px/20px var(--elysium-font-sans);"></div>
@@ -1389,7 +1396,6 @@ export function renderAppHtml(): string {
         <div class="toolbar-meta" id="toolbar-meta">
           <span class="meta-pill course" id="cur-course">강의 선택</span>
           <span class="meta-pill" id="cur-date">—</span>
-          <span class="meta-pill" id="cur-model">gemini-flash-latest</span>
           <span class="meta-pill" id="sse-status-pill" style="color:var(--elysium-status-success-text);background:var(--elysium-status-success-surface);">실시간 동기화</span>
         </div>
         <div class="toolbar-actions">
@@ -1577,11 +1583,11 @@ export function renderAppHtml(): string {
     </div>
   </div>
 
-  <!-- Account, Password Change & Model Settings Modal -->
+  <!-- Account & Password Security Modal -->
   <div class="modal-backdrop" id="settings-modal">
-    <div class="modal-card" style="max-width:580px;">
+    <div class="modal-card" style="max-width:540px;">
       <div class="modal-header">
-        <div class="modal-title">내 계정 · 비밀번호 변경 · AI 설정</div>
+        <div class="modal-title">내 계정 및 보안 설정</div>
         <button class="btn btn-icon" onclick="closeModal('settings-modal')" aria-label="닫기">✕</button>
       </div>
 
@@ -1627,28 +1633,14 @@ export function renderAppHtml(): string {
           </div>
         </div>
         <div id="pw-change-msg" style="display:none;padding:10px 14px;border-radius:var(--elysium-radius-8);font:600 13px/20px var(--elysium-font-sans);"></div>
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
           <button type="button" class="btn" onclick="rotateMyApiToken()">기기 연동 API 토큰 재발급</button>
-          <button type="submit" class="btn btn-primary">비밀번호 변경 저장</button>
+          <div style="display:flex;gap:10px;">
+            <button type="button" class="btn" onclick="closeModal('settings-modal')">닫기</button>
+            <button type="submit" class="btn btn-primary">비밀번호 변경 저장</button>
+          </div>
         </div>
       </form>
-
-      <!-- Gemini Model & BYOK Settings -->
-      <div style="padding:20px;border-radius:var(--elysium-radius-16);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);display:flex;flex-direction:column;gap:14px;">
-        <div style="font:600 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);">Gemini 요약 모델 & 개인 API 키 (BYOK)</div>
-        <div class="field-group">
-          <label class="field-label" for="cfg-model">요약 모델 (기본: gemini-flash-latest)</label>
-          <input type="text" id="cfg-model" class="field-input" value="gemini-flash-latest" />
-        </div>
-        <div class="field-group">
-          <label class="field-label" for="cfg-apikey">개인 Gemini API Key (선택 · 비워두면 서버 기본 키 사용)</label>
-          <input type="password" id="cfg-apikey" class="field-input" placeholder="AIzaSy... (브라우저 로컬 스토리지에만 저장됨)" />
-        </div>
-        <div style="display:flex;justify-content:flex-end;gap:12px;">
-          <button class="btn" onclick="closeModal('settings-modal')">닫기</button>
-          <button class="btn btn-primary" onclick="saveSettings()">AI 설정 저장</button>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -1861,9 +1853,58 @@ export function renderAppHtml(): string {
       authMode = mode;
       document.getElementById('tab-login-btn').classList.toggle('active', mode === 'login');
       document.getElementById('tab-reg-btn').classList.toggle('active', mode === 'register');
+      document.getElementById('tab-reset-btn').classList.toggle('active', mode === 'reset');
       document.getElementById('auth-name-wrap').style.display = mode === 'register' ? 'flex' : 'none';
-      document.getElementById('auth-submit-btn').textContent = mode === 'register' ? '새 계정 생성 및 시작' : '내 워크스페이스 열기';
+      const needsCode = mode === 'register' || mode === 'reset';
+      document.getElementById('btn-send-code').style.display = needsCode ? 'inline-flex' : 'none';
+      document.getElementById('auth-code-wrap').style.display = needsCode ? 'flex' : 'none';
+      document.getElementById('auth-email-label').textContent = needsCode ? '이메일 주소 (인증번호 수신)' : '아이디 또는 이메일';
+      document.getElementById('auth-email').placeholder = needsCode ? '이메일 주소 입력 (예: user@domain.com)' : '아이디 또는 이메일 주소';
+      document.getElementById('auth-password-label').textContent = mode === 'reset' ? '새 비밀번호 (6자 이상)' : '비밀번호';
+      document.getElementById('auth-submit-btn').textContent =
+        mode === 'register' ? '이메일 인증 완료 및 가입' :
+        mode === 'reset' ? '비밀번호 재설정 완료' :
+        '내 워크스페이스 열기';
       document.getElementById('auth-error').style.display = 'none';
+    }
+
+    async function sendEmailVerificationCode() {
+      const email = document.getElementById('auth-email').value.trim();
+      const errEl = document.getElementById('auth-error');
+      const btn = document.getElementById('btn-send-code');
+      if (!email || !email.includes('@')) {
+        errEl.style.background = 'var(--elysium-status-danger-surface)';
+        errEl.style.color = 'var(--elysium-status-danger-text)';
+        errEl.textContent = '인증번호를 받을 유효한 이메일 주소를 입력해주세요.';
+        errEl.style.display = 'block';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '발송 중...';
+      try {
+        const purpose = authMode === 'reset' ? 'reset' : 'signup';
+        const res = await fetch('/api/auth/send-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, purpose })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errEl.style.background = 'var(--elysium-status-danger-surface)';
+          errEl.style.color = 'var(--elysium-status-danger-text)';
+          errEl.textContent = data.error || '인증번호 발송에 실패했습니다.';
+          errEl.style.display = 'block';
+          return;
+        }
+        errEl.style.background = 'var(--elysium-status-success-surface)';
+        errEl.style.color = 'var(--elysium-status-success-text)';
+        errEl.textContent = data.message || '이메일로 6자리 인증번호가 발송되었습니다.';
+        errEl.style.display = 'block';
+        document.getElementById('auth-code').focus();
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '인증번호 재발송';
+      }
     }
 
     async function submitAuthForm(ev) {
@@ -1871,17 +1912,42 @@ export function renderAppHtml(): string {
       const email = document.getElementById('auth-email').value.trim();
       const password = document.getElementById('auth-password').value;
       const displayName = document.getElementById('auth-name').value.trim();
+      const verificationCode = document.getElementById('auth-code').value.trim();
       const errEl = document.getElementById('auth-error');
       errEl.style.display = 'none';
+
+      if (authMode === 'reset') {
+        const res = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, verificationCode, newPassword: password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errEl.style.background = 'var(--elysium-status-danger-surface)';
+          errEl.style.color = 'var(--elysium-status-danger-text)';
+          errEl.textContent = data.error || '비밀번호 재설정에 실패했습니다.';
+          errEl.style.display = 'block';
+          return;
+        }
+        switchAuthMode('login');
+        errEl.style.background = 'var(--elysium-status-success-surface)';
+        errEl.style.color = 'var(--elysium-status-success-text)';
+        errEl.textContent = data.message || '비밀번호가 재설정되었습니다. 로그인해주세요.';
+        errEl.style.display = 'block';
+        return;
+      }
 
       const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, displayName })
+        body: JSON.stringify({ email, password, displayName, verificationCode })
       });
       const data = await res.json();
       if (!res.ok) {
+        errEl.style.background = 'var(--elysium-status-danger-surface)';
+        errEl.style.color = 'var(--elysium-status-danger-text)';
         errEl.textContent = data.error || '인증에 실패했습니다.';
         errEl.style.display = 'block';
         return;
@@ -2045,11 +2111,6 @@ export function renderAppHtml(): string {
       await fetchLectures();
     }
 
-    const savedModel = localStorage.getItem('lectern_model') || 'gemini-flash-latest';
-    const savedKey = localStorage.getItem('lectern_apikey') || '';
-    document.getElementById('cfg-model').value = savedModel;
-    document.getElementById('cfg-apikey').value = savedKey;
-
     function showToast(msg) {
       const el = document.getElementById('toast');
       el.textContent = msg;
@@ -2150,7 +2211,6 @@ export function renderAppHtml(): string {
 
       document.getElementById('cur-course').textContent = currentLecture.course;
       document.getElementById('cur-date').textContent = currentLecture.date_label;
-      document.getElementById('cur-model').textContent = currentLecture.model_used || 'gemini-flash-latest';
       updateVisibilityButtonsUI();
 
       const audioBar = document.getElementById('audio-bar');
@@ -2487,15 +2547,6 @@ export function renderAppHtml(): string {
     function openClientsModal() { document.getElementById('clients-modal').classList.add('open'); }
     function openSettingsModal() { document.getElementById('settings-modal').classList.add('open'); }
     function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-
-    function saveSettings() {
-      const m = document.getElementById('cfg-model').value.trim() || 'gemini-flash-latest';
-      const k = document.getElementById('cfg-apikey').value.trim();
-      localStorage.setItem('lectern_model', m);
-      localStorage.setItem('lectern_apikey', k);
-      closeModal('settings-modal');
-      showToast('설정이 저장되었습니다.');
-    }
 
     function switchMobileTab(tab) {
       const sb = document.getElementById('sidebar');
@@ -2842,8 +2893,6 @@ export function renderAppHtml(): string {
 
     async function uploadAndDistillFile(file, sourceClient, existingLocalId, overrideCourse) {
       const course = overrideCourse || document.getElementById('rec-course').value.trim() || '대학교 전공 강의';
-      const model = localStorage.getItem('lectern_model') || 'gemini-flash-latest';
-      const apiKey = localStorage.getItem('lectern_apikey') || '';
       const localId = existingLocalId || ('upl_' + file.name + '_' + file.size + '_' + file.lastModified);
 
       if (!existingLocalId) {
@@ -2875,12 +2924,10 @@ export function renderAppHtml(): string {
           const form = new FormData();
           form.append('audio', file);
           form.append('course', course);
-          form.append('model', model);
           form.append('source', sourceClient);
           form.append('idempotency_key', localId);
 
           const headers = authHeaders({ 'X-Idempotency-Key': localId });
-          if (apiKey) headers['X-Gemini-Key'] = apiKey;
 
           const res = await fetch('/api/lectures/ingest', {
             method: 'POST',
@@ -2948,56 +2995,56 @@ export function renderAdminPageHtml(): string {
   <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <style>
     :root, [data-theme="light"], [data-elysium-theme="Light"] {
-      --elysium-surface-canvas: #F8F6FF;
+      --elysium-surface-canvas: #F8F9FA;
       --elysium-surface-default: #FFFFFF;
       --elysium-surface-elevated: #FFFFFF;
-      --elysium-surface-subtle: #F0EFF9;
-      --elysium-surface-interactive: #E5E4F0;
-      --elysium-text-primary: #19181E;
-      --elysium-text-secondary: #53576F;
-      --elysium-text-tertiary: #6C718D;
-      --elysium-text-brand: #4C36F5;
-      --elysium-action-primary: #5650FF;
-      --elysium-action-primary-hover: #4C36F5;
-      --elysium-action-subtle: #EFF0FF;
-      --elysium-border-subtle: #CACBDC;
-      --elysium-border-control: #898EAA;
-      --elysium-border-focus: #5650FF;
-      --elysium-status-success-surface: #E1FCE9;
-      --elysium-status-success-text: #007A39;
-      --elysium-status-warning-surface: #FFF1E3;
-      --elysium-status-warning-text: #AD5100;
-      --elysium-status-danger-surface: #FFEFEF;
-      --elysium-status-danger-text: #BF0E08;
-      --elysium-status-danger-action: #E5484D;
+      --elysium-surface-subtle: #F2F4F7;
+      --elysium-surface-interactive: #EAECF0;
+      --elysium-text-primary: #111827;
+      --elysium-text-secondary: #4B5563;
+      --elysium-text-tertiary: #6B7280;
+      --elysium-text-brand: #4F46E5;
+      --elysium-action-primary: #4F46E5;
+      --elysium-action-primary-hover: #4338CA;
+      --elysium-action-subtle: #EEF2FF;
+      --elysium-border-subtle: #EAECF0;
+      --elysium-border-control: #DFE3E8;
+      --elysium-border-focus: #4F46E5;
+      --elysium-status-success-surface: #DCFCE7;
+      --elysium-status-success-text: #15803D;
+      --elysium-status-warning-surface: #FEF3C7;
+      --elysium-status-warning-text: #B45309;
+      --elysium-status-danger-surface: #FEE2E2;
+      --elysium-status-danger-text: #B91C1C;
+      --elysium-status-danger-action: #DC2626;
       --elysium-font-sans: "Pretendard Variable", "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
       --elysium-font-mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
-      --elysium-shadow-sm: 0 2px 8px rgba(25, 24, 30, 0.04);
-      --elysium-shadow-lg: 0 20px 48px rgba(25, 24, 30, 0.16);
+      --elysium-shadow-sm: 0 1px 3px rgba(17, 24, 39, 0.04);
+      --elysium-shadow-lg: 0 20px 44px rgba(17, 24, 39, 0.12);
     }
     [data-theme="dark"], [data-elysium-theme="Dark"] {
-      --elysium-surface-canvas: #111113;
-      --elysium-surface-default: #19181E;
-      --elysium-surface-elevated: #19181E;
-      --elysium-surface-subtle: #2F2D36;
-      --elysium-surface-interactive: #3D3B46;
-      --elysium-text-primary: #F0EFF9;
-      --elysium-text-secondary: #CACBDC;
-      --elysium-text-tertiary: #898EAA;
-      --elysium-text-brand: #9CA9FF;
-      --elysium-action-primary: #5650FF;
-      --elysium-action-primary-hover: #7372FF;
-      --elysium-action-subtle: #221679;
-      --elysium-border-subtle: #53576F;
-      --elysium-border-control: #898EAA;
-      --elysium-border-focus: #7372FF;
-      --elysium-status-success-surface: #003A19;
-      --elysium-status-success-text: #65E39C;
-      --elysium-status-warning-surface: #522400;
-      --elysium-status-warning-text: #FFB875;
-      --elysium-status-danger-surface: #5C0503;
-      --elysium-status-danger-text: #FFACA7;
-      --elysium-status-danger-action: #E5484D;
+      --elysium-surface-canvas: #111214;
+      --elysium-surface-default: #17181C;
+      --elysium-surface-elevated: #1D1F25;
+      --elysium-surface-subtle: #212329;
+      --elysium-surface-interactive: #2B2E37;
+      --elysium-text-primary: #F3F4F6;
+      --elysium-text-secondary: #9CA3AF;
+      --elysium-text-tertiary: #6B7280;
+      --elysium-text-brand: #818CF8;
+      --elysium-action-primary: #4F46E5;
+      --elysium-action-primary-hover: #6366F1;
+      --elysium-action-subtle: rgba(79, 70, 229, 0.16);
+      --elysium-border-subtle: #252830;
+      --elysium-border-control: #2E323C;
+      --elysium-border-focus: #6366F1;
+      --elysium-status-success-surface: #053C01;
+      --elysium-status-success-text: #B0F4B2;
+      --elysium-status-warning-surface: #470E00;
+      --elysium-status-warning-text: #FFDDA5;
+      --elysium-status-danger-surface: #7F1D1D;
+      --elysium-status-danger-text: #FECACA;
+      --elysium-status-danger-action: #DC2626;
     }
     * { box-sizing: border-box; }
     body {
@@ -3141,7 +3188,8 @@ export function renderAdminPageHtml(): string {
       outline: none;
     }
     .field-input:focus, .field-select:focus {
-      border: 2px solid var(--elysium-border-focus);
+      border-color: var(--elysium-border-focus);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
     }
     .crm-table-wrap {
       overflow-x: auto;
@@ -3310,10 +3358,10 @@ export function renderAdminPageHtml(): string {
 
         <label class="policy-item" style="cursor:pointer;">
           <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-weight:600;">서버 기본 Gemini 키 사용 허용</span>
+            <span style="font-weight:600;">노트 자동 정리 엔진 기본 허용</span>
             <input type="checkbox" id="pol-server-key" style="width:20px;height:20px;accent-color:var(--elysium-action-primary);" />
           </div>
-          <span style="font-size:13px;color:var(--elysium-text-secondary);">체크 해제 시 신규 회원은 본인 Gemini API Key(BYOK)를 등록해야 분석할 수 있습니다.</span>
+          <span style="font-size:13px;color:var(--elysium-text-secondary);">신규 가입 계정에 강의 음성 자동 분석 및 마크다운 정리 권한을 부여합니다.</span>
         </label>
 
         <div class="policy-item">
@@ -3330,7 +3378,7 @@ export function renderAdminPageHtml(): string {
         <div>
           <h2 class="section-title">회원 CRM 및 계정별 권한 관리</h2>
           <div style="font:400 14px/20px var(--elysium-font-sans);color:var(--elysium-text-secondary);margin-top:4px;">
-            회원별 역할(Owner/Admin/Member/Viewer), 상태(활성/대기/정지), 녹음·공유·AI키 권한, 용량 한도, 비밀번호 재설정 및 CRM 메모를 관리합니다.
+            회원별 역할(Owner/Admin/Member/Viewer), 상태(활성/대기/정지), 녹음·공유 권한, 용량 한도, 비밀번호 재설정 및 CRM 메모를 관리합니다.
           </div>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
@@ -3355,7 +3403,7 @@ export function renderAdminPageHtml(): string {
               <th>회원 (이름 / 아이디·이메일)</th>
               <th>역할 (Role)</th>
               <th>상태</th>
-              <th>세부 권한 (녹음 / 공유 / 서버AI)</th>
+              <th>세부 권한 (녹음 / 공유 / 자동분석)</th>
               <th>강의 / 공개 / 오류</th>
               <th>오디오 사용량 / 쿼터</th>
               <th>최근 로그인 / 메모</th>
@@ -3444,7 +3492,7 @@ export function renderAdminPageHtml(): string {
         <div style="font-weight:600;font-size:13px;">세부 기능 권한 (Granular Permissions)</div>
         <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;">
           <input type="checkbox" id="eu-can-ingest" style="width:18px;height:18px;accent-color:var(--elysium-action-primary);" />
-          <span>오디오 녹음 · 파일 업로드 · AI 노트 증류 허용 (<code>can_ingest</code>)</span>
+          <span>오디오 녹음 · 파일 업로드 허용 (<code>can_ingest</code>)</span>
         </label>
         <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;">
           <input type="checkbox" id="eu-can-share" style="width:18px;height:18px;accent-color:var(--elysium-action-primary);" />
@@ -3452,7 +3500,7 @@ export function renderAdminPageHtml(): string {
         </label>
         <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;">
           <input type="checkbox" id="eu-can-server-key" style="width:18px;height:18px;accent-color:var(--elysium-action-primary);" />
-          <span>서버 기본 Gemini API 키 사용 허용 (해제 시 개인 BYOK 키 필수)</span>
+          <span>노트 자동 정리 엔진 사용 허용</span>
         </label>
       </div>
 
@@ -3631,7 +3679,7 @@ export function renderAdminPageHtml(): string {
         const perms = [
           u.can_ingest ? '<span class="badge ok">녹음</span>' : '<span class="badge danger">녹음제한</span>',
           u.can_share ? '<span class="badge ok">공유</span>' : '<span class="badge warn">공유제한</span>',
-          u.can_use_server_key ? '<span class="badge neutral">서버AI</span>' : '<span class="badge warn">BYOK전용</span>'
+          u.can_use_server_key ? '<span class="badge neutral">자동분석</span>' : '<span class="badge warn">분석제한</span>'
         ].join(' ');
         const approveBtn = u.status === 'pending'
           ? '<button class="btn btn-primary btn-sm" style="margin-right:6px;" onclick="quickApproveUser(\\'' + u.id + '\\')">승인</button>'

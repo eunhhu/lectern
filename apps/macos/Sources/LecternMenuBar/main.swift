@@ -6,24 +6,24 @@ import Carbon
 // MARK: - Elysium Design System v1.0 Tokens (Official CoolNeutral + #5650FF Dark Theme)
 
 enum Elysium {
-    static let surfaceCanvas = Color(red: 17/255, green: 17/255, blue: 19/255)      // #111113
-    static let surfaceDefault = Color(red: 25/255, green: 24/255, blue: 30/255)     // #19181E
-    static let surfaceElevated = Color(red: 25/255, green: 24/255, blue: 30/255)    // #19181E
-    static let surfaceSubtle = Color(red: 47/255, green: 45/255, blue: 54/255)      // #2F2D36
-    static let surfaceInteractive = Color(red: 61/255, green: 59/255, blue: 70/255) // #3D3B46
+    static let surfaceCanvas = Color(red: 17/255, green: 18/255, blue: 20/255)      // #111214
+    static let surfaceDefault = Color(red: 23/255, green: 24/255, blue: 28/255)     // #17181C
+    static let surfaceElevated = Color(red: 29/255, green: 31/255, blue: 37/255)    // #1D1F25
+    static let surfaceSubtle = Color(red: 33/255, green: 35/255, blue: 41/255)      // #212329
+    static let surfaceInteractive = Color(red: 43/255, green: 46/255, blue: 55/255) // #2B2E37
 
-    static let textPrimary = Color(red: 240/255, green: 239/255, blue: 249/255)     // #F0EFF9
-    static let textSecondary = Color(red: 202/255, green: 203/255, blue: 220/255)   // #CACBDC
-    static let textTertiary = Color(red: 137/255, green: 142/255, blue: 170/255)    // #898EAA
-    static let textBrand = Color(red: 156/255, green: 169/255, blue: 255/255)       // #9CA9FF
+    static let textPrimary = Color(red: 243/255, green: 244/255, blue: 246/255)     // #F3F4F6
+    static let textSecondary = Color(red: 156/255, green: 163/255, blue: 175/255)   // #9CA3AF
+    static let textTertiary = Color(red: 107/255, green: 114/255, blue: 128/255)    // #6B7280
+    static let textBrand = Color(red: 129/255, green: 140/255, blue: 248/255)       // #818CF8
 
-    static let borderSubtle = Color(red: 83/255, green: 87/255, blue: 111/255)      // #53576F
-    static let borderControl = Color(red: 137/255, green: 142/255, blue: 170/255)   // #898EAA
-    static let borderFocus = Color(red: 156/255, green: 169/255, blue: 255/255)     // #9CA9FF
+    static let borderSubtle = Color(red: 37/255, green: 40/255, blue: 48/255)       // #252830
+    static let borderControl = Color(red: 46/255, green: 50/255, blue: 60/255)      // #2E323C
+    static let borderFocus = Color(red: 99/255, green: 102/255, blue: 241/255)      // #6366F1
 
-    static let actionPrimary = Color(red: 86/255, green: 80/255, blue: 255/255)     // #5650FF
-    static let actionPrimaryHover = Color(red: 76/255, green: 54/255, blue: 245/255)// #4C36F5
-    static let actionPrimarySubtle = Color(red: 29/255, green: 22/255, blue: 80/255)// #1D1650
+    static let actionPrimary = Color(red: 79/255, green: 70/255, blue: 229/255)     // #4F46E5
+    static let actionPrimaryHover = Color(red: 99/255, green: 102/255, blue: 241/255)// #6366F1
+    static let actionPrimarySubtle = Color(red: 79/255, green: 70/255, blue: 229/255).opacity(0.18)
 
     static let statusSuccessFg = Color(red: 176/255, green: 244/255, blue: 178/255) // #B0F4B2
     static let statusSuccessBg = Color(red: 5/255, green: 60/255, blue: 1/255)      // #053C01
@@ -1111,7 +1111,7 @@ struct LecternPopoverView: View {
                     Text("Lectern")
                         .font(.system(size: 24, weight: .bold))
                         .foregroundColor(Elysium.textPrimary)
-                    Text("Elysium 1.0")
+                    Text("Workspace")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(Elysium.textBrand)
                         .padding(.horizontal, 10)

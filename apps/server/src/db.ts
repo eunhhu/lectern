@@ -220,6 +220,14 @@ try {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
+    CREATE TABLE IF NOT EXISTS email_verifications (
+      email TEXT NOT NULL,
+      code TEXT NOT NULL,
+      purpose TEXT NOT NULL DEFAULT 'signup',
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (email, purpose)
+    );
   `);
 
   const cols = db.query(`PRAGMA table_info(lectures)`).all() as Array<{ name: string }>;
@@ -689,12 +697,68 @@ export function getUserBySessionOrApiToken(rawToken: string): UserRecord | null 
   return getUserById(row.user_id);
 }
 
+export function createEmailVerificationCode(
+  rawEmail: string,
+  purpose: "signup" | "reset" = "signup",
+  ttlMinutes = 10
+): string {
+  const email = rawEmail.trim().toLowerCase();
+  const num = 100000 + (randomBytes(4).readUInt32BE(0) % 900000);
+  const code = String(num);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + ttlMinutes * 60 * 1000).toISOString();
+  db.query(
+    `INSERT OR REPLACE INTO email_verifications (email, code, purpose, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(email, code, purpose, expiresAt, now.toISOString());
+  return code;
+}
+
+export function verifyEmailVerificationCode(
+  rawEmail: string,
+  rawCode: string,
+  purpose: "signup" | "reset" = "signup",
+  consume = true
+): boolean {
+  const email = rawEmail.trim().toLowerCase();
+  const code = rawCode.trim();
+  if (!email || !code) return false;
+  const row = db
+    .query(
+      `SELECT code, expires_at FROM email_verifications WHERE email = ? AND purpose = ?`
+    )
+    .get(email, purpose) as { code: string; expires_at: string } | null;
+  if (!row) return false;
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    db.query(
+      `DELETE FROM email_verifications WHERE email = ? AND purpose = ?`
+    ).run(email, purpose);
+    return false;
+  }
+  if (row.code !== code) return false;
+  if (consume) {
+    db.query(
+      `DELETE FROM email_verifications WHERE email = ? AND purpose = ?`
+    ).run(email, purpose);
+  }
+  return true;
+}
+
 export function ensureBootstrapOwner(): UserRecord {
-  const ownerEmail = (
-    process.env.LECTERN_OWNER_EMAIL || "owner@lectern.local"
-  )
+  const explicitEmail = (process.env.LECTERN_OWNER_EMAIL || "")
     .trim()
     .toLowerCase();
+  if (!explicitEmail) {
+    const existingOwner = db
+      .query(
+        `SELECT * FROM users WHERE role = 'owner' OR is_admin = 1 ORDER BY created_at ASC LIMIT 1`
+      )
+      .get() as UserRecord | null;
+    if (existingOwner) {
+      return existingOwner;
+    }
+  }
+  const ownerEmail = explicitEmail || "owner@lectern.local";
   const ownerDisplayName = (
     process.env.LECTERN_OWNER_NAME || "Workspace Owner"
   ).trim();

@@ -2,22 +2,24 @@ import { describe, expect, test } from "bun:test";
 import { handleRequest } from "../src/index.ts";
 import {
   completeLectureRecord,
+  createEmailVerificationCode,
   createPendingLecture,
   createUser,
   deleteLectureById,
+  deleteUserAndData,
   ensureBootstrapOwner,
   generateId,
 } from "../src/db.ts";
 
 describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
-  test("GET /api/health returns service status and authRequired: true without leaking private lectureCount", async () => {
+  test("GET /api/health returns service status and authRequired: true without leaking private lectureCount or internal model names", async () => {
     const res = await handleRequest(new Request("http://localhost/api/health"));
     expect(res.status).toBe(200);
     const data: any = await res.json();
     expect(data.status).toBe("ok");
     expect(data.authRequired).toBe(true);
     expect(data.lectureCount).toBeUndefined();
-    expect(data.defaultModel).toBe("gemini-flash-latest");
+    expect(data.defaultModel).toBeUndefined();
     expect(typeof data.gitSha).toBe("string");
   });
 
@@ -149,10 +151,11 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     expect(shareRes.status).toBe(200);
     const shareHtml = await shareRes.text();
     expect(shareHtml).toContain("AES-GCM 인증 암호화");
-    expect(shareHtml).toContain("--elysium-surface-canvas: #F8F6FF");
-    expect(shareHtml).toContain("--elysium-surface-canvas: #111113");
-    expect(shareHtml).toContain("--elysium-action-primary: #5650FF");
+    expect(shareHtml).toContain("--elysium-surface-canvas: #F8F9FA");
+    expect(shareHtml).toContain("--elysium-surface-canvas: #111214");
+    expect(shareHtml).toContain("--elysium-action-primary: #4F46E5");
     expect(shareHtml).toContain("Pretendard Variable");
+    expect(shareHtml).not.toContain("gemini-3.8-flash");
 
     // SSE endpoint (/api/events) requires auth (401 without token, 200 text/event-stream with token)
     const unauthSse = await handleRequest(
@@ -171,19 +174,23 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
       await authSse.body?.cancel();
     } catch {}
 
-    // Main App UI verifies Elysium Design System v1.0 Light & Dark tokens + Auth Gate
+    // Main App UI verifies neutral light/dark palette, subtle borders, Resend email verification UI & Auth Gate
     const appRes = await handleRequest(new Request("http://localhost/"));
     expect(appRes.status).toBe(200);
     const appHtml = await appRes.text();
-    expect(appHtml).toContain("--elysium-surface-canvas: #F8F6FF");
-    expect(appHtml).toContain("--elysium-surface-canvas: #111113");
-    expect(appHtml).toContain("--elysium-action-primary: #5650FF");
+    expect(appHtml).toContain("--elysium-surface-canvas: #F8F9FA");
+    expect(appHtml).toContain("--elysium-surface-canvas: #111214");
+    expect(appHtml).toContain("--elysium-border-control: #DFE3E8");
+    expect(appHtml).toContain("--elysium-action-primary: #4F46E5");
     expect(appHtml).toContain("--elysium-space-48: 48px");
     expect(appHtml).toContain("word-break: keep-all");
     expect(appHtml).toContain("font-variant-numeric: tabular-nums");
     expect(appHtml).toContain("id=\"auth-gate\"");
+    expect(appHtml).toContain("sendEmailVerificationCode");
     expect(appHtml).toContain("lectern_audio_vault_v1");
     expect(appHtml).toContain("retryLectureDistillation");
+    expect(appHtml).not.toContain("gemini-flash-latest");
+    expect(appHtml).not.toContain("BYOK");
 
     // Verify Idempotent Upload Deduplication by Audio SHA-256 / Idempotency Key
     const idemKey = `test_idem_${Date.now()}`;
@@ -232,7 +239,75 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     expect(await mdRes.text()).toContain("# 📚 정보보호개론");
 
     // Cleanup
+    deleteUserAndData(regJson.user.id);
     expect(deleteLectureById(id)).toBe(true);
+  });
+
+  test("Resend 6-digit email verification code signup and password reset flow", async () => {
+    const verifyEmail = `verified_${Date.now()}@test.local`;
+    const code = createEmailVerificationCode(verifyEmail, "signup", 10);
+    expect(code.length).toBe(6);
+
+    // Wrong code rejected
+    const badRegRes = await handleRequest(
+      new Request("http://localhost/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: verifyEmail,
+          displayName: "인증 가입자",
+          password: "verified_pass_123",
+          verificationCode: "000000",
+        }),
+      })
+    );
+    expect(badRegRes.status).toBe(400);
+
+    // Correct code accepted
+    const okRegRes = await handleRequest(
+      new Request("http://localhost/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: verifyEmail,
+          displayName: "인증 가입자",
+          password: "verified_pass_123",
+          verificationCode: code,
+        }),
+      })
+    );
+    expect(okRegRes.status).toBe(201);
+    const okRegJson: any = await okRegRes.json();
+
+    // Password reset via email verification code
+    const resetCode = createEmailVerificationCode(verifyEmail, "reset", 10);
+    const resetRes = await handleRequest(
+      new Request("http://localhost/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: verifyEmail,
+          verificationCode: resetCode,
+          newPassword: "reset_password_789",
+        }),
+      })
+    );
+    expect(resetRes.status).toBe(200);
+
+    // Login with reset password succeeds
+    const loginRes = await handleRequest(
+      new Request("http://localhost/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: verifyEmail,
+          password: "reset_password_789",
+        }),
+      })
+    );
+    expect(loginRes.status).toBe(200);
+
+    deleteUserAndData(okRegJson.user.id);
   });
 
   test("Password change, Admin CRM Console, and RBAC permission management", async () => {
@@ -339,6 +414,9 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     expect(patchUserJson.user.role).toBe("viewer");
     expect(patchUserJson.user.canIngest).toBe(false);
     expect(patchUserJson.user.memo).toBe("열람 전용 테스터");
+
+    deleteUserAndData(memberUser.id);
+    deleteUserAndData(adminOwner.id);
   });
 
   test("POST /api/cd/deploy rejects unauthorized requests", async () => {
