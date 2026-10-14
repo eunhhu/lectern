@@ -3,27 +3,92 @@ import SwiftUI
 import AVFoundation
 import Carbon
 
-// MARK: - Elysium Design System v1.0 Tokens (macOS Native Dark)
+// MARK: - Elysium Design System v1.0 Tokens (Official CoolNeutral + #5650FF Dark Theme)
 
 enum Elysium {
-    static let surfaceCanvas = Color(red: 11/255, green: 13/255, blue: 17/255)      // #0B0D11
-    static let surfaceElevated = Color(red: 20/255, green: 23/255, blue: 29/255)    // #14171D
-    static let surfaceSubtle = Color(red: 28/255, green: 32/255, blue: 40/255)      // #1C2028
-    static let surfaceInteractive = Color(red: 38/255, green: 43/255, blue: 53/255) // #262B35
+    static let surfaceCanvas = Color(red: 17/255, green: 17/255, blue: 19/255)      // #111113
+    static let surfaceDefault = Color(red: 25/255, green: 24/255, blue: 30/255)     // #19181E
+    static let surfaceElevated = Color(red: 25/255, green: 24/255, blue: 30/255)    // #19181E
+    static let surfaceSubtle = Color(red: 47/255, green: 45/255, blue: 54/255)      // #2F2D36
+    static let surfaceInteractive = Color(red: 61/255, green: 59/255, blue: 70/255) // #3D3B46
 
-    static let textPrimary = Color(red: 242/255, green: 244/255, blue: 246/255)     // #F2F4F6
-    static let textSecondary = Color(red: 158/255, green: 166/255, blue: 178/255)   // #9EA6B2
-    static let textTertiary = Color(red: 107/255, green: 118/255, blue: 132/255)    // #6B7684
+    static let textPrimary = Color(red: 240/255, green: 239/255, blue: 249/255)     // #F0EFF9
+    static let textSecondary = Color(red: 202/255, green: 203/255, blue: 220/255)   // #CACBDC
+    static let textTertiary = Color(red: 137/255, green: 142/255, blue: 170/255)    // #898EAA
+    static let textBrand = Color(red: 156/255, green: 169/255, blue: 255/255)       // #9CA9FF
 
-    static let actionPrimary = Color(red: 69/255, green: 147/255, blue: 252/255)    // #4593FC
-    static let actionPrimarySubtle = Color(red: 69/255, green: 147/255, blue: 252/255).opacity(0.14)
+    static let borderSubtle = Color(red: 83/255, green: 87/255, blue: 111/255)      // #53576F
+    static let borderControl = Color(red: 137/255, green: 142/255, blue: 170/255)   // #898EAA
+    static let borderFocus = Color(red: 156/255, green: 169/255, blue: 255/255)     // #9CA9FF
 
-    static let statusSuccessFg = Color(red: 21/255, green: 196/255, blue: 126/255)  // #15C47E
-    static let statusSuccessBg = Color(red: 21/255, green: 196/255, blue: 126/255).opacity(0.14)
-    static let statusWarningFg = Color(red: 255/255, green: 176/255, blue: 32/255)  // #FFB020
-    static let statusWarningBg = Color(red: 255/255, green: 176/255, blue: 32/255).opacity(0.14)
-    static let statusDangerFg = Color(red: 245/255, green: 88/255, blue: 100/255)   // #F55864
-    static let statusDangerBg = Color(red: 245/255, green: 88/255, blue: 100/255).opacity(0.14)
+    static let actionPrimary = Color(red: 86/255, green: 80/255, blue: 255/255)     // #5650FF
+    static let actionPrimaryHover = Color(red: 76/255, green: 54/255, blue: 245/255)// #4C36F5
+    static let actionPrimarySubtle = Color(red: 29/255, green: 22/255, blue: 80/255)// #1D1650
+
+    static let statusSuccessFg = Color(red: 176/255, green: 244/255, blue: 178/255) // #B0F4B2
+    static let statusSuccessBg = Color(red: 5/255, green: 60/255, blue: 1/255)      // #053C01
+    static let statusWarningFg = Color(red: 255/255, green: 221/255, blue: 165/255) // #FFDDA5
+    static let statusWarningBg = Color(red: 71/255, green: 14/255, blue: 0/255)     // #470E00
+    static let statusDangerFg = Color(red: 254/255, green: 202/255, blue: 202/255)  // #FECACA
+    static let statusDangerBg = Color(red: 127/255, green: 29/255, blue: 29/255)    // #7F1D1D
+    static let statusDangerAction = Color(red: 220/255, green: 38/255, blue: 38/255)// #DC2626
+}
+
+struct ElysiumSecondaryButton: View {
+    let title: String
+    var isAccent: Bool = false
+    var isDanger: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(
+                    isDanger ? Elysium.statusDangerFg :
+                    isAccent ? Elysium.statusSuccessFg :
+                    Elysium.textPrimary
+                )
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background(
+                    isDanger ? Elysium.statusDangerBg :
+                    isAccent ? Elysium.statusSuccessBg :
+                    Elysium.surfaceSubtle
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(
+                            isDanger ? Elysium.statusDangerFg.opacity(0.6) :
+                            isAccent ? Elysium.statusSuccessFg.opacity(0.6) :
+                            Elysium.borderSubtle,
+                            lineWidth: 1
+                        )
+                )
+                .cornerRadius(10)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct ElysiumPrimaryButton: View {
+    let title: String
+    var height: CGFloat = 38
+    var isDanger: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .frame(height: height)
+                .background(isDanger ? Elysium.statusDangerAction : Elysium.actionPrimary)
+                .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 // MARK: - Models
@@ -909,15 +974,19 @@ struct NativeMarkdownLineView: View {
     let onSeek: (Double) -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             if let label = block.tsLabel, let sec = block.tsSeconds {
                 Button(action: { onSeek(sec) }) {
                     Text(label)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundColor(Elysium.actionPrimary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundColor(Elysium.textBrand)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
                         .background(Elysium.actionPrimarySubtle)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Elysium.borderSubtle, lineWidth: 1)
+                        )
                         .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
@@ -925,6 +994,7 @@ struct NativeMarkdownLineView: View {
             Text(block.text)
                 .font(font)
                 .foregroundColor(color)
+                .lineSpacing(5)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -935,78 +1005,93 @@ struct NativeMarkdownView: View {
     let onSeek: (Double) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             ForEach(blocks) { block in
                 switch block.kind {
                 case .heading(let level):
                     NativeMarkdownLineView(
                         block: block,
-                        font: level == 1 ? .system(size: 21, weight: .bold) :
-                              level == 2 ? .system(size: 16.5, weight: .bold) :
-                              .system(size: 14, weight: .semibold),
+                        font: level == 1 ? .system(size: 26, weight: .bold) :
+                              level == 2 ? .system(size: 20, weight: .bold) :
+                              .system(size: 16.5, weight: .semibold),
                         color: Elysium.textPrimary,
                         onSeek: onSeek
                     )
-                    .padding(.top, level == 1 ? 4 : 10)
+                    .padding(.top, level == 1 ? 6 : 16)
+                    .padding(.bottom, level == 1 ? 6 : 2)
                 case .filterBadge(let isBreak):
                     Text(block.text)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(isBreak ? Elysium.statusWarningFg : Elysium.statusSuccessFg)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
                         .background(isBreak ? Elysium.statusWarningBg : Elysium.statusSuccessBg)
                         .cornerRadius(999)
                 case .codeBlock:
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(block.text)
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.system(size: 13, design: .monospaced))
                             .foregroundColor(Elysium.textPrimary)
-                            .padding(12)
+                            .padding(16)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Elysium.surfaceElevated)
+                    .background(Elysium.surfaceSubtle)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Elysium.borderSubtle, lineWidth: 1)
+                    )
                     .cornerRadius(12)
                 case .quote:
-                    HStack(spacing: 10) {
+                    HStack(spacing: 14) {
                         Rectangle()
                             .fill(Elysium.actionPrimary)
-                            .frame(width: 3)
+                            .frame(width: 4)
                         NativeMarkdownLineView(
                             block: block,
-                            font: .system(size: 13.5),
+                            font: .system(size: 15),
                             color: Elysium.textPrimary,
                             onSeek: onSeek
                         )
                     }
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 10)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 16)
                     .background(Elysium.actionPrimarySubtle)
-                    .cornerRadius(8)
+                    .cornerRadius(10)
                 case .bullet(let indent):
-                    HStack(alignment: .top, spacing: 6) {
+                    HStack(alignment: .top, spacing: 8) {
                         Text("•")
-                            .foregroundColor(Elysium.textTertiary)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(Elysium.textBrand)
                         NativeMarkdownLineView(
                             block: block,
-                            font: .system(size: 13.5),
-                            color: Elysium.textSecondary,
+                            font: .system(size: 15),
+                            color: Elysium.textPrimary,
                             onSeek: onSeek
                         )
                     }
-                    .padding(.leading, CGFloat(indent * 14))
+                    .padding(.leading, CGFloat(indent * 18))
                 case .paragraph:
                     NativeMarkdownLineView(
                         block: block,
-                        font: .system(size: 13.5),
-                        color: Elysium.textSecondary,
+                        font: .system(size: 15),
+                        color: Elysium.textPrimary,
                         onSeek: onSeek
                     )
                 case .divider:
-                    Divider().padding(.vertical, 6)
+                    Divider()
+                        .background(Elysium.borderSubtle)
+                        .padding(.vertical, 12)
                 }
             }
         }
+        .padding(32)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Elysium.surfaceDefault)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Elysium.borderSubtle, lineWidth: 1)
+        )
+        .cornerRadius(20)
     }
 }
 
@@ -1018,41 +1103,60 @@ struct LecternPopoverView: View {
     var body: some View {
         if !store.isAuthenticated {
             // Elysium Native Login Gate
-            VStack(spacing: 16) {
-                HStack(spacing: 8) {
+            VStack(spacing: 24) {
+                HStack(spacing: 10) {
                     Circle()
                         .fill(Elysium.actionPrimary)
-                        .frame(width: 10, height: 10)
+                        .frame(width: 12, height: 12)
                     Text("Lectern")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.system(size: 24, weight: .bold))
                         .foregroundColor(Elysium.textPrimary)
+                    Text("Elysium 1.0")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Elysium.textBrand)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .background(Elysium.actionPrimarySubtle)
+                        .cornerRadius(999)
                 }
                 Text("내 계정에 로그인하여 개인 강의 녹음과 마크다운 노트를 동기화하세요.")
-                    .font(.system(size: 13))
+                    .font(.system(size: 14))
                     .foregroundColor(Elysium.textSecondary)
                     .multilineTextAlignment(.center)
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 14) {
                     Text("아이디 또는 이메일")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Elysium.textSecondary)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Elysium.textPrimary)
                     TextField("sunwoo 또는 이메일", text: $store.loginEmail)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 300)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14))
+                        .foregroundColor(Elysium.textPrimary)
+                        .padding(.horizontal, 12)
+                        .frame(width: 340, height: 40)
+                        .background(Elysium.surfaceCanvas)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Elysium.borderControl, lineWidth: 1))
+                        .cornerRadius(8)
 
                     Text("비밀번호")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Elysium.textSecondary)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Elysium.textPrimary)
                     SecureField("비밀번호 입력", text: $store.loginPassword)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 300)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14))
+                        .foregroundColor(Elysium.textPrimary)
+                        .padding(.horizontal, 12)
+                        .frame(width: 340, height: 40)
+                        .background(Elysium.surfaceCanvas)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Elysium.borderControl, lineWidth: 1))
+                        .cornerRadius(8)
                         .onSubmit {
                             Task { await store.performLogin() }
                         }
 
                     if let err = store.loginError {
                         Text(err)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(Elysium.statusDangerFg)
                     }
 
@@ -1062,74 +1166,82 @@ struct LecternPopoverView: View {
                         HStack {
                             Spacer()
                             Text(store.isLoggingIn ? "로그인 중..." : "내 워크스페이스 열기")
-                                .font(.system(size: 13.5, weight: .semibold))
+                                .font(.system(size: 15, weight: .semibold))
                             Spacer()
                         }
-                        .padding(.vertical, 8)
+                        .frame(height: 44)
                         .background(Elysium.actionPrimary)
                         .foregroundColor(.white)
-                        .cornerRadius(8)
+                        .cornerRadius(12)
                     }
                     .buttonStyle(.plain)
-                    .frame(width: 300)
+                    .frame(width: 340)
                     .disabled(store.isLoggingIn)
                 }
-                .padding(24)
+                .padding(32)
                 .background(Elysium.surfaceElevated)
-                .cornerRadius(16)
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Elysium.borderSubtle, lineWidth: 1))
+                .cornerRadius(20)
             }
-            .frame(width: 940, height: 640)
+            .frame(width: 1120, height: 740)
             .background(Elysium.surfaceCanvas)
             .preferredColorScheme(.dark)
         } else {
             HStack(spacing: 0) {
-                // Left Sidebar (Elysium Surface Elevated #14171D)
-                VStack(alignment: .leading, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 8) {
+                // Left Sidebar (Elysium Surface Default #19181E, Width 340pt, Padding 20pt)
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Circle()
-                                .fill(store.isRecording ? Elysium.statusDangerFg : Elysium.actionPrimary)
-                                .frame(width: 9, height: 9)
+                                .fill(store.isRecording ? Elysium.statusDangerAction : Elysium.actionPrimary)
+                                .frame(width: 10, height: 10)
                             Text("Lectern")
-                                .font(.system(size: 15, weight: .bold))
+                                .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(Elysium.textPrimary)
                             Spacer()
                             Text("⌥Space")
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(Elysium.textTertiary)
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .foregroundColor(Elysium.textBrand)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Elysium.actionPrimarySubtle)
+                                .cornerRadius(999)
                         }
 
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             TextField("과목명", text: $store.recordCourse)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 12))
-                            Button(action: { store.pickAndUploadAudioFile() }) {
-                                Text("파일")
-                                    .font(.system(size: 11.5, weight: .semibold))
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 13.5))
+                                .foregroundColor(Elysium.textPrimary)
+                                .padding(.horizontal, 12)
+                                .frame(height: 36)
+                                .background(Elysium.surfaceDefault)
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Elysium.borderControl, lineWidth: 1))
+                                .cornerRadius(8)
+                            ElysiumSecondaryButton(title: "파일") {
+                                store.pickAndUploadAudioFile()
                             }
                             .help("오디오 파일 업로드")
-                            Button(action: { store.openLocalVaultFolder() }) {
-                                Text("원본폴더")
-                                    .font(.system(size: 11.5, weight: .semibold))
+                            ElysiumSecondaryButton(title: "보관폴더") {
+                                store.openLocalVaultFolder()
                             }
                             .help("로컬 원본 녹음 보관 폴더 열기 (~/Documents/LecternRecordings)")
                         }
 
                         if !store.pendingUploads.isEmpty {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 8) {
                                 Text("미전송 원본 \(store.pendingUploads.count)건 보호됨")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.system(size: 12, weight: .semibold))
                                     .foregroundColor(Elysium.statusWarningFg)
                                 Spacer()
-                                Button("재업로드") {
+                                ElysiumSecondaryButton(title: "재업로드") {
                                     Task { await store.retryAllPendingUploads() }
                                 }
-                                .font(.system(size: 11, weight: .semibold))
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
                             .background(Elysium.statusWarningBg)
-                            .cornerRadius(6)
+                            .cornerRadius(10)
                         }
 
                         if store.isRecording {
@@ -1138,7 +1250,7 @@ struct LecternPopoverView: View {
                                     RoundedRectangle(cornerRadius: 4)
                                         .fill(Elysium.surfaceInteractive)
                                     RoundedRectangle(cornerRadius: 4)
-                                        .fill(Elysium.statusDangerFg)
+                                        .fill(Elysium.statusDangerAction)
                                         .frame(width: max(8, geo.size.width * CGFloat(store.audioLevel)))
                                 }
                             }
@@ -1149,38 +1261,55 @@ struct LecternPopoverView: View {
                             HStack {
                                 Spacer()
                                 Text(store.isRecording ? "녹음 종료 및 노트 증류 (\(store.elapsedSeconds)s)" : "즉시 강의 녹음 시작")
-                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .font(.system(size: 14, weight: .semibold))
                                 Spacer()
                             }
-                            .padding(.vertical, 7)
-                            .background(store.isRecording ? Elysium.statusDangerFg : Elysium.actionPrimary)
+                            .frame(height: 42)
+                            .background(store.isRecording ? Elysium.statusDangerAction : Elysium.actionPrimary)
                             .foregroundColor(.white)
-                            .cornerRadius(8)
+                            .cornerRadius(12)
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(12)
+                    .padding(16)
                     .background(Elysium.surfaceSubtle)
-                    .cornerRadius(12)
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Elysium.borderSubtle, lineWidth: 1))
+                    .cornerRadius(16)
 
-                    // Search Field
+                    // Search Field (Elysium TextField H38 + Border/Control)
                     TextField("강의 제목, 과목, 키워드 검색...", text: $store.searchQuery)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12.5))
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13.5))
+                        .foregroundColor(Elysium.textPrimary)
+                        .padding(.horizontal, 12)
+                        .frame(height: 38)
+                        .background(Elysium.surfaceCanvas)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Elysium.borderControl, lineWidth: 1))
+                        .cornerRadius(8)
 
-                    // Course Filter Chips
+                    // Course Filter Chips (Elysium Filter Chip H34, Radius 999)
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             ForEach(["ALL"] + store.courses, id: \.self) { course in
                                 let isAct = store.activeCourse == course
                                 Button(action: { store.activeCourse = course }) {
-                                    Text(course == "ALL" ? "전체" : course)
-                                        .font(.system(size: 11.5, weight: .semibold))
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 4)
-                                        .background(isAct ? Elysium.actionPrimarySubtle : Elysium.surfaceSubtle)
-                                        .foregroundColor(isAct ? Elysium.actionPrimary : Elysium.textSecondary)
-                                        .cornerRadius(999)
+                                    HStack(spacing: 4) {
+                                        if isAct {
+                                            Text("✓")
+                                                .font(.system(size: 12, weight: .bold))
+                                        }
+                                        Text(course == "ALL" ? "전체" : course)
+                                            .font(.system(size: 13, weight: .semibold))
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 34)
+                                    .background(isAct ? Elysium.actionPrimarySubtle : Elysium.surfaceDefault)
+                                    .foregroundColor(isAct ? Elysium.textBrand : Elysium.textPrimary)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 999)
+                                            .stroke(isAct ? Elysium.borderFocus : Elysium.borderControl, lineWidth: 1)
+                                    )
+                                    .cornerRadius(999)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -1189,53 +1318,53 @@ struct LecternPopoverView: View {
 
                     // Lecture Cards List (Standard VStack to avoid NSPopover LazyVStack Hang)
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 10) {
                             ForEach(store.filteredLectures) { item in
                                 let selected = store.selectedLecture?.id == item.id
                                 Button(action: {
                                     Task { await store.selectLecture(id: item.id) }
                                 }) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack(spacing: 4) {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(spacing: 6) {
                                             Text(item.course)
-                                                .font(.system(size: 10.5, weight: .semibold))
-                                                .foregroundColor(Elysium.actionPrimary)
-                                                .padding(.horizontal, 7)
-                                                .padding(.vertical, 2)
-                                                .background(Elysium.actionPrimarySubtle)
-                                                .cornerRadius(999)
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundColor(Elysium.textBrand)
                                             Text((item.is_public ?? false) ? "공개" : "비공개")
-                                                .font(.system(size: 10, weight: .semibold))
-                                                .foregroundColor((item.is_public ?? false) ? Elysium.statusSuccessFg : Elysium.textTertiary)
-                                                .padding(.horizontal, 5)
-                                                .padding(.vertical, 1)
-                                                .background((item.is_public ?? false) ? Elysium.statusSuccessBg : Elysium.surfaceCanvas)
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundColor((item.is_public ?? false) ? Elysium.statusSuccessFg : Elysium.textSecondary)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 2)
+                                                .background((item.is_public ?? false) ? Elysium.statusSuccessBg : Elysium.surfaceSubtle)
                                                 .cornerRadius(999)
                                             Spacer()
                                             Text(item.date_label)
-                                                .font(.system(size: 11, design: .monospaced))
-                                                .foregroundColor(Elysium.textTertiary)
+                                                .font(.system(size: 12, design: .monospaced))
+                                                .foregroundColor(Elysium.textSecondary)
                                         }
                                         Text(item.title)
-                                            .font(.system(size: 13, weight: .semibold))
+                                            .font(.system(size: 14.5, weight: .semibold))
                                             .foregroundColor(Elysium.textPrimary)
                                             .lineLimit(1)
                                         if item.status == "processing" {
                                             Text("\(item.stage_message ?? "분석 중...") (\(item.progress ?? 20)%)")
-                                                .font(.system(size: 11.5, weight: .semibold))
-                                                .foregroundColor(Elysium.actionPrimary)
+                                                .font(.system(size: 12.5, weight: .semibold))
+                                                .foregroundColor(Elysium.textBrand)
                                                 .lineLimit(1)
                                         } else {
                                             Text(item.excerpt)
-                                                .font(.system(size: 11.5))
+                                                .font(.system(size: 12.5))
                                                 .foregroundColor(Elysium.textSecondary)
                                                 .lineLimit(2)
                                         }
                                     }
-                                    .padding(10)
+                                    .padding(16)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(selected ? Elysium.actionPrimarySubtle : Elysium.surfaceSubtle)
-                                    .cornerRadius(12)
+                                    .background(selected ? Elysium.actionPrimarySubtle : Elysium.surfaceCanvas)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .stroke(selected ? Elysium.borderFocus : Elysium.borderSubtle, lineWidth: selected ? 1.5 : 1)
+                                    )
+                                    .cornerRadius(14)
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
@@ -1254,88 +1383,92 @@ struct LecternPopoverView: View {
                     }
 
                     // Account Footer
-                    HStack(spacing: 6) {
-                        Text(store.currentUserLabel.isEmpty ? "인증됨" : store.currentUserLabel)
-                            .font(.system(size: 11))
-                            .foregroundColor(Elysium.textSecondary)
-                            .lineLimit(1)
-                        Spacer()
-                        Button("정리") {
-                            Task { await store.cleanupShortAndFailedLectures() }
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text(store.currentUserLabel.isEmpty ? "인증됨" : store.currentUserLabel)
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundColor(Elysium.textPrimary)
+                                .lineLimit(1)
+                            Spacer()
                         }
-                        .font(.system(size: 11))
-                        Button("새로고침") {
-                            Task { await store.fetchLectures() }
+                        HStack(spacing: 8) {
+                            ElysiumSecondaryButton(title: "정리") {
+                                Task { await store.cleanupShortAndFailedLectures() }
+                            }
+                            ElysiumSecondaryButton(title: "새로고침") {
+                                Task { await store.fetchLectures() }
+                            }
+                            ElysiumSecondaryButton(title: "로그아웃") {
+                                store.logout()
+                            }
                         }
-                        .font(.system(size: 11))
-                        Button("로그아웃") {
-                            store.logout()
-                        }
-                        .font(.system(size: 11))
                     }
                     .padding(.top, 4)
                 }
-                .padding(12)
-                .frame(width: 290)
+                .padding(20)
+                .frame(width: 340)
                 .background(Elysium.surfaceElevated)
 
                 Divider()
+                    .background(Elysium.borderSubtle)
 
-                // Right Markdown Reader & Audio Pane (Elysium Surface Canvas #0B0D11)
+                // Right Markdown Reader & Audio Pane (Elysium Surface Canvas #111113)
                 VStack(alignment: .leading, spacing: 0) {
                     if let lec = store.selectedLecture {
-                        // Toolbar
-                        HStack(spacing: 8) {
+                        // Top Navigation / Action Bar
+                        HStack(spacing: 10) {
                             Text(lec.course)
-                                .font(.system(size: 11.5, weight: .semibold))
-                                .foregroundColor(Elysium.actionPrimary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundColor(Elysium.textBrand)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
                                 .background(Elysium.actionPrimarySubtle)
                                 .cornerRadius(999)
                             Text(lec.date_label)
-                                .font(.system(size: 11.5, design: .monospaced))
+                                .font(.system(size: 12.5, design: .monospaced))
                                 .foregroundColor(Elysium.textSecondary)
-                            Text(lec.model_used)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(Elysium.textTertiary)
 
                             Spacer()
 
                             if lec.status == "error" {
-                                Button("원본 재분석") {
+                                ElysiumPrimaryButton(title: "원본 재분석", height: 36) {
                                     Task { await store.retryServerDistillation(id: lec.id) }
                                 }
                             }
-                            Button((lec.is_public ?? false) ? "공개중" : "비공개") {
+                            ElysiumSecondaryButton(
+                                title: (lec.is_public ?? false) ? "✓ 공개중" : "비공개",
+                                isAccent: lec.is_public ?? false
+                            ) {
                                 Task { await store.toggleVisibility() }
                             }
-                            Button(store.isEditing ? "취소" : "편집") {
+                            ElysiumSecondaryButton(title: store.isEditing ? "취소" : "노트 편집") {
                                 if store.isEditing { store.isEditing = false } else { store.beginEditing() }
                             }
-                            Button("MD") { store.exportMarkdownFile() }
-                            Button("PDF") { store.exportPdfFile() }
-                            Button("삭제") {
+                            ElysiumSecondaryButton(title: "MD 저장") { store.exportMarkdownFile() }
+                            ElysiumSecondaryButton(title: "PDF") { store.exportPdfFile() }
+                            ElysiumSecondaryButton(title: "삭제", isDanger: true) {
                                 Task { await store.deleteLecture(id: lec.id) }
                             }
-                            Button("공유 링크") { store.copyShareLink() }
+                            ElysiumPrimaryButton(title: "공유 링크 복사", height: 36) {
+                                store.copyShareLink()
+                            }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 14)
                         .background(Elysium.surfaceElevated)
 
                         Divider()
+                            .background(Elysium.borderSubtle)
 
                         // Audio Player Bar
                         if lec.has_audio {
-                            HStack(spacing: 12) {
-                                Button(action: { store.toggleAudioPlayback() }) {
-                                    Text(store.isPlayingAudio ? "일시정지" : "오디오 재생")
-                                        .font(.system(size: 12, weight: .semibold))
+                            HStack(spacing: 14) {
+                                ElysiumSecondaryButton(title: store.isPlayingAudio ? "일시정지" : "오디오 재생") {
+                                    store.toggleAudioPlayback()
                                 }
                                 Text(String(format: "%02d:%02d", Int(store.currentAudioTime) / 60, Int(store.currentAudioTime) % 60))
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .foregroundColor(Elysium.textSecondary)
+                                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(Elysium.textPrimary)
                                 Spacer()
                                 Picker("배속", selection: Binding(
                                     get: { store.playbackSpeed },
@@ -1347,55 +1480,73 @@ struct LecternPopoverView: View {
                                     Text("2.0x").tag(Float(2.0))
                                 }
                                 .pickerStyle(.segmented)
-                                .frame(width: 190)
+                                .frame(width: 210)
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, 28)
+                            .padding(.vertical, 12)
                             .background(Elysium.surfaceSubtle)
                             Divider()
+                                .background(Elysium.borderSubtle)
                         }
 
                         if let banner = store.statusBanner {
                             Text(banner)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(Elysium.actionPrimary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 6)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(Elysium.textBrand)
+                                .padding(.horizontal, 28)
+                                .padding(.vertical, 10)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Elysium.actionPrimarySubtle)
                         }
 
                         // Reader or Editor
                         if store.isEditing {
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 12) {
                                 TextField("제목", text: $store.editTitle)
-                                    .textFieldStyle(.roundedBorder)
+                                    .textFieldStyle(.plain)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Elysium.textPrimary)
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 38)
+                                    .background(Elysium.surfaceDefault)
+                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Elysium.borderControl, lineWidth: 1))
+                                    .cornerRadius(8)
                                 TextField("과목", text: $store.editCourse)
-                                    .textFieldStyle(.roundedBorder)
+                                    .textFieldStyle(.plain)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Elysium.textPrimary)
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 38)
+                                    .background(Elysium.surfaceDefault)
+                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Elysium.borderControl, lineWidth: 1))
+                                    .cornerRadius(8)
                                 TextEditor(text: $store.editMarkdown)
-                                    .font(.system(size: 13, design: .monospaced))
+                                    .font(.system(size: 14, design: .monospaced))
+                                    .padding(12)
+                                    .background(Elysium.surfaceDefault)
+                                    .cornerRadius(12)
                                 HStack {
                                     Spacer()
-                                    Button("변경사항 저장") {
+                                    ElysiumPrimaryButton(title: "변경사항 저장") {
                                         Task { await store.saveEdits() }
                                     }
-                                    .buttonStyle(.borderedProminent)
                                 }
                             }
-                            .padding(16)
+                            .padding(28)
                         } else {
                             ScrollView {
                                 NativeMarkdownView(blocks: store.parsedBlocks) { sec in
                                     store.seekAudio(to: sec)
                                 }
-                                .padding(20)
+                                .padding(28)
                             }
                         }
                     } else {
                         VStack {
                             Spacer()
                             Text(store.isLoadingLectures ? "강의 노트를 불러오는 중..." : "왼쪽 목록에서 강의 노트를 선택하거나 새 강의를 녹음하세요.")
-                                .foregroundColor(Elysium.textTertiary)
+                                .font(.system(size: 15))
+                                .foregroundColor(Elysium.textSecondary)
                             Spacer()
                         }
                         .frame(maxWidth: .infinity)
@@ -1404,7 +1555,7 @@ struct LecternPopoverView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Elysium.surfaceCanvas)
             }
-            .frame(width: 940, height: 640)
+            .frame(width: 1120, height: 740)
             .preferredColorScheme(.dark)
         }
     }
@@ -1441,7 +1592,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hostVC = NSHostingController(rootView: LecternPopoverView(store: store))
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 940, height: 640)
+        popover.contentSize = NSSize(width: 1120, height: 740)
         popover.behavior = .transient
         popover.contentViewController = hostVC
 

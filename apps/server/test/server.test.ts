@@ -148,8 +148,9 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     expect(shareRes.status).toBe(200);
     const shareHtml = await shareRes.text();
     expect(shareHtml).toContain("AES-GCM 인증 암호화");
-    expect(shareHtml).toContain("--surface-canvas: #0B0D11");
-    expect(shareHtml).toContain("--action-primary: #3182F6");
+    expect(shareHtml).toContain("--elysium-surface-canvas: #F8F6FF");
+    expect(shareHtml).toContain("--elysium-surface-canvas: #111113");
+    expect(shareHtml).toContain("--elysium-action-primary: #5650FF");
     expect(shareHtml).toContain("Pretendard Variable");
 
     // SSE endpoint (/api/events) requires auth (401 without token, 200 text/event-stream with token)
@@ -173,8 +174,10 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     const appRes = await handleRequest(new Request("http://localhost/"));
     expect(appRes.status).toBe(200);
     const appHtml = await appRes.text();
-    expect(appHtml).toContain("--surface-canvas: #F9FAFB");
-    expect(appHtml).toContain("--surface-canvas: #0B0D11");
+    expect(appHtml).toContain("--elysium-surface-canvas: #F8F6FF");
+    expect(appHtml).toContain("--elysium-surface-canvas: #111113");
+    expect(appHtml).toContain("--elysium-action-primary: #5650FF");
+    expect(appHtml).toContain("--elysium-space-48: 48px");
     expect(appHtml).toContain("word-break: keep-all");
     expect(appHtml).toContain("font-variant-numeric: tabular-nums");
     expect(appHtml).toContain("id=\"auth-gate\"");
