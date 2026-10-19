@@ -1,0 +1,732 @@
+import { z } from "zod";
+import {
+  ActionItem,
+  DocumentVersion,
+  EventCandidate,
+  Folder,
+  Job,
+  Recording,
+  Speaker,
+  Tag,
+  Workspace,
+} from "../entities.ts";
+import { UploadId, WorkspaceId } from "../primitives.ts";
+import { HEADER, IdempotencyKey, PageQuery, VersionETag, WorkspaceScopedPageQuery } from "./common.ts";
+import { EventId, ServerEvent } from "./events.ts";
+import * as R from "./resources.ts";
+import {
+  CompleteUploadResponse,
+  CreateUploadRequest,
+  UploadPartReceipt,
+  UploadSession,
+} from "./uploads.ts";
+
+// The /api/v2 route table. openapi.ts turns it into openapi.json, and the
+// server can walk it to mount handlers (or 501 stubs) with the same schemas.
+// Paths use OpenAPI `{param}` syntax and are relative to API_BASE_PATH.
+
+export const API_BASE_PATH = "/api/v2";
+
+export type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
+
+export interface RouteResponse {
+  description: string;
+  /** Must be a published (named) schema unless `contentType` is binary or SSE. */
+  schema?: z.ZodType;
+  contentType?: string;
+  headers?: Record<string, { description: string; schema: z.ZodType }>;
+}
+
+export interface RouteDef {
+  method: HttpMethod;
+  path: string;
+  operationId: string;
+  summary: string;
+  tag: string;
+  params?: z.ZodObject;
+  query?: z.ZodObject;
+  headers?: z.ZodObject;
+  /** A named schema (JSON) or a raw byte body. */
+  body?: { schema: z.ZodType; contentType?: "application/json" } | { contentType: "application/octet-stream" };
+  responses: Record<number, RouteResponse>;
+  /** HTTP statuses this route can answer with ApiError (on top of 401 and 500). */
+  errors?: number[];
+  /** Reachable without a session (default false). */
+  public?: boolean;
+}
+
+const json = (schema: z.ZodType, description: string): RouteResponse => ({ schema, description });
+const noContent: RouteResponse = { description: "Done. No body." };
+const idempotent = z.object({ [HEADER.idempotencyKey]: IdempotencyKey.optional() });
+const etagHeader = { [HEADER.etag]: { description: "Current document version.", schema: VersionETag } };
+
+const WorkspaceQuery = z.object({ workspace_id: WorkspaceId });
+const UploadParams = z.object({ upload_id: UploadId });
+const UploadPartParams = UploadParams.extend({ part: z.coerce.number().int().min(1) });
+
+export const ROUTES: RouteDef[] = [
+  // me ---------------------------------------------------------------------
+  { method: "get", path: "/me", operationId: "getMe", summary: "Current user", tag: "me", responses: { 200: json(R.Me, "The signed-in user.") } },
+  {
+    method: "patch",
+    path: "/me",
+    operationId: "updateMe",
+    summary: "Update profile",
+    tag: "me",
+    body: { schema: R.UpdateMeRequest },
+    responses: { 200: json(R.Me, "Updated user.") },
+    errors: [400],
+  },
+  {
+    method: "get",
+    path: "/me/devices",
+    operationId: "listDevices",
+    summary: "Signed-in devices",
+    tag: "me",
+    query: PageQuery,
+    responses: { 200: json(R.DevicePage, "Devices, most recently seen first.") },
+  },
+  {
+    method: "delete",
+    path: "/me/devices/{device_id}",
+    operationId: "revokeDevice",
+    summary: "Sign a device out",
+    tag: "me",
+    params: R.DeviceParams,
+    responses: { 204: noContent },
+    errors: [404],
+  },
+  {
+    method: "get",
+    path: "/me/tokens",
+    operationId: "listAccessTokens",
+    summary: "Personal access tokens",
+    tag: "me",
+    query: PageQuery,
+    responses: { 200: json(R.AccessTokenPage, "Tokens without secrets.") },
+  },
+  {
+    method: "post",
+    path: "/me/tokens",
+    operationId: "createAccessToken",
+    summary: "Create a personal access token",
+    tag: "me",
+    body: { schema: R.CreateAccessTokenRequest },
+    responses: { 201: json(R.CreatedAccessToken, "The token and its one-time secret.") },
+    errors: [400, 403],
+  },
+  {
+    method: "delete",
+    path: "/me/tokens/{token_id}",
+    operationId: "revokeAccessToken",
+    summary: "Revoke a personal access token",
+    tag: "me",
+    params: R.AccessTokenParams,
+    responses: { 204: noContent },
+    errors: [404],
+  },
+
+  // workspaces ---------------------------------------------------------------
+  {
+    method: "get",
+    path: "/workspaces",
+    operationId: "listWorkspaces",
+    summary: "Workspaces I belong to",
+    tag: "workspaces",
+    query: PageQuery,
+    responses: { 200: json(R.MyWorkspacePage, "Workspaces with my role.") },
+  },
+  {
+    method: "post",
+    path: "/workspaces",
+    operationId: "createWorkspace",
+    summary: "Create a team workspace",
+    tag: "workspaces",
+    body: { schema: R.CreateWorkspaceRequest },
+    responses: { 201: json(Workspace, "The new workspace.") },
+    errors: [400, 403],
+  },
+  {
+    method: "get",
+    path: "/workspaces/{workspace_id}",
+    operationId: "getWorkspace",
+    summary: "Get a workspace",
+    tag: "workspaces",
+    params: R.WorkspaceParams,
+    responses: { 200: json(Workspace, "The workspace.") },
+    errors: [403, 404],
+  },
+  {
+    method: "patch",
+    path: "/workspaces/{workspace_id}",
+    operationId: "updateWorkspace",
+    summary: "Rename or configure a workspace",
+    tag: "workspaces",
+    params: R.WorkspaceParams,
+    body: { schema: R.UpdateWorkspaceRequest },
+    responses: { 200: json(Workspace, "Updated workspace.") },
+    errors: [400, 403, 404],
+  },
+  {
+    method: "get",
+    path: "/workspaces/{workspace_id}/members",
+    operationId: "listWorkspaceMembers",
+    summary: "Workspace members",
+    tag: "workspaces",
+    params: R.WorkspaceParams,
+    query: PageQuery,
+    responses: { 200: json(R.WorkspaceMemberPage, "Members and roles.") },
+    errors: [403, 404],
+  },
+
+  // folders ------------------------------------------------------------------
+  {
+    method: "get",
+    path: "/folders",
+    operationId: "listFolders",
+    summary: "Folders of a workspace",
+    tag: "folders",
+    query: WorkspaceScopedPageQuery,
+    responses: { 200: json(R.FolderPage, "Folders (flat; build the tree from `parent_id`).") },
+    errors: [403],
+  },
+  {
+    method: "post",
+    path: "/folders",
+    operationId: "createFolder",
+    summary: "Create a folder",
+    tag: "folders",
+    body: { schema: R.CreateFolderRequest },
+    responses: { 201: json(Folder, "The new folder.") },
+    errors: [400, 403, 409],
+  },
+  {
+    method: "patch",
+    path: "/folders/{folder_id}",
+    operationId: "updateFolder",
+    summary: "Rename, move or reorder a folder",
+    tag: "folders",
+    params: R.FolderParams,
+    body: { schema: R.UpdateFolderRequest },
+    responses: { 200: json(Folder, "Updated folder.") },
+    errors: [400, 403, 404, 409],
+  },
+  {
+    method: "delete",
+    path: "/folders/{folder_id}",
+    operationId: "deleteFolder",
+    summary: "Delete a folder (recordings move to the parent)",
+    tag: "folders",
+    params: R.FolderParams,
+    responses: { 204: noContent },
+    errors: [403, 404],
+  },
+
+  // tags ---------------------------------------------------------------------
+  {
+    method: "get",
+    path: "/tags",
+    operationId: "listTags",
+    summary: "Tags of a workspace",
+    tag: "tags",
+    query: WorkspaceScopedPageQuery,
+    responses: { 200: json(R.TagPage, "Tags.") },
+    errors: [403],
+  },
+  {
+    method: "post",
+    path: "/tags",
+    operationId: "createTag",
+    summary: "Create a tag",
+    tag: "tags",
+    body: { schema: R.CreateTagRequest },
+    responses: { 201: json(Tag, "The new tag.") },
+    errors: [400, 403, 409],
+  },
+  {
+    method: "patch",
+    path: "/tags/{tag_id}",
+    operationId: "updateTag",
+    summary: "Rename or recolour a tag",
+    tag: "tags",
+    params: R.TagParams,
+    body: { schema: R.UpdateTagRequest },
+    responses: { 200: json(Tag, "Updated tag.") },
+    errors: [400, 403, 404, 409],
+  },
+  {
+    method: "delete",
+    path: "/tags/{tag_id}",
+    operationId: "deleteTag",
+    summary: "Delete a tag",
+    tag: "tags",
+    params: R.TagParams,
+    responses: { 204: noContent },
+    errors: [403, 404],
+  },
+
+  // uploads ------------------------------------------------------------------
+  {
+    method: "post",
+    path: "/uploads",
+    operationId: "createUpload",
+    summary: "Start a resumable upload",
+    tag: "uploads",
+    headers: idempotent,
+    body: { schema: CreateUploadRequest },
+    responses: { 201: json(UploadSession, "The session and its part plan.") },
+    errors: [400, 403, 409, 413, 415, 429],
+  },
+  {
+    method: "get",
+    path: "/uploads/{upload_id}",
+    operationId: "getUpload",
+    summary: "Upload state (which parts arrived)",
+    tag: "uploads",
+    params: UploadParams,
+    responses: { 200: json(UploadSession, "The session.") },
+    errors: [403, 404],
+  },
+  {
+    method: "put",
+    path: "/uploads/{upload_id}/parts/{part}",
+    operationId: "putUploadPart",
+    summary: "Upload one part (idempotent)",
+    tag: "uploads",
+    params: UploadPartParams,
+    body: { contentType: "application/octet-stream" },
+    responses: { 200: json(UploadPartReceipt, "The part is stored.") },
+    errors: [400, 403, 404, 409, 413],
+  },
+  {
+    method: "post",
+    path: "/uploads/{upload_id}/complete",
+    operationId: "completeUpload",
+    summary: "Finish an upload and start processing",
+    tag: "uploads",
+    params: UploadParams,
+    headers: idempotent,
+    responses: { 200: json(CompleteUploadResponse, "The recording and its processing job.") },
+    errors: [400, 403, 404, 409, 429],
+  },
+  {
+    method: "delete",
+    path: "/uploads/{upload_id}",
+    operationId: "abortUpload",
+    summary: "Abort an upload and drop its parts",
+    tag: "uploads",
+    params: UploadParams,
+    responses: { 204: noContent },
+    errors: [403, 404, 409],
+  },
+
+  // recordings -----------------------------------------------------------------
+  {
+    method: "get",
+    path: "/recordings",
+    operationId: "listRecordings",
+    summary: "Recordings of a workspace, newest first",
+    tag: "recordings",
+    query: R.ListRecordingsQuery,
+    responses: { 200: json(R.RecordingPage, "A page of recordings.") },
+    errors: [400, 403],
+  },
+  {
+    method: "get",
+    path: "/recordings/{recording_id}",
+    operationId: "getRecording",
+    summary: "A recording with its assets, speakers and documents",
+    tag: "recordings",
+    params: R.RecordingParams,
+    responses: { 200: json(R.RecordingDetail, "The recording.") },
+    errors: [403, 404],
+  },
+  {
+    method: "patch",
+    path: "/recordings/{recording_id}",
+    operationId: "updateRecording",
+    summary: "Edit, move or retag a recording",
+    tag: "recordings",
+    params: R.RecordingParams,
+    body: { schema: R.UpdateRecordingRequest },
+    responses: { 200: json(Recording, "Updated recording.") },
+    errors: [400, 403, 404],
+  },
+  {
+    method: "delete",
+    path: "/recordings/{recording_id}",
+    operationId: "deleteRecording",
+    summary: "Delete a recording",
+    tag: "recordings",
+    params: R.RecordingParams,
+    responses: { 204: noContent },
+    errors: [403, 404],
+  },
+  {
+    method: "get",
+    path: "/recordings/{recording_id}/transcript",
+    operationId: "getTranscript",
+    summary: "Full transcript",
+    tag: "recordings",
+    params: R.RecordingParams,
+    responses: { 200: json(R.Transcript, "Segments, speakers and gaps.") },
+    errors: [403, 404],
+  },
+  {
+    method: "patch",
+    path: "/recordings/{recording_id}/speakers/{speaker_id}",
+    operationId: "updateSpeaker",
+    summary: "Name a speaker",
+    tag: "recordings",
+    params: R.SpeakerParams,
+    body: { schema: R.UpdateSpeakerRequest },
+    responses: { 200: json(Speaker, "Updated speaker.") },
+    errors: [400, 403, 404],
+  },
+  {
+    method: "get",
+    path: "/recordings/{recording_id}/documents",
+    operationId: "listRecordingDocuments",
+    summary: "Documents of a recording",
+    tag: "documents",
+    params: R.RecordingParams,
+    query: PageQuery,
+    responses: { 200: json(R.DocumentPage, "Documents.") },
+    errors: [403, 404],
+  },
+  {
+    method: "get",
+    path: "/recordings/{recording_id}/questions",
+    operationId: "listRecordingQuestions",
+    summary: "Questions of a recording",
+    tag: "recordings",
+    params: R.RecordingParams,
+    query: R.ListQuestionsQuery,
+    responses: { 200: json(R.QuestionPage, "Questions.") },
+    errors: [403, 404],
+  },
+  {
+    method: "get",
+    path: "/recordings/{recording_id}/events",
+    operationId: "listRecordingEvents",
+    summary: "Event candidates of a recording",
+    tag: "recordings",
+    params: R.RecordingParams,
+    query: PageQuery,
+    responses: { 200: json(R.EventCandidatePage, "Event candidates in every status.") },
+    errors: [403, 404],
+  },
+  {
+    method: "get",
+    path: "/recordings/{recording_id}/action-items",
+    operationId: "listRecordingActionItems",
+    summary: "Action items of a recording",
+    tag: "recordings",
+    params: R.RecordingParams,
+    query: PageQuery,
+    responses: { 200: json(R.ActionItemPage, "Action items.") },
+    errors: [403, 404],
+  },
+  {
+    method: "post",
+    path: "/recordings/{recording_id}/reprocess",
+    operationId: "reprocessRecording",
+    summary: "Regenerate the document or reprocess everything",
+    tag: "recordings",
+    params: R.RecordingParams,
+    headers: idempotent,
+    body: { schema: R.ReprocessRequest },
+    responses: {
+      200: json(R.ReprocessResponse, "Dry run: the estimate only."),
+      202: json(R.ReprocessResponse, "The job was queued."),
+    },
+    errors: [400, 403, 404, 409, 429],
+  },
+
+  // assets -------------------------------------------------------------------
+  {
+    method: "get",
+    path: "/assets/{asset_id}/content",
+    operationId: "getAssetContent",
+    summary: "Asset bytes (supports Range)",
+    tag: "recordings",
+    params: R.AssetParams,
+    responses: {
+      200: { description: "The whole file.", contentType: "application/octet-stream" },
+      206: { description: "The requested range.", contentType: "application/octet-stream" },
+    },
+    errors: [403, 404, 416],
+  },
+
+  // documents ------------------------------------------------------------------
+  {
+    method: "get",
+    path: "/documents/{document_id}",
+    operationId: "getDocument",
+    summary: "A document with its current version",
+    tag: "documents",
+    params: R.DocumentParams,
+    responses: { 200: { ...json(R.DocumentWithVersion, "The document."), headers: etagHeader } },
+    errors: [403, 404],
+  },
+  {
+    method: "get",
+    path: "/documents/{document_id}/versions",
+    operationId: "listDocumentVersions",
+    summary: "Version history",
+    tag: "documents",
+    params: R.DocumentParams,
+    query: PageQuery,
+    responses: { 200: json(R.DocumentVersionPage, "Versions, newest first, without bodies.") },
+    errors: [403, 404],
+  },
+  {
+    method: "get",
+    path: "/documents/{document_id}/versions/{version}",
+    operationId: "getDocumentVersion",
+    summary: "One version",
+    tag: "documents",
+    params: R.DocumentVersionParams,
+    responses: { 200: json(DocumentVersion, "The version.") },
+    errors: [403, 404],
+  },
+  {
+    method: "post",
+    path: "/documents/{document_id}/versions",
+    operationId: "createDocumentVersion",
+    summary: "Save a user edit as a new version",
+    tag: "documents",
+    params: R.DocumentParams,
+    headers: z.object({ [HEADER.ifMatch]: VersionETag }),
+    body: { schema: R.CreateDocumentVersionRequest },
+    responses: { 201: { ...json(DocumentVersion, "The new version."), headers: etagHeader } },
+    errors: [400, 403, 404, 412, 428],
+  },
+
+  // action items ---------------------------------------------------------------
+  {
+    method: "patch",
+    path: "/action-items/{action_item_id}",
+    operationId: "updateActionItem",
+    summary: "Edit or complete an action item",
+    tag: "recordings",
+    params: R.ActionItemParams,
+    body: { schema: R.UpdateActionItemRequest },
+    responses: { 200: json(ActionItem, "Updated action item.") },
+    errors: [400, 403, 404],
+  },
+
+  // jobs -----------------------------------------------------------------------
+  {
+    method: "get",
+    path: "/jobs/{job_id}",
+    operationId: "getJob",
+    summary: "A processing job",
+    tag: "jobs",
+    params: R.JobParams,
+    responses: { 200: json(Job, "The job.") },
+    errors: [403, 404],
+  },
+  {
+    method: "post",
+    path: "/jobs/{job_id}/cancel",
+    operationId: "cancelJob",
+    summary: "Cancel a queued or running job",
+    tag: "jobs",
+    params: R.JobParams,
+    responses: { 200: json(Job, "The job, now canceled.") },
+    errors: [403, 404, 409],
+  },
+
+  // search ---------------------------------------------------------------------
+  {
+    method: "get",
+    path: "/search",
+    operationId: "search",
+    summary: "Full-text search over transcripts, documents and PDF pages",
+    tag: "search",
+    query: R.SearchQuery,
+    responses: { 200: json(R.SearchHitPage, "Hits, best first.") },
+    errors: [400, 403],
+  },
+
+  // calendar -------------------------------------------------------------------
+  {
+    method: "get",
+    path: "/calendar/suggestions",
+    operationId: "listCalendarSuggestions",
+    summary: "Event suggestion inbox",
+    tag: "calendar",
+    query: R.ListCalendarSuggestionsQuery,
+    responses: { 200: json(R.EventCandidatePage, "Event candidates.") },
+    errors: [400, 403],
+  },
+  {
+    method: "patch",
+    path: "/calendar/suggestions/{event_candidate_id}",
+    operationId: "updateCalendarSuggestion",
+    summary: "Edit, accept or dismiss a suggestion",
+    tag: "calendar",
+    params: R.EventCandidateParams,
+    body: { schema: R.UpdateEventCandidateRequest },
+    responses: { 200: json(EventCandidate, "Updated candidate.") },
+    errors: [400, 403, 404, 409],
+  },
+  {
+    method: "post",
+    path: "/calendar/suggestions/batch",
+    operationId: "batchCalendarSuggestions",
+    summary: "Accept or dismiss many suggestions",
+    tag: "calendar",
+    headers: idempotent,
+    body: { schema: R.BatchEventCandidatesRequest },
+    responses: { 200: json(R.EventCandidateList, "The updated candidates.") },
+    errors: [400, 403, 404],
+  },
+
+  // integrations -------------------------------------------------------------
+  {
+    method: "get",
+    path: "/integrations",
+    operationId: "listIntegrations",
+    summary: "Connected accounts",
+    tag: "integrations",
+    query: WorkspaceScopedPageQuery,
+    responses: { 200: json(R.IntegrationPage, "Integrations.") },
+    errors: [403],
+  },
+  {
+    method: "post",
+    path: "/integrations/google",
+    operationId: "startGoogleIntegration",
+    summary: "Start Google Calendar consent",
+    tag: "integrations",
+    body: { schema: R.StartGoogleIntegrationRequest },
+    responses: { 200: json(R.StartGoogleIntegrationResponse, "Where to send the browser.") },
+    errors: [400, 403],
+  },
+  {
+    method: "delete",
+    path: "/integrations/{integration_id}",
+    operationId: "disconnectIntegration",
+    summary: "Disconnect and revoke tokens",
+    tag: "integrations",
+    params: R.IntegrationParams,
+    responses: { 204: noContent },
+    errors: [403, 404],
+  },
+
+  // share links ----------------------------------------------------------------
+  {
+    method: "get",
+    path: "/share-links",
+    operationId: "listShareLinks",
+    summary: "Share links of a workspace",
+    tag: "share-links",
+    query: R.ListShareLinksQuery,
+    responses: { 200: json(R.ShareLinkPage, "Share links.") },
+    errors: [400, 403],
+  },
+  {
+    method: "post",
+    path: "/share-links",
+    operationId: "createShareLink",
+    summary: "Create a share link",
+    tag: "share-links",
+    body: { schema: R.CreateShareLinkRequest },
+    responses: { 201: json(R.CreatedShareLink, "The link and its one-time URL.") },
+    errors: [400, 403, 404],
+  },
+  {
+    method: "patch",
+    path: "/share-links/{share_link_id}",
+    operationId: "updateShareLink",
+    summary: "Change scope, expiry or password",
+    tag: "share-links",
+    params: R.ShareLinkParams,
+    body: { schema: R.UpdateShareLinkRequest },
+    responses: { 200: json(R.ShareLinkDto, "Updated link.") },
+    errors: [400, 403, 404],
+  },
+  {
+    method: "delete",
+    path: "/share-links/{share_link_id}",
+    operationId: "revokeShareLink",
+    summary: "Revoke a share link",
+    tag: "share-links",
+    params: R.ShareLinkParams,
+    responses: { 204: noContent },
+    errors: [403, 404],
+  },
+
+  // events (SSE) -------------------------------------------------------------
+  {
+    method: "get",
+    path: "/events",
+    operationId: "streamEvents",
+    summary: "Server-sent events for a workspace",
+    tag: "events",
+    query: WorkspaceQuery,
+    headers: z.object({ [HEADER.lastEventId]: EventId.optional() }),
+    responses: {
+      200: {
+        description: "An SSE stream. Each `data:` line is one ServerEvent; `id:` is its `id`, `event:` its `type`.",
+        contentType: "text/event-stream",
+        schema: ServerEvent,
+      },
+    },
+    errors: [403],
+  },
+
+  // admin ----------------------------------------------------------------------
+  {
+    method: "get",
+    path: "/admin/jobs",
+    operationId: "adminListJobs",
+    summary: "Jobs across workspaces",
+    tag: "admin",
+    query: R.AdminListJobsQuery,
+    responses: { 200: json(R.JobPage, "Jobs, newest first.") },
+    errors: [400, 403],
+  },
+  {
+    method: "get",
+    path: "/admin/jobs/{job_id}",
+    operationId: "adminGetJob",
+    summary: "Job with stage timeline and model calls",
+    tag: "admin",
+    params: R.JobParams,
+    responses: { 200: json(R.JobDetail, "The job.") },
+    errors: [403, 404],
+  },
+  {
+    method: "post",
+    path: "/admin/jobs/{job_id}/retry",
+    operationId: "adminRetryJob",
+    summary: "Retry a failed job from its failed stage",
+    tag: "admin",
+    params: R.JobParams,
+    responses: { 200: json(Job, "The job, queued again.") },
+    errors: [403, 404, 409],
+  },
+  {
+    method: "get",
+    path: "/admin/usage",
+    operationId: "adminListUsage",
+    summary: "Usage per workspace and month",
+    tag: "admin",
+    query: R.AdminUsageQuery,
+    responses: { 200: json(R.UsageLedgerPage, "Usage rows.") },
+    errors: [400, 403],
+  },
+];
+
+/** `/recordings/{recording_id}` -> `/recordings/:recording_id` (Hono). */
+export function toHonoPath(path: string): string {
+  return path.replace(/\{([a-z_]+)\}/g, ":$1");
+}
+
+/** For tests and stubs: every response schema keyed by operationId. */
+export const ROUTES_BY_OPERATION: Record<string, RouteDef> = Object.fromEntries(
+  ROUTES.map((route) => [route.operationId, route]),
+);
