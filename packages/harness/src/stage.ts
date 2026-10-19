@@ -70,8 +70,8 @@ export interface StageContext {
   putArtifactFile(kind: string, path: string): Promise<ArtifactRef>;
   /**
    * Runs one provider call and records it in the cost ledger (`ai_call`). Every model call
-   * a stage makes goes through here. `model` is the pinned id the call asks for (prices
-   * are looked up by it); the result's `model` is the version the provider served.
+   * a stage makes goes through here. `model` is the pinned id the call asks for; it is
+   * what `ai_call.model` holds and what prices are looked up by.
    */
   meter<T extends ProviderCallResult>(meta: { provider: string; model: string }, call: () => Promise<T>): Promise<T>;
 }

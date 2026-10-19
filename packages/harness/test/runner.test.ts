@@ -276,7 +276,7 @@ describe("retries and failure classes (§4.5)", () => {
       .job({ jobId: env.job("j2"), scope: "ws" })
       .run(neverValid, null)
       .catch((e) => e);
-    expect(failure.kind).toBe("output");
+    expect(failure.kind).toBe("output_validation");
     expect(rows(env.db, `SELECT attempts, state FROM stage_run WHERE stage = 'structure_bad'`)).toEqual([
       { attempts: 2, state: "failed" },
     ]);

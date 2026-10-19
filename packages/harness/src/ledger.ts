@@ -52,10 +52,12 @@ export interface AiCallInput {
   stageRunId?: string | null;
   workspaceId?: string | null;
   provider: string;
-  /** The pinned model id the call asked for; prices are looked up by it. */
+  /**
+   * The pinned model id the call asked for: stored in `ai_call.model` (as @lectern/domain
+   * AiCall.model defines it) and used for the price. The version the provider reports has
+   * no column yet (domain AiCall.model_version).
+   */
   model: string;
-  /** The version the provider reported serving; stored in `ai_call.model` when present. */
-  modelVersion?: string | null;
   usage: Usage;
   latencyMs: number;
   status: "ok" | "error";
@@ -91,7 +93,7 @@ export function recordAiCall(
       call.jobId ?? null,
       call.stageRunId ?? null,
       call.provider,
-      call.modelVersion || call.model,
+      call.model,
       Math.max(0, Math.round(call.usage.inputTokens)),
       Math.max(0, Math.round(call.usage.cachedTokens)),
       Math.max(0, Math.round(call.usage.outputTokens)),

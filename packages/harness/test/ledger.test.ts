@@ -65,7 +65,6 @@ describe("ai_call ledger", () => {
         stageRunId: "sr_1",
         provider: "gemini",
         model: "gemini-3.8-flash",
-        modelVersion: "gemini-3.8-flash-001",
         usage: { inputTokens: 1000, cachedTokens: 200, outputTokens: 500, audioSeconds: 61.6 },
         latencyMs: 1234.4,
         status: "ok",
@@ -81,7 +80,7 @@ describe("ai_call ledger", () => {
         job_id: "j",
         stage_run_id: "sr_1",
         provider: "gemini",
-        model: "gemini-3.8-flash-001",
+        model: "gemini-3.8-flash",
         input_tokens: 1000,
         cached_tokens: 200,
         output_tokens: 500,
@@ -151,7 +150,7 @@ describe("ai_call ledger", () => {
       {
         stage_run_id: res.stageRunId,
         status: "ok",
-        model: "gemini-3.8-flash-001",
+        model: "gemini-3.8-flash",
         input_tokens: 2000,
         output_tokens: 100,
         cost_microusd: 1875, // 2000 × 0.75 + 100 × 3.75

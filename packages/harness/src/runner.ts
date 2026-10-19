@@ -208,7 +208,7 @@ export class JobRun {
           });
           return result;
         }
-        error = new HarnessError("output", `${stage.name} output failed validation: ${parsed.error.message}`, {
+        error = new HarnessError("output_validation", `${stage.name} output failed validation: ${parsed.error.message}`, {
           cause: parsed.error,
         });
       } catch (err) {
@@ -218,7 +218,7 @@ export class JobRun {
       let delayMs: number | null = null;
       if (error.kind === "transient" && ++transientFailures < policy.maxAttempts) {
         delayMs = Math.min(policy.maxDelayMs, Math.max(policy.backoffMs(attempt + 1), error.retryAfterMs ?? 0));
-      } else if (error.kind === "output" && repairs < policy.repairs) {
+      } else if (error.kind === "output_validation" && repairs < policy.repairs) {
         repairs++;
         repair = { issues: error.message };
         delayMs = 0;
@@ -552,7 +552,6 @@ class Context implements StageContext {
           workspaceId: this.job.workspaceId,
           provider: meta.provider,
           model: meta.model,
-          modelVersion: result.model,
           usage: result.usage,
           latencyMs,
           status,

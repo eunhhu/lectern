@@ -81,7 +81,7 @@ describe("legacy_distill stage", () => {
     expect(rows(env.db, `SELECT provider, model, input_tokens, output_tokens, audio_seconds, cost_microusd, latency_ms, request_id, status FROM ai_call`)).toEqual([
       {
         provider: "gemini",
-        model: "gemini-3.8-flash-001",
+        model: "gemini-3.8-flash", // the pinned id requested (domain AiCall.model)
         input_tokens: 58_000,
         output_tokens: 6500,
         audio_seconds: 1800,
