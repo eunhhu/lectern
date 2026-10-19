@@ -53,7 +53,7 @@ map.cuts.map(formatGapMarker); // ["[쉬는 시간: 50:12~1:02:40]", "[종료 �
 
 ## ffmpeg 요구 사항
 
-ffmpeg·ffprobe 5.0 이상이 PATH에 있어야 한다. `alimiter`의 `latency` 옵션을 쓰기 때문이다. 확인: `ffmpeg -h filter=alimiter | grep latency`. 옵션이 없는 ffmpeg에서는 정규화가 실패한다(시간이 조용히 밀리지 않는다).
+ffmpeg·ffprobe 5.1 이상이 PATH에 있어야 한다. `alimiter`의 `latency` 옵션을 쓰기 때문이다. 확인: `ffmpeg -h filter=alimiter | grep latency`. 옵션이 없는 ffmpeg에서는 정규화가 실패한다(시간이 조용히 밀리지 않는다).
 
 ## 테스트
 

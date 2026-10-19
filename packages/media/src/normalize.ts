@@ -75,7 +75,7 @@ export async function normalizeAudio(input: string, outPath: string, options: No
   const gain = loudnessGainDb(integrated, opts.targetLufs, opts.maxGainDb);
   const limit = Math.min(1, Math.max(0.0625, 10 ** (opts.limitDb / 20))).toFixed(4);
   // latency=1 compensates the limiter's lookahead, so output time equals input time. An ffmpeg
-  // without the option (older than 5.0) rejects the graph rather than shifting timestamps.
+  // without the option (older than 5.1) rejects the graph rather than shifting timestamps.
   const chain = `${MONO_16K},volume=${gain}dB,alimiter=limit=${limit}:level=0:latency=1`;
   const output = (path: string, encoding: AudioEncoding) => [
     "-map", "0:a:0", "-map_metadata", "-1", "-af", chain, ...encodingArgs(encoding), path,
