@@ -98,7 +98,7 @@ describe("fixture data set", () => {
     for (const v of data.versions) {
       if (!v.body) {
         // legacy-markdown: Markdown alone, cited by its [MM:SS] marks.
-        expect(v.template_id).toBe("legacy-markdown");
+        expect(String(v.template_id)).toBe("legacy-markdown");
         expect(v.rendered_md).toMatch(/\[\d{1,2}:\d{2}\]/);
         continue;
       }

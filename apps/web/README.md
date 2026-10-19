@@ -1,6 +1,11 @@
 # apps/web — Lectern 웹 앱 (P2 셸)
 
-v2 웹 앱이다([ARCHITECTURE §7](../../docs/v2/ARCHITECTURE.md#7-웹-앱-appsweb), [ROADMAP P2](../../docs/v2/ROADMAP.md#p2--데이터-모델-v2--웹-셸)). 백엔드 API v2가 아직 없으므로 **합성 픽스처 데이터로 동작하는 화면 셸**이다. 데이터 계층은 `@lectern/domain`의 `/api/v2` DTO로 타입을 정한 `ApiClient` 인터페이스 하나로 모여 있어서, 실제 API가 생기면 모듈 하나(`src/api/index.ts`)만 바꾸면 된다.
+v2 웹 앱이다([ARCHITECTURE §7](../../docs/v2/ARCHITECTURE.md#7-웹-앱-appsweb), [ROADMAP P2](../../docs/v2/ROADMAP.md#p2--데이터-모델-v2--웹-셸)). 데이터 계층은 `@lectern/domain`의 `/api/v2` DTO로 타입을 정한 `ApiClient` 인터페이스 하나로 모여 있고, 구현이 둘이다.
+
+- **HTTP**(`src/api/http`, 운영 빌드): 실제 `/api/v2`에 같은 오리진으로 붙는다. 로그인은 기존 쿠키 인증(`/api/auth/*`, HttpOnly `lectern_session`)이다.
+- **픽스처**(`src/api/fixture`, `web:dev`·단위 테스트·픽스처 e2e): 브라우저 메모리의 합성 데이터.
+
+어느 쪽을 쓸지는 빌드 때 정한다(`scripts/build.ts --api http|fixture`). 아래 "API v2 연결"에 엔드포인트마다의 상태가 있다.
 
 스택(결정 D2): React 19, TypeScript strict, React Aria Components, TanStack Router·Query·Virtual, CSS Modules와 `@lectern/design-tokens` CSS 변수, Bun 번들러. 의존성은 정확한 버전으로 고정했고 모두 나온 지 2주 넘은 버전이다(lockfile은 `bun install --minimum-release-age=1209600`으로 만들었다).
 
@@ -11,14 +16,15 @@ bun run web:dev
 ```
 
 - `http://127.0.0.1:4173/app/`에서 열린다(포트는 `bun run web:dev -- --port 5000`처럼 바꾼다). `src/`가 바뀌면 다시 빌드하고, 새로 고침하면 반영된다. 라이브 리로드 스크립트는 CSP 때문에 넣지 않았다.
-- 미리보기 서버(`scripts/serve.ts`)는 API 서버를 띄우지 않는다. DB, 업로드 디렉터리, `HOME`의 파일을 읽지 않으며 데이터는 브라우저 메모리의 픽스처뿐이다. 새로 고침하면 처음 상태로 돌아간다.
+- `web:dev`는 픽스처 빌드다. 미리보기 서버(`scripts/serve.ts`)는 API 서버를 띄우지 않는다. DB, 업로드 디렉터리, `HOME`의 파일을 읽지 않으며 데이터는 브라우저 메모리의 픽스처뿐이다. 새로 고침하면 처음 상태로 돌아간다. 로그인한 상태로 열리고, 로그아웃하면 예시 사용자의 이메일(`preview@example.com`)과 아무 비밀번호로 다시 들어간다.
+- 실제 API로 보려면 로컬 서버를 `LECTERN_WEB_SHELL=1`로 띄우고(AGENTS.md "개발과 테스트"의 로컬 서버) `bun run web:build` 뒤 `/app`을 연다. 물어보기는 `LECTERN_ASK=1`과 Gemini 키가 있어야 답한다(실제 비용).
 - HTML 응답에는 운영보다 **엄격한** CSP(`script-src 'self'; style-src 'self'`, 외부 오리진 없음)를 붙인다. 여기서 동작하면 운영 정책에서도 동작한다.
 
 | 명령 | 하는 일 |
 |---|---|
-| `bun run web:build` | `apps/web/dist`에 운영 빌드(해시된 `/app/assets/*`와 `index.html`) |
-| `bun run web:dev` | 개발 빌드 + 감시 + 미리보기 서버 |
-| `bun run web:e2e` | 운영 빌드 후 Playwright + axe |
+| `bun run web:build` | `apps/web/dist`에 운영 빌드(HTTP 클라이언트, 해시된 `/app/assets/*`와 `index.html`) |
+| `bun run web:dev` | 픽스처 개발 빌드 + 감시 + 미리보기 서버 |
+| `bun run web:e2e` | 운영 빌드(`dist`)와 픽스처 빌드(`dist-fixture`) 후 Playwright + axe, 두 프로젝트(아래 "테스트") |
 | `bun test apps/web` | 순수 로직·픽스처 단위 테스트(루트 `bun test`에도 포함) |
 
 처음 e2e를 돌리기 전에 브라우저를 받는다: `bunx playwright install chromium` (`apps/web`에서).
@@ -29,30 +35,62 @@ bun run web:dev
 
 - 확장자가 있는 경로는 `dist`의 파일이거나 404다. 없는 스크립트가 `index.html`로 돌아오지 않는다. 그 밖의 경로는 클라이언트 라우트라 `index.html`을 준다(SPA).
 - `/app/assets/*`(해시된 파일)는 1년 캐시, `index.html`은 매번 재검증한다. `..`·점 파일·심볼릭 링크로 `dist` 밖을 읽을 수 없다.
-- **운영 체크아웃에는 `dist`가 없다.** 배포는 빌드 단계 없는 git checkout이고 `dist/`는 `.gitignore` 대상이다. 지금 운영에서 플래그를 켜면 `/app`은 `503`과 "`bun run web:build`를 실행하세요"를 돌려준다. 켜기 전에 CD에 빌드 단계를 넣어야 한다(아래 "다음 단계").
+- 배포 사전 점검이 릴리스마다 `apps/web/dist.next`에 운영 빌드를 만들고 새 서버가 부팅할 때 `dist`로 바꿔 넣는다(`apps/server/src/web-build.ts`, `buildWeb({ outDir })`는 HTTP 클라이언트 빌드다).
+- 로그인하지 않은 사람은 `/app/login?next=…`로 간다. 로그인·로그아웃·세션 확인은 기존 `/api/auth/login`·`/api/auth/logout`·`/api/auth/me`이고, 응답 본문의 세션 토큰은 버린다. 회원가입과 비밀번호 찾기는 기존 화면(`/`)으로 안내한다.
 - 기존 `/` 사용자 화면(`ui.ts`의 `renderAppHtml`)과 배포 사전 점검(`preflight.ts`)은 바뀌지 않았다. `ui.ts`에서는 관리자 콘솔 CSS(`renderAdminPageHtml`)만 키웠다(아래 "지시와 다르게 한 부분").
 
 ## 구조
 
 ```
-scripts/   build.ts (Bun.build) · html.ts (index.html) · serve.ts (미리보기) · dev.ts
+scripts/   build.ts (Bun.build, --api) · html.ts (index.html) · serve.ts (미리보기, --dist) · dev.ts
 src/
-  api/       client.ts (ApiClient 인터페이스) · index.ts (구현 선택: 여기만 바꾼다) · fixture/ask.ts (물어보기 픽스처)
-             queries.ts (TanStack Query 훅, 이벤트 → 캐시) · types.ts (domain 타입, 아래 요청 #1)
-             fixture/client.ts (픽스처 구현)
+  zod-csp.ts main.tsx가 가장 먼저 불러온다: zod jitless (아래 "CSP 메모")
+  api/       client.ts (ApiClient 인터페이스, ApiClientError) · index.ts (빌드 때 구현 선택) · errors.ts (준비 중·오류 문구)
+             http/client.ts (실제 /api/v2) · http/sse.ts (fetch로 읽는 SSE)
+             fixture/client.ts · fixture/ask.ts (픽스처 구현과 물어보기 픽스처)
+             queries.ts (TanStack Query 훅, 이벤트 → 캐시) · types.ts (domain 타입 z.infer, asId)
   fixtures/  합성 데이터 생성기: scripts.ts (대본) · transcript-gen.ts · documents.ts · index.ts
   lib/       순수 로직: pairing.ts · segments.ts · hangul.ts · format.ts · josa.ts · keyboard.ts · media-clock.ts · calendar.ts
+             legacy-markdown.ts (v1 노트 Markdown → 트리) · ask-suggestions.ts
   app/       셸: 라우터, 사이드바와 사용자 메뉴, 워크스페이스, ⌘K 팔레트, 단축키, 업로드 대화상자
-  routes/    inbox · library · recording · ask (물어보기) · calendar · settings · placeholders (404)
+  routes/    login · inbox · library · recording · ask (물어보기) · calendar · settings · placeholders (404, 연결 오류)
   ui/        React Aria 위에 토큰으로 칠한 공용 컨트롤, 아이콘, 아바타, 제자리 이름 바꾸기, 토스트
 test/      bun test (*.test.ts)
 e2e/       Playwright (*.e2e.ts: bun test가 집어 가지 않도록 .spec이 아니다)
+  server/  실제 서버 프로젝트: start.ts (샌드박스 서버 + 가짜 Gemini) · accounts.ts · flow.e2e.ts
 ```
+
+## API v2 연결
+
+`src/api/http/client.ts`가 `ApiClient`를 실제 `/api/v2`로 구현한다.
+
+- **경로와 검증은 domain 라우트 표에서 온다.** 메서드마다 operationId로 `ROUTES_BY_OPERATION`의 `RouteDef`를 찾아 경로를 만들고, 응답을 그 라우트의 응답 스키마로 `safeParse`한다. 계약과 다른 응답은 화면에 반쯤 그리지 않고 `invalid_response` 오류가 된다.
+- **오류**: v2의 `{ error: { code, message, details } }`와 v1 인증 라우트의 `{ error: "…" }`를 모두 `ApiClientError(status, code, message, requestId, details)`로 바꾼다. 응답이 없으면 `network`. 501 `not_implemented`는 화면이 "준비 중"으로 보인다(`api/errors.ts`): 쓰기는 정보 토스트, 업로드는 "기존 화면에서 올려 주세요", 물어보기는 준비 중 상자, 오디오는 "오디오 준비 중".
+- **쓰기**: JSON 본문은 `Content-Type: application/json`, 모든 쓰기에 `Idempotency-Key`(업로드는 호출하는 쪽이 정한 키). 문서 저장(`createDocumentVersion`)은 시작한 버전을 `If-Match: "<version>"`으로 보낸다(UI는 아직 없다).
+- **인증**: 쿠키만 쓴다. 토큰을 읽거나 저장하거나 보내지 않는다(`X-Lectern-Token`·`?token=` 없음). 어느 요청이든 401이면 세션을 비우고 `/login?next=…`로 보낸다.
+- **이벤트**: `GET /events`를 `fetch`로 읽는다. 끊기거나 서버가 닫으면 서버의 `retry:`(1~60초로 제한)만큼 기다렸다가 마지막 id를 `Last-Event-ID`로 보내 이어 받고, 이미 받은 id는 다시 넘기지 않는다. 401은 로그인으로, 403·404·501은 조용히 멈춘다. EventSource를 쓰지 않는 이유: 새 연결에 `Last-Event-ID`를 실을 수 없고 실패한 응답의 상태를 알 수 없다.
+- **물어보기**: `POST /ask/threads`(범위마다 대화 하나) → `POST /ask/threads/{id}/turns`의 SSE를 `fetch`로 읽는다. 멈추면 `AbortSignal`로 끊고, 서버가 끝까지 만들어 저장한 답은 "끝까지 만든 답 보기"로 대화에서 다시 읽는다.
+- **오디오**: `/assets/{id}/content`를 `<audio>`에 주면 브라우저가 Range 요청으로 받는다.
+
+엔드포인트 상태(이 브랜치 기준, 서버는 `apps/server/src/api/v2/README.md`):
+
+| 화면이 쓰는 API | 서버 지금 | 화면 |
+|---|---|---|
+| `/api/auth/login`·`logout`·`me` (v1) | 실제 | 로그인, 로그아웃, 세션 확인 |
+| `GET /me`, `/workspaces`, `/workspaces/{id}/members`, `/me/devices` | 고정 픽스처(`demo@example.com`) | 그대로 보인다. 로그인한 계정과 다른 이름이 보인다 |
+| `GET /folders`, `/tags`, `/recordings`, `/recordings/{id}`(+`/transcript`·`/questions`·`/events`·`/action-items`), `/documents/{id}`, `/calendar/suggestions`, `/search` | 고정 픽스처 | 그대로 보인다(실제 녹음이 아니다) |
+| `GET /events` | 픽스처 재생 후 닫음 | `Last-Event-ID`로 30초마다 다시 붙는다 |
+| `/ask/threads`·`/ask/threads/{id}`·`/turns`(SSE)·`DELETE`·`/ask/usage` | **실제**(`LECTERN_ASK=1`, v1 강의 위), 꺼지면 501 | 동작. 501이면 준비 중 |
+| `GET /assets/{id}/content` | 501 | 재생 버튼 끔, "오디오 준비 중" |
+| 쓰기 전부(`PATCH /me`, 폴더·태그·녹음·할 일·일정 제안, `DELETE /me/devices/{id}`, 업로드, 문서 버전) | 501 | 준비 중 토스트, 상태는 바뀌지 않는다 |
+
+P2 백엔드가 읽기를 실제 데이터로 바꾸면 화면 쪽 변경 없이 실제 녹음이 보인다. 그때 바뀌어야 하는 것은 "`/`를 새 앱으로 바꾸기 전에 남은 일"에 있다.
 
 ## 화면
 
+- **로그인**(`/login`): 이메일·비밀번호(자동 완성 `username`·`current-password`), 틀리면 서버 문구를 `role="alert"`로, 비밀번호 칸은 비운다. 로그인 뒤 `next`의 앱 안 경로로 돌아간다(다른 오리진·`//`·`/login`은 홈으로). 세션 확인 자체가 실패하면(서버 다운) 연결 오류 화면과 "다시 시도".
 - **앱 틀**: 사이드바(홈, 라이브러리, 물어보기, 일정, 설정), 워크스페이스 전환(개인 / 제품팀), 본문 바로가기, 좁은 화면의 서랍 메뉴, 토스트, live region.
-- **사용자 메뉴**: 사이드바 맨 아래 아바타(이니셜, id로 정한 색)·이름·"워크스페이스 · 역할". 누르면 프로필과 계정(설정 #account), 설정, 단축키, 테마 전환, 로그아웃(미리보기에서는 안내 토스트).
+- **사용자 메뉴**: 사이드바 맨 아래 아바타(이니셜, id로 정한 색)·이름·"워크스페이스 · 역할". 누르면 프로필과 계정(설정 #account), 설정, 단축키, 테마 전환, 로그아웃(`POST /api/auth/logout` 뒤 로그인 화면, 쿼리 캐시를 모두 비운다).
 - **홈(수신함)**: 서로 독립된 두 열이라 한쪽 카드가 길어도 옆에 구멍이 생기지 않는다. 왼쪽은 처리 중인 녹음(이벤트로 갱신되는 단계·진행률), 확인 필요(실패·일부 완료), 물어보기(질문 칸과 최근 대화 3개), 오른쪽은 확인할 일정 제안(추가·무시)과 다가오는 일정·할 일. 아래에 최근 문서 6개와 "라이브러리 전체 보기".
 - **라이브러리**: 왼쪽에 보기(전체·스마트 보기)·폴더·태그, 오른쪽에 목록. 행에는 제목과 메타 한 줄(종류 · 날짜 · 길이 · 폴더 경로)만 두고, 태그는 색 점 2개와 "+N", 상태는 완료가 아닐 때만 보인다. 체크박스와 행 메뉴는 마우스를 올리거나 포커스·선택 중일 때 나타난다.
   - **전체 선택**: 목록 머리의 "모두 선택" 체크박스(일부만 고르면 부분 선택 표시), ⌘A, Esc로 해제. 개수는 live region으로 읽어 준다. 무언가 고르면 같은 막대가 일괄 작업(폴더로 이동·태그·삭제)으로 바뀐다.
@@ -66,14 +104,19 @@ e2e/       Playwright (*.e2e.ts: bun test가 집어 가지 않도록 .spec이 �
   - 전사는 TanStack Virtual로 가상 스크롤한다(픽스처 강의 3,082구간). `requestAnimationFrame`마다 `clock.currentTime`을 읽어 정렬된 구간을 이진 탐색하고 `aria-current="true"`를 단다. 휠·터치·스크롤바·목록 안 키 이동은 "사용자가 읽는 중"으로 보고 따라가기를 멈추며 "현재 위치로"를 띄운다. 우리가 하는 스크롤은 이 신호가 아니므로 스스로 꺼지지 않는다.
   - 구간 클릭·Enter로 그 시점으로 이동, ↑/↓·Home/End·PageUp/PageDown으로 구간 사이 이동(목록 전체가 탭 정지 하나).
   - 출처 표시: 본문 흐름을 깨지 않게 문서 전체에 걸쳐 각주처럼 번호를 매긴 작은 위첨자(1, 2 …)다. 누르면 전사 패널이 열리고 재생 위치 이동 + 해당 구간 1.5초 강조 + 그리로 스크롤, 마우스를 올리거나 포커스하면 시각·화자·인용 미리보기(`PreviewTrigger`). PDF 표시(p.4)는 자료 패널을 열어 그 쪽을 가리킨다. 출처가 없는 블록은 작은 "출처 확인 필요".
-  - 플레이어: 재생, 10초 이동, 진행 막대(`aria-valuetext` "12분 30초 / 3시간 10분 1초"), 속도. 본문에서 Space 재생/일시정지, ←/→ 5초, Shift 30초, [/] 속도. 픽스처에는 소리가 없어 "소리 없는 미리보기" 시계(`SimulatedClock`)로 돈다.
+  - 플레이어: 재생, 10초 이동, 진행 막대(`aria-valuetext` "12분 30초 / 3시간 10분 1초"), 속도. 본문에서 Space 재생/일시정지, ←/→ 5초, Shift 30초, [/] 속도. 실제 API에서는 `createAudioClock`이 녹음의 오디오 파트를 원본 오디오 시각 하나로 이어 재생하고(파트마다 원본 `audio`, 없으면 `audio_compact`·`audio_normalized`), 전사 동기화가 그 시계를 따른다. 오디오를 불러오지 못하면 재생 버튼을 끄고 "오디오 준비 중"을 보이며, 출처 이동은 그대로 된다. 픽스처에는 소리가 없어 "소리 없는 미리보기" 시계(`SimulatedClock`)로 돈다.
+  - **이전 노트(legacy-markdown)**: v1에서 넘어온 강의는 구조화된 본문 없이 Markdown만 있다. `lib/legacy-markdown.ts`가 v1 렌더러가 그리던 범위(제목, 중첩 목록, 인용, 코드, 표, 구분선, 굵게·기울임, http(s) 링크, 쉬는 시간·녹음 절단 표시)를 트리로 읽고 React 요소로만 그린다(HTML 문자열을 넣지 않는다). `[MM:SS]`·`[H:MM:SS]` 표시는 그 시점으로 플레이어와 전사를 옮기는 버튼이다. 전사가 없는 노트는 전사 패널이 그렇다고 말한다.
   - 처리 중·대기·올리는 중·실패·일부 완료 상태 화면.
 - **업로드 대화상자**: 오디오와 PDF를 한꺼번에 끌어다 놓거나 "파일 선택"으로 고르면 `lib/pairing.ts`가 짝을 짓고 이유("이름이 비슷함 · 번호가 같음")를 보여 준다. PDF마다 연결할 녹음을 바꿀 수 있고, "1부/2부"는 한 녹음의 오디오 파트가 되며, 지원하지 않는 파일은 이유와 함께 빠진다. 녹음마다 재개 가능한 업로드 세션(파트 계획 → 파트 PUT → complete)을 돌리고, 픽스처가 약 5초 동안 처리 단계를 흉내 낸 뒤 합성 전사와 문서를 만든다.
-- **물어보기 (에이전트·RAG UI, 픽스처)**: 노트에서 답을 찾고 근거를 번호로 붙인다.
+- **물어보기 (domain 계약 `packages/domain/src/api/ask.ts`, ADR-0009)**: 노트에서 답을 찾고 근거를 번호로 붙인다. 대화(스레드)는 범위가 고정이라 범위를 바꾸고 물으면 새 대화가 된다. 폴더 범위는 하위 폴더를 포함한다(`include_subfolders: true`).
+  - **답과 출처**: 답의 `[c3]` 표지를 출처 번호로 바꾼다. 번호는 답에서 처음 나온 순서(1, 2 …)이고 서버의 조각 번호를 그대로 보이지 않는다. 출처는 세 종류다: 전사 구간(그 구간 강조), 문서 블록(블록의 전사 출처, 없으면 `[MM:SS]` 시각으로 이동; v1 브리지는 모두 이것), PDF 쪽(자료 패널). `support: weak`는 주황 표시와 "근거 약함", `available: false`(지워졌거나 볼 수 없음)는 링크 없이 번호만. `outcome: unsupported`는 답을 접고 "출처를 확인하지 못한 답" 경고 뒤에 "답 보기", `no_answer`는 근거 없음.
   - **이 노트에 물어보기**: 녹음 상세의 옆 패널. 범위 이 노트 / 이 폴더 / 전체, 추천 질문 칩(녹음 종류별 질문과 그 녹음에서 뽑힌 질문), 스트리밍 답(깜빡이는 커서, `aria-busy`, 끝나면 live region으로 "답변을 마쳤습니다. 출처 N개."). 답의 `[n]`은 문서와 같은 작은 번호 표시이고 미리보기에 녹음·시각·화자·인용이 나온다. 이 녹음의 출처를 누르면 전사 패널이 그 구간에서 열리고 강조되며, 전사 머리의 "물어보기로"로 대화에 돌아온다(대화는 녹음 화면에 남아 있다). 다른 녹음의 출처는 그 녹음을 그 시각으로 연다.
   - **물어보기 화면**(`/ask`): 왼쪽에 대화 기록(범위·시각, 고르면 다시 열림, "새 대화"), 범위 선택기 전체 / 폴더(하위 폴더 포함) / 노트, 여러 노트를 인용한 답과 그 아래 번호 붙은 출처 카드(녹음 제목·시각·화자·인용, 누르면 그 녹음의 그 시각), "답 복사"(본문과 출처 목록).
-  - **끝나는 모양**: 완료, 근거 없음("관련 내용을 찾지 못했습니다" + 좁은 범위였으면 "전체 노트에서 다시 묻기"), 오류(네트워크 끊김 등, "다시 시도"), 멈춤(답 멈추기 버튼).
+  - **진행**: `retrieval`이 오면 "노트 N개에서 찾음", 도구 라운드(`tool`) 동안 "노트를 더 찾는 중…", 표지는 `citation` 이벤트가 오기 전까지 그리지 않는다. `turn.completed`가 스트리밍한 글과 출처를 통째로 바꾼다.
+  - **끝나는 모양**: 완료, 근거 없음("관련 내용을 찾지 못했습니다" + 좁은 범위였으면 "전체 노트에서 다시 묻기"), 실패(서버 `error` 이벤트: 한도 초과 등, "다시 시도"는 새 질문), 연결 끊김("다시 시도"와 "저장된 답 불러오기"), 멈춤("끝까지 만든 답 보기": 서버가 끝까지 만들어 저장한다), 준비 중(501).
   - **입력**: Enter 보내기, Shift+Enter 줄 바꿈, 한글 조합 중 Enter는 보내지 않는다. 답이 나오는 동안 보내기 버튼이 "답 멈추기"가 된다.
+  - **추천 질문**은 계약에 엔드포인트가 없어 화면이 만든다(`lib/ask-suggestions.ts`: 녹음 종류, 뽑힌 질문, 최근 녹음).
+  - **대화 기록**: 내 스레드만(`GET /ask/threads`), 범위 이름은 폴더·녹음 목록으로 화면이 붙인다. 아직 답을 만드는 중인 턴이 있으면 2초마다 다시 읽는다.
 - **⌘K / Ctrl+K 팔레트**: 이동, 명령(올리기, 테마, 단축키, 워크스페이스 전환), 녹음, 폴더, 전사·문서 내용 검색, 물어보기(녹음 화면에서는 "이 노트에 물어보기", 폴더를 보고 있으면 "이 폴더에 물어보기", 언제나 "전체 노트에 물어보기"; 입력이 질문처럼 보이면 맨 위), "라이브러리에서 찾기". 공백·대소문자 무시, 초성("ㅇㅇㅊㅈ" → 운영체제), 영문 별칭(theme, dark).
 - **단축키**: `G` 다음 `H/L/A/C/S` 이동, `U` 올리기, `?` 단축키 표(폴더·태그 묶음 포함). 입력 필드 안, 한글 IME 조합 중(`isComposing`, `keyCode 229`), 대화상자가 열렸을 때는 동작하지 않고, 설정이나 단축키 표에서 끌 수 있다(WCAG 2.1.4).
 - **일정**: 월/주 탭. 월 보기는 React Aria `Calendar`(화살표로 날짜, PageUp/PageDown으로 달 이동)이고 칸마다 확정 일정(실선), 확인할 제안(점선), 할 일(파란 막대)을 두 줄까지 보여 준다. 오른쪽 레일에 고른 날의 일정(시각, 출처 녹음 링크, `aria-live`), 제안 받은 일정(추가·무시), 남은 할 일(체크하면 완료, 출처로 이동), 캘린더 연결 카드. 날짜는 Asia/Seoul 기준(`lib/calendar.ts`), 주는 일요일부터.
@@ -83,11 +126,12 @@ e2e/       Playwright (*.e2e.ts: bun test가 집어 가지 않도록 .spec이 �
 
 모두 이 저장소를 위해 쓴 합성 데이터다. 실제 녹음·강의·회의·사람이 아니다.
 
-- 워크스페이스 2개(개인, 제품팀), 폴더 9개, 태그 9개, 녹음 16개: 강의(운영체제·자료구조·미시경제학), 세미나, 면담, 통화, 메모, 회의, 사용자 인터뷰. 상태는 완료·처리 중·대기·일부 완료·실패·올리는 중이 모두 있다.
+- 워크스페이스 2개(개인, 제품팀), 폴더 10개, 태그 9개, 녹음 17개: 강의(운영체제·자료구조·미시경제학), 세미나, 면담, 통화, 메모, 회의, 사용자 인터뷰. 상태는 완료·처리 중·대기·일부 완료·실패·올리는 중이 모두 있다.
 - 질문 25개(domain `Question`: 회상 20개, 회의 쟁점 3개·토론 2개; 복습 화면은 뺐고, 물어보기의 추천 질문과 답의 재료로 쓴다), 일정 12개(제안 4·확정 5·캘린더에 들어감 3, 하루 종일 일정 포함, 여러 주에 걸침), 할 일 11개(마감 있음·없음, 완료 포함). 모두 대본의 앵커 구간을 출처로 가진다.
 - 멤버(제품팀 5명), 로그인한 기기 3개.
+- v1에서 넘어온 강의 1개(`rec_legacy_sec07`, 정보보호 폴더): `legacy-markdown` 문서와 빈 전사.
 - 물어보기 대화 기록 5개(개인 3, 제품팀 2). 실시간 답과 같은 픽스처가 만들었으므로 출처가 실제 구간을 가리킨다.
-- **물어보기 픽스처**(`api/fixture/ask.ts`)는 내용을 지어내지 않는다. 답의 문장은 모두 노트(문서 블록, 질문의 답, 일정, 할 일)에서 오고, 그 블록이 이미 가리키는 전사 구간을 출처로 단다. 의도(요약 / 마감·일정 / 할 일 / 결정)를 먼저 보고, 뽑힌 질문과 비슷하면 그 답을, 아니면 글자 2-gram 겹침으로 고르며, 기준(0.5) 아래면 "근거 없음"이다. 스트리밍은 검색 단계 후 몇 글자씩 보내고(`[n]`은 쪼개지 않음), `AbortSignal`로 멈추며, `navigator.onLine === false`면 네트워크 오류를 낸다(e2e는 `context.setOffline`).
+- **물어보기 픽스처**(`api/fixture/ask.ts`)는 domain 계약 그대로 이벤트를 낸다(`turn.started` → `retrieval` → `citation`/`answer.delta` → `turn.completed`, 표지 `[c1]`, 전사 인용, `support`는 끝날 때). 서버처럼 멈춘 턴도 끝까지 저장한다. 내용을 지어내지 않는다. 답의 문장은 모두 노트(문서 블록, 질문의 답, 일정, 할 일)에서 오고, 그 블록이 이미 가리키는 전사 구간을 출처로 단다. 의도(요약 / 마감·일정 / 할 일 / 결정)를 먼저 보고, 뽑힌 질문과 비슷하면 그 답을, 아니면 글자 2-gram 겹침으로 고르며, 기준(0.5) 아래면 `no_answer`다. 스트리밍은 검색 단계 후 몇 글자씩 보내고(`[c1]`은 쪼개지 않음), `AbortSignal`로 멈추며, `navigator.onLine === false`면 네트워크 오류를 낸다(e2e는 `context.setOffline`).
 - 전사는 대본(`fixtures/scripts.ts`)을 시드 고정 난수로 조합해 브라우저에서 만든다. 저장소에 큰 JSON을 넣지 않는다. 시각은 원본 오디오 기준 ms이고 쉬는 시간·전사 실패 구간(`gaps`)도 있다.
 - 문서 블록의 출처는 domain 계약대로 전사 구간 idx 범위(`SourceRef`)이며 화면이 구간의 원본 오디오 ms로 바꾼다. 대본의 "앵커" 문장을 가리키므로 칩을 누르면 블록이 말하는 내용이 실제로 나오는 구간으로 간다.
 - 시각은 `now` 기준 상대값이라 언제 열어도 "최근 7일"이 의미가 있다. 테스트는 고정된 `now`를 쓴다.
@@ -95,18 +139,23 @@ e2e/       Playwright (*.e2e.ts: bun test가 집어 가지 않도록 .spec이 �
 
 ## 테스트
 
-- `bun test apps/web`: 짝짓기(18개 경우), 구간 탐색(긴 전사 선형 비교 포함), 초성 검색, 한국어 표기·조사, IME 판별, 시뮬레이션 시계, `index.html`에 인라인 스크립트·스타일·외부 오리진 없음, 스타일에 색 리터럴 없음과 모든 `var()`가 토큰인지(DESIGN §2.1 "손으로 쓴 색 금지"를 stylelint 대신 테스트로), 픽스처 검증, 폴더·태그·프로필·기기·할 일 쓰기(`test/organise.test.ts`: 빈 이름·형제 중복·순환은 domain 오류 코드, 폴더 삭제는 녹음과 하위 폴더를 상위로), 날짜 묶기(Asia/Seoul), 아바타 이니셜, 전사 문단 묶기와 읽기 모드(`test/transcript.test.ts`), 물어보기(`test/ask.test.ts`: 이벤트 순서와 델타 합 = 답, 모든 `[n]`에 출처가 있고 출처가 실제로 그 말을 한 구간인지, 범위 밖을 인용하지 않는지, 근거 없음, 추천 질문마다 출처 있는 답, 멈춤 시 저장 안 함, 검증 오류 코드).
-- `bun run web:e2e`(Playwright + `@axe-core/playwright`):
+- `bun test apps/web`: 짝짓기(18개 경우), 구간 탐색(긴 전사 선형 비교 포함), 초성 검색, 한국어 표기·조사, IME 판별, 시뮬레이션 시계, `index.html`에 인라인 스크립트·스타일·외부 오리진 없음, 스타일에 색 리터럴 없음과 모든 `var()`가 토큰인지(DESIGN §2.1 "손으로 쓴 색 금지"를 stylelint 대신 테스트로), 픽스처 검증, 폴더·태그·프로필·기기·할 일 쓰기(`test/organise.test.ts`: 빈 이름·형제 중복·순환은 domain 오류 코드, 폴더 삭제는 녹음과 하위 폴더를 상위로), 날짜 묶기(Asia/Seoul), 아바타 이니셜, 전사 문단 묶기와 읽기 모드(`test/transcript.test.ts`), 물어보기(`test/ask.test.ts`: domain 스키마로 모든 이벤트·턴·스레드 검증, 이벤트 순서와 델타 합 = 답, 모든 `[cN]`에 앞서 온 `citation`이 있고 출처가 실제로 그 말을 한 구간인지, 범위 밖을 인용하지 않는지(하위 폴더 포함/제외), `no_answer`, 추천 질문마다 출처 있는 답, 멈춘 턴도 저장, 검증 오류 코드), HTTP 클라이언트(`test/http-client.test.ts`: 가짜 fetch로 라우트 표 URL, v2·v1 오류 본문, 쓰기의 `Idempotency-Key`, `If-Match`, 401 알림, 스키마와 다른 응답, 쪼개진 SSE, 모르는 이벤트 무시, `error` 이벤트, `Last-Event-ID` 재연결과 중복 제거, 501에서 멈춤, v1 로그인 응답의 토큰을 버림), 실제 오디오 시계(`test/audio-clock.test.ts`: 파트 이어 붙이기, 경계를 넘는 이동, 다음 파트로 넘어감, 오류 상태), v1 Markdown(`test/legacy-markdown.test.ts`, 악성 입력 포함).
+- `bun run web:e2e`(Playwright + `@axe-core/playwright`) 두 프로젝트:
+  - **fixture**: 픽스처 빌드(`dist-fixture`)를 운영보다 엄격한 CSP의 미리보기 서버로. 아래 항목 전부.
+  - **server**: 운영 빌드(`dist`)를 실제 서버로(`e2e/server/start.ts`). 버리는 DB에 오너 계정과 v1 강의 2개(합성, WAV 오디오)를 넣고 `LECTERN_ASK=1`, `LECTERN_WORKER_MODE=external`로 띄운다. Gemini 호출은 fetch 경계의 가짜가 답하고(결정적 임베딩, 가장 맞는 조각을 `[cN]`으로 인용하는 모델) 다른 외부 요청은 모두 거절한다. apps/server는 고치지 않고 환경 변수만 준다. 확인: 세션 없이 들어오면 로그인 → 틀린 비밀번호 → 원래 가려던 화면, `lectern_session`이 HttpOnly이고 저장소에 토큰 없음, 라이브러리가 `/api/v2/recordings`와 같은지, 녹음 상세와 오디오(Range가 206이면 재생 시계가 움직이는지, 아니면 "오디오 준비 중"), 물어보기(실제 SSE, 출처, 기록, 근거 없음, 출처 링크), 501 쓰기의 준비 중, 로그아웃 뒤 다시 로그인으로, ask 라우트가 501일 때 준비 중. 화면은 axe 0건이고 스크린숏을 `test-results/screens`에 남긴다(`E2E_SCREENSHOT_DIR`로 바꿈).
   - axe WCAG 2.0/2.1/2.2 A·AA 태그로 홈, 라이브러리(전체·폴더·스마트 보기), 녹음 상세(완료·일부 완료·처리 중·실패, 원문 전사·자료 패널), 일정, 설정을 라이트·다크에서, 팔레트·단축키 표·업로드 대화상자·삭제 확인·회의 상세까지 위반 0건.
   - 키보드만으로 업로드(파일 선택 → 자동 짝짓기 확인 → 올리기) → 처리 완료 → 홈에서 열기 → 문서 → 출처 칩으로 전사 강조까지.
   - 단축키가 입력·IME 조합·끔 상태에서 꺼지는지, 끌어다 놓기와 키보드 대안 이동, 가상 스크롤 전사의 키보드 이동과 따라가기 해제.
   - 폴더(새로 만들기 → 제자리 이름, F2, 메뉴로 하위로 옮기기, Delete로 삭제와 녹음 상위 이동, 폴더 끌어다 놓기), 태그(만들기·이름·색·붙이기·삭제, 대화상자에서 새 태그), 전체 선택(부분 선택·⌘A·해제), 일정(확정 일정, 제안 추가, 키보드 날짜 이동), 사용자 메뉴와 프로필 저장. 이 화면들의 열린 메뉴·이름 칸·확인 대화상자 상태도 axe 0건.
   - 물어보기: 노트 패널(추천 질문 → 스트리밍 답 → 출처로 전사 강조 → "물어보기로"), 근거 없음 → "전체 노트에서 다시 묻기", 물어보기 화면(여러 노트 답, 출처 링크, 기록, 복사), 오프라인 오류 → 다시 시도, 멈춤, ⌘K(전체 노트와 이 노트). 물어보기 빈 화면·대화·답·근거 없음·오류 상태도 axe 0건.
-  - 지금 e2e 47개 통과. 단위 테스트는 `bun test apps/web` 72개, 루트 `bun test` 335개.
+  - 로그인 화면(라이트·다크, 오류), 로그아웃 → 로그인 → 홈, 세션 없이 딥 링크 → 로그인 → 그 화면, 이전 노트(표·제목·`[1:02:40]`로 플레이어 이동)도 fixture 프로젝트에 있다.
+  - 지금 e2e 52개(fixture 49, server 3) 통과. 단위 테스트는 `bun test apps/web` 94개.
   - 모든 테스트는 CSP 위반이나 잡히지 않은 오류가 하나라도 나면 실패한다.
 - CI: `.github/workflows/ci-cd.yml`의 `web` job(Bun 1.4.3, `--frozen-lockfile`). `deploy-server`의 `needs`는 그대로다.
 
 ## CSP 메모
+
+- **zod는 `new Function`을 쓰지 못하게 한다.** zod 4는 객체 스키마를 만들 때 `new Function("")`이 되는지 시험하고(`util.allowsEval`), 되면 파서를 그렇게 컴파일한다. `script-src 'self'` 아래에서는 이 시험이 잡혀도 CSP 위반으로 보고된다. `main.tsx`가 가장 먼저 `src/zod-csp.ts`를 불러 `z.config({ jitless: true })`를 한 뒤에 `@lectern/domain`이 평가된다. 이 순서가 깨지면 e2e의 CSP 검사가 잡는다.
 
 - `index.html`은 같은 오리진 파일만 참조한다. 인라인 `<script>`·`<style>`·`style=""`가 없다. React의 `style` prop과 `element.style.setProperty`는 CSSOM이라 허용된다.
 - React Aria의 `usePress`는 `touch-action` 규칙을 인라인 `<style id="react-aria-pressable-style">`로 넣으려 한다. 같은 id를 가진 요소가 있으면 건너뛰므로 앱 스타일시트 `<link>`에 그 id를 주고 같은 규칙을 `global.css`에 넣었다(`scripts/html.ts`). React Aria가 id를 바꾸면 e2e의 CSP 검사가 잡는다.
@@ -122,20 +171,23 @@ e2e/       Playwright (*.e2e.ts: bun test가 집어 가지 않도록 .spec이 �
 - **글자와 컨트롤을 키웠다(DESIGN.md v1.1).** 본문 13→15px, 컨트롤·행 높이·아이콘·사이드바 폭을 한 단계씩 올렸고 `packages/design-tokens/tokens.json` → `bun run tokens:build`로 다시 만들었다. 바뀐 값은 DESIGN.md 부록 C. 대비 테스트는 그대로 통과한다.
 - **관리자 콘솔은 `html { zoom: 1.15 }`로 키웠다.** 관리자 콘솔은 토큰을 쓰지 않는 손으로 쓴 CSS라 토큰만으로는 커지지 않는다. 허락받은 범위대로 `apps/server/src/ui.ts`의 관리자 콘솔 CSS만 고쳤다. `zoom` 아래에서 `vh`/`vw`는 커지지 않아 화면 밖으로 넘치므로 셋을 `%`로 바꿨다(`.app` 높이, 좁은 화면 서랍 폭, 팔레트 높이). 사용자 앱 화면(`/`)은 건드리지 않았다.
 - **복습을 뺐다.** Lectern은 강의 전용이 아니라 범용 STT 노트 앱이라 회상 카드·정답 평가 같은 학습 시스템이 맞지 않는다는 제품 판단이다(지난 피드백 반영 때 만든 복습 화면 `7de7b7d`을 이번에 제거). 사이드바·라우트(`/review`)·`G R` 단축키·홈 카드·녹음 상세의 "질문" 탭을 지웠다. 질문 데이터는 domain 계약에 남아 있으므로 픽스처에서 지우지 않았다.
-- **로그아웃과 Google 캘린더 연결은 자리 표시다.** 미리보기에는 세션이 없어 안내 토스트만 띄운다. 다른 기기 로그아웃은 `DELETE /me/devices/{id}`로 픽스처에서 실제로 지워진다.
+- **Google 캘린더 연결은 자리 표시다.** 다른 기기 로그아웃은 `DELETE /me/devices/{id}`로 픽스처에서 실제로 지워진다(실제 서버는 아직 501).
 - **일정 월 보기는 React Aria `Calendar` 위에 그렸다.** 날짜 키보드 이동과 스크린 리더 이름을 직접 만들지 않으려고 `@internationalized/date@3.12.4`(React Aria가 이미 쓰는 패키지, 격리 링커라 직접 의존성으로 선언)를 추가했다. 칸 안 일정은 `CalendarCell`의 자식이라 칸 하나가 탭 정지 하나이고, 일정 목록은 레일의 "고른 날" 카드가 읽어 준다.
 - **홈의 다가오는 일정과 일정 화면은 워크스페이스 단위 목록 API가 없어 녹음마다 일정·할 일을 불러 모은다**(아래 요청). 픽스처에서는 문제가 없지만 실제 API에서는 녹음 수만큼 요청이 나간다.
 - **녹음 목록은 가상 스크롤하지 않는다.** 목록이 작다. 긴 전사는 가상 스크롤한다.
 - **수식은 LaTeX 원문을 코드로 보여 준다.** 렌더러(KaTeX 등)는 의존성·CSP 검토가 필요해 뒤로 미뤘다.
 - **PDF는 자리 표시다.** 칩이 가리키는 쪽 번호를 보여 준다. pdf.js 뷰어는 P3.
-- **음량 조절이 없다.** 픽스처 시계에는 소리가 없다. 실제 오디오 시계(`createAudioElementClock`)는 준비돼 있다.
+- **음량 조절이 없다.** 시스템 음량을 쓴다.
 - **⌘K의 물어보기는 팔레트 안에서 답하지 않고 답할 자리로 보낸다.** "이 노트에 물어보기"는 녹음의 물어보기 패널을 열어 바로 묻고, 폴더·전체는 물어보기 화면에서 바로 묻는다. 팔레트는 닫히는 오버레이라 긴 답·출처·대화 기록을 둘 곳이 아니고, 이렇게 하면 답이 기록에 남는다.
-- **물어보기 타입은 앱 안에 있다**(`api/types.ts`의 `Ask*`). domain에 계약이 없어서다(아래 요청 #16–20). 생기면 그 타입으로 바꾼다.
-- **멈추거나 실패한 답은 저장하지 않는다.** 픽스처는 답이 끝났을 때만 대화에 저장하고, 화면은 멈춘 부분과 오류를 그 자리에 보여 준다. 실제 서버의 정책은 요청 #16에 적었다.
+- **물어보기 타입은 domain 것이다**(`AskThread`, `AskTurn`, `AskCitation`, `AskStreamEvent`). 앱 전용 `Ask*`는 지웠고 화면을 계약에 맞췄다(출처의 화자·인용 대신 `snippet`, `turn_count`, 범위 이름은 화면이 붙임).
+- **이벤트 스트림은 EventSource가 아니라 `fetch`로 읽는다.** 위 "API v2 연결" 참고. 브라우저가 붙이는 `Last-Event-ID` 대신 클라이언트가 직접 보낸다.
+- **zod를 jitless로 쓴다**(`src/zod-csp.ts`). 아래 "CSP 메모".
 - **읽기 모드의 간투사 판단은 규칙 기반이다.** 쉼표·말줄임표가 붙은 음/어/아/에/흠/엄/자/저기/그만 숨긴다. 데이터를 바꾸지 않으므로 틀려도 원문으로 바로 확인할 수 있다. 서버가 간투사 구간을 표시해 주면(요청 #21) 그걸 쓴다.
 - **미리보기 서버가 `apps/server/src/web-shell.ts`를 가져다 쓴다.** 운영과 같은 `/app` 처리를 거치게 하려는 것이다(이 모듈은 `REPO_ROOT`만 읽고 DB나 설정을 건드리지 않는다).
 
 ## domain 요청
+
+**상태(이 브랜치)**: #1은 `09a5ab7`에서 고쳐졌고 `Out<S>`를 지웠다. #16–20은 domain 물어보기 계약(`a4c48ea`, ADR-0009 §11)으로 대체됐고 화면을 그 계약에 맞췄다(추천 질문 엔드포인트는 없어서 화면이 만든다). #2–15·#21은 P2 백엔드 브랜치의 domain 추가(`f3484a7`: 저장한 보기, 목록 필터, 일괄 작업, 진행률·실패 원인, 블록 `edited`, 목록 요약 필드, 워크스페이스 할 일 목록, 일정 상태 여러 개·날짜 범위, legacy-markdown 편집, 태그 색 목록)로 계약이 생겼다. 화면은 아직 그 추가를 쓰지 않는다(아래 "남은 일").
 
 `packages/domain`은 동결되어 다른 흐름이 소유하므로 고치지 않았다. 필요한 것을 여기 적는다. 1번만 버그이고 나머지는 하위 호환 추가이거나(2–10, 14–21) 계약이 비워 둔 의미를 정해 달라는 것이다(11–13).
 
@@ -169,13 +221,30 @@ e2e/       Playwright (*.e2e.ts: bun test가 집어 가지 않도록 .spec이 �
 20. **추천 질문**: `GET /ask/suggestions?workspace_id&scope` → 문자열 몇 개. 녹음 하나일 때는 그 녹음에서 뽑힌 질문(`Question`)과 녹음 종류별 질문을 섞는다.
 21. (선택) **간투사 표시**: 전사 구간에 간투사 범위(또는 읽기용 텍스트)가 있으면 읽기 모드가 규칙 대신 그걸 쓴다.
 
-## 다음 단계: 실제 API v2 연결
+## 계약과 어긋나거나 정해지지 않은 것
 
-1. `src/api/http.ts`에 `ApiClient`의 HTTP 구현을 만든다. 같은 오리진 `fetch`(쿠키 인증, 토큰 헤더 없음), 응답을 domain zod 스키마로 검증, `{ error: { code, message } }` → `ApiClientError`, 변경 요청에 `Idempotency-Key`, 문서 저장에 `If-Match`. 이벤트는 `EventSource("/api/v2/events")`와 `Last-Event-ID`. 물어보기는 `POST /ask`의 응답 본문을 `fetch` 스트림으로 읽어 SSE 이벤트를 `onEvent`로 넘기고, `signal`을 `fetch`에 그대로 넘기면 멈춤이 된다(`EventSource`는 POST를 못 한다). 그다음 `src/api/index.ts`에서 구현만 바꾼다.
-2. 오디오: `assetContentUrl()`이 `/api/v2/assets/{id}/content`를 돌려주면 녹음 상세가 자동으로 `createAudioElementClock`을 쓴다(서버는 Range 요청 지원 필요).
-3. 운영 빌드: CD 배포(`apps/server/src/ops.ts`)에 `bun run web:build` 단계를 넣고, `LECTERN_WEB_SHELL=1`일 때 preflight가 `/app`을 점검하게 한다. 또는 design-tokens처럼 `dist`를 커밋한다(해시 파일 때문에 diff가 시끄러워 권하지 않는다).
-4. 인증 게이트: `/api/v2/me`가 401이면 로그인 화면. 지금 셸은 로그인 없이 픽스처 사용자로 열린다.
-5. 위 domain 요청 반영, Pretendard 직접 호스팅 병합 후 `@font-face`, pdf.js 뷰어(P3).
-6. P2 종료 시 `ui.ts` 앱 화면을 제거하고 `/`를 `/app`으로 보낸다.
+연결하면서 찾은 것이다. 고치지 않고 적는다(소유: P2 백엔드).
+
+1. **`/me`와 로그인한 계정이 다르다.** 스텁 `/me`는 누가 로그인해도 `demo@example.com`과 픽스처 개인 워크스페이스 id를 준다. 물어보기는 그 id를 호출자의 `wsp_<user id>` 별칭으로 받고, 응답(`AskThread.workspace_id`, `AskUsage.workspace_id`)에는 `wsp_<user id>`가 온다. 화면은 스레드를 워크스페이스 id로 다시 거르지 않는다.
+2. **녹음 id가 두 세계로 갈린다.** v2 녹음 목록은 픽스처 id이고 물어보기는 v1 강의 id를 인용한다. 그래서 지금 물어보기 출처를 누르면 "녹음을 찾을 수 없습니다"다(server e2e가 이 경우를 확인한다). P2 이행이 강의 id = 녹음 id를 지키면 풀린다(ARCHITECTURE §5.3).
+3. **v1 브리지 인용**: `snippet`에 `[00:17]` 시각 표시가 그대로 있다(계약은 "plain-text excerpt"). `section_title`은 섹션이 아니라 노트 제목이다. 화면은 둘 다 걸러서 보인다.
+4. **`label`이 조각 번호다.** 답이 하나만 인용해도 `[c2]`일 수 있다. 계약은 "turn 안에서 유일"만 말하므로 화면이 처음 나온 순서로 번호를 다시 붙인다. 서버가 처음 나온 순서로 붙여 준다면 이 변환은 필요 없다.
+5. **`citation` 이벤트가 표지 뒤에 온다.** 서버는 표지가 든 `answer.delta`를 먼저 보내고 `citation`을 그 뒤에 보낸다(계약 설명은 "A marker appeared for the first time"). 화면은 짝이 올 때까지 표지를 그리지 않으므로 문제는 없지만, 계약에 순서를 적어 두면 좋다.
+6. **추천 질문 엔드포인트가 없다.** 화면이 녹음 종류와 (폐기 예정인) 질문으로 만든다.
+7. **오디오 바이트**: `GET /assets/{id}/content`가 501이다. 운영에서 재생하려면 이 라우트가 v1 강의의 `audio_path`(또는 이행된 자산)를 Range로 서빙해야 한다. 화면은 원본 `audio` → `audio_compact` → `audio_normalized` 순으로 고르고 파트를 이어 붙이므로, 파트가 둘 이상이면 각 자산의 `duration_ms`가 있어야 한다.
+8. **legacy-markdown 녹음의 전사**: v1 강의에는 구간 전사가 없다. 이행된 녹음의 `GET /transcript`가 빈 `segments`를 돌려준다고 가정했다(404면 화면은 "전사를 불러오지 못했습니다"를 보인다).
+9. **v1 인증 응답**: `/api/auth/login`과 `/api/auth/me`는 본문에 세션 토큰과 `apiToken`을 담는다. 화면은 `id`·`email`·`displayName`만 남기고 버리지만, 브라우저 요청에는 토큰을 빼는 편이 안전하다.
+10. **세션 확인이 두 번이다.** 게이트는 `/api/auth/me`, 화면 데이터는 `/api/v2/me`다. v2 `/me`가 실제가 되면 게이트를 `/api/v2/me` 하나로 줄일 수 있다(401이면 로그인).
+
+## `/`를 새 앱으로 바꾸기 전에 남은 일
+
+1. **P2 백엔드의 실제 읽기**(`/me`, `/workspaces`, 폴더·태그·녹음·상세·전사·문서): 들어오면 이 브랜치에 병합하고 `bun run web:e2e`의 server 프로젝트를 다시 돌린다. 시험은 API 응답을 읽어 비교하므로 그대로 통과해야 하고, 이때 물어보기 출처 → 녹음 상세(위 2번)와 legacy-markdown 문서가 실제 데이터로 확인된다.
+2. **`/assets/{id}/content`(Range)**: 실제가 되면 server e2e가 재생 시계가 움직이는지까지 본다(지금은 501 분기).
+3. **쓰기 API**: 폴더·태그·녹음 수정·삭제, 프로필, 할 일·일정 제안, 기기 로그아웃. 화면은 이미 계약대로 보내고 501을 준비 중으로 보인다.
+4. **업로드**: v2 재개 가능 업로드가 생기기 전에는 새 화면에서 올릴 수 없다(준비 중 안내 후 `/`로). `/`를 바꾸려면 업로드가 먼저다.
+5. **회원가입·비밀번호 찾기·공유 페이지·관리자 콘솔**: 아직 `/`(ui.ts)에만 있다. 로그인 화면은 기존 화면으로 안내한다.
+6. **P2 domain 추가 쓰기**(`f3484a7`): 처음 열 때의 진행률(`RecordingDetail.progress`), 실패 원인, 일괄 작업 `POST /recordings/batch`, 목록 필터(지금은 전부 받아 화면이 거른다), 워크스페이스 할 일 목록(지금은 녹음마다 부른다), 일정 `statuses`·날짜 범위, 저장한 보기.
+7. **물어보기 켜기**: 운영은 `LECTERN_ASK=0`이다. 꺼진 동안 화면은 준비 중을 보인다.
+8. Pretendard 직접 호스팅 병합 후 `@font-face`, pdf.js 뷰어(P3), legacy-markdown 편집 화면(계약은 `CreateDocumentVersionRequest.markdown`).
 
 참고: 이 변경으로 `bun.lock`에 React, React Aria, TanStack, Playwright가 들어가므로 다음 운영 배포에서 Pi가 `bun install --frozen-lockfile`을 돌린다(`ops.ts`의 `DEPENDENCY_FILES`). `playwright@1.63.0`과 `playwright-core`에는 설치 스크립트가 없어 브라우저를 내려받지 않는다.
