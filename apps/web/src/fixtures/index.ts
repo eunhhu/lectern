@@ -8,6 +8,8 @@
 // the preview is opened; tests pass a fixed `now`.
 
 import type {
+  AskMessage,
+  AskThread,
   ActionItem,
   AssetDto,
   AssetId,
@@ -84,6 +86,9 @@ export interface FixtureData {
   progress: Map<JobId, JobProgress>;
   members: WorkspaceMember[];
   devices: Device[];
+  /** 물어보기 history (seeded by the fixture client). */
+  askThreads: AskThread[];
+  askMessages: AskMessage[];
 }
 
 // ---------------------------------------------------------------------------
@@ -563,6 +568,8 @@ export function buildFixtureData(now = new Date()): FixtureData {
     progress: new Map(),
     members: [],
     devices: [],
+    askThreads: [],
+    askMessages: [],
   };
 
   // Team members (synthetic names, example.com addresses) and this user's devices.

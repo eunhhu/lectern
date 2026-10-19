@@ -1,4 +1,4 @@
-// App frame: skip link, sidebar (홈 · 라이브러리 · 일정 · 설정), workspace
+// App frame: skip link, sidebar (홈 · 라이브러리 · 물어보기 · 일정 · 설정), workspace
 // switcher, and the app-wide overlays. Landmarks: <nav> in the sidebar, one <main>.
 
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";

@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { createContext, useContext, useEffect } from "react";
 import { ApiClientError, type ApiClient } from "./client.ts";
 import type {
+  AskScope,
   ActionItem,
   CreateFolderRequest,
   CreateTagRequest,
@@ -355,4 +356,23 @@ export function useRevokeDevice() {
     mutationFn: (id: string) => api.revokeDevice(id),
     onSettled: () => void qc.invalidateQueries({ queryKey: queryKeys.devices }),
   });
+}
+
+// --- 물어보기 ---------------------------------------------------------------------
+// Answers stream through ApiClient.ask (routes/ask/session.ts); these read history and
+// suggestions.
+
+export function useAskThreads(ws: WorkspaceId) {
+  const api = useApi();
+  return useQuery({ queryKey: ["ask-threads", ws], queryFn: () => allPages(() => api.listAskThreads(ws)) });
+}
+
+export function useAskThread(threadId: string | null) {
+  const api = useApi();
+  return useQuery({ queryKey: ["ask-thread", threadId], enabled: threadId !== null, queryFn: () => api.getAskThread(threadId!) });
+}
+
+export function useAskSuggestions(ws: WorkspaceId, scope: AskScope) {
+  const api = useApi();
+  return useQuery({ queryKey: ["ask-suggestions", ws, scope], queryFn: () => api.listAskSuggestions(ws, scope), staleTime: 60_000 });
 }

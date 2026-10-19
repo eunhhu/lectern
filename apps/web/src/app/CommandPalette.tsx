@@ -1,9 +1,11 @@
 // ⌘K / Ctrl+K command palette (DESIGN.md §3.7): one entry point for moving around,
-// running commands, opening recordings and folders, and searching transcripts and
-// documents. Matching ignores spaces and case and accepts 초성 ("ㅇㅇㅊㅈ" → 운영체제).
+// running commands, opening recordings and folders, searching transcripts and documents,
+// and asking the notes a question (물어보기: this note, this folder or all notes, listed
+// first when the text reads like a question). Matching ignores spaces and case and
+// accepts 초성 ("ㅇㅇㅊㅈ" → 운영체제).
 
-import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type Key } from "react";
 import {
   Autocomplete,
@@ -19,8 +21,9 @@ import {
   Text,
   TextField,
 } from "react-aria-components";
-import { useApi, useFolders, useRecordings } from "../api/queries.ts";
-import { bestMatch } from "../lib/hangul.ts";
+import { queryKeys, useApi, useFolders, useRecordings } from "../api/queries.ts";
+import type { RecordingDetail } from "../api/types.ts";
+import { bestMatch, looksLikeQuestion } from "../lib/hangul.ts";
 import { formatDate, formatTimestamp } from "../lib/format.ts";
 import { Icon, type IconName } from "../ui/Icon.tsx";
 import { Kbd } from "../ui/controls.tsx";
@@ -50,6 +53,7 @@ interface Section {
 const NAV_ALIASES: Record<string, string[]> = {
   "/": ["home", "inbox", "수신함"],
   "/library": ["library", "recordings", "녹음"],
+  "/ask": ["ask", "agent", "rag", "ai", "질문", "에이전트"],
   "/calendar": ["calendar", "schedule", "events"],
   "/settings": ["settings", "preferences", "환경"],
 };
@@ -94,6 +98,14 @@ function PaletteBody() {
   const folders = useFolders(workspaceId).data ?? [];
   const [query, setQuery] = useState("");
   const q = useDebounced(query.trim(), 180);
+  // Where the palette was opened, for "이 노트에 물어보기" and "이 폴더에 물어보기".
+  const location = useRouterState({ select: (st) => ({ pathname: st.location.pathname, search: st.location.search as { folder?: string } }) });
+  const here = /\/recordings\/([^/]+)$/.exec(location.pathname);
+  // The open recording may belong to another workspace than the one in the sidebar.
+  const hereRecordingId = here ? decodeURIComponent(here[1]!) : null;
+  const openDetail = useQueryClient().getQueryData<RecordingDetail>(queryKeys.recording(hereRecordingId ?? ""));
+  const hereRecording = hereRecordingId ? { id: hereRecordingId, title: openDetail?.recording.title ?? recordings.find((r) => r.id === hereRecordingId)?.title ?? "열려 있는 녹음" } : undefined;
+  const hereFolder = location.pathname.endsWith("/library") && location.search.folder && location.search.folder !== "none" ? folders.find((f) => f.id === location.search.folder) : undefined;
 
   const search = useQuery({
     queryKey: ["palette-search", workspaceId, q],
@@ -162,12 +174,50 @@ function PaletteBody() {
         run: go(() => void navigate({ to: "/recordings/$recordingId", params: { recordingId: h.recording_id }, search: t !== undefined ? { t } : {} })),
       };
     });
+    const question = query.trim();
+    const asks: Item[] =
+      question.length >= 2
+        ? [
+            ...(hereRecording
+              ? [
+                  {
+                    id: "ask:note",
+                    label: `이 노트에 물어보기: ${question}`,
+                    icon: "spark" as IconName,
+                    detail: hereRecording.title,
+                    run: go(() => void navigate({ to: "/recordings/$recordingId", params: { recordingId: hereRecording.id }, search: { ask: question } })),
+                  },
+                ]
+              : []),
+            ...(hereFolder
+              ? [
+                  {
+                    id: "ask:folder",
+                    label: `이 폴더에 물어보기: ${question}`,
+                    icon: "spark" as IconName,
+                    detail: `${hereFolder.name} 폴더`,
+                    run: go(() => void navigate({ to: "/ask", search: { q: question, scope: "folder", id: hereFolder.id } })),
+                  },
+                ]
+              : []),
+            {
+              id: "ask:all",
+              label: `전체 노트에 물어보기: ${question}`,
+              icon: "spark" as IconName,
+              detail: "답에 출처를 붙입니다",
+              run: go(() => void navigate({ to: "/ask", search: { q: question, scope: "workspace" } })),
+            },
+          ]
+        : [];
+    const askSection: Section = { id: "ask", title: "물어보기", items: asks };
     const out: Section[] = [
+      ...(looksLikeQuestion(question) ? [askSection] : []),
       { id: "nav", title: "이동", items: rank(nav, query) },
       { id: "commands", title: "명령", items: rank(commands, query) },
       { id: "recordings", title: "녹음", items: rank(recs, query, query.trim() ? 8 : 5) },
       { id: "folders", title: "폴더", items: query.trim() ? rank(flds, query, 5) : [] },
       { id: "hits", title: "전사·문서", items: hits },
+      ...(looksLikeQuestion(question) ? [] : [askSection]),
     ];
     if (query.trim()) {
       out.push({
@@ -185,7 +235,7 @@ function PaletteBody() {
     }
     return out.filter((sec) => sec.items.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, q, recordings, folders, workspaces, workspaceId, search.data]);
+  }, [query, q, recordings, folders, workspaces, workspaceId, search.data, hereRecording, hereFolder]);
 
   const byId = new Map(sections.flatMap((sec) => sec.items.map((it) => [it.id, it] as const)));
   const nothing = query.trim() !== "" && sections.every((sec) => sec.id === "all");
@@ -194,9 +244,9 @@ function PaletteBody() {
     <Autocomplete inputValue={query} onInputChange={setQuery}>
       {/* A TextField, not a SearchField: Esc should close the palette at once instead of
           first clearing the query. */}
-      <TextField className={s.search} aria-label="이동, 명령, 녹음 검색" autoFocus>
+      <TextField className={s.search} aria-label="이동, 명령, 녹음 검색 또는 질문" autoFocus>
         <Icon name="search" />
-        <Input className={s.input} placeholder="이동, 명령, 녹음 검색…" />
+        <Input className={s.input} placeholder="이동, 명령, 녹음 검색 또는 노트에 질문…" />
       </TextField>
       {nothing && <p className={s.none}>일치하는 항목이 없습니다.</p>}
       <Menu className={s.menu} aria-label="결과" onAction={(key: Key) => byId.get(String(key))?.run()}>
@@ -236,6 +286,7 @@ function PaletteBody() {
         <span>
           <Kbd keys={["esc"]} /> 닫기
         </span>
+        <span>질문을 쓰면 ‘물어보기’로 바로 답을 받습니다</span>
       </div>
     </Autocomplete>
   );

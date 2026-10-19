@@ -1,7 +1,7 @@
 // Recording detail (ARCHITECTURE §7): the organised document is the main reading column;
 // one side panel beside it holds the transcript (open by default), the files (PDFs,
-// events, to-dos) or 물어보기, opened from the header and closed to read the document
-// full width. The audio player stays at the bottom. Below 1280 px the document and the
+// events, to-dos) or "이 노트에 물어보기", opened from the header and closed to read the
+// document full width. The 물어보기 conversation lives here, so switching panels keeps it. The audio player stays at the bottom. Below 1280 px the document and the
 // panels become tabs. DOM order matches the visual order (WCAG 1.3.2).
 
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type R
 import { Menu, MenuItem, MenuTrigger, Popover, Tab, TabList, TabPanel, Tabs, ToggleButton } from "react-aria-components";
 import { useApi, useDocument, useFolders, useJobProgress, useRecording, useTags, useTranscript } from "../../api/queries.ts";
 import { ApiClientError } from "../../api/client.ts";
-import type { RecordingDetail } from "../../api/types.ts";
+import type { AskScope, RecordingDetail } from "../../api/types.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { setPreferences, usePreferences, type RecordingPanel } from "../../app/preferences.ts";
 import { DOMAIN_LABEL, STATUS, stageLabel } from "../../app/labels.ts";
@@ -19,6 +19,8 @@ import { Icon, type IconName } from "../../ui/Icon.tsx";
 import { Badge, Button, Dot, EmptyState, ErrorBox, Progress, Segmented, Spinner, uiStyles } from "../../ui/controls.tsx";
 import { BulkDialogs, type BulkAction } from "../library/BulkDialogs.tsx";
 import { folderPath } from "../library/folders.ts";
+import { useAskSession } from "../ask/session.ts";
+import { AskPanel } from "./AskPanel.tsx";
 import { AudioPlayer } from "./AudioPlayer.tsx";
 import { DocumentPane } from "./DocumentPane.tsx";
 import { PlaybackProvider, type SidePanel } from "./playback.tsx";
@@ -31,6 +33,7 @@ const WIDE = "(min-width: 1280px)";
 const PANEL_TOGGLES: { id: SidePanel; label: string; icon: IconName }[] = [
   { id: "transcript", label: "전사", icon: "quote" },
   { id: "files", label: "자료", icon: "pdf" },
+  { id: "ask", label: "물어보기", icon: "spark" },
 ];
 
 function useMediaQuery(query: string): boolean {
@@ -95,8 +98,23 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const now = useMemo(() => new Date(), []);
   const prefs = usePreferences();
   const panel = prefs.recordingPanel;
-  const setPanel = (next: RecordingPanel) => setPreferences({ recordingPanel: next });
   const [narrowTab, setNarrowTab] = useState<"document" | SidePanel>("document");
+  const ask = useAskSession(rec.workspace_id);
+  const [askScope, setAskScope] = useState<AskScope>({ kind: "recording", recording_id: rec.id });
+  // After a citation opened the transcript, offer the way back to the conversation.
+  const [backToAsk, setBackToAsk] = useState(false);
+  // Focus the composer only when the reader opened 물어보기, not on page load.
+  const [askFocus, setAskFocus] = useState(false);
+  const setPanel = (next: RecordingPanel) => {
+    setBackToAsk(false);
+    setAskFocus(next === "ask");
+    setPreferences({ recordingPanel: next });
+  };
+  const showTab = (next: "document" | SidePanel) => {
+    setBackToAsk(false);
+    setAskFocus(next === "ask");
+    setNarrowTab(next);
+  };
   // A source chip opens the transcript, a PDF chip the files panel.
   const requestPanel = useCallback((next: SidePanel) => {
     setPreferences({ recordingPanel: next });
@@ -119,10 +137,22 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   }, [api, audioAsset, rec.duration_ms]);
   useEffect(() => () => clock.dispose(), [clock]);
 
-  // ?t=<ms> (from search results) starts at that point.
+  // ?t=<ms> (from search results and answers) starts at that point.
   useEffect(() => {
     if (search.t !== undefined && transcript.data) clock.seek(search.t);
   }, [search.t, transcript.data, clock]);
+
+  // ?ask=<question> (⌘K "이 노트에 물어보기"): open the panel and ask at once.
+  useEffect(() => {
+    if (!search.ask) return;
+    const scope: AskScope = { kind: "recording", recording_id: rec.id };
+    setAskScope(scope);
+    setPreferences({ recordingPanel: "ask" });
+    setNarrowTab("ask");
+    ask.send(search.ask, scope);
+    void navigate({ to: "/recordings/$recordingId", params: { recordingId: rec.id }, search: search.t !== undefined ? { t: search.t } : {}, replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.ask]);
 
   const status = STATUS[rec.status];
   const path = folderPath(folders, rec.folder_id);
@@ -277,16 +307,23 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
         {panelHead(
           "pane-transcript",
           "전사",
-          <Segmented
-            label="전사 표시"
-            size="sm"
-            value={prefs.transcriptMode}
-            onChange={(mode) => setPreferences({ transcriptMode: mode })}
-            options={[
-              { id: "reading", label: "읽기 모드" },
-              { id: "verbatim", label: "원문" },
-            ]}
-          />,
+          <>
+            {backToAsk && (
+              <Button size="sm" variant="ghost" icon="chevronLeft" onPress={() => (wide ? setPanel("ask") : showTab("ask"))}>
+                물어보기로
+              </Button>
+            )}
+            <Segmented
+              label="전사 표시"
+              size="sm"
+              value={prefs.transcriptMode}
+              onChange={(mode) => setPreferences({ transcriptMode: mode })}
+              options={[
+                { id: "reading", label: "읽기 모드" },
+                { id: "verbatim", label: "원문" },
+              ]}
+            />
+          </>,
         )}
         <TranscriptPane headingId="pane-transcript" mode={prefs.transcriptMode} />
       </section>
@@ -297,8 +334,21 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
         <SidePane recordingId={rec.id} assets={detail.assets} ready={rec.status === "ready" || rec.status === "partial"} />
       </section>
     ),
+    ask: (
+      <section className={s.panel} aria-labelledby="pane-ask">
+        {panelHead("pane-ask", "물어보기")}
+        <AskPanel
+          recording={rec}
+          session={ask}
+          scope={askScope}
+          onScopeChange={setAskScope}
+          autoFocus={askFocus}
+          onJump={() => setBackToAsk(true)}
+        />
+      </section>
+    ),
   };
-  const sidePanel = panel === "none" ? null : panel === "files" ? panes.files : panes.transcript;
+  const sidePanel = panel === "none" ? null : panel === "files" ? panes.files : panel === "ask" ? panes.ask : panes.transcript;
 
   return (
     <PlaybackProvider clock={clock} segments={t.segments} gaps={t.gaps} speakers={t.speakers} onRequestPanel={requestPanel}>
@@ -316,7 +366,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
             {sidePanel}
           </div>
         ) : (
-          <Tabs className={s.narrowTabs} selectedKey={narrowTab} onSelectionChange={(k) => setNarrowTab(String(k) as typeof narrowTab)}>
+          <Tabs className={s.narrowTabs} selectedKey={narrowTab} onSelectionChange={(k) => showTab(String(k) as typeof narrowTab)}>
             <TabList className={s.tabList} aria-label="녹음 보기">
               <Tab id="document" className={s.tab}>
                 문서
@@ -327,6 +377,9 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
               <Tab id="files" className={s.tab}>
                 자료
               </Tab>
+              <Tab id="ask" className={s.tab}>
+                물어보기
+              </Tab>
             </TabList>
             <TabPanel id="document" className={s.narrowPanel}>
               {panes.document}
@@ -336,6 +389,9 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
             </TabPanel>
             <TabPanel id="files" className={s.narrowPanel}>
               {panes.files}
+            </TabPanel>
+            <TabPanel id="ask" className={s.narrowPanel}>
+              {panes.ask}
             </TabPanel>
           </Tabs>
         )}

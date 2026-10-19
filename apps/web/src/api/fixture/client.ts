@@ -5,6 +5,10 @@
 // in memory only and are gone after a reload.
 
 import type {
+  AskMessage,
+  AskRequest,
+  AskScope,
+  AskThread,
   AssetDto,
   AssetId,
   CompleteUploadResponse,
@@ -41,6 +45,7 @@ import { UPLOADED_GENERIC_DOC } from "../../fixtures/documents.ts";
 import { UPLOADED_GENERIC } from "../../fixtures/scripts.ts";
 import { parseFileName } from "../../lib/pairing.ts";
 import { ApiClientError, type ApiClient } from "../client.ts";
+import { composeAnswer, scopeLabel, streamChunks, suggestionsFor, type ComposedAnswer } from "./ask.ts";
 import type { ListRecordingsParams, ListSuggestionsParams, SearchParams } from "../types.ts";
 
 export interface FixtureClientOptions {
@@ -64,6 +69,37 @@ function page<T>(items: T[], cursor: string | undefined, limit: unknown) {
   const next = start + size < items.length ? String(start + size) : null;
   return { items: structuredClone(slice), next_cursor: next };
 }
+
+/** Waits `ms` (a microtask when 0), rejecting with an AbortError if `signal` aborts. */
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException("답을 멈췄습니다.", "AbortError"));
+    if (signal?.aborted) return abort();
+    if (ms <= 0) {
+      queueMicrotask(() => (signal?.aborted ? abort() : resolve()));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      abort();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+// 물어보기 history the preview opens with: synthetic questions answered by the same
+// composer, so their citations resolve like live answers.
+const ASK_SEEDS: { id: string; ws: WorkspaceId; scope: AskScope; questions: string[]; hoursAgo: number }[] = [
+  { id: "ask_seed_os07", ws: "ws_personal" as WorkspaceId, scope: { kind: "recording", recording_id: "rec_os07" }, questions: ["SJF가 최적이면서도 그대로 쓰기 어려운 이유는?", "라운드 로빈에서 타임 퀀텀이 너무 크면 어떻게 돼?"], hoursAgo: 3 },
+  { id: "ask_seed_deadlines", ws: "ws_personal" as WorkspaceId, scope: { kind: "workspace" }, questions: ["다가오는 마감과 시험을 정리해 줘"], hoursAgo: 26 },
+  { id: "ask_seed_os", ws: "ws_personal" as WorkspaceId, scope: { kind: "folder", folder_id: "fld_os" }, questions: ["운영체제 수업 핵심만 요약해 줘"], hoursAgo: 50 },
+  { id: "ask_seed_decisions", ws: "ws_team" as WorkspaceId, scope: { kind: "workspace" }, questions: ["최근 회의에서 결정된 사항은?"], hoursAgo: 5 },
+  { id: "ask_seed_tasks", ws: "ws_team" as WorkspaceId, scope: { kind: "folder", folder_id: "fld_weekly" }, questions: ["누가 무엇을 맡았어?"], hoursAgo: 30 },
+];
 
 async function sha256Hex(blob: Blob): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
@@ -187,6 +223,48 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     }
     return ids;
   };
+
+  // 물어보기: store one question and its answer in a (new or existing) thread.
+  const askThread = (workspaceId: string, threadId: string | null | undefined, scope: AskScope, question: string, at: string): AskThread => {
+    if (threadId) {
+      const thread = data.askThreads.find((x) => x.id === threadId && x.workspace_id === workspaceId);
+      if (!thread) throw notFound("대화");
+      return thread;
+    }
+    const thread: AskThread = {
+      id: newId("ask"),
+      workspace_id: workspaceId,
+      title: question.length > 40 ? `${question.slice(0, 40)}…` : question,
+      scope,
+      scope_label: scopeLabel(data, scope),
+      message_count: 0,
+      created_at: at,
+      updated_at: at,
+    };
+    data.askThreads.push(thread);
+    return thread;
+  };
+  const saveTurn = (thread: AskThread, question: string, answer: ComposedAnswer, at: string) => {
+    const q: AskMessage = { id: newId("msg"), thread_id: thread.id, role: "user", text: question, citations: [], status: "complete", searched: 0, created_at: at };
+    const a: AskMessage = { id: newId("msg"), thread_id: thread.id, role: "assistant", text: answer.text, citations: answer.citations, status: answer.status, searched: answer.searched, created_at: at };
+    data.askMessages.push(q, a);
+    Object.assign(thread, { message_count: thread.message_count + 2, updated_at: at });
+    return { q, a };
+  };
+  const assertAskScope = (req: AskRequest) => {
+    if (!data.workspaces.some((w) => w.workspace.id === req.workspace_id)) throw notFound("워크스페이스");
+    if (req.scope.kind === "recording" && recording(req.scope.recording_id).workspace_id !== req.workspace_id) throw notFound("녹음");
+    if (req.scope.kind === "folder") {
+      const folderId = req.scope.folder_id;
+      if (!data.folders.some((f) => f.id === folderId && f.workspace_id === req.workspace_id)) throw notFound("폴더");
+    }
+  };
+  for (const seed of ASK_SEEDS) {
+    const at = new Date(data.now.getTime() - seed.hoursAgo * 3_600_000).toISOString();
+    const thread = askThread(seed.ws, null, seed.scope, seed.questions[0]!, at);
+    thread.id = seed.id;
+    for (const question of seed.questions) saveTurn(thread, question, composeAnswer(data, { workspace_id: seed.ws, scope: seed.scope, question }), at);
+  }
 
   // Slowly advance the long-running fixture jobs while someone is listening, so the
   // inbox shows live progress. They hold at 95% and never finish.
@@ -540,6 +618,47 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
         }
         return page(hits, q.cursor, q.limit ?? 20);
       }),
+
+    ask: async (body, { signal, onEvent }) => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        throw new ApiClientError(0, "network_error", "네트워크에 연결되어 있지 않아 답을 받지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.");
+      }
+      const question = body.question.trim();
+      if (!question || question.length > 2000) throw new ApiClientError(400, "validation_failed", "질문은 1자 이상 2,000자 이하로 입력하세요.");
+      assertAskScope(body);
+      if (body.thread_id && !data.askThreads.some((x) => x.id === body.thread_id && x.workspace_id === body.workspace_id)) throw notFound("대화");
+      const answer = composeAnswer(data, { ...body, question });
+      // Retrieval, then the answer a few characters at a time.
+      await pause(latency * 6, signal);
+      onEvent({ type: "retrieval", searched: answer.searched, citations: structuredClone(answer.citations) });
+      for (const text of streamChunks(answer.text)) {
+        await pause(latency > 0 ? 22 : 0, signal);
+        onEvent({ type: "delta", text });
+      }
+      const at = nowIso();
+      const thread = askThread(body.workspace_id, body.thread_id, body.scope, question, at);
+      const { q, a } = saveTurn(thread, question, answer, at);
+      onEvent({ type: "done", thread: structuredClone(thread), question: structuredClone(q), answer: structuredClone(a) });
+      return structuredClone(a);
+    },
+
+    listAskThreads: (ws) =>
+      wait(() =>
+        page(
+          data.askThreads.filter((x) => x.workspace_id === ws).sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+          undefined,
+          MAX_PAGE,
+        ),
+      ),
+
+    getAskThread: (id) =>
+      wait(() => {
+        const thread = data.askThreads.find((x) => x.id === id);
+        if (!thread) throw notFound("대화");
+        return structuredClone({ thread, messages: data.askMessages.filter((m) => m.thread_id === id) });
+      }),
+
+    listAskSuggestions: (ws, scope) => wait(() => (assertAskScope({ workspace_id: ws, scope, question: "" }), suggestionsFor(data, ws, scope))),
 
     createUpload: (body: CreateUploadRequest) =>
       wait((): UploadSession => {

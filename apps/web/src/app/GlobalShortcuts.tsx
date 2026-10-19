@@ -1,5 +1,5 @@
 // App-wide keyboard shortcuts (DESIGN.md §1.2): ⌘K / Ctrl+K always; single keys (U, ?,
-// "G then H/L/R/C/S") only outside text fields, never during Korean IME composition,
+// "G then H/L/A/C/S") only outside text fields, never during Korean IME composition,
 // never while a dialog is open, and only while the viewer has them turned on (WCAG 2.1.4).
 
 import { useNavigate } from "@tanstack/react-router";

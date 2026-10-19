@@ -4,6 +4,12 @@
 // fixtures (./fixture/client.ts); the real /api/v2 client replaces it in ./index.ts.
 
 import type {
+  AskMessage,
+  AskRequest,
+  AskScope,
+  AskStreamEvent,
+  AskThreadDetail,
+  AskThreadPage,
   ActionItem,
   ActionItemPage,
   UpdateActionItemRequest,
@@ -94,6 +100,18 @@ export interface ApiClient {
   updateCalendarSuggestion(eventCandidateId: string, body: UpdateEventCandidateRequest): Promise<EventCandidate>;
 
   search(query: SearchParams): Promise<SearchHitPage>;
+
+  /**
+   * 물어보기: answers a question from the notes in scope, streaming events as it goes
+   * (retrieval, then text deltas, then done). Resolves with the answer; rejects with an
+   * ApiClientError (network, validation) or an AbortError when `signal` aborts. Not in
+   * the domain contract yet (README "domain 요청").
+   */
+  ask(body: AskRequest, options: { signal?: AbortSignal; onEvent: (event: AskStreamEvent) => void }): Promise<AskMessage>;
+  listAskThreads(workspaceId: WorkspaceId): Promise<AskThreadPage>;
+  getAskThread(threadId: string): Promise<AskThreadDetail>;
+  /** Questions worth asking about the scope (chips under the composer). */
+  listAskSuggestions(workspaceId: WorkspaceId, scope: AskScope): Promise<string[]>;
 
   createUpload(body: CreateUploadRequest, idempotencyKey: string): Promise<UploadSession>;
   uploadPart(uploadId: string, part: number, bytes: Blob): Promise<UploadPartReceipt>;

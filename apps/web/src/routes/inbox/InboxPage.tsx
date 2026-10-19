@@ -1,10 +1,12 @@
-// 홈/수신함 (ARCHITECTURE §7): recordings in progress and recordings that need attention
-// on the left; event suggestions to confirm and what is coming up on the
+// 홈/수신함 (ARCHITECTURE §7): recordings in progress, recordings that need attention and
+// 물어보기 (ask the notes, recent conversations) on the left; event suggestions to confirm and what is coming up on the
 // right; recent documents below.
 
-import { Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { Form, Input, TextField } from "react-aria-components";
 import {
+  useAskThreads,
   useConfirmedEvents,
   useDecideSuggestion,
   useJobProgress,
@@ -91,6 +93,8 @@ export function InboxPage() {
               </ul>
             </section>
           )}
+
+          <AskCard />
         </div>
         <div className={s.column}>
           <section className={s.card} aria-labelledby="inbox-suggestions">
@@ -257,6 +261,57 @@ function UpcomingCard({ now }: { now: Date }) {
                 <p className={s.rowTitle}>{u.title}</p>
               </div>
               <Badge>{u.kind}</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function AskCard() {
+  const navigate = useNavigate();
+  const { workspaceId } = useWorkspace();
+  const threads = (useAskThreads(workspaceId).data ?? []).slice(0, 3);
+  const [question, setQuestion] = useState("");
+  const now = new Date();
+  return (
+    <section className={s.card} aria-labelledby="inbox-ask">
+      <div className={s.cardHead}>
+        <h2 id="inbox-ask" className={s.cardTitle}>
+          물어보기
+        </h2>
+        <Link to="/ask" className={s.more}>
+          대화 전체 <Icon name="chevronRight" size={14} />
+        </Link>
+      </div>
+      <Form
+        className={s.askForm}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (question.trim()) void navigate({ to: "/ask", search: { q: question.trim(), scope: "workspace" } });
+        }}
+      >
+        <TextField className={s.askField} aria-label="노트에 질문" value={question} onChange={setQuestion}>
+          <Input className={s.askInput} placeholder="예: 다가오는 마감 정리해 줘" />
+        </TextField>
+        <Button type="submit" variant="primary" icon="spark" isDisabled={!question.trim()}>
+          묻기
+        </Button>
+      </Form>
+      {threads.length > 0 && (
+        <ul className={s.rows} role="list" aria-label="최근 대화">
+          {threads.map((t) => (
+            <li key={t.id} className={s.row}>
+              <Icon name="spark" />
+              <div className={s.rowMain}>
+                <Link to="/ask" search={{ thread: t.id }} className={s.rowTitle}>
+                  {t.title}
+                </Link>
+                <p className={s.rowMeta}>
+                  {t.scope_label} · {formatRelative(t.updated_at, now)}
+                </p>
+              </div>
             </li>
           ))}
         </ul>

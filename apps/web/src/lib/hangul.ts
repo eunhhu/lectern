@@ -58,3 +58,8 @@ export function bestMatch(label: string, aliases: readonly string[], query: stri
   }
   return best;
 }
+
+/** Reads like a question (⌘K lists 물어보기 first): ends with "?" or uses a question word. */
+export function looksLikeQuestion(text: string): boolean {
+  return /[?？]\s*$/.test(text) || /(뭐|무엇|언제|어디|누가|누구|왜|어떻게|얼마|몇|있어|있었|했어|알려|정리|요약|설명)/.test(text);
+}

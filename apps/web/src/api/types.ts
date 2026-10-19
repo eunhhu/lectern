@@ -136,3 +136,76 @@ export type {
   TagSource,
   VerifyFlag,
 } from "@lectern/domain";
+
+// ---------------------------------------------------------------------------
+// 물어보기 (ask). Not in packages/domain yet: these are app-local shapes for the RAG
+// endpoints another stream is designing. README "domain 요청" lists the contract this
+// UI needs; replace these with the domain types once they exist.
+// ---------------------------------------------------------------------------
+
+/** What an answer may draw on: one note, a folder (with its subfolders) or the workspace. */
+export type AskScope = { kind: "workspace" } | { kind: "folder"; folder_id: string } | { kind: "recording"; recording_id: string };
+
+/** One source of an answer, cited in the answer text as `[n]`. */
+export interface AskCitation {
+  n: number;
+  recording_id: string;
+  recording_title: string;
+  /** Inclusive transcript segment idx range, as in a domain SourceRef. */
+  start_idx: number;
+  end_idx: number;
+  /** Original-audio ms of the range. */
+  start_ms: number;
+  end_ms: number;
+  speaker: string | null;
+  quote: string;
+}
+
+/** `no_evidence`: nothing in scope was relevant, so the answer says so instead of guessing. */
+export type AskAnswerStatus = "complete" | "no_evidence";
+
+export interface AskMessage {
+  id: string;
+  thread_id: string;
+  role: "user" | "assistant";
+  text: string;
+  /** Assistant only. */
+  citations: AskCitation[];
+  status: AskAnswerStatus;
+  /** Assistant only: how many notes were searched. */
+  searched: number;
+  created_at: string;
+}
+
+export interface AskThread {
+  id: string;
+  workspace_id: string;
+  title: string;
+  scope: AskScope;
+  /** Display label of the scope ("운영체제 7주차 — CPU 스케줄링", "운영체제 폴더", "전체 노트"). */
+  scope_label: string;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AskThreadDetail {
+  thread: AskThread;
+  messages: AskMessage[];
+}
+
+export interface AskRequest {
+  workspace_id: string;
+  /** Continue a conversation; omit to start one. */
+  thread_id?: string | null;
+  question: string;
+  scope: AskScope;
+}
+
+/** Server-sent events of one answer (`POST /ask`, `text/event-stream`). */
+export type AskStreamEvent =
+  | { type: "retrieval"; searched: number; citations: AskCitation[] }
+  | { type: "delta"; text: string }
+  | { type: "done"; thread: AskThread; question: AskMessage; answer: AskMessage };
+
+export type AskThreadPage = Page<AskThread>;

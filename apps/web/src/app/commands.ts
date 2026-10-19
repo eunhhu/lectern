@@ -6,7 +6,7 @@ import type { IconName } from "../ui/Icon.tsx";
 export interface ShortcutInfo {
   keys: string[];
   label: string;
-  group: "이동" | "명령" | "목록" | "폴더·태그" | "녹음 상세";
+  group: "이동" | "명령" | "목록" | "폴더·태그" | "녹음 상세" | "물어보기";
 }
 
 export const SHORTCUTS: ShortcutInfo[] = [
@@ -15,6 +15,7 @@ export const SHORTCUTS: ShortcutInfo[] = [
   { keys: ["?"], label: "단축키 보기", group: "명령" },
   { keys: ["G", "H"], label: "홈으로 이동", group: "이동" },
   { keys: ["G", "L"], label: "라이브러리로 이동", group: "이동" },
+  { keys: ["G", "A"], label: "물어보기로 이동", group: "이동" },
   { keys: ["G", "C"], label: "일정으로 이동", group: "이동" },
   { keys: ["G", "S"], label: "설정으로 이동", group: "이동" },
   { keys: ["↑", "↓"], label: "항목 사이 이동", group: "목록" },
@@ -29,20 +30,25 @@ export const SHORTCUTS: ShortcutInfo[] = [
   { keys: ["←", "→"], label: "5초 뒤로, 앞으로", group: "녹음 상세" },
   { keys: ["⇧←", "⇧→"], label: "30초 뒤로, 앞으로", group: "녹음 상세" },
   { keys: ["[", "]"], label: "재생 속도 낮추기, 높이기", group: "녹음 상세" },
-  { keys: ["Enter"], label: "전사 구간으로 이동", group: "녹음 상세" },
+  { keys: ["Enter"], label: "전사 문단의 시각에서 그 시점으로 이동", group: "녹음 상세" },
+  { keys: ["Enter"], label: "질문 보내기", group: "물어보기" },
+  { keys: ["⇧Enter"], label: "줄 바꿈", group: "물어보기" },
+  { keys: ["⌘K"], label: "팔레트에 질문을 쓰고 ‘물어보기’ 고르기", group: "물어보기" },
 ];
 
-export const GO_KEYS: Record<string, "/" | "/library" | "/calendar" | "/settings"> = {
+export const GO_KEYS: Record<string, "/" | "/library" | "/ask" | "/calendar" | "/settings"> = {
   h: "/",
   l: "/library",
+  a: "/ask",
   c: "/calendar",
   s: "/settings",
 };
 
 /** Sidebar order is fixed (WCAG 3.2.3). */
-export const NAV_ITEMS: { to: "/" | "/library" | "/calendar" | "/settings"; label: string; icon: IconName; key: string }[] = [
+export const NAV_ITEMS: { to: "/" | "/library" | "/ask" | "/calendar" | "/settings"; label: string; icon: IconName; key: string }[] = [
   { to: "/", label: "홈", icon: "inbox", key: "H" },
   { to: "/library", label: "라이브러리", icon: "library", key: "L" },
+  { to: "/ask", label: "물어보기", icon: "spark", key: "A" },
   { to: "/calendar", label: "일정", icon: "calendar", key: "C" },
   { to: "/settings", label: "설정", icon: "settings", key: "S" },
 ];

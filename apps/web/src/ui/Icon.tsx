@@ -45,6 +45,9 @@ const PATHS = {
   logout: "M6.5 13.5h-3v-11h3M10 5l3 3-3 3M13 8H6.5",
   move: "M2 4.5V12.5h12V5.5H7.5L6 3.5H2zM6.5 9h4M9 7l1.5 2L9 11",
   chevronLeft: "M10 3.5 5.5 8l4.5 4.5",
+  copy: "M5.5 5.5h7v8h-7zM3.5 10.5v-8h7",
+  send: "M8 13V3.5M4 7.5 8 3.5l4 4",
+  stop: "M4.5 4.5h7v7h-7z",
   flip: "M3 6h8.5a2 2 0 0 1 0 4H4M5.5 4 3 6l2.5 2M10.5 12 13 10",
 } as const;
 

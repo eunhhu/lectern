@@ -9,6 +9,7 @@ import { RecordingPage } from "../routes/recording/RecordingPage.tsx";
 import { CalendarPage } from "../routes/calendar/CalendarPage.tsx";
 import { NotFoundPage } from "../routes/placeholders.tsx";
 import { SettingsPage } from "../routes/settings/SettingsPage.tsx";
+import { AskPage, type AskSearch } from "../routes/ask/AskPage.tsx";
 
 export interface LibrarySearch {
   /** Folder id, or "none" for recordings outside any folder. */
@@ -40,17 +41,27 @@ const libraryRoute = createRoute({
 const recordingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/recordings/$recordingId",
-  validateSearch: (search: Record<string, unknown>): { t?: number } => {
+  validateSearch: (search: Record<string, unknown>): { t?: number; ask?: string } => {
     const t = Number(search.t);
-    return Number.isFinite(t) && t >= 0 ? { t } : {};
+    const ask = str(search.ask);
+    return { ...(Number.isFinite(t) && t >= 0 ? { t } : {}), ...(ask ? { ask } : {}) };
   },
   component: RecordingPage,
 });
 
+const askRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/ask",
+  validateSearch: (search: Record<string, unknown>): AskSearch => {
+    const scope = search.scope === "folder" || search.scope === "recording" || search.scope === "workspace" ? search.scope : undefined;
+    return { q: str(search.q), scope, id: str(search.id), thread: str(search.thread) };
+  },
+  component: AskPage,
+});
 const calendarRoute = createRoute({ getParentRoute: () => rootRoute, path: "/calendar", component: CalendarPage });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage });
 
-const routeTree = rootRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, calendarRoute, settingsRoute]);
+const routeTree = rootRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, askRoute, calendarRoute, settingsRoute]);
 
 export function createAppRouter() {
   return createRouter({ routeTree, basepath: "/app", defaultPreload: false });
