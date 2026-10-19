@@ -5,6 +5,7 @@ import {
   keptOriginalRanges,
   toCutMs,
   toOriginalMs,
+  toOriginalRanges,
   validateTimeMap,
   type TimeMapEntry,
 } from "../src/index.ts";
@@ -142,5 +143,28 @@ describe("toCutMs", () => {
         expect(toOriginalMs(toCutMs(orig, map), map)).toBe(orig);
       }
     }
+  });
+});
+
+describe("toOriginalRanges", () => {
+  test("a range inside one kept stretch is one piece", () => {
+    expect(toOriginalRanges({ start_ms: 31 * MIN, end_ms: 32 * MIN }, gapMap)).toEqual([
+      { start_ms: 51 * MIN, end_ms: 52 * MIN, cut_length_ms: MIN },
+    ]);
+  });
+
+  test("a range across the junction is split around the 20-minute gap, never spanning it", () => {
+    expect(toOriginalRanges({ start_ms: 29 * MIN, end_ms: 33 * MIN }, gapMap)).toEqual([
+      { start_ms: 29 * MIN, end_ms: 30 * MIN, cut_length_ms: MIN },
+      { start_ms: 50 * MIN, end_ms: 53 * MIN, cut_length_ms: 3 * MIN },
+    ]);
+  });
+
+  test("clipped to the cut audio; empty ranges give nothing", () => {
+    expect(toOriginalRanges({ start_ms: 59 * MIN, end_ms: 70 * MIN }, gapMap)).toEqual([
+      { start_ms: 79 * MIN, end_ms: 80 * MIN, cut_length_ms: MIN },
+    ]);
+    expect(toOriginalRanges({ start_ms: 5 * MIN, end_ms: 5 * MIN }, gapMap)).toEqual([]);
+    expect(() => toOriginalRanges({ start_ms: 0, end_ms: 1 }, [])).toThrow(RangeError);
   });
 });

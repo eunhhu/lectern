@@ -63,12 +63,19 @@ export async function renderSpeechAudio(
   return describe(outPath, encoding, options);
 }
 
+/** One planned chunk written to disk: what a transcription provider receives. Cut-audio time. */
+export interface RenderedChunk extends ChunkSpec {
+  path: string;
+  bytes: number;
+  mime: string;
+}
+
 /** chunks.json (AI_HARNESS §3.3). Times are cut-audio time; `path` becomes a blob key in the harness. */
 export interface ChunkManifest {
   version: 1;
   timebase: "cut";
   cut_duration_ms: number;
-  chunks: Array<ChunkSpec & { path: string; bytes: number; mime: string }>;
+  chunks: RenderedChunk[];
 }
 
 /**

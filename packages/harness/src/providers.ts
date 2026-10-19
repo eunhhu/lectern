@@ -1,9 +1,10 @@
-// Provider abstraction (AI_HARNESS §5). Types only for now: the one implemented provider
-// is the legacy Gemini distillation (gemini.ts). Transcription and LLM adapters arrive with
-// their stages (§11 steps 3 and 5); a provider is registered only on a paid tier whose
-// inputs are not used for training (§5, data policy).
+// Provider abstraction (AI_HARNESS §5). Implemented so far: the legacy Gemini distillation
+// (gemini.ts), Gemini audio transcription (gemini-transcribe.ts) and the ask adapters
+// (gemini-ask.ts). LLM text adapters arrive with their stages (§11 step 5). A provider is
+// registered only on a paid tier whose inputs are not used for training (§5, data policy).
 
 import type { TranscribeResult } from "@lectern/domain";
+import type { RenderedChunk } from "@lectern/media";
 import type { ZodType } from "zod";
 
 /**
@@ -31,28 +32,33 @@ export interface ProviderCallResult {
   latencyMs?: number;
 }
 
-/**
- * One chunk of normalized audio, as packages/media's `chunk` step will produce it.
- * Assumed shape until that package lands; replace with its exported type then.
- */
-export interface AudioChunk {
-  index: number;
-  path: string;
-  mimeType: string;
-  sha256: string;
-  /** Position in cut-audio time (see speech_map, §3.2). */
-  startMs: number;
-  endMs: number;
+export interface TranscribeOptions {
+  /** BCP 47 hint (`ko`); the provider transcribes what it hears either way. */
+  language?: string;
+  speakersHint?: number;
+  signal?: AbortSignal;
+  /** Set on a repair attempt: why the previous answer was rejected (StageContext.repair). */
+  repair?: { issues: string } | null;
 }
 
 export interface TranscriptionProvider {
   /** "gemini", "stt-x" */
   id: string;
+  /** Pinned model id: part of the memo key, and what `ai_call.model` holds. */
+  model: string;
+  /** Longest chunk the provider takes; the pipeline plans chunks within it. */
   maxChunkSeconds: number;
-  transcribe(
-    chunk: AudioChunk,
-    opts: { language?: string; speakersHint?: number; signal?: AbortSignal }
-  ): Promise<TranscribeResult & ProviderCallResult>;
+  /**
+   * Everything besides the audio and the options that decides the answer, for the memo key
+   * (§4.4): the prompt file's content hash and the request parameters (schema hash, ...).
+   */
+  readonly fingerprint: { prompt: string; params: unknown };
+  /**
+   * Transcribes one chunk. Times in the result are chunk-relative cut-audio time
+   * (domain TranscribeSegment). A billed answer that is unusable throws a HarnessError
+   * carrying `billed`, so the ledger still records it.
+   */
+  transcribe(chunk: RenderedChunk, opts: TranscribeOptions): Promise<TranscribeResult & ProviderCallResult>;
 }
 
 export type ContextPart =

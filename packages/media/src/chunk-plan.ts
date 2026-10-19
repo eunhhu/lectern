@@ -3,6 +3,9 @@ import { intervalLength, normalizeIntervals, type Interval } from "./intervals.t
 // chunk (AI_HARNESS §3.3): where to split the speech-only audio. Pure; renderChunks() writes the files.
 // Every time here is cut-audio time.
 
+/** Bump when the planner's placement rules change, so memoised chunk plans are recomputed (§4.4). */
+export const CHUNK_PLAN_VERSION = 1;
+
 export const DEFAULT_OVERLAP_MIN_MS = 15_000;
 export const DEFAULT_OVERLAP_MAX_MS = 30_000;
 

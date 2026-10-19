@@ -521,10 +521,14 @@ class Context implements StageContext {
       result = await call();
     } catch (err) {
       const error = this.classify(err);
-      // Transient failures are the provider's (network, 429, 5xx): they feed the error-rate
-      // and circuit-breaker metrics. Input/config errors are ours and mostly never left
-      // the process (missing key, silent audio), so they are not calls.
-      if (error.kind === "transient") {
+      if (error.billed) {
+        // The provider answered and charged for it, but the answer is unusable (empty,
+        // truncated, unparseable): the cost is real, so it is on the ledger.
+        this.record(meta, error.billed, error.billed.latencyMs ?? this.harness.now() - started, "error");
+      } else if (error.kind === "transient") {
+        // Transient failures are the provider's (network, 429, 5xx): they feed the error-rate
+        // and circuit-breaker metrics. Input/config errors are ours and mostly never left
+        // the process (missing key, silent audio), so they are not calls.
         this.record(meta, { usage: ZERO_USAGE }, this.harness.now() - started, "error");
       }
       throw error;
