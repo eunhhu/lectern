@@ -7,14 +7,14 @@
 // line with Shift+Enter.
 
 import { Link } from "@tanstack/react-router";
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button as AriaButton, Form, Popover, PreviewTrigger, TextArea, TextField } from "react-aria-components";
 import type { AskCitation } from "../../api/types.ts";
 import { isImeComposing } from "../../lib/keyboard.ts";
 import { Icon } from "../../ui/Icon.tsx";
 import { Button, ErrorBox, NotReady, uiStyles } from "../../ui/controls.tsx";
 import { showToast } from "../../ui/toast.tsx";
-import { citationName, citationNumber, citationStartMs, citationWhere } from "./citations.ts";
+import { citationName, citationNumbers, citationSnippet, citationStartMs, citationWhere, orderedCitations, sourceName } from "./citations.ts";
 import type { AskSession, AskTurnView } from "./session.ts";
 import s from "./ask.module.css";
 
@@ -117,10 +117,11 @@ export function AskConversation(props: AskConversationProps) {
               }}
             />
           </TextField>
+          {/* Keyed: one never turns into the other under a pointer (a late "stop" must not press "send"). */}
           {session.busy ? (
-            <Button variant="secondary" icon="stop" iconOnly aria-label="답 멈추기" onPress={session.stop} />
+            <Button key="stop" variant="secondary" icon="stop" iconOnly aria-label="답 멈추기" onPress={session.stop} />
           ) : (
-            <Button type="submit" variant="primary" icon="send" iconOnly aria-label="보내기" isDisabled={!draft.trim()} />
+            <Button key="send" type="submit" variant="primary" icon="send" iconOnly aria-label="보내기" isDisabled={!draft.trim()} />
           )}
         </div>
         <p className={s.composerHint}>Enter로 보내기, Shift+Enter로 줄 바꿈. 답은 고른 범위의 노트에서만 찾고, 근거를 번호로 붙입니다.</p>
@@ -163,6 +164,7 @@ function Turn({ turn, session, onCitation, linkSources, onWiden }: { turn: AskTu
   const finished = turn.phase === "completed" || turn.phase === "stopped";
   const [showUnsupported, setShowUnsupported] = useState(false);
   const answered = turn.phase !== "completed" || turn.outcome === "answered";
+  const numbers = useMemo(() => citationNumbers(turn.text, turn.citations), [turn.text, turn.citations]);
   return (
     <li className={s.turn}>
       <p className={s.question}>
@@ -198,7 +200,7 @@ function Turn({ turn, session, onCitation, linkSources, onWiden }: { turn: AskTu
             <Button size="sm" variant="ghost" aria-expanded={showUnsupported} onPress={() => setShowUnsupported((v) => !v)}>
               {showUnsupported ? "답 숨기기" : "답 보기"}
             </Button>
-            {showUnsupported && <AnswerText text={turn.text} citations={turn.citations} onCitation={onCitation} />}
+            {showUnsupported && <AnswerText text={turn.text} citations={turn.citations} numbers={numbers} onCitation={onCitation} />}
           </div>
         ) : turn.phase === "failed" || turn.phase === "error" ? (
           <ErrorBox title="답을 받지 못했습니다." onRetry={() => session.retry(turn.key)}>
@@ -213,7 +215,7 @@ function Turn({ turn, session, onCitation, linkSources, onWiden }: { turn: AskTu
             )}
           </ErrorBox>
         ) : (
-          turn.text && <AnswerText text={turn.text} citations={turn.citations} onCitation={onCitation} streaming={streaming} />
+          turn.text && <AnswerText text={turn.text} citations={turn.citations} numbers={numbers} onCitation={onCitation} streaming={streaming} />
         )}
 
         {turn.phase === "stopped" && (
@@ -227,11 +229,11 @@ function Turn({ turn, session, onCitation, linkSources, onWiden }: { turn: AskTu
           </div>
         )}
 
-        {finished && answered && turn.citations.length > 0 && <Sources citations={turn.citations} onCitation={onCitation} link={linkSources} />}
+        {finished && answered && turn.citations.length > 0 && <Sources citations={turn.citations} numbers={numbers} onCitation={onCitation} link={linkSources} />}
 
         {finished && answered && turn.text && (
           <div className={s.answerActions}>
-            <Button size="sm" variant="ghost" icon="copy" onPress={() => void copyAnswer(turn)}>
+            <Button size="sm" variant="ghost" icon="copy" onPress={() => void copyAnswer(turn, numbers)}>
               답 복사
             </Button>
           </div>
@@ -255,7 +257,19 @@ function plainAnswer(text: string): string {
 }
 
 /** Answer text: paragraphs, "- " bullets, **bold** and `[c1]` citation marks. */
-export function AnswerText({ text, citations, onCitation, streaming }: { text: string; citations: AskCitation[]; onCitation: (c: AskCitation) => void; streaming?: boolean }) {
+export function AnswerText({
+  text,
+  citations,
+  numbers,
+  onCitation,
+  streaming,
+}: {
+  text: string;
+  citations: AskCitation[];
+  numbers: Map<string, number>;
+  onCitation: (c: AskCitation) => void;
+  streaming?: boolean;
+}) {
   const shown = streaming ? text.replace(PARTIAL_MARKER, "") : text;
   const blocks: { list: boolean; lines: string[] }[] = [];
   for (const line of shown.split("\n")) {
@@ -274,7 +288,7 @@ export function AnswerText({ text, citations, onCitation, streaming }: { text: s
             <ul key={bi} className={s.answerList}>
               {block.lines.map((line, li) => (
                 <li key={li}>
-                  <Inline text={line} citations={citations} onCitation={onCitation} />
+                  <Inline text={line} citations={citations} numbers={numbers} onCitation={onCitation} />
                   {isLast && li === block.lines.length - 1 && caret}
                 </li>
               ))}
@@ -283,7 +297,7 @@ export function AnswerText({ text, citations, onCitation, streaming }: { text: s
         }
         return block.lines[0] ? (
           <p key={bi}>
-            <Inline text={block.lines[0]} citations={citations} onCitation={onCitation} />
+            <Inline text={block.lines[0]} citations={citations} numbers={numbers} onCitation={onCitation} />
             {isLast && caret}
           </p>
         ) : null;
@@ -292,7 +306,7 @@ export function AnswerText({ text, citations, onCitation, streaming }: { text: s
   );
 }
 
-function Inline({ text, citations, onCitation }: { text: string; citations: AskCitation[]; onCitation: (c: AskCitation) => void }) {
+function Inline({ text, citations, numbers, onCitation }: { text: string; citations: AskCitation[]; numbers: Map<string, number>; onCitation: (c: AskCitation) => void }) {
   // `**` toggles bold, so a bold run still streaming in renders bold already.
   let bold = false;
   return (
@@ -306,7 +320,7 @@ function Inline({ text, citations, onCitation }: { text: string; citations: AskC
         if (label) {
           // The server strips markers it did not provide; one without a citation (yet) is not drawn.
           const c = citations.find((x) => x.label === label);
-          return c ? <CitationMark key={i} citation={c} onPress={() => onCitation(c)} /> : null;
+          return c ? <CitationMark key={i} citation={c} n={numbers.get(c.label) ?? 0} onPress={() => onCitation(c)} /> : null;
         }
         if (!part) return null;
         return bold ? <strong key={i}>{part}</strong> : <Fragment key={i}>{part}</Fragment>;
@@ -321,25 +335,25 @@ function CitationPreview({ citation }: { citation: AskCitation }) {
     <>
       <p className={s.previewTitle}>{citation.recording_title}</p>
       {where && <p className={s.previewMeta}>{where}</p>}
-      {citation.snippet && <p className={s.previewQuote}>“{citation.snippet}”</p>}
+      {citationSnippet(citation) && <p className={s.previewQuote}>“{citationSnippet(citation)}”</p>}
       {citation.support === "weak" && <p className={s.weakNote}>답의 문장이 이 부분과 잘 맞지 않습니다. 직접 확인하세요.</p>}
       <p className={uiStyles.hint}>누르면 이 부분으로 이동합니다.</p>
     </>
   );
 }
 
-function CitationMark({ citation, onPress }: { citation: AskCitation; onPress: () => void }) {
+function CitationMark({ citation, n, onPress }: { citation: AskCitation; n: number; onPress: () => void }) {
   if (!citation.available) {
     return (
-      <span className={s.mark} data-unavailable="true" role="img" aria-label={citationName(citation)} title="지금은 볼 수 없는 출처">
-        {citationNumber(citation)}
+      <span className={s.mark} data-unavailable="true" role="img" aria-label={citationName(citation, n)} title="지금은 볼 수 없는 출처">
+        {n}
       </span>
     );
   }
   return (
     <PreviewTrigger delay={400}>
-      <AriaButton className={s.mark} data-weak={citation.support === "weak" || undefined} aria-label={citationName(citation)} onPress={onPress}>
-        {citationNumber(citation)}
+      <AriaButton className={s.mark} data-weak={citation.support === "weak" || undefined} aria-label={citationName(citation, n)} onPress={onPress}>
+        {n}
       </AriaButton>
       <Popover className={`${uiStyles.popover} ${s.preview}`} placement="top">
         <CitationPreview citation={citation} />
@@ -348,17 +362,29 @@ function CitationMark({ citation, onPress }: { citation: AskCitation; onPress: (
   );
 }
 
-function Sources({ citations, onCitation, link }: { citations: AskCitation[]; onCitation: (c: AskCitation) => void; link?: boolean }) {
+function Sources({
+  citations,
+  numbers,
+  onCitation,
+  link,
+}: {
+  citations: AskCitation[];
+  numbers: Map<string, number>;
+  onCitation: (c: AskCitation) => void;
+  link?: boolean;
+}) {
   return (
     <div className={s.sources}>
       <p className={s.sourcesTitle}>출처</p>
       <ol className={s.sourceList} role="list">
-        {citations.map((c) => {
+        {orderedCitations(citations, numbers).map((c) => {
+          const n = numbers.get(c.label) ?? 0;
           const where = citationWhere(c);
+          const snippet = citationSnippet(c);
           const body = (
             <>
               <span className={s.sourceN} aria-hidden="true">
-                {citationNumber(c)}
+                {n}
               </span>
               <span className={s.sourceBody}>
                 <span className={s.sourceTitle}>{c.recording_title}</span>
@@ -367,11 +393,11 @@ function Sources({ citations, onCitation, link }: { citations: AskCitation[]; on
                   {c.support === "weak" && <span className={s.weakBadge}> · 근거 약함</span>}
                   {!c.available && " · 지금은 볼 수 없음"}
                 </span>
-                {c.snippet && <span className={s.sourceQuote}>“{c.snippet}”</span>}
+                {snippet && <span className={s.sourceQuote}>“{snippet}”</span>}
               </span>
             </>
           );
-          const label = citationName(c);
+          const label = sourceName(c, n);
           if (!c.available) {
             return (
               <li key={c.label}>
@@ -407,9 +433,12 @@ function Sources({ citations, onCitation, link }: { citations: AskCitation[]; on
   );
 }
 
-async function copyAnswer(turn: AskTurnView) {
-  const sources = turn.citations.map((c) => `[${citationNumber(c)}] ${c.recording_title} ${citationWhere(c)}${c.snippet ? ` “${c.snippet}”` : ""}`);
-  const body = turn.text.replace(/\[(c\d{1,3})\]/g, (_, label: string) => `[${label.slice(1)}]`).replaceAll("**", "");
+async function copyAnswer(turn: AskTurnView, numbers: Map<string, number>) {
+  const sources = orderedCitations(turn.citations, numbers).map((c) => {
+    const snippet = citationSnippet(c);
+    return `[${numbers.get(c.label)}] ${c.recording_title} ${citationWhere(c)}${snippet ? ` “${snippet}”` : ""}`;
+  });
+  const body = turn.text.replace(/\[(c\d{1,3})\]/g, (_, label: string) => `[${numbers.get(label) ?? label}]`).replaceAll("**", "");
   const text = [body, sources.length ? `\n출처\n${sources.join("\n")}` : ""].join("\n").trim();
   try {
     await navigator.clipboard.writeText(text);

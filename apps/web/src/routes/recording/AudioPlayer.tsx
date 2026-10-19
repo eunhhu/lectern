@@ -24,6 +24,11 @@ export function AudioPlayer() {
     (fn) => clock.subscribe(fn),
     () => clock.playbackRate,
   );
+  const status = useSyncExternalStore(
+    (fn) => clock.subscribe(fn),
+    () => clock.status,
+  );
+  const unavailable = status === "error";
   const [position, setPosition] = useState(0);
   const rangeRef = useRef<HTMLInputElement>(null);
   const duration = clock.duration;
@@ -82,6 +87,7 @@ export function AudioPlayer() {
         iconOnly
         aria-label={paused ? "재생" : "일시정지"}
         aria-keyshortcuts="Space"
+        isDisabled={unavailable}
         onPress={() => (paused ? clock.play() : clock.pause())}
       />
       <Button variant="ghost" icon="back" iconOnly aria-label="10초 뒤로" onPress={() => skip(-10_000)} />
@@ -111,6 +117,12 @@ export function AudioPlayer() {
         />
       </span>
       {!clock.audible && <Badge tone="info">소리 없는 미리보기</Badge>}
+      {unavailable && (
+        <span className={s.audioNote} role="status">
+          <Badge tone="info">오디오 준비 중</Badge>
+          <span className={s.audioNoteText}>오디오를 아직 불러올 수 없습니다. 전사와 출처 이동은 그대로 됩니다.</span>
+        </span>
+      )}
     </section>
   );
 }

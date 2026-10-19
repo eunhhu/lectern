@@ -26,6 +26,7 @@ import { formatDate, formatDateTime, formatDuration, formatRelative, formatTimeO
 import { Icon } from "../../ui/Icon.tsx";
 import { Badge, Button, Dot, EmptyState, Progress } from "../../ui/controls.tsx";
 import { showToast } from "../../ui/toast.tsx";
+import { toastError } from "../library/organise.ts";
 import layout from "../../app/layout.module.css";
 import s from "./inbox.module.css";
 
@@ -189,7 +190,12 @@ function SuggestionRow({ event, recording, now }: { event: EventCandidate; recor
   const decide = useDecideSuggestion(workspaceId);
   const when = event.all_day ? formatDate(event.start_at, now) : `${formatDate(event.start_at, now)} ${formatTimeOfDay(event.start_at)}`;
   const run = async (status: "accepted" | "dismissed") => {
-    await decide.mutateAsync({ id: event.id, status });
+    try {
+      await decide.mutateAsync({ id: event.id, status });
+    } catch (err) {
+      toastError(status === "accepted" ? "일정을 추가하지 못했습니다." : "제안을 무시하지 못했습니다.", err);
+      return;
+    }
     showToast({
       title: status === "accepted" ? `‘${event.title}’ 일정을 추가했습니다.` : `‘${event.title}’ 제안을 무시했습니다.`,
       tone: status === "accepted" ? "success" : "neutral",

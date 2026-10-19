@@ -1,3 +1,4 @@
+import "./zod-csp.ts"; // first: before anything evaluates a zod schema
 import "./styles/global.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

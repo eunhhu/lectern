@@ -945,3 +945,19 @@
 .tagDot[data-color="indigo"] {
   background: var(--color-accent-solid);
 }
+
+/* The audio could not be loaded (the server does not serve asset bytes yet, or the file is gone). */
+.audioNote {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.audioNoteText {
+  font: var(--typography-caption);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -14,7 +14,7 @@ import { usePageTitle } from "../../app/RootLayout.tsx";
 import { setPreferences, usePreferences, type RecordingPanel } from "../../app/preferences.ts";
 import { DOMAIN_LABEL, STATUS, stageLabel } from "../../app/labels.ts";
 import { formatDateTime, formatDuration } from "../../lib/format.ts";
-import { createAudioElementClock, SimulatedClock, type MediaClock } from "../../lib/media-clock.ts";
+import { createAudioClock, SimulatedClock, type AudioPart, type MediaClock } from "../../lib/media-clock.ts";
 import { Icon, type IconName } from "../../ui/Icon.tsx";
 import { Badge, Button, Dot, EmptyState, ErrorBox, Progress, Segmented, Spinner, uiStyles } from "../../ui/controls.tsx";
 import { BulkDialogs, type BulkAction } from "../library/BulkDialogs.tsx";
@@ -48,7 +48,7 @@ function useMediaQuery(query: string): boolean {
 }
 
 export function RecordingPage() {
-  const { recordingId } = useParams({ from: "/recordings/$recordingId" });
+  const { recordingId } = useParams({ from: "/_authed/recordings/$recordingId" });
   const detail = useRecording(recordingId);
   usePageTitle(detail.data?.recording.title ?? "녹음");
 
@@ -83,10 +83,28 @@ function BackToLibrary() {
   return <Button onPress={() => void navigate({ to: "/library" })}>라이브러리로</Button>;
 }
 
+// Per audio part the original upload is the timeline the transcript uses; a compacted or
+// normalized copy (same timeline, smaller) stands in when the original is gone.
+const AUDIO_PREFERENCE = ["audio", "audio_compact", "audio_normalized"] as const;
+
+function playableParts(assets: RecordingDetail["assets"], urlOf: (id: string) => string | null): AudioPart[] {
+  const byPart = new Map<number, RecordingDetail["assets"][number]>();
+  for (const kind of AUDIO_PREFERENCE) {
+    for (const a of assets) if (a.kind === kind && !byPart.has(a.part_index)) byPart.set(a.part_index, a);
+  }
+  const out: AudioPart[] = [];
+  for (const a of [...byPart.values()].sort((x, y) => x.part_index - y.part_index)) {
+    const url = urlOf(a.id);
+    if (!url) return [];
+    out.push({ url, durationMs: a.duration_ms });
+  }
+  return out;
+}
+
 function RecordingView({ detail }: { detail: RecordingDetail }) {
   const api = useApi();
   const navigate = useNavigate();
-  const search = useSearch({ from: "/recordings/$recordingId" });
+  const search = useSearch({ from: "/_authed/recordings/$recordingId" });
   const rec = detail.recording;
   const hasTranscript = rec.status === "ready" || rec.status === "partial" || (rec.status === "processing" && detail.documents.length > 0);
   const transcript = useTranscript(rec.id, hasTranscript);
@@ -123,18 +141,18 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
 
   // One clock per recording view: the audio element when the API serves bytes, the
   // silent simulated clock for fixtures.
-  const audioAsset = detail.assets.find((a) => a.kind === "audio");
+  const audioKey = detail.assets.map((a) => `${a.id}:${a.kind}:${a.part_index}`).join(",");
   const clock = useMemo<MediaClock>(() => {
-    const url = audioAsset ? api.assetContentUrl(audioAsset.id) : null;
     const durationMs = rec.duration_ms ?? 0;
-    if (url) {
+    const parts = playableParts(detail.assets, (id) => api.assetContentUrl(id));
+    if (parts.length) {
       const audio = new Audio();
       audio.preload = "metadata";
-      audio.src = url;
-      return createAudioElementClock(audio, durationMs);
+      return createAudioClock(audio, parts, durationMs);
     }
     return new SimulatedClock(durationMs);
-  }, [api, audioAsset, rec.duration_ms]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, audioKey, rec.duration_ms]);
   useEffect(() => () => clock.dispose(), [clock]);
 
   // ?t=<ms> (from search results and answers) starts at that point.

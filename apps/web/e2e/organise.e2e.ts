@@ -153,7 +153,7 @@ test("calendar: confirmed events show, a suggestion can be added, days are reach
   await expect(task).toBeChecked();
 });
 
-test("user menu: profile and account settings", async ({ page }) => {
+test("user menu: profile and account settings", async ({ page, axe }) => {
   await page.goto("/app/");
   await page.getByRole("button", { name: /미리보기 사용자/ }).click();
   await page.getByRole("menuitem", { name: "프로필과 계정" }).click();
@@ -167,7 +167,36 @@ test("user menu: profile and account settings", async ({ page }) => {
   await page.getByRole("button", { name: "로그아웃: Lectern for Mac" }).click();
   await expect(page.getByText("Lectern for Mac에서 로그아웃했습니다.")).toBeVisible();
 
+  // Signing out shows the login screen; signing in returns to the app.
   await page.getByRole("button", { name: /김지우/ }).click();
   await page.getByRole("menuitem", { name: "로그아웃" }).click();
-  await expect(page.getByText("미리보기에서는 로그아웃할 세션이 없습니다.")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "로그인" })).toBeVisible();
+  await expect(page).toHaveURL(/\/app\/login$/);
+  await axe(page, "로그인");
+  await page.getByRole("textbox", { name: "이메일" }).fill("someone@example.com");
+  await page.getByLabel("비밀번호").fill("wrong");
+  await page.getByRole("button", { name: "로그인" }).click();
+  await expect(page.getByRole("alert")).toContainText("올바르지 않습니다");
+  await axe(page, "로그인 (오류)");
+  await page.getByRole("textbox", { name: "이메일" }).fill("preview@example.com");
+  await page.getByLabel("비밀번호").fill("any");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { level: 1, name: "홈" })).toBeVisible();
+});
+
+test("a deep link without a session goes to login and comes back after it", async ({ page }) => {
+  await page.goto("/app/settings");
+  await page.getByRole("button", { name: /미리보기 사용자/ }).click();
+  await page.getByRole("menuitem", { name: "로그아웃" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "로그인" })).toBeVisible();
+  // The fixture session is in memory, so stay in the page: navigate inside the app.
+  await page.evaluate(() => {
+    history.pushState({}, "", "/app/library?view=recent");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page).toHaveURL(/\/app\/login\?next=/);
+  await page.getByRole("textbox", { name: "이메일" }).fill("preview@example.com");
+  await page.getByLabel("비밀번호").fill("any");
+  await page.getByRole("button", { name: "로그인" }).click();
+  await expect(page).toHaveURL(/\/app\/library\?view=recent$/);
 });

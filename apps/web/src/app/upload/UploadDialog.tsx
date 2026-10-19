@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { DropZone, FileTrigger, Input, isFileDropItem, Label, TextField, type DropZoneProps } from "react-aria-components";
 
 type DropEvent = Parameters<NonNullable<DropZoneProps["onDrop"]>>[0];
+import { errorMessage, isNotReady } from "../../api/errors.ts";
 import { useApi, useFolders, queryKeys } from "../../api/queries.ts";
 import { asId, type FolderId, type RecordingDomain } from "../../api/types.ts";
 import { formatBytes, formatDateTime } from "../../lib/format.ts";
@@ -135,6 +136,7 @@ function UploadBody({
   const start = async () => {
     setBusy(true);
     let ok = 0;
+    let notReady = false;
     const failed: string[] = [];
     for (const group of pairing.groups) {
       if (states[group.id]?.status === "done") continue;
@@ -155,7 +157,8 @@ function UploadBody({
         setStates((prev) => ({ ...prev, [group.id]: { status: "done" } }));
       } catch (err) {
         failed.push(group.id);
-        const message = err instanceof Error ? err.message : "녹음을 올리지 못했습니다.";
+        if (isNotReady(err)) notReady = true;
+        const message = errorMessage(err, "녹음을 올리지 못했습니다.");
         setStates((prev) => ({ ...prev, [group.id]: { status: "failed", message } }));
       }
     }
@@ -168,6 +171,9 @@ function UploadBody({
         action: { label: "홈에서 보기", onAction: () => void navigate({ to: "/" }) },
       });
       onClose();
+    } else if (notReady && ok === 0) {
+      // The server has no v2 upload yet: say so calmly and point at the screen that has one.
+      showToast({ title: "새 화면의 올리기는 아직 준비 중입니다.", description: "지금은 기존 화면(/)에서 녹음을 올려 주세요.", tone: "info" });
     } else {
       showToast({ title: `${ok}개를 올렸고 ${failed.length}개는 올리지 못했습니다.`, description: "실패한 녹음은 다시 올릴 수 있습니다.", tone: "danger" });
     }

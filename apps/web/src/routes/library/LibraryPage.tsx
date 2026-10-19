@@ -44,7 +44,7 @@ import s from "./library.module.css";
 const VIEW_ICON: Record<string, IconName> = { recent: "clock", processing: "spark", attention: "alert", lectures: "book", meetings: "users" };
 
 export function LibraryPage() {
-  const search = useSearch({ from: "/library" });
+  const search = useSearch({ from: "/_authed/library" });
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
   const recordings = useRecordings(workspaceId);

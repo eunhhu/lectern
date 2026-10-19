@@ -41,7 +41,7 @@ const scopeIcon = (kind: string) => SCOPE_ICON[kind as keyof typeof SCOPE_ICON] 
 export function AskPage() {
   usePageTitle("물어보기");
   const navigate = useNavigate();
-  const search = useSearch({ from: "/ask" });
+  const search = useSearch({ from: "/_authed/ask" });
   const { workspaceId } = useWorkspace();
   const session = useAskSession(workspaceId);
   const threadsQuery = useAskThreads(workspaceId);

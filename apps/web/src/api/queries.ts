@@ -5,6 +5,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect } from "react";
 import { ApiClientError, type ApiClient } from "./client.ts";
+import { errorMessage } from "./errors.ts";
 import { askSuggestions } from "../lib/ask-suggestions.ts";
 import type {
   AskScope,
@@ -207,7 +208,7 @@ async function settle(ids: string[], run: (id: string) => Promise<unknown>): Pro
   const out: BulkResult = { succeeded: [], failed: [] };
   results.forEach((r, i) => {
     if (r.status === "fulfilled") out.succeeded.push(ids[i]!);
-    else out.failed.push({ id: ids[i]!, message: r.reason instanceof ApiClientError ? r.reason.message : "요청을 처리하지 못했습니다." });
+    else out.failed.push({ id: ids[i]!, message: errorMessage(r.reason, "요청을 처리하지 못했습니다.") });
   });
   return out;
 }

@@ -7,9 +7,26 @@ import type { AskCitation, AskScope, Folder, RecordingListItem } from "../../api
 import { formatTimestamp } from "../../lib/format.ts";
 import { folderPath } from "../library/folders.ts";
 
-/** The number shown for `[c3]`: 3. */
-export function citationNumber(c: Pick<AskCitation, "label">): string {
-  return c.label.replace(/^c/, "");
+/**
+ * Numbers shown for the markers of one answer: 1, 2, 3 … in order of first use in the
+ * text. Labels are the server's passage labels (`[c2]` may be the only one cited), so
+ * they are not shown as they are. Citations the text never uses come last.
+ */
+export function citationNumbers(text: string, citations: readonly Pick<AskCitation, "label">[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [, label] of text.matchAll(/\[(c\d{1,3})\]/g)) if (!out.has(label!)) out.set(label!, out.size + 1);
+  for (const c of citations) if (!out.has(c.label)) out.set(c.label, out.size + 1);
+  return out;
+}
+
+/** The citations in the order of their numbers. */
+export function orderedCitations<T extends Pick<AskCitation, "label">>(citations: readonly T[], numbers: Map<string, number>): T[] {
+  return [...citations].sort((a, b) => (numbers.get(a.label) ?? 0) - (numbers.get(b.label) ?? 0));
+}
+
+/** The passage text without the `[MM:SS]` marks of legacy notes. */
+export function citationSnippet(c: AskCitation): string {
+  return c.snippet.replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/g, "").trim();
 }
 
 /** Where in the note: "12:30", "운영 모드 · 12:03", "PDF 4쪽". */
@@ -17,8 +34,11 @@ export function citationWhere(c: AskCitation): string {
   switch (c.kind) {
     case "transcript":
       return formatTimestamp(c.start_ms);
-    case "document":
-      return [c.section_title, c.start_ms !== null ? formatTimestamp(c.start_ms) : null].filter(Boolean).join(" · ") || "문서";
+    case "document": {
+      // Legacy notes report the note's own title as the section: not worth repeating.
+      const section = c.section_title && c.section_title !== c.recording_title ? c.section_title : null;
+      return [section, c.start_ms !== null ? formatTimestamp(c.start_ms) : null].filter(Boolean).join(" · ") || "문서";
+    }
     case "pdf_page":
       return `PDF ${c.page}쪽`;
     default:
@@ -27,9 +47,17 @@ export function citationWhere(c: AskCitation): string {
 }
 
 /** Accessible name: starts with the visible number (WCAG 2.5.3). */
-export function citationName(c: AskCitation): string {
+export function citationName(c: AskCitation, n: number): string {
   const where = citationWhere(c);
-  const base = `출처 ${citationNumber(c)}, ${c.recording_title}${where ? ` ${where}` : ""}`;
+  const base = `출처 ${n}, ${c.recording_title}${where ? ` ${where}` : ""}`;
+  if (!c.available) return `${base} (지금은 볼 수 없음)`;
+  return c.support === "weak" ? `${base}, 근거 약함` : base;
+}
+
+/** Name of an entry in the source list under an answer ("출처 1: …"), distinct from the inline mark. */
+export function sourceName(c: AskCitation, n: number): string {
+  const where = citationWhere(c);
+  const base = `출처 ${n}: ${c.recording_title}${where ? ` ${where}` : ""}`;
   if (!c.available) return `${base} (지금은 볼 수 없음)`;
   return c.support === "weak" ? `${base}, 근거 약함` : base;
 }

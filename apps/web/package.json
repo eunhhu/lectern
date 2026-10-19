@@ -3,10 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "sideEffects": [
+    "*.css",
+    "./src/zod-csp.ts",
+    "./src/main.tsx"
+  ],
   "scripts": {
     "build": "bun scripts/build.ts",
     "dev": "bun scripts/dev.ts",
-    "e2e": "bun scripts/build.ts && playwright test"
+    "e2e": "bun scripts/build.ts && bun scripts/build.ts --api fixture --out dist-fixture && playwright test"
   },
   "dependencies": {
     "@internationalized/date": "3.12.4",
