@@ -25,6 +25,13 @@ import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
 import { enqueueJob, isLectureBusy, registerJobHandler, type JobOutcome, type LeasedJob } from "./queue.ts";
 import { compactLectureAudio, isFfmpegAvailable } from "./storage.ts";
+import {
+  defaultTranscriptHarness,
+  enqueueTranscriptAfterDistill,
+  runTranscriptJob,
+  TRANSCRIBE_JOB_KIND,
+  type TranscriptJobDeps,
+} from "./transcript-job.ts";
 import "./ask/index-job.ts"; // registers the ask `index` job handler and the lecture-change hook
 
 export const LECTURE_GONE_MESSAGE = "강의가 삭제되어 작업을 중단했습니다.";
@@ -147,9 +154,7 @@ async function runLegacyDistillation(job: LeasedJob): Promise<JobOutcome> {
       if (!getLectureById(id)) return { ok: false, error: LECTURE_GONE_MESSAGE };
       const done = completeLectureRecord(id, res);
       emitLectureEvent(ownerId, { type: "completed", id, lecture: toLectureSummaryDto(done) });
-      if (getSystemSettings().storage_auto_compact) {
-        scheduleCompaction(id, ownerId);
-      }
+      afterDistillPublished(done, apiKey !== undefined);
       return { ok: true };
     } catch (err: any) {
       lastErr = err;
@@ -240,9 +245,7 @@ export async function runDistillationOnHarness(job: LeasedJob, deps: HarnessDist
     if (!getLectureById(id)) return { ok: false, error: LECTURE_GONE_MESSAGE };
     const done = completeLectureRecord(id, { ...value, title: input.title?.trim() || value.title });
     emitLectureEvent(ownerId, { type: "completed", id, lecture: toLectureSummaryDto(done) });
-    if (getSystemSettings().storage_auto_compact) {
-      scheduleCompaction(id, ownerId);
-    }
+    afterDistillPublished(done, apiKey !== undefined);
     return { ok: true };
   } catch (err: any) {
     if (err instanceof HarnessError && err.kind === "canceled" && err.message === LECTURE_GONE_MESSAGE) {
@@ -267,6 +270,25 @@ export async function runDistillationOnHarness(job: LeasedJob, deps: HarnessDist
 }
 
 /**
+ * After a distillation published its notes: the v2 transcript pipeline when
+ * LECTERN_TRANSCRIPT_ENGINE asks for it (transcript-job.ts), which reads the original audio
+ * and so schedules the compaction itself when it ends; otherwise compaction as before.
+ */
+function afterDistillPublished(lecture: LectureRecord, userKey: boolean): void {
+  if (enqueueTranscriptAfterDistill(lecture, { userKey })) return;
+  if (getSystemSettings().storage_auto_compact) {
+    scheduleCompaction(lecture.id, lecture.owner_id);
+  }
+}
+
+/** The compaction a transcribe job held back (afterDistillPublished), once it is over. */
+function compactAfterTranscript(lectureId: string, ownerId: string): void {
+  if (getSystemSettings().storage_auto_compact && getLectureById(lectureId)?.status === "done") {
+    scheduleCompaction(lectureId, ownerId);
+  }
+}
+
+/**
  * Queues re-encoding of a finished lecture's audio (see storage.ts). Returns false when
  * compaction is unavailable (no ffmpeg) or the lecture already has one queued/running.
  */
@@ -277,7 +299,8 @@ export function scheduleCompaction(id: string, ownerId: string): boolean {
 
 async function runCompaction(job: LeasedJob) {
   const id = job.subjectId!;
-  if (isLectureBusy(id, "distill")) {
+  // A transcribe job reads the original audio, which compaction replaces.
+  if (isLectureBusy(id, "distill") || isLectureBusy(id, TRANSCRIBE_JOB_KIND)) {
     return { ok: false, error: "분석 작업이 진행 중인 강의입니다." };
   }
   const res = await compactLectureAudio(id, getSystemSettings().storage_compact_bitrate_kbps);
@@ -318,3 +341,36 @@ registerJobHandler("distill", runDistillation, {
 });
 
 registerJobHandler("compact", runCompaction, { concurrency: config().maxConcurrentCompact });
+
+/**
+ * Registers the `transcribe` handler (transcript-job.ts). `deps` replace the Gemini provider
+ * or the harness, e.g. a worker that runs on recorded answers.
+ *
+ * One job at a time: each runs ffmpeg over the whole recording and up to three provider
+ * calls at once, on a Raspberry Pi. The compaction it held back starts after the job's row
+ * is finished (followUp), so it does not find the job still busy.
+ */
+export function registerTranscriptJobHandler(deps: TranscriptJobDeps = {}): void {
+  registerJobHandler(
+    TRANSCRIBE_JOB_KIND,
+    async (job) => ({
+      ...(await runTranscriptJob(job, deps)),
+      followUp: () => compactAfterTranscript(job.subjectId!, job.ownerId),
+    }),
+    {
+      concurrency: 1,
+      // Interrupted too many times: the lecture itself is fine (its notes are published);
+      // drop the partial artifacts and release the compaction.
+      onLost: ({ id, subjectId, ownerId }) => {
+        try {
+          (deps.harness ?? defaultTranscriptHarness()).deleteArtifactsForJob(id);
+        } catch (err) {
+          logger.error("could not delete transcript artifacts", { job_id: id, err });
+        }
+        if (subjectId) compactAfterTranscript(subjectId, ownerId);
+      },
+    }
+  );
+}
+
+registerTranscriptJobHandler();

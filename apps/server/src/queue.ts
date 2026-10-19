@@ -26,6 +26,12 @@ export interface JobOutcome {
   /** Compaction: bytes saved. */
   savedBytes?: number;
   result?: Record<string, unknown>;
+  /**
+   * Runs once the job's row is finished and its dedupe key released. For follow-up jobs on
+   * the same subject: one enqueued from inside the handler can be leased by this worker
+   * right away and would still see this job as busy.
+   */
+  followUp?: () => void;
 }
 
 export interface LeasedJob {
@@ -95,6 +101,8 @@ export function enqueueJob(input: {
   secret?: string;
   priority?: number;
   maxAttempts?: number;
+  /** Spending cap the harness enforces between stages (job.budget_microusd); none by default. */
+  budgetMicrousd?: number;
 }): { jobId: string; deduplicated: boolean; position: number } {
   const key = input.subjectId ? `${input.kind}:${input.subjectId}` : null;
   const id = `job_${randomUUID()}`;
@@ -102,8 +110,8 @@ export function enqueueJob(input: {
   const res = db
     .query(
       `INSERT INTO job (id, owner_id, kind, subject_id, state, priority, run_after, attempts,
-         max_attempts, payload, sealed_secret, idempotency_key, created_at)
-       VALUES (?, ?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?, ?, ?)
+         max_attempts, payload, sealed_secret, idempotency_key, budget_microusd, created_at)
+       VALUES (?, ?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(idempotency_key) DO NOTHING`
     )
     .run(
@@ -117,6 +125,7 @@ export function enqueueJob(input: {
       JSON.stringify(input.payload ?? {}),
       input.secret ? sealSecret(input.secret) : null,
       key,
+      input.budgetMicrousd ?? null,
       now
     );
   if (res.changes === 0) {
@@ -475,6 +484,11 @@ export class JobWorker {
       );
     } catch (err) {
       logger.error("could not record job outcome", { job_id: row.id, err });
+    }
+    try {
+      outcome.followUp?.();
+    } catch (err) {
+      logger.error("job follow-up failed", { job_id: row.id, kind: row.kind, err });
     }
     active.delete(row.id);
     if (this.activeCount === 0) {

@@ -268,3 +268,30 @@ sudo systemctl disable --now lectern-worker && sudo systemctl restart lectern
   - 앞단 프록시 체인: _(§1.4 결과)_
   - `LECTERN_TRUSTED_PROXY_HOPS`: _(값)_
   - 마지막 호스트 점검일: _(YYYY-MM-DD)_
+
+## 10. 전사 시험 처리 켜기와 끄기 (`LECTERN_TRANSCRIPT_ENGINE`)
+
+v2 전사 파이프라인([AI_HARNESS §11](../v2/AI_HARNESS.md#11-p1-구현-순서) 3번, `packages/harness`)은 기본으로 꺼져 있다(`off`). `shadow`로 켜면 서버 키로 분석이 끝난 녹음마다 `transcribe` 작업이 그 녹음을 한 번 더 전사한다(ingest → normalize → speech_map → chunk → transcribe → merge → speakers). 결과는 하네스 산출물(블롭)로만 남고 사용자에게 보이지 않는다(개인정보처리방침 2장 "시험 처리"). `on`은 전사 테이블(P2 백엔드)이 들어온 뒤 전사를 발행할 값이고, 그 전에는 `shadow`와 똑같이 돈다.
+
+- **켜기 전**
+  - `ffmpeg`(5.1 이상)와 `ffprobe`가 있는지 확인한다. 없으면 작업을 만들지 않고 로그에 경고만 남긴다.
+    ```bash
+    ffmpeg -hide_banner -version | head -1
+    ```
+  - `GEMINI_API_KEY`가 환경 파일에 있는지 확인한다. 전사는 환경 변수의 키만 쓴다(`~/local.env`는 읽지 않는다).
+  - 비용: 녹음 1시간에 약 $0.2(`gemini-3.8-flash`, 2027-01부터 약 2배). 작업마다 상한이 있다(녹음 1시간당 $0.6, 최소 $0.3). 사용자가 자기 키로 올린 녹음과 서버 키 사용이 제한된 계정은 시험 처리하지 않는다.
+  - 디스크: 1시간 녹음마다 블롭 약 225MB(FLAC 작업본, 발화 오디오, 청크)가 `DATA_DIR/blobs`에 남는다. 녹음이나 오디오를 지우면 바로, 아니면 작업이 끝나고 30일 뒤 유지보수가 지운다. 임시 파일은 `DATA_DIR/work`.
+  - [개인정보처리방침](../../apps/server/static/legal/privacy.html)의 시험 처리 문구가 들어간 버전이 공고됐는지 확인한다(수집 항목이 늘어나는 변경은 30일 전 공고).
+- **켜기**
+  - 환경 파일에 `LECTERN_TRANSCRIPT_ENGINE=shadow`를 넣고 API를 재시작한다. 외부 워커를 쓰면 워커도 재시작한다.
+  - 자동 압축이 켜져 있으면 압축은 전사 작업이 끝난 뒤에 시작한다(전사가 원본 오디오를 읽는다).
+- **확인**
+    ```bash
+    sqlite3 "$LECTERN_DATA_DIR/lectern.sqlite" "SELECT state, COUNT(*), SUM(spent_microusd) FROM job WHERE kind = 'transcribe' GROUP BY state"
+    ```
+    ```bash
+    sqlite3 "$LECTERN_DATA_DIR/lectern.sqlite" "SELECT error, COUNT(*) FROM job WHERE kind = 'transcribe' AND state = 'failed' GROUP BY error"
+    ```
+  - 로그: `transcript stage`(단계마다), `transcript stored (shadow)`(청크·세그먼트·누락 청크 수, 비용), `transcript job failed`. 전사 본문은 로그와 `job.result`에 남기지 않는다. 운영자는 처리 기록만 본다. 전사 품질 평가는 동의받은 평가 세트로 한다(`bun run harness eval`, `packages/harness/eval/README.md`).
+- **끄기**
+  - `LECTERN_TRANSCRIPT_ENGINE=off`로 바꾸고 재시작한다. 이미 큐에 있던 작업은 아무것도 하지 않고 끝난다. 남은 산출물은 위 정리 규칙대로 지워진다.
