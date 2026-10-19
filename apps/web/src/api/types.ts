@@ -63,6 +63,10 @@ export type EventCandidate = z.infer<typeof D.EventCandidate>;
 export type ActionItem = z.infer<typeof D.ActionItem>;
 export type Job = z.infer<typeof D.Job>;
 export type RecordingDetail = z.infer<typeof D.RecordingDetail>;
+export type RecordingProgress = z.infer<typeof D.RecordingProgress>;
+export type RecordingFailure = z.infer<typeof D.RecordingFailure>;
+export type BatchRecordingsRequest = z.infer<typeof D.BatchRecordingsRequest>;
+export type BatchRecordingsResponse = z.infer<typeof D.BatchRecordingsResponse>;
 export type ServerEvent = z.infer<typeof D.ServerEvent>;
 export type SearchHit = z.infer<typeof D.SearchHit>;
 export type UploadSession = z.infer<typeof D.UploadSession>;
@@ -86,6 +90,7 @@ export type UploadFileSpec = z.infer<typeof D.UploadFileSpec>;
 export type CreateDocumentVersionRequest = z.infer<typeof D.CreateDocumentVersionRequest>;
 export type ListRecordingsParams = z.infer<typeof D.ListRecordingsQuery>;
 export type ListSuggestionsParams = z.infer<typeof D.ListCalendarSuggestionsQuery>;
+export type ListActionItemsQuery = z.infer<typeof D.ListActionItemsQuery>;
 export type SearchParams = z.infer<typeof D.SearchQuery>;
 
 // 물어보기 (docs/adr/0009-ask-rag.md, packages/domain/src/api/ask.ts)

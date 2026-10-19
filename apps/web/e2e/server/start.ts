@@ -17,6 +17,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { E2E_LECTURES, E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD, E2E_PORT } from "./accounts.ts";
+import { wav } from "./wav.ts";
 
 const portArg = process.argv.indexOf("--port");
 const port = portArg > 0 ? Number(process.argv[portArg + 1]) : E2E_PORT;
@@ -144,28 +145,6 @@ const { handleRequest } = await import("../../../server/src/index.ts");
 const db = await import("../../../server/src/db.ts");
 const { indexLecture } = await import("../../../server/src/ask/index-job.ts");
 const { askService } = await import("../../../server/src/ask/service.ts");
-
-/** A short mono 16-bit WAV: a quiet tone, so the player has real bytes to range over. */
-function wav(seconds: number, sampleRate = 8000): Uint8Array {
-  const samples = seconds * sampleRate;
-  const buf = new ArrayBuffer(44 + samples * 2);
-  const v = new DataView(buf);
-  const text = (at: number, s: string) => [...s].forEach((c, i) => v.setUint8(at + i, c.charCodeAt(0)));
-  text(0, "RIFF");
-  v.setUint32(4, 36 + samples * 2, true);
-  text(8, "WAVEfmt ");
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true);
-  v.setUint16(22, 1, true);
-  v.setUint32(24, sampleRate, true);
-  v.setUint32(28, sampleRate * 2, true);
-  v.setUint16(32, 2, true);
-  v.setUint16(34, 16, true);
-  text(36, "data");
-  v.setUint32(40, samples * 2, true);
-  for (let i = 0; i < samples; i++) v.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * 440 * i) / sampleRate) * 1200), true);
-  return new Uint8Array(buf);
-}
 
 const owner = db.ensureBootstrapOwner();
 const service = askService();

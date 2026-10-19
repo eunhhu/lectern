@@ -162,7 +162,8 @@ function PaletteBody() {
       aliases: ["folder"],
       run: go(() => void navigate({ to: "/library", search: { folder: f.id } })),
     }));
-    const hits: Item[] = (q.length >= 2 ? (search.data?.items ?? []) : []).map((h, i) => {
+    // Title hits (`kind: "recording"`) are already in the recordings list above.
+    const hits: Item[] = (q.length >= 2 ? (search.data?.items ?? []) : []).filter((h) => h.kind !== "recording").map((h, i) => {
       const text = h.snippet.map((p) => p.text).join("");
       const t = h.kind === "transcript" ? h.start_ms : undefined;
       return {

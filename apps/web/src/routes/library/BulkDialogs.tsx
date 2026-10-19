@@ -4,26 +4,38 @@
 
 import { useState } from "react";
 import { Input, Label, TextField } from "react-aria-components";
-import { useBulkDelete, useBulkUpdate, useFolders, useRecordings, useTags } from "../../api/queries.ts";
-import { asId, type FolderId, type RecordingListItem, type TagId } from "../../api/types.ts";
+import { useBatchRecordings, useBulkUpdate, useFolders, useRecordings, useTags, type BulkResult } from "../../api/queries.ts";
+import { asId, type FolderId, type RecordingId, type TagId } from "../../api/types.ts";
 import { useWorkspace } from "../../app/workspace.tsx";
-import { formatDuration } from "../../lib/format.ts";
+import { formatBytes, formatDuration } from "../../lib/format.ts";
 import { Button, CheckboxField, ModalDialog, SelectField, uiStyles } from "../../ui/controls.tsx";
 import { announce, showToast } from "../../ui/toast.tsx";
 import { folderOptions, folderPath } from "./folders.ts";
+import { toastError } from "./organise.ts";
 import { useTagEditing } from "./TagList.tsx";
 import s from "./library.module.css";
 
 export type BulkAction = { kind: "move" | "tag" | "delete"; ids: string[] } | null;
 
+/** A batch request; when the request itself fails (501, network) a toast says so and the result is undefined. */
+async function runBatch(run: () => Promise<BulkResult>, title: string): Promise<BulkResult | undefined> {
+  try {
+    return await run();
+  } catch (err) {
+    toastError(title, err);
+    return undefined;
+  }
+}
+
 export function useBulkMove() {
   const { workspaceId } = useWorkspace();
   const folders = useFolders(workspaceId).data ?? [];
   const recordings = useRecordings(workspaceId).data ?? [];
-  const update = useBulkUpdate(workspaceId);
+  const batch = useBatchRecordings(workspaceId);
   return async (ids: string[], folderId: FolderId | null, onFailed?: (ids: string[]) => void) => {
     const before = new Map(recordings.filter((r) => ids.includes(r.id)).map((r) => [r.id, r.folder_id]));
-    const result = await update.mutateAsync({ ids, patch: () => ({ folder_id: folderId }) });
+    const result = await runBatch(() => batch.mutateAsync({ action: "move", recording_ids: ids.map((id) => asId(id)), folder_id: folderId }), "녹음을 옮기지 못했습니다.");
+    if (!result) return;
     const name = folderId ? (folders.find((f) => f.id === folderId)?.name ?? "폴더") : null;
     const where = name ? `‘${name}’ 폴더로` : "폴더 밖으로";
     if (result.failed.length) {
@@ -40,7 +52,12 @@ export function useBulkMove() {
       action: {
         label: "실행 취소",
         onAction: () => {
-          for (const [id, prev] of before) void update.mutateAsync({ ids: [id], patch: () => ({ folder_id: prev }) });
+          // One batch per folder the recordings came from.
+          const byFolder = new Map<FolderId | null, string[]>();
+          for (const [id, prev] of before) byFolder.set(prev, [...(byFolder.get(prev) ?? []), id]);
+          for (const [prev, group] of byFolder) {
+            void runBatch(() => batch.mutateAsync({ action: "move", recording_ids: group.map((id) => asId(id)), folder_id: prev }), "이동을 취소하지 못했습니다.");
+          }
           announce("이동을 취소했습니다.");
         },
       },
@@ -116,6 +133,7 @@ function TagDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClose: 
   const { workspaceId } = useWorkspace();
   const tags = useTags(workspaceId).data ?? [];
   const recordings = useRecordings(workspaceId).data ?? [];
+  const batch = useBatchRecordings(workspaceId);
   const update = useBulkUpdate(workspaceId);
   const [changes, setChanges] = useState<Record<string, boolean>>({});
   const [newName, setNewName] = useState("");
@@ -147,15 +165,22 @@ function TagDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClose: 
 
   const apply = async () => {
     const before = new Map(targets.map((r) => [r.id, r.tag_ids]));
-    const next = (rec: RecordingListItem | undefined) => {
-      const set = new Set(rec?.tag_ids ?? []);
-      for (const [tagId, on] of Object.entries(changes)) on ? set.add(asId<TagId>(tagId)) : set.delete(asId<TagId>(tagId));
-      return { tag_ids: [...set] };
-    };
+    const added = Object.entries(changes).flatMap(([tagId, on]) => (on ? [asId<TagId>(tagId)] : []));
+    const removed = Object.entries(changes).flatMap(([tagId, on]) => (on ? [] : [asId<TagId>(tagId)]));
     const list = ids ?? [];
     close();
-    if (!Object.keys(changes).length) return;
-    const result = await update.mutateAsync({ ids: list, patch: next });
+    if (!added.length && !removed.length) return;
+    const recording_ids = list.map((id) => asId<RecordingId>(id));
+    const results = await Promise.all([
+      added.length ? runBatch(() => batch.mutateAsync({ action: "add_tags", recording_ids, tag_ids: added }), "태그를 붙이지 못했습니다.") : null,
+      removed.length ? runBatch(() => batch.mutateAsync({ action: "remove_tags", recording_ids, tag_ids: removed }), "태그를 떼지 못했습니다.") : null,
+    ]);
+    if (results.some((r) => r === undefined)) return;
+    const failedIds = new Set(results.flatMap((r) => r?.failed.map((f) => f.id) ?? []));
+    const result: BulkResult = {
+      succeeded: list.filter((id) => !failedIds.has(id)),
+      failed: results.flatMap((r) => r?.failed ?? []).filter((f, i, all) => all.findIndex((x) => x.id === f.id) === i),
+    };
     if (result.failed.length) {
       showToast({ title: `${result.succeeded.length}개에 적용했고 ${result.failed.length}개는 적용하지 못했습니다.`, description: result.failed[0]!.message, tone: "danger" });
       onFailed(result.failed.map((f) => f.id));
@@ -235,11 +260,13 @@ function DeleteDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClos
   const { workspaceId } = useWorkspace();
   const recordings = useRecordings(workspaceId).data ?? [];
   const folders = useFolders(workspaceId).data ?? [];
-  const remove = useBulkDelete(workspaceId);
+  const batch = useBatchRecordings(workspaceId);
   const [typed, setTyped] = useState("");
   const targets = recordings.filter((r) => ids?.includes(r.id));
   const count = targets.length;
   const total = targets.reduce((sum, r) => sum + (r.duration_ms ?? 0), 0);
+  // The server sends the stored audio size with each list item (DESIGN §4.5 "오디오 1.4 GB").
+  const bytes = targets.reduce((sum, r) => sum + (r.audio_bytes ?? 0), 0);
   const expected = String(count);
   const single = count === 1 ? targets[0] : undefined;
 
@@ -251,7 +278,8 @@ function DeleteDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClos
   const run = async () => {
     const list = ids ?? [];
     close();
-    const result = await remove.mutateAsync(list);
+    const result = await runBatch(() => batch.mutateAsync({ action: "delete", recording_ids: list.map((id) => asId(id)) }), "녹음을 삭제하지 못했습니다.");
+    if (!result) return;
     if (result.failed.length) {
       showToast({
         title: `${result.succeeded.length}개를 삭제했고 ${result.failed.length}개는 삭제하지 못했습니다.`,
@@ -286,7 +314,7 @@ function DeleteDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClos
     >
       <div className={s.dialogStack}>
         <p>
-          {single ? `‘${single.title}’${where ? ` (${where})` : ""}` : `녹음 ${count}개 (모두 ${formatDuration(total)})`}의 오디오, 전사, 문서가 영구히 삭제됩니다.
+          {single ? `‘${single.title}’${where ? ` (${where})` : ""}` : `녹음 ${count}개 (모두 ${formatDuration(total)}${bytes ? `, 오디오 ${formatBytes(bytes)}` : ""})`}의 오디오, 전사, 문서가 영구히 삭제됩니다.
           되돌릴 수 없습니다.
         </p>
         <TextField className={uiStyles.field} value={typed} onChange={setTyped} autoComplete="off">

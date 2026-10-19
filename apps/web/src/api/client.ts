@@ -8,6 +8,9 @@
 import type {
   ActionItem,
   ActionItemPage,
+  BatchRecordingsRequest,
+  BatchRecordingsResponse,
+  ListActionItemsQuery,
   AskStreamEvent,
   AskThread,
   AskThreadDetail,
@@ -123,10 +126,14 @@ export interface ApiClient {
   getRecording(recordingId: string): Promise<RecordingDetail>;
   updateRecording(recordingId: string, body: UpdateRecordingRequest): Promise<Recording>;
   deleteRecording(recordingId: string): Promise<void>;
+  /** One action (move, add_tags, remove_tags, delete) on many recordings; each succeeds or fails on its own. */
+  batchRecordings(body: BatchRecordingsRequest): Promise<BatchRecordingsResponse>;
   getTranscript(recordingId: string): Promise<Transcript>;
   listQuestions(recordingId: string): Promise<QuestionPage>;
   listRecordingEvents(recordingId: string): Promise<EventCandidatePage>;
   listActionItems(recordingId: string): Promise<ActionItemPage>;
+  /** Action items of the whole workspace, soonest due first (GET /action-items). */
+  listWorkspaceActionItems(query: ListActionItemsQuery): Promise<ActionItemPage>;
   updateActionItem(actionItemId: string, body: UpdateActionItemRequest): Promise<ActionItem>;
   getDocument(documentId: string): Promise<DocumentWithVersion>;
   /**

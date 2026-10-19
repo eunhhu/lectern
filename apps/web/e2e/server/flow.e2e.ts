@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, tabTo, test } from "../fixtures.ts";
 import { E2E_LECTURES, E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD } from "./accounts.ts";
+import { wav } from "./wav.ts";
 
 // Playwright runs specs under Node from apps/web (it empties test-results/ before each run).
 const SHOTS = process.env.E2E_SCREENSHOT_DIR ?? join(process.cwd(), "test-results/screens");
@@ -75,7 +76,7 @@ test("library, recordings, 물어보기 and sign-out over the real API", async (
   await expect(page.getByRole("button", { name: new RegExp(me.body.display_name) }).last()).toBeVisible();
   const list = await api<Page_<RecordingItem>>(page, `/api/v2/recordings?workspace_id=${me.body.personal_workspace_id}&limit=200`);
   expect(list.status).toBe(200);
-  expect(list.body.items.map((r) => r.title).sort()).toEqual(E2E_LECTURES.map((l) => l.title).sort());
+  expect(list.body.items.map((r) => r.title)).toEqual(expect.arrayContaining(E2E_LECTURES.map((l) => l.title)));
   await page.getByRole("link", { name: "라이브러리" }).first().click();
   const grid = page.getByRole("grid", { name: "녹음 목록" });
   await expect(grid).toBeVisible();
@@ -232,4 +233,26 @@ test("물어보기 is 준비 중 rather than broken when a request is refused", 
   await input.press("Enter");
   await expect(page.getByRole("list", { name: "대화" }).getByText("물어보기는 아직 준비 중입니다")).toBeVisible();
   await shot(page, "05-ask-not-ready");
+});
+
+test("upload: a recording goes up in parts and waits for processing", async ({ page }) => {
+  await signIn(page);
+  await expect(page.getByRole("heading", { level: 1, name: "홈" })).toBeVisible();
+  await page.locator("body").press("u");
+  const dialog = page.getByRole("dialog", { name: "녹음 올리기" });
+  await expect(dialog).toBeVisible();
+  const chooser = page.waitForEvent("filechooser");
+  await dialog.getByRole("button", { name: "파일 선택" }).click();
+  await (await chooser).setFiles([{ name: "E2E 업로드 녹음.wav", mimeType: "audio/wav", buffer: Buffer.from(wav(6)) }]);
+  await dialog.getByRole("button", { name: "녹음 1개 올리기" }).click();
+  await expect(page.getByText("녹음 1개를 올렸습니다.")).toBeVisible();
+
+  // POST /uploads → PUT parts → complete: the recording exists and waits for the worker
+  // (the e2e server runs none), and home shows it as waiting.
+  const me = await api<{ personal_workspace_id: string }>(page, "/api/v2/me");
+  const list = await api<Page_<RecordingItem>>(page, `/api/v2/recordings?workspace_id=${me.body.personal_workspace_id}&limit=200`);
+  const uploaded = list.body.items.find((r) => r.title === "E2E 업로드 녹음");
+  expect(uploaded?.status).toMatch(/queued|processing/);
+  await expect(page.getByRole("link", { name: "E2E 업로드 녹음" }).first()).toBeVisible();
+  await expect(page.getByText(/처리 대기 중|문서 만드는 중/).first()).toBeVisible();
 });

@@ -51,7 +51,7 @@ import { UPLOADED_GENERIC } from "../../fixtures/scripts.ts";
 import { parseFileName } from "../../lib/pairing.ts";
 import { ApiClientError, type ApiClient, type SessionUser } from "../client.ts";
 import { composeAnswer, streamChunks, type ComposedAnswer } from "./ask.ts";
-import { asId, type ListRecordingsParams, type ListSuggestionsParams, type SearchParams } from "../types.ts";
+import { asId, type ListRecordingsParams, type ListSuggestionsParams, type RecordingFailure, type RecordingProgress, type SearchParams } from "../types.ts";
 
 export interface FixtureClientOptions {
   now?: Date;
@@ -62,6 +62,12 @@ export interface FixtureClientOptions {
 }
 
 const PART_SIZE = 8 * 1024 * 1024;
+
+/** Why the fixture's failed and partial recordings ended that way (RecordingDetail.failure). */
+const FAILURES: Record<"failed" | "partial", RecordingFailure> = {
+  failed: { code: "input_silent", message: "오디오에서 말소리를 찾지 못했습니다. 녹음이 제대로 됐는지 확인하세요.", job_id: null, failed_at: null },
+  partial: { code: "transcribe_partial", message: "일부 구간을 전사하지 못했습니다. 나머지로 문서를 만들었습니다.", job_id: null, failed_at: null },
+};
 const MAX_PAGE = 200;
 
 const notFound = (what: string) => new ApiClientError(404, "not_found", `${what}을 찾을 수 없습니다.`);
@@ -352,6 +358,78 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     setTimeout(tick, processingMs / (steps.length + 1));
   }
 
+  /** Where a recording's queued or running job stands (RecordingProgress), for the first render. */
+  const progressOf = (id: string): RecordingProgress | null => {
+    const job = data.jobs.find((j) => j.recording_id === id && (j.state === "queued" || j.state === "running"));
+    if (!job) return null;
+    const p = data.progress.get(job.id);
+    const queue = data.jobs.filter((j) => j.state === "queued");
+    return {
+      job_id: job.id,
+      state: job.state === "queued" ? "queued" : "running",
+      stage: p?.stage ?? "ingest",
+      stage_state: job.state === "queued" ? "pending" : "running",
+      progress: p?.progress ?? null,
+      message: null,
+      queue_position: job.state === "queued" ? queue.indexOf(job) + 1 : null,
+    };
+  };
+
+  // Recording writes, shared by the single routes and POST /recordings/batch.
+  const patchRecording = (id: string, body: UpdateRecordingRequest): Recording => {
+    const rec = recording(id);
+    if (role(rec.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+    if (body.folder_id) {
+      const folder = data.folders.find((f) => f.id === body.folder_id);
+      if (!folder || folder.workspace_id !== rec.workspace_id) throw notFound("폴더");
+    }
+    if (body.title !== undefined) rec.title = body.title;
+    if (body.folder_id !== undefined) rec.folder_id = body.folder_id as FolderId | null;
+    if (body.domain !== undefined) rec.domain = body.domain;
+    if (body.template_id !== undefined) rec.template_id = body.template_id;
+    if (body.language !== undefined) rec.language = body.language;
+    if (body.visibility !== undefined) rec.visibility = body.visibility;
+    if (body.recorded_at !== undefined) {
+      rec.recorded_at = body.recorded_at;
+      rec.recorded_at_source = "client";
+    }
+    if (body.tag_ids !== undefined) {
+      const wanted = new Set(body.tag_ids);
+      for (const tagId of wanted) {
+        const tag = data.tags.find((t) => t.id === tagId);
+        if (!tag || tag.workspace_id !== rec.workspace_id) throw notFound("태그");
+      }
+      const kept = data.recordingTags.filter((t) => t.recording_id !== id || wanted.has(t.tag_id));
+      const have = new Set(kept.filter((t) => t.recording_id === id).map((t) => t.tag_id));
+      for (const tagId of wanted) {
+        if (!have.has(tagId)) {
+          kept.push({ workspace_id: rec.workspace_id, recording_id: rec.id, tag_id: tagId, source: "user", confidence: null, created_at: nowIso() });
+        }
+      }
+      data.recordingTags = kept;
+    }
+    rec.updated_at = nowIso();
+    emit(rec.workspace_id, rec.id, { type: "recording.updated", payload: { recording: structuredClone(rec) } } as never);
+    return structuredClone(rec);
+  };
+  const removeRecording = (id: string): void => {
+    const rec = recording(id);
+    const r = role(rec.workspace_id);
+    if (r === "viewer" || (r === "member" && rec.created_by !== data.me.id)) {
+      throw new ApiClientError(403, "forbidden", "다른 멤버가 올린 녹음은 워크스페이스 관리자만 삭제할 수 있습니다.");
+    }
+    data.recordings = data.recordings.filter((x) => x.id !== id);
+    data.recordingTags = data.recordingTags.filter((x) => x.recording_id !== id);
+    data.assets = data.assets.filter((x) => x.recording_id !== id);
+    data.documents = data.documents.filter((x) => x.recording_id !== id);
+    data.versions = data.versions.filter((x) => x.recording_id !== id);
+    data.questions = data.questions.filter((x) => x.recording_id !== id);
+    data.events = data.events.filter((x) => x.recording_id !== id);
+    data.actionItems = data.actionItems.filter((x) => x.recording_id !== id);
+    data.transcripts.delete(rec.id);
+    emit(rec.workspace_id, null, { type: "recording.deleted", payload: { recording_id: rec.id } } as never);
+  };
+
   // The preview starts signed in as the fixture user; signing out shows the login screen,
   // and signing in again takes that user's email with any password (there is no server).
   let signedIn = true;
@@ -514,7 +592,7 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
           .filter((r) => !q.domain || r.domain === q.domain)
           .filter((r) => !q.status || r.status === q.status)
           .sort((a, b) => (a.recorded_at < b.recorded_at ? 1 : -1))
-          .map((r) => ({ ...r, tag_ids: tagIdsOf(r.id) }));
+          .map((r) => ({ ...r, tag_ids: tagIdsOf(r.id), progress: progressOf(r.id) }));
         return page(items, q.cursor, q.limit);
       }),
 
@@ -528,64 +606,33 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
           speakers: data.speakers.filter((s) => s.recording_id === id),
           documents: data.documents.filter((d) => d.recording_id === id),
           active_job: data.jobs.find((j) => j.recording_id === id && (j.state === "queued" || j.state === "running")) ?? null,
+          progress: progressOf(id),
+          failure: rec.status === "failed" || rec.status === "partial" ? FAILURES[rec.status] : null,
         });
       }),
 
-    updateRecording: (id, body: UpdateRecordingRequest) =>
-      wait(() => {
-        const rec = recording(id);
-        if (role(rec.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
-        if (body.folder_id) {
-          const folder = data.folders.find((f) => f.id === body.folder_id);
-          if (!folder || folder.workspace_id !== rec.workspace_id) throw notFound("폴더");
-        }
-        if (body.title !== undefined) rec.title = body.title;
-        if (body.folder_id !== undefined) rec.folder_id = body.folder_id as FolderId | null;
-        if (body.domain !== undefined) rec.domain = body.domain;
-        if (body.template_id !== undefined) rec.template_id = body.template_id;
-        if (body.language !== undefined) rec.language = body.language;
-        if (body.visibility !== undefined) rec.visibility = body.visibility;
-        if (body.recorded_at !== undefined) {
-          rec.recorded_at = body.recorded_at;
-          rec.recorded_at_source = "client";
-        }
-        if (body.tag_ids !== undefined) {
-          const wanted = new Set(body.tag_ids);
-          for (const tagId of wanted) {
-            const tag = data.tags.find((t) => t.id === tagId);
-            if (!tag || tag.workspace_id !== rec.workspace_id) throw notFound("태그");
-          }
-          const kept = data.recordingTags.filter((t) => t.recording_id !== id || wanted.has(t.tag_id));
-          const have = new Set(kept.filter((t) => t.recording_id === id).map((t) => t.tag_id));
-          for (const tagId of wanted) {
-            if (!have.has(tagId)) {
-              kept.push({ workspace_id: rec.workspace_id, recording_id: rec.id, tag_id: tagId, source: "user", confidence: null, created_at: nowIso() });
-            }
-          }
-          data.recordingTags = kept;
-        }
-        rec.updated_at = nowIso();
-        emit(rec.workspace_id, rec.id, { type: "recording.updated", payload: { recording: structuredClone(rec) } } as never);
-        return structuredClone(rec);
-      }),
+    updateRecording: (id, body: UpdateRecordingRequest) => wait(() => patchRecording(id, body)),
 
-    deleteRecording: (id) =>
+    deleteRecording: (id) => wait(() => removeRecording(id)),
+
+    batchRecordings: (body) =>
       wait(() => {
-        const rec = recording(id);
-        const r = role(rec.workspace_id);
-        if (r === "viewer" || (r === "member" && rec.created_by !== data.me.id)) {
-          throw new ApiClientError(403, "forbidden", "다른 멤버가 올린 녹음은 워크스페이스 관리자만 삭제할 수 있습니다.");
-        }
-        data.recordings = data.recordings.filter((x) => x.id !== id);
-        data.recordingTags = data.recordingTags.filter((x) => x.recording_id !== id);
-        data.assets = data.assets.filter((x) => x.recording_id !== id);
-        data.documents = data.documents.filter((x) => x.recording_id !== id);
-        data.versions = data.versions.filter((x) => x.recording_id !== id);
-        data.questions = data.questions.filter((x) => x.recording_id !== id);
-        data.events = data.events.filter((x) => x.recording_id !== id);
-        data.actionItems = data.actionItems.filter((x) => x.recording_id !== id);
-        data.transcripts.delete(rec.id);
-        emit(rec.workspace_id, null, { type: "recording.deleted", payload: { recording_id: rec.id } } as never);
+        const results = body.recording_ids.map((id) => {
+          try {
+            if (body.action === "move") patchRecording(id, { folder_id: body.folder_id });
+            else if (body.action === "delete") removeRecording(id);
+            else {
+              const have = new Set(tagIdsOf(id));
+              for (const tagId of body.tag_ids) body.action === "add_tags" ? have.add(tagId) : have.delete(tagId);
+              patchRecording(id, { tag_ids: [...have] });
+            }
+            return { recording_id: id, ok: true, error: null };
+          } catch (err) {
+            const e = err instanceof ApiClientError ? err : new ApiClientError(500, "internal", "처리하지 못했습니다.");
+            return { recording_id: id, ok: false, error: { code: e.code as "internal", message: e.message } };
+          }
+        });
+        return { results };
       }),
 
     getTranscript: (id) =>
@@ -604,6 +651,18 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     listQuestions: (id) => wait(() => (recording(id), page(data.questions.filter((q) => q.recording_id === id), undefined, MAX_PAGE))),
     listRecordingEvents: (id) => wait(() => (recording(id), page(data.events.filter((e) => e.recording_id === id), undefined, MAX_PAGE))),
     listActionItems: (id) => wait(() => (recording(id), page(data.actionItems.filter((a) => a.recording_id === id), undefined, MAX_PAGE))),
+
+    listWorkspaceActionItems: (q) =>
+      wait(() => {
+        // Due items first (soonest first), then the rest by creation, like the server.
+        const items = data.actionItems
+          .filter((a) => a.workspace_id === q.workspace_id)
+          .filter((a) => !q.status || a.status === q.status)
+          .filter((a) => !q.recording_id || a.recording_id === q.recording_id)
+          .filter((a) => (!q.due_after && !q.due_before) || (a.due_at !== null && (!q.due_after || a.due_at >= q.due_after) && (!q.due_before || a.due_at < q.due_before)))
+          .sort((a, b) => (a.due_at && b.due_at ? a.due_at.localeCompare(b.due_at) : a.due_at ? -1 : b.due_at ? 1 : a.created_at.localeCompare(b.created_at)));
+        return page(items, q.cursor, q.limit);
+      }),
 
     updateActionItem: (id, body: UpdateActionItemRequest) =>
       wait((): ActionItem => {
@@ -656,9 +715,10 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
 
     listCalendarSuggestions: (q: ListSuggestionsParams) =>
       wait(() => {
-        const status = q.status ?? "suggested";
+        const statuses = q.statuses ? q.statuses.split(",") : [q.status ?? "suggested"];
         const items = data.events
-          .filter((e) => e.workspace_id === q.workspace_id && e.status === status)
+          .filter((e) => e.workspace_id === q.workspace_id && statuses.includes(e.status))
+          .filter((e) => (!q.start_after || e.start_at >= q.start_after) && (!q.start_before || e.start_at < q.start_before))
           .sort((a, b) => (a.start_at < b.start_at ? -1 : 1));
         return page(items, q.cursor, q.limit);
       }),

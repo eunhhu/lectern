@@ -10,8 +10,7 @@ import {
   useConfirmedEvents,
   useFolders,
   useDecideSuggestion,
-  useJobProgress,
-  useRecording,
+  useLiveProgress,
   useRecordings,
   useSuggestions,
   useWorkspaceActionItems,
@@ -19,7 +18,7 @@ import {
 import type { EventCandidate, JobId, RecordingListItem } from "../../api/types.ts";
 import { scopeLabel } from "../ask/citations.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
-import { DOMAIN_LABEL, STATUS, stageLabel } from "../../app/labels.ts";
+import { DOMAIN_LABEL, progressLabel, STATUS } from "../../app/labels.ts";
 import { openOverlay } from "../../app/overlays.ts";
 import { useWorkspace } from "../../app/workspace.tsx";
 import { formatDate, formatDateTime, formatDuration, formatRelative, formatTimeOfDay } from "../../lib/format.ts";
@@ -154,15 +153,10 @@ export function InboxPage() {
 }
 
 function BusyRow({ rec }: { rec: RecordingListItem }) {
-  const job = useActiveJobId(rec.id);
-  const progress = useJobProgress(job).data;
+  // The list item carries the job's progress; job.progress events update it live.
+  const progress = useLiveProgress(rec.progress);
   const status = STATUS[rec.status];
-  const label =
-    rec.status === "uploading"
-      ? "올리는 중…"
-      : rec.status === "queued"
-        ? "처리 대기 중…"
-        : `${stageLabel(progress?.stage)}${progress?.progress != null ? ` · ${Math.round(progress.progress * 100)}%` : "…"}`;
+  const label = progressLabel(rec.status, progress);
   return (
     <li className={s.row}>
       <Dot tone={status.tone} live />
@@ -181,9 +175,6 @@ function BusyRow({ rec }: { rec: RecordingListItem }) {
 }
 
 /** Job ids are exposed on RecordingDetail.active_job; the event stream keeps it fresh. */
-function useActiveJobId(recordingId: string): JobId | null {
-  return useRecording(recordingId).data?.active_job?.id ?? null;
-}
 
 function SuggestionRow({ event, recording, now }: { event: EventCandidate; recording: RecordingListItem | undefined; now: Date }) {
   const { workspaceId } = useWorkspace();

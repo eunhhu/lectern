@@ -45,6 +45,19 @@ export function stageLabel(stage: StageName | undefined): string {
   return (stage && STAGE_LABEL[stage]) || "처리 중";
 }
 
+/** One line for a recording that is not done: "처리 대기 중 · 2번째", "문서 만드는 중 · 40%". */
+export function progressLabel(
+  status: string,
+  progress: { stage: StageName; progress: number | null; message: string | null; queuePosition: number | null } | null,
+): string {
+  if (status === "uploading") return "올리는 중…";
+  if (status === "queued" || (progress?.queuePosition ?? null) !== null) {
+    return progress?.queuePosition ? `처리 대기 중 · ${progress.queuePosition}번째` : "처리 대기 중…";
+  }
+  const what = progress?.message?.trim() || stageLabel(progress?.stage);
+  return `${what}${progress?.progress != null ? ` · ${Math.round(progress.progress * 100)}%` : progress?.message ? "" : "…"}`;
+}
+
 /** Tag colours are design-token names (packages/domain Tag.color). */
 export const TAG_TONE: Record<string, Tone> = {
   red: "danger",
