@@ -1,0 +1,32 @@
+# Lectern worker (durable job queue runner: harness stages, audio compaction,
+# maintenance, reminders, calendar sync).
+#
+# AVAILABLE AFTER THE P0 WORKER LANDS. Install it only once apps/worker/src/index.ts is
+# deployed from main; before that systemd would restart-loop on a missing file. Follow
+# docs/runbooks/host-setup.md §6: the worker exits with status 2 unless the env file sets
+# LECTERN_WORKER_MODE=external (in embedded mode the API process runs jobs itself).
+#
+# It shares the checkout, the EnvironmentFile and DATA_DIR (SQLite + blobs) with
+# lectern.service. A CD deploy restarts only the API: the worker notices the API's newer
+# release (checked every 15s), hands back or finishes running jobs within
+# LECTERN_SHUTDOWN_GRACE_SEC and exits 0, and Restart=always starts it on the new code.
+# A job killed mid-stage is reclaimed after its lease expires (ADR-0007).
+
+[Unit]
+Description=Lectern worker
+After=network-online.target lectern.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=eunhhu
+WorkingDirectory=/home/eunhhu/work/lectern
+EnvironmentFile=/etc/lectern/lectern.env
+ExecStart=/home/eunhhu/.bun/bin/bun run /home/eunhhu/work/lectern/apps/worker/src/index.ts
+Restart=always
+RestartSec=1
+TimeoutStopSec=40
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

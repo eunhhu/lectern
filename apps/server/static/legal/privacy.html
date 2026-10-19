@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>개인정보처리방침 · Lectern</title>
+<meta name="description" content="Lectern 개인정보처리방침: 수집 항목, 이용 목적, 보관 기간, 처리 위탁과 국외 이전, Google 사용자 데이터 처리">
+<style>
+:root{color-scheme:light dark;--fg:#1f2328;--muted:#59636e;--bg:#ffffff;--line:#d1d9e0;--soft:#f6f8fa;--link:#0969da}
+@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bg:#0d1117;--line:#3d444d;--soft:#151b23;--link:#4493f8}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;word-break:keep-all;overflow-wrap:anywhere}
+main{max-width:760px;margin:0 auto;padding:40px 20px 80px}
+header{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:baseline;justify-content:space-between;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:28px}
+header a.brand{font-weight:700;font-size:18px;color:var(--fg);text-decoration:none}
+nav a{margin-left:16px;font-size:14px}
+nav a:first-child{margin-left:0}
+h1{font-size:28px;line-height:1.3;margin:0 0 8px}
+h2{font-size:20px;line-height:1.4;margin:40px 0 12px;padding-top:8px}
+h3{font-size:17px;margin:24px 0 8px}
+p,ul,ol{margin:0 0 14px}
+ul,ol{padding-left:22px}
+li{margin:4px 0}
+a{color:var(--link)}
+.meta{color:var(--muted);font-size:14px;margin:0 0 24px}
+.note{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:16px 0}
+.table{overflow-x:auto;margin:0 0 16px}
+table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.6}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--soft);font-weight:600}
+code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);padding:1px 5px;border-radius:4px}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <a class="brand" href="/">Lectern</a>
+  <nav aria-label="법적 고지">
+    <a href="/privacy" aria-current="page">개인정보처리방침</a>
+    <a href="/terms">이용약관</a>
+  </nav>
+</header>
+
+<h1>개인정보처리방침</h1>
+<p class="meta">공고일·시행일: {{EFFECTIVE_DATE}}</p>
+
+<p>Lectern(이하 "서비스", <a href="https://lectern.qucord.com">lectern.qucord.com</a>과 Lectern 데스크톱·모바일 앱)은 녹음과 문서를 받아 전사(받아쓰기)와 정리된 문서를 만들어 주는 서비스입니다. 이 방침은 서비스 운영자(이하 "운영자")가 이용자의 개인정보를 어떻게 수집하고, 쓰고, 보관하고, 다른 곳에 맡기는지 설명합니다. 운영자는 「개인정보 보호법」 등 관련 법령을 지킵니다.</p>
+
+<div class="note">
+  <strong>요약</strong>
+  <ul>
+    <li>계정 정보(이메일, 이름)와 이용자가 올린 녹음·PDF, 그리고 그것으로 만든 전사와 문서를 처리합니다.</li>
+    <li>AI 처리를 위해 녹음과 텍스트를 Google Gemini API(유료 서비스)로 보냅니다. Google은 유료 서비스의 입력과 결과를 자사 제품 개선에 쓰지 않습니다.</li>
+    <li>이용자의 녹음과 문서를 광고, 판매, AI 모델 학습에 쓰지 않습니다.</li>
+    <li>Google 캘린더를 연결하면 Lectern이 만든 전용 캘린더에만 일정을 씁니다. 다른 캘린더는 읽지도 쓰지도 않습니다.</li>
+    <li>삭제한 데이터는 서버에서 바로 지워지고, 백업 사본은 최대 7일 뒤 사라집니다.</li>
+  </ul>
+</div>
+
+<h2 id="items">1. 수집하는 개인정보와 수집 방법</h2>
+
+<h3>1.1 이용자가 직접 입력하거나 올리는 정보</h3>
+<div class="table"><table>
+  <thead><tr><th>구분</th><th>항목</th><th>필수 여부</th></tr></thead>
+  <tbody>
+    <tr><td>회원가입·로그인</td><td>이메일 주소, 이름(표시 이름), 비밀번호. 비밀번호는 복원할 수 없는 해시(scrypt)로만 저장합니다.</td><td>필수</td></tr>
+    <tr><td>녹음</td><td>이용자가 업로드하거나 앱으로 녹음한 오디오 파일, 녹음 길이, 녹음·업로드 시각, 이용자가 입력한 제목·과목(폴더) 이름</td><td>서비스 이용 시 필수</td></tr>
+    <tr><td>참고 문서</td><td>이용자가 녹음과 함께 올린 PDF 파일과 그 안의 텍스트</td><td>선택</td></tr>
+    <tr><td>문의</td><td>문의할 때 보낸 이메일 주소와 내용</td><td>선택</td></tr>
+  </tbody>
+</table></div>
+<p>녹음과 문서에는 이용자 본인뿐 아니라 함께 말한 다른 사람(강의자, 회의 참석자 등)의 목소리와 이름, 그 밖의 정보가 담길 수 있습니다. 운영자는 이용자의 요청에 따라 이 내용을 처리합니다. 다른 사람이 등장하는 녹음을 올릴 때 필요한 동의를 받는 것은 이용자의 책임입니다(<a href="/terms#duties">이용약관 제8조</a>).</p>
+
+<h3>1.2 서비스가 만들어 내는 정보</h3>
+<p>제공하는 기능에 따라 다음 정보가 만들어집니다.</p>
+<ul>
+  <li>녹음을 받아쓴 전사(시간 정보와 화자 구분 포함), 요약·노트 등 정리된 문서, 녹음에서 찾아낸 일정·할 일·질문</li>
+  <li>처리 상태와 처리에 쓰인 AI 모델 이름, 처리 기록(작업 기록)</li>
+  <li>공유 링크 정보(공개 여부, 링크 토큰)</li>
+</ul>
+
+<h3>1.3 서비스 이용 중 자동으로 생성되는 정보</h3>
+<ul>
+  <li><strong>인증 정보</strong>: 로그인 세션 토큰(쿠키), 앱과 단축어 연동용 API 토큰, 이메일 인증번호</li>
+  <li><strong>보안 기록(감사 로그)</strong>: 로그인, 비밀번호 변경, 토큰 재발급, 관리자 작업 같은 계정 활동의 종류, 시각, 계정 이메일</li>
+  <li><strong>서버 운영 기록</strong>: 요청 방법, 주소 경로, 응답 코드, 처리 시간. 주소에 들어 있는 토큰 같은 자격 증명은 가린 뒤 기록합니다.</li>
+  <li><strong>접속 IP 주소</strong>: 로그인·인증번호 요청 횟수 제한(무차별 대입 방지)을 위해 서버 메모리에서만 잠시 쓰고 저장하지 않습니다. 네트워크 보안 업체(Cloudflare)는 모든 접속을 중계하는 과정에서 IP 주소를 처리합니다(4장).</li>
+  <li><strong>사용한 앱 종류</strong>: 녹음을 올린 클라이언트(웹, macOS, Android 등)</li>
+</ul>
+
+<h3>1.4 Google 계정을 연결하는 경우</h3>
+<p>이용자가 Google로 로그인하거나 Google 캘린더 연동을 켜는 경우에만 다음 정보를 받습니다. 연결은 이용자의 선택이며, 연결하지 않아도 서비스의 다른 기능은 쓸 수 있습니다.</p>
+<div class="table"><table>
+  <thead><tr><th>요청 권한(scope)</th><th>받는 정보와 하는 일</th></tr></thead>
+  <tbody>
+    <tr><td><code>openid</code>, <code>email</code>, <code>profile</code></td><td>Google 계정 식별자, 이메일 주소(인증 여부 포함), 이름, 프로필 사진 주소. Lectern 계정을 만들거나 기존 계정과 연결하고 로그인하는 데만 씁니다.</td></tr>
+    <tr><td><code>https://www.googleapis.com/auth/calendar.app.created</code></td><td>이용자의 Google 캘린더에 Lectern 전용 보조 캘린더("Lectern")를 하나 만들고, <strong>그 캘린더 안에서만</strong> 일정을 만들고, 고치고, 지웁니다. 녹음에서 찾아내 이용자가 확정한(또는 이용자가 켠 자동 등록 설정에 맞는) 일정의 제목, 날짜·시간, 설명, Lectern 녹음으로 돌아가는 링크를 씁니다. 같은 일정이 중복되지 않도록 그 캘린더의 Lectern 일정만 다시 읽습니다. 이용자의 기본 캘린더나 다른 캘린더의 일정은 읽지도 쓰지도 않습니다.</td></tr>
+  </tbody>
+</table></div>
+<p>Google이 발급한 접근 토큰은 서버에서 암호화해 보관하고, 연결을 해제하면 삭제합니다.</p>
+
+<h3>1.5 기기(브라우저·앱)에 저장되는 정보</h3>
+<ul>
+  <li>로그인 유지를 위한 세션 쿠키(<code>lectern_session</code>, HttpOnly·Secure). 서비스에 꼭 필요한 쿠키이며 광고·분석용 쿠키나 추적 도구는 쓰지 않습니다. 브라우저 설정으로 쿠키를 거부할 수 있지만, 그러면 로그인이 필요한 기능을 쓸 수 없습니다.</li>
+  <li>화면 테마 같은 설정, 업로드를 기다리는 녹음(네트워크가 끊겼을 때 다시 보내기 위해 이용자 기기에만 저장)</li>
+  <li>데스크톱·모바일 앱의 API 토큰(기기의 보안 저장소 또는 앱 설정)</li>
+</ul>
+
+<h2 id="purposes">2. 개인정보를 쓰는 목적</h2>
+<ol>
+  <li><strong>서비스 제공</strong>: 녹음 저장과 재생, AI 전사와 문서 생성, 일정·할 일·질문 추출, 검색, 공유 링크, (연결한 경우) Google 캘린더 일정 등록</li>
+  <li><strong>계정 관리</strong>: 가입, 본인 확인, 로그인, 비밀번호 재설정 메일 발송, 저장 용량 관리</li>
+  <li><strong>보안과 부정 이용 방지</strong>: 요청 횟수 제한, 보안 기록, 장애 원인 분석</li>
+  <li><strong>문의 응대와 공지</strong>: 문의 답변, 서비스 변경이나 장애에 관한 안내</li>
+</ol>
+<p>운영자는 이용자의 녹음, 전사, 문서를 광고에 쓰거나 판매하지 않고, AI 모델을 학습시키는 데 쓰지 않습니다. 서비스 품질을 평가할 때는 녹음 당사자에게 따로 동의를 받은 녹음만 씁니다.</p>
+<p>운영자(관리자)는 장애 대응, 이용자 문의 처리, 법령 준수, 약관 위반 확인처럼 서비스 운영에 꼭 필요한 경우에만 이용자의 콘텐츠를 열람합니다.</p>
+
+<h2 id="retention">3. 보관 기간과 파기</h2>
+<div class="table"><table>
+  <thead><tr><th>정보</th><th>보관 기간</th></tr></thead>
+  <tbody>
+    <tr><td>계정 정보</td><td>계정을 삭제할 때까지</td></tr>
+    <tr><td>녹음, PDF, 전사, 문서, 일정·할 일·질문</td><td>이용자가 삭제하거나 계정을 삭제할 때까지. 운영자가 보존 정책을 켜면 오래된 녹음의 오디오 파일만 지우고 문서는 남길 수 있으며, 이 경우 미리 공지합니다.</td></tr>
+    <tr><td>로그인 세션</td><td>로그아웃하거나 30일이 지나면 만료·삭제. 비밀번호를 바꾸면 다른 기기의 세션도 만료</td></tr>
+    <tr><td>이메일 인증번호</td><td>10분(만료 후 삭제)</td></tr>
+    <tr><td>보안 기록(감사 로그)</td><td>180일</td></tr>
+    <tr><td>처리 작업 기록</td><td>진행 이벤트 1일, 끝난 작업 기록 30일</td></tr>
+    <tr><td>서버 운영 기록</td><td>서버 로그 저장 한도에 따라 순환 삭제</td></tr>
+    <tr><td>데이터베이스 백업</td><td>하루 한 번 만들고 최근 7개(약 7일)만 보관. 업데이트 직전에 만드는 사본과 점검용 사본도 7일이 지나면 지웁니다. 삭제한 데이터의 텍스트(계정 정보, 문서 등)가 이 기간 동안 백업 사본에 남을 수 있습니다. 백업은 복구 목적으로만 씁니다.</td></tr>
+    <tr><td>휴지통</td><td>어떤 녹음에도 연결되지 않은 업로드 파일은 휴지통으로 옮긴 뒤 7일이 지나면 영구 삭제</td></tr>
+    <tr><td>AI 처리를 위해 Google에 보낸 파일</td><td>처리가 끝나면 바로 삭제를 요청합니다(Google Files API는 삭제 요청이 없어도 48시간 뒤 자동 삭제). Google의 남용 감지용 기록은 4장 참고</td></tr>
+    <tr><td>Google 연동 토큰</td><td>연결을 해제하거나 계정을 삭제할 때까지</td></tr>
+  </tbody>
+</table></div>
+<p><strong>파기 방법</strong>: 이용자가 녹음을 삭제하면 서버의 오디오 파일과 데이터베이스 기록을 바로 지웁니다. 백업 사본은 위 보관 기간이 지나면 자동으로 지워집니다. 종이 문서로는 개인정보를 보관하지 않습니다. 법령에 따라 보관해야 하는 정보가 생기면 그 기간 동안 따로 분리해 보관합니다.</p>
+
+<h2 id="processors">4. 처리 위탁과 국외 이전</h2>
+<p>운영자는 서비스를 제공하기 위해 아래 업체에 개인정보 처리를 맡깁니다. 이 업체들은 모두 해외에 있으므로 개인정보가 국외로 이전됩니다. 이전은 이용자가 서비스를 쓸 때 암호화된 네트워크(HTTPS)로 그때그때 이루어집니다.</p>
+<div class="table"><table>
+  <thead><tr><th>받는 자(국가)</th><th>맡기는 일</th><th>이전 항목</th><th>보관 기간</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Google LLC (미국. Google 시설이 있는 국가에 일시 저장·캐시될 수 있음)<br><a href="https://policies.google.com/privacy">개인정보처리방침</a></td>
+      <td>Gemini API: AI 전사, 문서 생성, 정보 추출</td>
+      <td>녹음 오디오, PDF와 그 텍스트, 전사와 처리 지시문(이름 등 녹음에 담긴 정보 포함)</td>
+      <td>처리 후 바로 삭제 요청(최대 48시간). 운영자는 결제가 연결된 <strong>유료 서비스</strong>만 쓰며, 이 경우 Google은 입력과 응답을 자사 제품 개선에 쓰지 않습니다. 다만 Google은 금지된 사용을 감지하고 막기 위해 입력과 응답을 제한된 기간 동안 기록합니다(<a href="https://ai.google.dev/gemini-api/terms">Gemini API 추가 약관</a>).</td>
+    </tr>
+    <tr>
+      <td>Google LLC (미국)</td>
+      <td>Google 로그인, Google 캘린더 연동(연결한 이용자만)</td>
+      <td>1.4의 정보, 캘린더에 쓰는 일정 정보</td>
+      <td>연결 해제 또는 계정 삭제까지. 캘린더에 쓴 일정은 이용자의 Google 캘린더에 남으며, 이용자가 지우거나 연결 해제 때 함께 지우기를 선택할 수 있습니다.</td>
+    </tr>
+    <tr>
+      <td>Resend, Inc. (미국)<br><a href="https://resend.com/legal/privacy-policy">개인정보처리방침</a></td>
+      <td>이메일 발송(가입·비밀번호 재설정 인증번호, 서비스 안내, 이용자가 켠 알림)</td>
+      <td>받는 사람 이메일 주소, 메일 내용(인증번호 등)</td>
+      <td>발송 기록은 Resend의 보관 정책에 따름</td>
+    </tr>
+    <tr>
+      <td>Cloudflare, Inc. (미국, 전 세계 네트워크)<br><a href="https://www.cloudflare.com/privacypolicy/">개인정보처리방침</a></td>
+      <td>네트워크 중계, 암호화 연결(TLS), 공격 차단</td>
+      <td>접속 IP 주소, 요청·응답 내용(전송 중), 브라우저 정보</td>
+      <td>Cloudflare의 보관 정책에 따름</td>
+    </tr>
+  </tbody>
+</table></div>
+<p>서비스의 데이터베이스와 파일은 운영자가 직접 관리하는 서버에 저장합니다.</p>
+<p><strong>국외 이전을 거부하려면</strong>: 위 업체를 거치지 않고는 서비스를 제공할 수 없으므로, 거부하려면 서비스 이용을 멈추고 계정 삭제를 요청하면 됩니다. Google 연동은 연결하지 않거나 언제든 해제해 거부할 수 있습니다.</p>
+<p>이용자가 업로드할 때 자기 Gemini API 키를 직접 넣는 경우, 그 녹음은 이용자의 키로 처리되며 그 키에 적용되는 Google 약관을 따릅니다(무료 계층 키라면 Google이 입력을 제품 개선에 쓸 수 있습니다). 운영자는 그 키를 해당 처리 작업 동안만 암호화해 보관하고, 작업이 끝나면 지웁니다.</p>
+<p>운영자는 법령에 따른 요청이 있는 경우를 빼고 이용자의 개인정보를 제3자에게 제공하지 않습니다. 이용자가 공개로 설정한 공유 링크는 링크를 아는 누구나 볼 수 있습니다.</p>
+
+<h2 id="google">5. Google 사용자 데이터</h2>
+<p>Lectern이 Google API로 받은 정보를 쓰거나 다른 앱으로 보내는 방식은 제한적 사용(Limited Use) 요구사항을 포함한 <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API 서비스 사용자 데이터 정책</a>을 따릅니다.</p>
+<ul>
+  <li>Google 사용자 데이터는 1.4에 적은 로그인과 캘린더 일정 동기화 기능에만 씁니다.</li>
+  <li>Google 사용자 데이터를 광고에 쓰거나, 팔거나, 데이터 중개업자 등 제3자에게 넘기지 않습니다.</li>
+  <li>Google 사용자 데이터를 AI·머신러닝 모델을 만들거나 학습시키거나 개선하는 데 쓰지 않습니다.</li>
+  <li>사람이 Google 사용자 데이터를 읽는 것은 이용자가 동의한 경우, 보안 목적(남용 조사 등), 법령 준수에 필요한 경우로만 제한합니다.</li>
+  <li>연결 해제: 서비스 설정에서 연결을 해제하거나, <a href="https://myaccount.google.com/permissions">Google 계정의 서드파티 연결 관리</a>에서 Lectern의 접근 권한을 삭제할 수 있습니다. 해제하면 운영자가 보관한 Google 토큰을 지웁니다.</li>
+</ul>
+<p lang="en"><em>Google API disclosure:</em> Lectern's use and transfer to any other app of information received from Google APIs will adhere to the Google API Services User Data Policy, including the Limited Use requirements. Google user data is used only for sign-in and for syncing events to the calendar Lectern creates; it is not sold, not used for advertising, and not used to train AI or machine-learning models.</p>
+
+<h2 id="rights">6. 이용자의 권리와 행사 방법</h2>
+<p>이용자는 언제든 자기 개인정보의 열람, 정정, 삭제, 처리 정지를 요구하고 동의를 철회할 수 있습니다.</p>
+<ul>
+  <li><strong>서비스 안에서 바로</strong>: 이름 변경, 비밀번호 변경, API 토큰 재발급, 녹음·문서 삭제, 오디오만 삭제, 공개 공유 해제, 문서(Markdown)와 오디오 내려받기, (연동을 켠 경우) Google 연동 해제</li>
+  <li><strong>이메일로 요청</strong>: 계정 삭제, 데이터 사본 요청, 그 밖의 요구는 <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>로 보내 주세요. 가입한 이메일로 보내거나 본인임을 확인할 수 있는 방법으로 요청하면, 확인 후 <strong>10일 이내</strong>에 처리하고 결과를 알려 드립니다.</li>
+  <li><strong>계정 삭제</strong>: 요청을 확인하면 계정, 모든 녹음, 전사, 문서, 세션, API 토큰, Google 연동 토큰을 서버에서 바로 지웁니다. 데이터베이스 백업 사본은 최대 7일 뒤 자동으로 사라집니다. 서비스 안에서 직접 계정을 삭제하는 기능은 준비 중입니다.</li>
+</ul>
+<p>법정대리인이나 위임을 받은 사람도 권리를 행사할 수 있으며, 이 경우 위임 사실을 확인할 수 있는 자료가 필요합니다.</p>
+
+<h2 id="children">7. 만 18세 미만 이용자</h2>
+<p>서비스는 만 18세 이상만 이용할 수 있습니다. 운영자는 만 18세 미만인 사람의 개인정보를 알면서 수집하지 않으며, 그런 사실을 알게 되면 해당 계정과 데이터를 지웁니다.</p>
+
+<h2 id="security">8. 안전성 확보 조치</h2>
+<ul>
+  <li>이용자와 서비스 사이의 통신, 서비스와 위탁 업체 사이의 통신을 HTTPS로 암호화합니다.</li>
+  <li>비밀번호는 복원할 수 없는 해시(scrypt)로만 저장합니다. 로그인 쿠키는 HttpOnly·Secure로 설정해 스크립트가 읽지 못하게 합니다.</li>
+  <li>로그인과 인증번호 요청 횟수를 제한하고, 계정 활동을 보안 기록으로 남깁니다.</li>
+  <li>관리자 권한을 최소한으로 나누고, 관리 기능은 권한을 확인한 뒤에만 실행합니다.</li>
+  <li>API 키 같은 운영 비밀 값은 서버에만 두고 접근 권한을 제한합니다. Google 연동 토큰은 암호화해 저장합니다.</li>
+  <li>웹 화면에 엄격한 콘텐츠 보안 정책(CSP)을 적용해 악성 스크립트 실행을 막습니다.</li>
+  <li>데이터베이스를 매일 백업하고 복구 절차를 점검합니다.</li>
+</ul>
+
+<h2 id="contact">9. 개인정보 보호책임자와 문의</h2>
+<ul>
+  <li>개인정보 보호책임자: {{OPERATOR_NAME}} (Lectern 운영자)</li>
+  <li>이메일: <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a></li>
+</ul>
+<p>개인정보 침해에 관한 신고나 상담은 다음 기관에도 할 수 있습니다.</p>
+<ul>
+  <li>개인정보침해 신고센터(한국인터넷진흥원): 국번 없이 118, <a href="https://privacy.kisa.or.kr">privacy.kisa.or.kr</a></li>
+  <li>개인정보 분쟁조정위원회: 1833-6972, <a href="https://www.kopico.go.kr">www.kopico.go.kr</a></li>
+  <li>대검찰청: 국번 없이 1301, <a href="https://www.spo.go.kr">www.spo.go.kr</a></li>
+  <li>경찰청: 국번 없이 182, <a href="https://ecrm.police.go.kr">ecrm.police.go.kr</a></li>
+</ul>
+
+<h2 id="changes">10. 방침의 변경</h2>
+<p>이 방침을 바꾸면 시행 7일 전까지 서비스 안이나 이메일로 알립니다. 수집 항목이나 위탁처가 늘어나는 등 이용자의 권리에 중요한 변경은 30일 전까지 알립니다.</p>
+
+<footer>
+  <p>공고일·시행일: {{EFFECTIVE_DATE}} · <a href="/terms">이용약관</a> · <a href="/">Lectern 홈</a></p>
+</footer>
+</main>
+</body>
+</html>
