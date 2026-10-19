@@ -11,8 +11,9 @@
 //    of the seam, which sits in silence.
 //    The splice letter has a time in both chunks; their difference is the earlier chunk's
 //    drift there. Drift accumulates from the chunk start, so that chunk's timeline is
-//    rescaled linearly to agree with the later chunk at the splice (within
-//    `maxRescale`; a larger disagreement is left alone and only recorded in `drift_ms`).
+//    rescaled linearly to agree with the later chunk at the splice (from `minRescaleDriftMs`,
+//    below which it is timestamp noise, up to `maxRescale`; a larger disagreement is left
+//    alone and only recorded in `drift_ms`).
 // 2. Time. Chunk-relative cut-audio times become absolute cut times, then original-audio
 //    times through the speech_map time map. This is the one place that happens (§3.2
 //    invariant); everything downstream is original time. A segment that straddles a cut is
@@ -54,6 +55,8 @@ export const MERGE_DEFAULTS = Object.freeze({
   maxRescale: 0.25,
   /** No rescaling when the splice is closer than this to the chunk start (too short a baseline). */
   minRescaleBaseMs: 30_000,
+  /** Drift below this is timestamp noise (LLM timestamps are whole seconds): left alone. */
+  minRescaleDriftMs: 2_000,
 });
 export type MergeOptions = typeof MERGE_DEFAULTS;
 
@@ -202,7 +205,11 @@ function spliceSeam(
       const base = atA - chunk.start_ms;
       const ratio = base > 0 ? (atB - chunk.start_ms) / base : 1;
       const factor =
-        base >= options.minRescaleBaseMs && Math.abs(ratio - 1) <= options.maxRescale ? ratio : 1;
+        base >= options.minRescaleBaseMs &&
+        Math.abs(atA - atB) >= options.minRescaleDriftMs &&
+        Math.abs(ratio - 1) <= options.maxRescale
+          ? ratio
+          : 1;
       return {
         seam: {
           after_chunk: k,

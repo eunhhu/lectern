@@ -14,6 +14,8 @@ export * from "./retention.ts";
 export * from "./runner.ts";
 export * from "./stage.ts";
 export * from "./legacy/distill.ts";
+export * from "./eval/scripted.ts";
+export * from "./eval/synth.ts";
 export * from "./transcript/align.ts";
 export * from "./transcript/merge.ts";
 export * from "./transcript/pipeline.ts";

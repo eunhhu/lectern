@@ -92,6 +92,22 @@ describe("speakers", () => {
     expect(transcript.gaps.map((g) => g.kind)).toEqual(["missing_transcript"]);
   });
 
+  test("an interview: the voice that never speaks in an overlap is joined by elimination", () => {
+    // Two people taking turns (no dominant speaker); only A speaks around the overlaps.
+    const turns = script({ seed: 8, from: 0, to: duration, speakers: (i) => (i % 2 ? "B" : "A") }).map((u) =>
+      (u.end > 180 * S && u.start < 230 * S) || (u.end > 380 * S && u.start < 430 * S) ? { ...u, speaker: "A" } : u,
+    );
+    const local = [(s: string) => (s === "A" ? "S1" : "S2"), (s: string) => (s === "A" ? "S2" : "S1"), (s: string) => (s === "A" ? "S1" : "S2")];
+    const transcript = transcriptOf(chunks.map((c, i) => chunkView(turns, c, { label: local[i] })));
+    const seen = agreement(transcript, turns);
+    expect(seen.get("A")).toEqual(new Set(["S1"]));
+    expect(seen.get("B")).toEqual(new Set(["S2"]));
+    expect(transcript.speakers.map((s) => [s.label, s.basis])).toEqual([
+      ["S1", "overlap"],
+      ["S2", "continuity"],
+    ]);
+  });
+
   test("a continuity link that contradicts an overlap link is skipped", () => {
     // The overlap says chunk 0's S1 is chunk 1's S2; chunk 1's dominant S1 must stay apart.
     const seg = (chunk: number, speaker: string, start: number, text: string) => ({

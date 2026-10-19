@@ -7,10 +7,13 @@
 // 2. Continuity. Neighbouring chunks (skipping failed ones) are joined through their
 //    dominant speakers when both chunks have one (`dominantShare` of the letters): a
 //    lecture's lecturer across an overlap that fell in silence. Overlap links go first, so
-//    this only adds what they left open and never contradicts them (rule 3).
-// 3. Never two labels of one chunk in one speaker: a provider call tells its own speakers
+//    this only adds what they left open and never contradicts them (rule 4).
+// 3. Elimination. When neighbouring chunks each have exactly one label not yet joined to
+//    any label of the other, those two are joined: the second voice of an interview, or
+//    the audience of a lecture, across overlaps it did not speak in.
+// 4. Never two labels of one chunk in one speaker: a provider call tells its own speakers
 //    apart, so a link that would merge them is skipped (strongest links are applied first).
-// 4. Recording-wide labels are numbered by first appearance.
+// 5. Recording-wide labels are numbered by first appearance.
 //
 // Confidence (domain Speaker.confidence) is about the cross-chunk identity: 1 for a
 // one-chunk recording, the weakest link for a linked speaker (overlap 0.9, continuity 0.6),
@@ -126,7 +129,18 @@ export function unifySpeakers(merged: MergedTranscript, overrides: Partial<Speak
     if (a && b) union(a.key, b.key, "continuity");
   }
 
-  // 3. Recording-wide labels by first appearance.
+  // 3. Elimination: the one label left on each side of a neighbour pair.
+  for (let p = 1; p < present.length; p++) {
+    const left = chunkChars.get(present[p - 1]!)!;
+    const right = chunkChars.get(present[p]!)!;
+    const open = (side: Node[], other: Node[]) =>
+      side.filter((n) => !other.some((o) => find(o.key) === find(n.key)));
+    const a = open(left, right);
+    const b = open(right, left);
+    if (a.length === 1 && b.length === 1) union(a[0]!.key, b[0]!.key, "continuity");
+  }
+
+  // 5. Recording-wide labels by first appearance.
   const components = new Map<string, Node[]>();
   for (const node of nodes.values()) {
     const root = find(node.key);
