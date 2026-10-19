@@ -187,6 +187,19 @@ export function getLectureJobState(lectureId: string): "queued" | "running" | nu
   return state;
 }
 
+/** The lecture's in-flight job (a running one wins over a queued one), if any. */
+export function getLectureJob(
+  lectureId: string
+): { kind: JobKind; state: "queued" | "running" } | null {
+  let queuedJob: { kind: JobKind; state: "queued" } | null = null;
+  for (const kind of ["distill", "compact"] as const) {
+    const job = findJob(kind, lectureId);
+    if (job?.state === "running") return { kind, state: "running" };
+    if (job && !queuedJob) queuedJob = { kind, state: "queued" };
+  }
+  return queuedJob;
+}
+
 export function isLectureBusy(lectureId: string, kind?: JobKind): boolean {
   if (kind) return Boolean(findJob(kind, lectureId));
   return getLectureJobState(lectureId) !== null;

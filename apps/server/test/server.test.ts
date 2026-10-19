@@ -406,7 +406,7 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     // 3. Admin can access /admin UI and /api/admin/overview CRM
     const adminHtmlRes = await handleRequest(new Request("http://localhost/admin"));
     expect(adminHtmlRes.status).toBe(200);
-    expect(await adminHtmlRes.text()).toContain("CRM & RBAC Console");
+    expect(await adminHtmlRes.text()).toContain("Lectern Admin");
 
     const crmRes = await handleRequest(
       new Request("http://localhost/api/admin/overview", {

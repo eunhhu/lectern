@@ -5,6 +5,13 @@ function inlineScripts(html: string): string[] {
   return [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
 }
 
+/** Pulls a top-level `function name(...) { ... }` (4-space indented) out of an inline script. */
+function extractNamedFunction(code: string, name: string): (...args: any[]) => any {
+  const match = code.match(new RegExp(`\\n    function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n    \\}`));
+  if (!match) throw new Error(`client function ${name} not found`);
+  return new Function(`${match[0]}; return ${name};`)();
+}
+
 function extractClientFunction(code: string, name: string): (...args: any[]) => any {
   const match = code.match(new RegExp(`function ${name}\\(s\\) \\{[\\s\\S]*?\\n    \\}`));
   if (!match) throw new Error(`client function ${name} not found`);
@@ -66,5 +73,38 @@ describe("@lectern/server web UI client script", () => {
     expect(lines).toHaveLength(4);
     expect(lines.slice(0, 3).every((line) => line.endsWith(" \\"))).toBe(true);
     expect(lines[1]).toContain('X-Lectern-Token: lct_test');
+  });
+
+  test("admin console is CSP-ready: one static script, no inline handlers, no foreign hosts", () => {
+    expect(inlineScripts(adminHtml)).toHaveLength(1);
+    expect(adminHtml).not.toMatch(/<script\s[^>]*>/);
+    expect(adminHtml).not.toMatch(/\son[a-z]+\s*=\s*["'a-z]/i);
+    expect(adminHtml.toLowerCase()).not.toContain("javascript:");
+    expect(adminScript).not.toMatch(/\beval\(|new Function\(/);
+    const hosts = [...adminHtml.matchAll(/https?:\/\/[^\s"'<>)]+/g)].map((m) => m[0]);
+    expect(hosts.every((url) => url.startsWith("https://cdn.jsdelivr.net/"))).toBe(true);
+  });
+
+  test("admin console authenticates with the session cookie only", () => {
+    expect(adminScript).toContain("localStorage.removeItem('lectern_token')");
+    expect(extractNamedFunction(adminScript, "authHeaders")()).toEqual({});
+    expect(extractNamedFunction(adminScript, "authHeaders")({ "Content-Type": "application/json" })).toEqual({
+      "Content-Type": "application/json",
+    });
+  });
+
+  test("admin console formats bytes, durations and relative times in Korean", () => {
+    const fmtBytes = extractNamedFunction(adminScript, "fmtBytes");
+    expect(fmtBytes(0)).toBe("0 B");
+    expect(fmtBytes(1536)).toBe("1.5 KB");
+    expect(fmtBytes(5 * 1048576)).toBe("5 MB");
+    expect(fmtBytes(2.25 * 1073741824)).toBe("2.3 GB");
+    const fmtDur = extractNamedFunction(adminScript, "fmtDur");
+    expect(fmtDur(45)).toBe("45초");
+    expect(fmtDur(3725)).toBe("1시간 2분");
+    const relTime = extractNamedFunction(adminScript, "relTime");
+    expect(relTime(new Date(Date.now() - 3 * 60_000).toISOString())).toBe("3분 전");
+    expect(relTime(new Date(Date.now() - 5 * 3_600_000).toISOString())).toBe("5시간 전");
+    expect(relTime(null)).toBe("—");
   });
 });

@@ -278,6 +278,7 @@ export interface AdminLectureDto extends LectureSummaryDto {
   error_message: string | null;
   source_client: string;
   job_state: "queued" | "running" | null;
+  job_kind: JobKind | null;
 }
 
 export interface AdminLectureListDto {

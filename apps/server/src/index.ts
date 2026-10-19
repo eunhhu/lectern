@@ -78,7 +78,7 @@ import {
   countJobs,
   drainJobs,
   enqueueJob,
-  getLectureJobState,
+  getLectureJob,
   isLectureBusy,
   snapshotJobs,
   type JobInfo,
@@ -1898,21 +1898,25 @@ async function routeRequest(req: Request): Promise<Response> {
           limit,
           offset,
         });
-        const lectures: AdminLectureDto[] = rows.map((l) => ({
-          ...toLectureSummaryDto(l),
-          owner_id: l.owner_id,
-          owner_email: l.owner_email,
-          owner_name: l.owner_name,
-          audio_ext: l.audio_path ? extname(l.audio_path).toLowerCase() : "",
-          compacted: l.audio_compact_state === "compacted",
-          audio_original_size:
-            l.audio_compact_state === "compacted" && l.audio_original_size
-              ? l.audio_original_size
-              : l.audio_size,
-          error_message: l.error_message,
-          source_client: l.source_client,
-          job_state: getLectureJobState(l.id),
-        }));
+        const lectures: AdminLectureDto[] = rows.map((l) => {
+          const job = getLectureJob(l.id);
+          return {
+            ...toLectureSummaryDto(l),
+            owner_id: l.owner_id,
+            owner_email: l.owner_email,
+            owner_name: l.owner_name,
+            audio_ext: l.audio_path ? extname(l.audio_path).toLowerCase() : "",
+            compacted: l.audio_compact_state === "compacted",
+            audio_original_size:
+              l.audio_compact_state === "compacted" && l.audio_original_size
+                ? l.audio_original_size
+                : l.audio_size,
+            error_message: l.error_message,
+            source_client: l.source_client,
+            job_state: job?.state ?? null,
+            job_kind: job?.kind ?? null,
+          };
+        });
         const body: AdminLectureListDto = { ok: true, total, limit, offset, lectures };
         return jsonResponse(body);
       }
