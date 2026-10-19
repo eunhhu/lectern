@@ -3785,6 +3785,10 @@ ${ADMIN_THEME_CSS}
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     html, body { height: 100%; }
+    /* The console's sizes are written in px below. DESIGN.md 부록 C (v1.1) raised the type
+       and control scale by about 15% (13px → 15px body); until the P5 React port, the whole
+       console document is scaled by the same ratio. */
+    html { zoom: 1.15; }
     body {
       margin: 0;
       background: var(--bg);
@@ -3821,7 +3825,7 @@ ${ADMIN_THEME_CSS}
     .c-blue { color: var(--blue-text); }
     .c-accent { color: var(--accent-text); }
 
-    .app { display: flex; height: 100vh; height: 100dvh; }
+    .app { display: flex; height: 100%; } /* not 100vh: viewport units ignore the zoom above */
 
     /* Sidebar */
     .sidebar {
@@ -4119,7 +4123,7 @@ ${ADMIN_THEME_CSS}
 
     /* Peek panel */
     .peek {
-      position: fixed; top: 8px; right: 8px; bottom: 8px; z-index: 40; width: 448px; max-width: calc(100vw - 16px);
+      position: fixed; top: 8px; right: 8px; bottom: 8px; z-index: 40; width: 448px; max-width: calc(100% - 16px);
       display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--border-strong);
       border-radius: 8px; box-shadow: var(--shadow); transform: translateX(calc(100% + 24px)); visibility: hidden;
       transition: transform 0.16s ease, visibility 0s linear 0.16s;
@@ -4148,7 +4152,7 @@ ${ADMIN_THEME_CSS}
       box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column; animation: pop 0.12s ease;
     }
     @keyframes pop { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
-    .palette { max-height: min(560px, 76vh); }
+    .palette { max-height: min(560px, 76%); }
     .pal-in { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px; border-bottom: 1px solid var(--border); }
     .pal-in .ic { color: var(--text-3); }
     .pal-in input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: transparent; font-size: 14px; color: var(--text); }
@@ -4216,7 +4220,7 @@ ${ADMIN_THEME_CSS}
     @media (max-width: 900px) {
       .hide-sm { display: none !important; }
       .sidebar {
-        position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; width: 264px; max-width: 86vw; padding-top: 12px;
+        position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; width: 264px; max-width: 86%; padding-top: 12px;
         border-right: 1px solid var(--border); transform: translateX(-100%); transition: transform 0.16s ease; visibility: hidden;
       }
       .app.drawer-open .sidebar { transform: none; visibility: visible; }
