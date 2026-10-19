@@ -72,46 +72,51 @@ describe("index sync", () => {
   });
 });
 
-describe("lexical search", () => {
-  const db = seededDb();
+for (const [path, smallScope] of [
+  ["scope scan", undefined],
+  ["FTS index", 0],
+] as const) {
+  describe(`lexical search (${path})`, () => {
+    const db = seededDb();
+    const search = (a: AccessScope, q: string, fallbackText?: string) =>
+      lexicalSearch(db, a, q ? queryTerms(q) : [], { smallScope, fallbackText });
 
-  test("finds two-syllable Korean terms with particles in the question", () => {
-    const hits = lexicalSearch(db, access(), queryTerms("시험 범위가 어디까지야?"));
-    expect(hits[0]!.chunk.recordingId).toBe(REC.crypto);
-    expect(hits[0]!.chunk.text).toContain("시험 범위는");
-  });
+    test("finds two-syllable Korean terms with particles in the question", () => {
+      const hits = search(access(), "시험 범위가 어디까지야?");
+      expect(hits[0]!.chunk.recordingId).toBe(REC.crypto);
+      expect(hits[0]!.chunk.text).toContain("시험 범위는");
+    });
 
-  test("ignores spacing differences between question and transcript", () => {
-    const hits = lexicalSearch(db, access(), queryTerms("운영모드"));
-    expect(hits.some((h) => h.chunk.text.includes("운영 모드"))).toBe(true);
-  });
+    test("ignores spacing differences between question and transcript", () => {
+      const hits = search(access(), "운영모드");
+      expect(hits.some((h) => h.chunk.text.includes("운영 모드"))).toBe(true);
+    });
 
-  test("never returns chunks outside the workspace or the allowlist", () => {
-    for (const q of ["ECB 운영 모드 시험 범위", "출시 일정", "비밀 메모 연봉"]) {
-      const hits = lexicalSearch(db, access(), queryTerms(q));
-      expect(hits.every((h) => h.chunk.workspaceId === WS)).toBe(true);
-      expect(hits.some((h) => h.chunk.recordingId === REC.otherWorkspace)).toBe(false);
-      expect(hits.some((h) => h.chunk.recordingId === REC.privateTeammate)).toBe(false);
-    }
-  });
+    test("never returns chunks outside the workspace or the allowlist", () => {
+      for (const q of ["ECB 운영 모드 시험 범위", "출시 일정", "비밀 메모 연봉"]) {
+        const hits = search(access(), q);
+        expect(hits.every((h) => h.chunk.workspaceId === WS)).toBe(true);
+        expect(hits.some((h) => h.chunk.recordingId === REC.otherWorkspace)).toBe(false);
+        expect(hits.some((h) => h.chunk.recordingId === REC.privateTeammate)).toBe(false);
+      }
+    });
 
-  test("a recording scope only searches that recording", () => {
-    const hits = lexicalSearch(db, access({ kind: "recording", recording_id: REC.meeting }), queryTerms("시험 출시"));
-    expect(hits.length).toBeGreaterThan(0);
-    expect(hits.every((h) => h.chunk.recordingId === REC.meeting)).toBe(true);
-  });
+    test("a recording scope only searches that recording", () => {
+      const hits = search(access({ kind: "recording", recording_id: REC.meeting }), "시험 출시");
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits.every((h) => h.chunk.recordingId === REC.meeting)).toBe(true);
+    });
 
-  test("an empty allowlist returns nothing", () => {
-    expect(lexicalSearch(db, { ...access(), recordingIds: [] }, queryTerms("시험"))).toEqual([]);
-  });
+    test("an empty allowlist returns nothing", () => {
+      expect(search({ ...access(), recordingIds: [] }, "시험")).toEqual([]);
+    });
 
-  test("a one-character question falls back to a bounded LIKE scan", () => {
-    const hits = lexicalSearch(db, access(), queryTerms("XOR"), {});
-    expect(hits.length).toBeGreaterThan(0);
-    const one = lexicalSearch(db, access(), [], { fallbackText: "벡" });
-    expect(one.some((h) => h.chunk.text.includes("벡터"))).toBe(true);
+    test("a one-character question still finds text", () => {
+      expect(search(access(), "XOR").length).toBeGreaterThan(0);
+      expect(search(access(), "", "벡").some((h) => h.chunk.text.includes("벡터"))).toBe(true);
+    });
   });
-});
+}
 
 describe("common terms", () => {
   test("a term in most chunks is dropped while a rarer one remains", () => {
@@ -125,7 +130,7 @@ describe("common terms", () => {
     const chunks = chunkRecording({ workspaceId: WS, recordingId: REC.crypto, transcript: { segments } });
     syncRecordingChunks(db, { workspaceId: WS, recordingId: REC.crypto, kinds: ["transcript"], chunks });
     expect(pruneCommonTerms(db, queryTerms("공통 희귀")).terms.map((t) => t.text)).toEqual(["희귀"]);
-    expect(pruneCommonTerms(db, queryTerms("공통 주제"))).toMatchObject({ allCommon: true });
+    expect(pruneCommonTerms(db, queryTerms("공통 주제")).terms.length).toBe(1);
     expect(lexicalSearch(db, access({ kind: "recording", recording_id: REC.crypto }), queryTerms("공통")).length).toBe(12);
   });
 });
