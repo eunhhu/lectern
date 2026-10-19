@@ -62,6 +62,27 @@ export interface SystemSettings {
   default_require_approval: boolean;
   default_can_use_server_key: boolean;
   default_quota_mb: number;
+  /** Re-encode finished lectures' audio to speech-tuned mono AAC (.m4a). */
+  storage_auto_compact: boolean;
+  storage_compact_bitrate_kbps: number;
+  /** Days after which done lectures lose their audio (notes are kept). 0 = off. */
+  audio_retention_days: number;
+  /** Days after which failed lectures lose their audio. 0 = off. */
+  failed_audio_retention_days: number;
+  /** Days of audit log history kept. 0 = forever. */
+  audit_retention_days: number;
+}
+
+export const COMPACT_BITRATE_MIN_KBPS = 24;
+export const COMPACT_BITRATE_MAX_KBPS = 96;
+
+function clampInt(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function readDays(raw: string | undefined, fallback: number): number {
+  const n = Number(raw ?? fallback);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : fallback;
 }
 
 export interface AuditLogRecord {
@@ -486,7 +507,22 @@ export function getSystemSettings(): SystemSettings {
     default_require_approval: map.get("default_require_approval") === "1",
     default_can_use_server_key: map.get("default_can_use_server_key") !== "0",
     default_quota_mb: Number(map.get("default_quota_mb") ?? "2048") || 2048,
+    storage_auto_compact: map.get("storage_auto_compact") !== "0",
+    storage_compact_bitrate_kbps: clampInt(
+      Number(map.get("storage_compact_bitrate_kbps") ?? 40) || 40,
+      COMPACT_BITRATE_MIN_KBPS,
+      COMPACT_BITRATE_MAX_KBPS
+    ),
+    audio_retention_days: readDays(map.get("audio_retention_days"), 0),
+    failed_audio_retention_days: readDays(map.get("failed_audio_retention_days"), 0),
+    audit_retention_days: readDays(map.get("audit_retention_days"), 180),
   };
+}
+
+function nextDays(value: unknown, current: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.min(36500, Math.round(value))
+    : current;
 }
 
 export function updateSystemSettings(
@@ -515,6 +551,25 @@ export function updateSystemSettings(
       typeof patch.default_quota_mb === "number" && patch.default_quota_mb >= 0
         ? Math.round(patch.default_quota_mb)
         : cur.default_quota_mb,
+    storage_auto_compact:
+      typeof patch.storage_auto_compact === "boolean"
+        ? patch.storage_auto_compact
+        : cur.storage_auto_compact,
+    storage_compact_bitrate_kbps:
+      typeof patch.storage_compact_bitrate_kbps === "number" &&
+      Number.isFinite(patch.storage_compact_bitrate_kbps)
+        ? clampInt(
+            patch.storage_compact_bitrate_kbps,
+            COMPACT_BITRATE_MIN_KBPS,
+            COMPACT_BITRATE_MAX_KBPS
+          )
+        : cur.storage_compact_bitrate_kbps,
+    audio_retention_days: nextDays(patch.audio_retention_days, cur.audio_retention_days),
+    failed_audio_retention_days: nextDays(
+      patch.failed_audio_retention_days,
+      cur.failed_audio_retention_days
+    ),
+    audit_retention_days: nextDays(patch.audit_retention_days, cur.audit_retention_days),
   };
   const now = new Date().toISOString();
   const upsert = db.query(
@@ -533,6 +588,19 @@ export function updateSystemSettings(
     now
   );
   upsert.run("default_quota_mb", String(next.default_quota_mb), now);
+  upsert.run("storage_auto_compact", next.storage_auto_compact ? "1" : "0", now);
+  upsert.run(
+    "storage_compact_bitrate_kbps",
+    String(next.storage_compact_bitrate_kbps),
+    now
+  );
+  upsert.run("audio_retention_days", String(next.audio_retention_days), now);
+  upsert.run(
+    "failed_audio_retention_days",
+    String(next.failed_audio_retention_days),
+    now
+  );
+  upsert.run("audit_retention_days", String(next.audit_retention_days), now);
   return getSystemSettings();
 }
 

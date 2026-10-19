@@ -1648,12 +1648,17 @@ async function routeRequest(req: Request): Promise<Response> {
               typeof body.default_quota_mb === "number"
                 ? body.default_quota_mb
                 : undefined,
+            storage_auto_compact: body.storage_auto_compact,
+            storage_compact_bitrate_kbps: body.storage_compact_bitrate_kbps,
+            audio_retention_days: body.audio_retention_days,
+            failed_audio_retention_days: body.failed_audio_retention_days,
+            audit_retention_days: body.audit_retention_days,
           });
           recordAuditLog({
             actorId: adminUser.id,
             actorEmail: adminUser.email,
             action: "admin.settings_update",
-            detail: `가입허용=${updated.allow_public_signup}, 기본역할=${updated.default_user_role}, 승인제=${updated.default_require_approval}, 기본쿼터=${updated.default_quota_mb}MB`,
+            detail: `가입허용=${updated.allow_public_signup}, 기본역할=${updated.default_user_role}, 승인제=${updated.default_require_approval}, 기본쿼터=${updated.default_quota_mb}MB, 자동압축=${updated.storage_auto_compact}(${updated.storage_compact_bitrate_kbps}kbps), 오디오보존=${updated.audio_retention_days}일, 실패오디오보존=${updated.failed_audio_retention_days}일, 감사로그보존=${updated.audit_retention_days}일`,
           });
           return jsonResponse({ ok: true, settings: updated });
         } catch (err: any) {
