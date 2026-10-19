@@ -13,6 +13,7 @@
     "@lectern/core": "workspace:*",
     "@lectern/db": "workspace:*",
     "@lectern/domain": "workspace:*",
+    "@lectern/media": "workspace:*",
     "zod": "4.6.7"
   }
 }

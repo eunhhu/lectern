@@ -170,6 +170,10 @@ describe.skipIf(!hasFfmpeg)("normalizeAudio", () => {
     expect(silences).toHaveLength(1);
     near(silences[0]!.start_ms, 20 * S, 50);
     near(silences[0]!.end_ms, 50 * S, 50);
+    // Options passed as undefined (a caller forwarding its own optional settings) keep the defaults.
+    const forwarded = await detectSilences(out, { noiseDb: undefined, minSilenceMs: undefined });
+    expect(forwarded.silences).toEqual(silences);
+    expect(forwarded.threshold.noise_db).toBe(-35);
   });
 });
 

@@ -44,7 +44,11 @@ export interface DetectedSilences {
 
 /** `silencedetect` over a normalized file: the input of buildSpeechMap(). Original time. */
 export async function detectSilences(path: string, options: DetectSilencesOptions = {}): Promise<DetectedSilences> {
-  const opts = { ...SILENCE_DEFAULTS, ...options };
+  // An option passed as undefined means "the default", not "unset".
+  const opts = {
+    noiseDb: options.noiseDb ?? SILENCE_DEFAULTS.noiseDb,
+    minSilenceMs: options.minSilenceMs ?? SILENCE_DEFAULTS.minSilenceMs,
+  };
   const needInfo = options.durationMs === undefined || opts.noiseDb === "auto";
   const info = needInfo ? await readStreamInfo(path, options) : null;
   const duration_ms = options.durationMs ?? info!.duration_ms;

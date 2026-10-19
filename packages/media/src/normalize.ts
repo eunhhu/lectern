@@ -23,6 +23,9 @@ import { readStreamInfo } from "./probe.ts";
 
 export const SAMPLE_RATE = 16_000;
 
+/** Bump when the filter chain changes, so memoised normalized audio is recomputed (§4.4). */
+export const NORMALIZE_VERSION = 1;
+
 export const NORMALIZE_DEFAULTS = Object.freeze({
   /** Target integrated loudness (EBU R128 / ITU-R BS.1770), LUFS. */
   targetLufs: -16,

@@ -13,10 +13,15 @@
 import type { AskModel, AskModelEvent, AskModelRequest, Embedder, EmbeddingResult, ToolSpec } from "@lectern/ask";
 import { estimateTokens } from "@lectern/ask";
 import type { GeminiUsageMetadata } from "@lectern/core";
-import { classifyHttpStatus, HarnessError } from "./errors.ts";
+import { HarnessError } from "./errors.ts";
+import {
+  GEMINI_API_BASE,
+  geminiHttpError as httpError,
+  geminiKeyOrThrow as keyOrThrow,
+  withDeadline,
+  type GeminiAdapterOptions,
+} from "./gemini-http.ts";
 import { GEMINI_PROVIDER_ID, normalizeGeminiUsage } from "./gemini.ts";
-
-export const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 /** Pinned model ids for ask (ADR-0009 §5, §8; ROADMAP D13). */
 export const ASK_ANSWER_MODEL = "gemini-3.5-flash-lite";
@@ -37,35 +42,6 @@ interface GeminiChunk {
   usageMetadata?: GeminiUsageMetadata;
   modelVersion?: string;
   responseId?: string;
-}
-
-export interface GeminiAdapterOptions {
-  /** Returns the API key at call time (undefined: not configured). */
-  apiKey: () => string | undefined;
-  fetch?: typeof fetch;
-  baseUrl?: string;
-  /** Whole-call deadline. */
-  timeoutMs?: number;
-}
-
-function keyOrThrow(opts: GeminiAdapterOptions): string {
-  const key = opts.apiKey();
-  if (!key) throw new HarnessError("config", "GEMINI_API_KEY is not configured");
-  return key;
-}
-
-async function httpError(res: Response): Promise<HarnessError> {
-  const body = await res.text().catch(() => "");
-  const delay = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(body);
-  const kind = classifyHttpStatus(res.status);
-  return new HarnessError(kind, `Gemini request failed (${res.status}): ${body.slice(0, 300)}`, {
-    retryAfterMs: kind === "transient" && delay ? Math.ceil(Number(delay[1]) * 1000) : undefined,
-  });
-}
-
-function withDeadline(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
-  const deadline = AbortSignal.timeout(timeoutMs);
-  return signal ? AbortSignal.any([signal, deadline]) : deadline;
 }
 
 // ---------------------------------------------------------------------------

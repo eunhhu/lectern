@@ -108,6 +108,29 @@ export function toOriginalMs(cutMs: number, timeMap: TimeMap, edge: TimeEdge = "
 }
 
 /**
+ * Maps a cut-audio range to the original ranges it covers: one piece per time
+ * map entry it touches, in order. A range that crosses a junction comes back
+ * as two pieces with the removed stretch between them, never as one range
+ * spanning it. `cut_length_ms` is how much of the cut range each piece holds.
+ * The range is clipped to the cut audio; an empty range gives no pieces.
+ */
+export function toOriginalRanges(range: Interval, timeMap: TimeMap): Array<Interval & { cut_length_ms: number }> {
+  if (timeMap.length === 0) throw new RangeError("empty time map");
+  const out: Array<Interval & { cut_length_ms: number }> = [];
+  for (const entry of timeMap) {
+    const start = Math.max(range.start_ms, entry.cut_start_ms);
+    const end = Math.min(range.end_ms, entry.cut_start_ms + entry.length_ms);
+    if (end <= start) continue;
+    out.push({
+      start_ms: entry.orig_start_ms + (start - entry.cut_start_ms),
+      end_ms: entry.orig_start_ms + (end - entry.cut_start_ms),
+      cut_length_ms: end - start,
+    });
+  }
+  return out;
+}
+
+/**
  * Maps an original-audio instant to cut-audio time. An instant inside a cut
  * range maps to the junction where that range was removed; one before the
  * first kept range maps to 0, one after the last to the cut duration.

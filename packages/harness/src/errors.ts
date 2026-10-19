@@ -11,19 +11,36 @@
 // | canceled          | user cancel, subject deleted                  | stop, no retry                       |
 
 import type { FailureClass } from "@lectern/domain";
+import type { ProviderCallResult } from "./providers.ts";
 
 export type ErrorKind = FailureClass | "canceled";
+
+export interface HarnessErrorOptions {
+  cause?: unknown;
+  retryAfterMs?: number;
+  /** Machine-readable reason within the class (domain StageError.code), e.g. `silent`, `empty_response`. */
+  code?: string;
+  /**
+   * A provider call that answered (and was billed) but whose answer is unusable: an empty
+   * response, a truncated or unparseable body. StageContext.meter records it in the ledger.
+   */
+  billed?: ProviderCallResult;
+}
 
 export class HarnessError extends Error {
   readonly kind: ErrorKind;
   /** Provider-requested delay before the next attempt (429 retry-after). */
   readonly retryAfterMs?: number;
+  readonly code?: string;
+  readonly billed?: ProviderCallResult;
 
-  constructor(kind: ErrorKind, message: string, options: { cause?: unknown; retryAfterMs?: number } = {}) {
+  constructor(kind: ErrorKind, message: string, options: HarnessErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "HarnessError";
     this.kind = kind;
     this.retryAfterMs = options.retryAfterMs;
+    this.code = options.code;
+    this.billed = options.billed;
   }
 }
 
