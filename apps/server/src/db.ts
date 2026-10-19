@@ -17,7 +17,19 @@ import {
   probeAudioDuration,
 } from "../../../packages/core/src/index.ts";
 import { config, readSecret } from "@lectern/config";
-import { runMigrations } from "@lectern/db";
+import {
+  backfillLegacy,
+  deleteWorkspaceRows,
+  drainLectureSync,
+  ensurePersonalWorkspace,
+  installLectureSyncTriggers,
+  projectLecture,
+  runMigrations,
+  verifyLegacy,
+  type BackfillReport,
+  type LegacyVerifyReport,
+  type ProjectOptions,
+} from "@lectern/db";
 import { deleteRecordingIndex, deleteRecordingThreads, deleteWorkspaceAskData } from "@lectern/ask";
 import { personalWorkspaceId } from "./ask/workspace.ts";
 import { BlobStore, deleteArtifactsForJobs } from "@lectern/harness";
@@ -61,6 +73,8 @@ export interface UserRecord {
   quota_mb: number;
   memo: string;
   last_login_at: string | null;
+  /** IANA zone for showing times and resolving relative dates (API v2 `Me.timezone`). */
+  timezone: string;
   created_at: string;
 }
 
@@ -265,6 +279,9 @@ try {
   if (!userCols.some((c) => c.name === "last_login_at")) {
     db.exec(`ALTER TABLE users ADD COLUMN last_login_at TEXT`);
   }
+  if (!userCols.some((c) => c.name === "timezone")) {
+    db.exec(`ALTER TABLE users ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Asia/Seoul'`);
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS system_settings (
@@ -339,6 +356,54 @@ try {
   const migration = runMigrations(db, { backupDir: join(DATA_DIR, "backups") });
   if (migration.applied.length) {
     logger.info("applied migrations", { applied: migration.applied, backup: migration.backup });
+  }
+}
+
+// v1 lectures -> v2 rows (ARCHITECTURE §5.3, packages/db legacy.ts). The v1 pipeline still
+// writes `lectures`, so every lecture write below is followed by syncLecture(), and the
+// triggers catch the writes that bypass this file (storage.ts compaction).
+installLectureSyncTriggers(db);
+runLegacyBackfill("boot");
+
+/**
+ * Migrates every lecture that has no v2 recording yet (all of them on the first boot of
+ * P2), then checks lectures and v2 rows agree and records the result in system_state
+ * (`v2_migration`). A mismatch is logged here and fails the deploy preflight.
+ */
+export function runLegacyBackfill(reason: string): { backfill: BackfillReport; verify: LegacyVerifyReport } {
+  const backfill = backfillLegacy(db);
+  const verify = verifyLegacy(db);
+  const fields = { reason, ...backfill, counts: verify.counts, mismatch_count: verify.mismatch_count, checksum: verify.checksums.v1 };
+  if (!verify.ok) {
+    logger.error("v2 rows disagree with lectures", { ...fields, mismatches: verify.mismatches.slice(0, 10) });
+  } else if (backfill.recordings || backfill.workspaces) {
+    logger.info("migrated lectures to v2 rows", fields);
+  }
+  db.query(
+    `INSERT INTO system_state (key, value, updated_at) VALUES ('v2_migration', ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  ).run(JSON.stringify({ ...fields, ok: verify.ok, at: new Date().toISOString() }), Date.now());
+  return { backfill, verify };
+}
+
+/** Brings a lecture's v2 rows in line after a write here. Never fails the v1 write. */
+function syncLecture(id: string, options: ProjectOptions = {}): void {
+  try {
+    projectLecture(db, id, options);
+  } catch (err) {
+    // The trigger's pending mark survives the rolled-back projection, so the next v2
+    // read retries it.
+    logger.error("could not sync lecture to v2 rows", { lecture_id: id, err });
+  }
+}
+
+/** Projects lecture writes made outside this file (see installLectureSyncTriggers). */
+export function syncPendingLectures(): number {
+  try {
+    return drainLectureSync(db);
+  } catch (err) {
+    logger.error("could not sync pending lectures to v2 rows", { err });
+    return 0;
   }
 }
 
@@ -486,6 +551,7 @@ export function createUser(input: {
     memo,
     now
   );
+  ensurePersonalWorkspace(db, id, Date.parse(now));
 
   return getUserById(id)!;
 }
@@ -500,13 +566,16 @@ export function updateUserPassword(userId: string, newPassword: string): void {
 
 export function updateUserProfile(
   userId: string,
-  input: { displayName?: string }
+  input: { displayName?: string; timezone?: string }
 ): UserRecord | null {
   if (typeof input.displayName === "string" && input.displayName.trim()) {
     db.query(`UPDATE users SET display_name = ? WHERE id = ?`).run(
       input.displayName.trim(),
       userId
     );
+  }
+  if (typeof input.timezone === "string" && input.timezone) {
+    db.query(`UPDATE users SET timezone = ? WHERE id = ?`).run(input.timezone, userId);
   }
   return getUserById(userId);
 }
@@ -838,6 +907,8 @@ export function deleteUserAndData(targetUserId: string): boolean {
   }
   deleteAllUserSessions(targetUserId);
   deleteWorkspaceAskData(db, personalWorkspaceId(targetUserId));
+  deleteWorkspaceRows(db, personalWorkspaceId(targetUserId));
+  db.query(`DELETE FROM membership WHERE user_id = ?`).run(targetUserId);
   const res = db.query(`DELETE FROM users WHERE id = ?`).run(targetUserId);
   return res.changes > 0;
 }
@@ -995,7 +1066,9 @@ export function ensureBootstrapOwner(): UserRecord {
   }
 
   // Only adopt orphaned rows; never take over lectures another account already owns.
-  db.query(`UPDATE lectures SET owner_id = ? WHERE owner_id = ''`).run(owner.id);
+  const adopted = db.query(`UPDATE lectures SET owner_id = ? WHERE owner_id = ''`).run(owner.id);
+  ensurePersonalWorkspace(db, owner.id);
+  if (adopted.changes > 0) syncPendingLectures();
 
   return owner;
 }
@@ -1130,6 +1203,7 @@ export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
           isoMtime,
           st.mtime.toISOString()
         );
+        syncLecture(id);
       } else {
         const unchanged =
           existing.markdown === mdContent &&
@@ -1152,6 +1226,8 @@ export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
           audioSize,
           existing.id
         );
+        // The archive file was edited outside Lectern: a user version of the notes.
+        syncLecture(existing.id, { author: "user" });
       }
     }
   }
@@ -1346,6 +1422,7 @@ export function resetLectureForRetry(id: string): LectureRecord | null {
          progress = 10, error_message = NULL, updated_at = ?
      WHERE id = ?`
   ).run(now, id);
+  syncLecture(id);
   return getLectureById(id);
 }
 
@@ -1402,6 +1479,7 @@ export function createPendingLecture(input: {
     now,
     now
   );
+  syncLecture(input.id);
 
   return getLectureById(input.id)!;
 }
@@ -1415,6 +1493,7 @@ export function updateLectureProgress(
   db.query(
     `UPDATE lectures SET stage = ?, stage_message = ?, progress = ?, updated_at = ? WHERE id = ?`
   ).run(stage, message, progress, new Date().toISOString(), id);
+  syncLecture(id);
   return getLectureById(id);
 }
 
@@ -1531,6 +1610,7 @@ export function completeLectureRecord(
     now,
     id
   );
+  syncLecture(id, { author: "ai" });
 
   const done = getLectureById(id)!;
   notifyLectureContentChanged(done);
@@ -1543,6 +1623,7 @@ export function failLectureRecord(id: string, errorMessage: string): LectureReco
      SET status = 'error', stage = 'error', stage_message = ?, error_message = ?, updated_at = ?
      WHERE id = ?`
   ).run(errorMessage, errorMessage, new Date().toISOString(), id);
+  syncLecture(id);
   return getLectureById(id);
 }
 
@@ -1551,7 +1632,9 @@ export function updateLectureMarkdown(
   title: string,
   course: string,
   markdown: string,
-  isPublic?: boolean
+  isPublic?: boolean,
+  /** The user making the edit, recorded on the v2 document version. */
+  authorId: string | null = null
 ): LectureRecord | null {
   const rec = getLectureById(id);
   if (!rec) return null;
@@ -1562,6 +1645,7 @@ export function updateLectureMarkdown(
   db.query(
     `UPDATE lectures SET title = ?, course = ?, markdown = ?, excerpt = ?, is_public = ?, updated_at = ? WHERE id = ?`
   ).run(title, course, markdown, excerpt, nextPublic, now, id);
+  syncLecture(id, { author: "user", authorId });
 
   if (rec.md_source_path && existsSync(dirname(rec.md_source_path))) {
     try {
@@ -1573,6 +1657,31 @@ export function updateLectureMarkdown(
   const updated = getLectureById(id);
   if (markdown !== rec.markdown) notifyLectureContentChanged(updated);
   return updated;
+}
+
+/**
+ * v2 -> v1 (ARCHITECTURE §5.3 bridge): the API v2 renamed a recording or moved it to
+ * another folder, so its lecture follows and v1 clients see the change. Projecting the
+ * lecture afterwards finds nothing to change. Run it in the same transaction as the v2
+ * write, so a concurrent projection never sees the two disagree.
+ */
+export function mirrorRecordingToLecture(
+  lectureId: string,
+  fields: { title?: string; course?: string }
+): LectureRecord | null {
+  const rec = getLectureById(lectureId);
+  if (!rec) return null;
+  const title = fields.title ?? rec.title;
+  const course = fields.course ?? rec.course;
+  if (title === rec.title && course === rec.course) return rec;
+  db.query(`UPDATE lectures SET title = ?, course = ?, updated_at = ? WHERE id = ?`).run(
+    title,
+    course,
+    new Date().toISOString(),
+    lectureId
+  );
+  syncLecture(lectureId);
+  return getLectureById(lectureId);
 }
 
 export function setLectureVisibility(
@@ -1587,6 +1696,7 @@ export function setLectureVisibility(
   db.query(
     `UPDATE lectures SET is_public = ?, share_token = ?, updated_at = ? WHERE id = ?`
   ).run(isPublic ? 1 : 0, nextToken, now, id);
+  syncLecture(id);
   return getLectureById(id);
 }
 
@@ -1627,6 +1737,7 @@ export function deleteLectureAudioOnly(id: string): { ok: boolean; reclaimedByte
   db.query(
     `UPDATE lectures SET audio_path = NULL, audio_mime = NULL, audio_size = 0, updated_at = ? WHERE id = ?`
   ).run(new Date().toISOString(), id);
+  syncLecture(id);
 
   return { ok: true, reclaimedBytes, lecture: getLectureById(id) };
 }
@@ -1674,6 +1785,7 @@ export function deleteLectureById(id: string): boolean {
     }
   }
   const res = db.query(`DELETE FROM lectures WHERE id = ?`).run(id);
+  syncLecture(id);
   return res.changes > 0;
 }
 
@@ -1750,6 +1862,7 @@ export function cleanupLecturesForUser(
           now,
           item.id
         );
+        syncLecture(item.id);
         affectedIds.push(item.id);
       }
     }

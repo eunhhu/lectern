@@ -103,6 +103,20 @@ export function page<T>(req: V2Request, items: readonly T[]): { items: T[]; next
   return { items: items.slice(offset, end), next_cursor: end < items.length ? encodeCursor(end) : null };
 }
 
+/** The offset and size of the requested page, or the 400 response for a bad cursor. */
+export function pageBounds(req: V2Request): { offset: number; limit: number } | Response {
+  const { cursor, limit } = req.query as { cursor?: string; limit?: number };
+  const offset = cursor === undefined ? 0 : decodeCursor(cursor);
+  if (offset === null) return apiError(req.c, 400, "bad_request", "cursor 값이 올바르지 않습니다.");
+  return { offset, limit: limit ?? DEFAULT_PAGE_LIMIT };
+}
+
+/** A page from rows fetched with `LIMIT limit + 1 OFFSET offset` (the extra row means "more"). */
+export function pageFrom<T>(rows: readonly T[], bounds: { offset: number; limit: number }): { items: T[]; next_cursor: string | null } {
+  const more = rows.length > bounds.limit;
+  return { items: rows.slice(0, bounds.limit), next_cursor: more ? encodeCursor(bounds.offset + bounds.limit) : null };
+}
+
 /** `page()` answered with the route's response schema. */
 export function okPage<T>(req: V2Request, items: readonly T[]): Response {
   const result = page(req, items);

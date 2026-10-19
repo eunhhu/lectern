@@ -14,6 +14,7 @@
 //     `drainLectureSync()` before the next v2 read.
 //   - v2 writes go the other way through db.ts (title, folder -> course, document version
 //     -> markdown, share link -> is_public), after which projecting is a no-op.
+// Writes run in IMMEDIATE transactions: the API and an external worker both project.
 // `backfillLegacy()` is the migration itself (every lecture that has no recording yet),
 // and `verifyLegacy()` checks lectures and v2 rows agree, row for row: the rehearsal
 // against a copy of the production database (apps/server/scripts/rehearse-v2-migration.ts)
@@ -147,7 +148,7 @@ export function deleteWorkspaceRows(sqlite: Database, workspaceId: string): void
     sqlite.query(`DELETE FROM upload_part WHERE upload_id IN (SELECT id FROM upload WHERE workspace_id = ?)`).run(workspaceId);
     sqlite.query(`DELETE FROM upload WHERE workspace_id = ?`).run(workspaceId);
     sqlite.query(`DELETE FROM workspace WHERE id = ?`).run(workspaceId);
-  })();
+  }).immediate();
 }
 
 /** Every workspace-scoped entity table (upload/upload_part are handled separately). */
@@ -199,7 +200,7 @@ export function deleteRecordingRows(sqlite: Database, recordingId: string): void
     }
     sqlite.query(`UPDATE upload SET recording_id = NULL WHERE recording_id = ? AND status = 'open'`).run(recordingId);
     sqlite.query(`DELETE FROM recording WHERE id = ?`).run(recordingId);
-  })();
+  }).immediate();
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +285,7 @@ function moveRecordingWorkspace(sqlite: Database, recordingId: string, workspace
 
 /** Brings the v2 rows of one lecture in line with its lecture row (see the header). */
 export function projectLecture(sqlite: Database, lectureId: string, options: ProjectOptions = {}): ProjectResult {
-  return sqlite.transaction(() => projectLectureTx(sqlite, lectureId, options))();
+  return sqlite.transaction(() => projectLectureTx(sqlite, lectureId, options)).immediate();
 }
 
 function projectLectureTx(sqlite: Database, lectureId: string, options: ProjectOptions): ProjectResult {
@@ -639,7 +640,7 @@ export function backfillLegacy(sqlite: Database, now = Date.now()): BackfillRepo
     }
     drainLectureSync(sqlite, { now });
     return { workspaces, recordings, skipped };
-  })();
+  }).immediate();
 }
 
 export interface CountCheck {

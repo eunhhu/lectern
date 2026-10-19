@@ -7,93 +7,110 @@ import {
   ApiError,
   HEADER,
   ROUTES,
-  ServerEvent,
   toHonoPath,
   versionETag,
   type RouteDef,
 } from "@lectern/domain";
 import { createApiV2App } from "../src/api/v2/index.ts";
-import { ID } from "../src/api/v2/fixtures.ts";
 import { createSession, createUser, generateId, type UserRecord } from "../src/db.ts";
 import { handleRequest } from "../src/index.ts";
 
-// Contract tests for the /api/v2 P0 stubs: every route in packages/domain's openapi.json is
-// mounted, needs a session or token, and answers either a fixture that passes its response
-// schema or 501 `not_implemented`.
+// Contract tests for /api/v2 as a whole: every route in packages/domain's openapi.json is
+// mounted, needs a session or token, validates its input before the handler runs, and the
+// routes of later phases answer 501 `not_implemented`. Behaviour over real data is in
+// api-v2-data.test.ts, the policy table in api-v2-access.test.ts.
 
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/**
- * Reads that have no fixture: no upload session can exist, asset bytes have no schema, and
- * the ask routes are real but answer 501 while LECTERN_ASK is off (the test default; they
- * are tested enabled in ask-api.test.ts).
- */
-const READ_STUBS = new Set(["getUpload", "getAssetContent", "listAskThreads", "getAskThread", "getAskUsage"]);
-const isFixtureRoute = (route: RouteDef) => route.method === "get" && !READ_STUBS.has(route.operationId);
+/** Routes of later phases (P4 calendar sync, P5 tokens and sharing, the harness's cancel). */
+const NOT_YET = new Set([
+  "createAccessToken",
+  "revokeAccessToken",
+  "cancelJob",
+  "startGoogleIntegration",
+  "disconnectIntegration",
+  "createShareLink",
+  "updateShareLink",
+  "revokeShareLink",
+  "adminRetryJob",
+]);
 
-/** A fixture id (or other valid value) for every path parameter in the route table. */
+const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
+
+/** A syntactically valid value for every path parameter in the route table. */
 const PATH_PARAMS: Record<string, string> = {
-  workspace_id: ID.wsPersonal,
-  device_id: ID.deviceIphone,
-  token_id: ID.tokenShortcut,
-  folder_id: ID.folderOs,
-  tag_id: ID.tagExam,
-  upload_id: "0199f0a0-f000-7000-8000-000000000001",
+  workspace_id: SAMPLE_ID,
+  device_id: "ses_0000",
+  token_id: "tok_0000",
+  folder_id: SAMPLE_ID,
+  tag_id: SAMPLE_ID,
+  view_id: SAMPLE_ID,
+  upload_id: SAMPLE_ID,
   part: "1",
-  recording_id: ID.recOs5,
-  speaker_id: ID.spkOs5Lecturer,
-  asset_id: ID.assetOs5Audio,
-  document_id: ID.docOs5,
+  recording_id: SAMPLE_ID,
+  speaker_id: SAMPLE_ID,
+  asset_id: SAMPLE_ID,
+  document_id: SAMPLE_ID,
   version: "2",
-  action_item_id: ID.actionMockups,
-  job_id: ID.jobOs5,
-  event_candidate_id: ID.eventAssignment,
-  integration_id: ID.integrationGoogle,
-  share_link_id: ID.shareOs5Doc,
-  thread_id: "0199f0a0-a5a5-7000-8000-000000000001",
+  action_item_id: SAMPLE_ID,
+  job_id: SAMPLE_ID,
+  event_candidate_id: SAMPLE_ID,
+  integration_id: SAMPLE_ID,
+  share_link_id: SAMPLE_ID,
+  thread_id: SAMPLE_ID,
 };
 
-/** Per-operation path parameter overrides, where another fixture has the interesting data. */
-const PATH_PARAM_OVERRIDES: Record<string, Record<string, string>> = {
-  listRecordingActionItems: { recording_id: ID.recSync },
-};
+const PATH_PARAM_OVERRIDES: Record<string, Record<string, string>> = {};
 
 /** Required query values, per operation. */
 const QUERIES: Record<string, Record<string, string>> = {
-  search: { workspace_id: ID.wsPersonal, q: "FCFS" },
-  streamEvents: { workspace_id: ID.wsPersonal },
-  getAskUsage: { workspace_id: ID.wsPersonal },
+  search: { workspace_id: SAMPLE_ID, q: "FCFS" },
+  streamEvents: { workspace_id: SAMPLE_ID },
+  getAskUsage: { workspace_id: SAMPLE_ID },
 };
-for (const op of ["listFolders", "listTags", "listRecordings", "listCalendarSuggestions", "listIntegrations", "listShareLinks", "listAskThreads"]) {
-  QUERIES[op] = { workspace_id: ID.wsPersonal };
+for (const op of [
+  "listFolders",
+  "listTags",
+  "listSavedViews",
+  "listRecordings",
+  "listActionItems",
+  "listCalendarSuggestions",
+  "listIntegrations",
+  "listShareLinks",
+  "listAskThreads",
+]) {
+  QUERIES[op] = { workspace_id: SAMPLE_ID };
 }
 
 /** A valid body for every JSON-body route, so a write reaches its handler (501). */
 const BODIES: Record<string, unknown> = {
   updateMe: { display_name: "새 이름" },
-  createAccessToken: { workspace_id: ID.wsPersonal, name: "스크립트", scopes: ["recordings:read"] },
+  createAccessToken: { workspace_id: SAMPLE_ID, name: "스크립트", scopes: ["recordings:read"] },
   createWorkspace: { name: "새 팀" },
   updateWorkspace: { name: "이름 변경" },
-  createFolder: { workspace_id: ID.wsPersonal, name: "새 폴더" },
+  createFolder: { workspace_id: SAMPLE_ID, name: "새 폴더" },
   updateFolder: { name: "이름 변경" },
-  createTag: { workspace_id: ID.wsPersonal, name: "새 태그", color: "blue" },
+  createTag: { workspace_id: SAMPLE_ID, name: "새 태그", color: "blue" },
   updateTag: { color: "green" },
   createUpload: {
-    workspace_id: ID.wsPersonal,
+    workspace_id: SAMPLE_ID,
     files: [{ kind: "audio", filename: "lecture.m4a", mime: "audio/mp4", bytes: 1024 }],
   },
+  createSavedView: { workspace_id: SAMPLE_ID, name: "보기", query: {} },
+  updateSavedView: { name: "새 보기" },
+  batchRecordings: { action: "delete", recording_ids: [SAMPLE_ID] },
   updateRecording: { title: "새 제목" },
   updateSpeaker: { display_name: null },
   reprocessRecording: { mode: "document", dry_run: true },
-  createDocumentVersion: { body: { sections: [] } },
+  createDocumentVersion: { markdown: "# 고친 노트" },
   updateActionItem: { status: "done" },
   updateCalendarSuggestion: { status: "accepted" },
-  batchCalendarSuggestions: { event_candidate_ids: [ID.eventAssignment], action: "dismiss" },
-  startGoogleIntegration: { workspace_id: ID.wsPersonal },
-  createShareLink: { target_type: "document", target_id: ID.docOs5, scope: { transcript: false, audio: false } },
+  batchCalendarSuggestions: { event_candidate_ids: [SAMPLE_ID], action: "dismiss" },
+  startGoogleIntegration: { workspace_id: SAMPLE_ID },
+  createShareLink: { target_type: "document", target_id: SAMPLE_ID, scope: { transcript: false, audio: false } },
   updateShareLink: { password: null },
-  createAskThread: { workspace_id: ID.wsPersonal, scope: { kind: "workspace" } },
+  createAskThread: { workspace_id: SAMPLE_ID, scope: { kind: "workspace" } },
   askQuestion: { question: "시험 범위가 어디까지야?" },
 };
 
@@ -126,25 +143,6 @@ const call = (req: Request) => handleRequest(req);
 async function getJson(path: string, auth: Record<string, string>): Promise<{ status: number; body: any; res: Response }> {
   const res = await call(new Request(`http://localhost${API_BASE_PATH}${path}`, { headers: auth }));
   return { status: res.status, body: await res.json(), res };
-}
-
-/** The ServerEvents in an SSE body, checking the id/event/data framing of each message. */
-function parseSse(text: string): ServerEvent[] {
-  const events: ServerEvent[] = [];
-  for (const block of text.split("\n\n").filter((b) => b.trim())) {
-    const fields = Object.fromEntries(
-      block.split("\n").map((line) => {
-        const at = line.indexOf(": ");
-        return [line.slice(0, at), line.slice(at + 2)];
-      })
-    );
-    if ("retry" in fields) continue;
-    const event = ServerEvent.parse(JSON.parse(fields.data));
-    expect(fields.id).toBe(event.id);
-    expect(fields.event).toBe(event.type);
-    events.push(event);
-  }
-  return events;
 }
 
 let owner: UserRecord; // an operator
@@ -229,149 +227,30 @@ describe("API v2 authentication", () => {
   });
 });
 
-describe("API v2 stub responses", () => {
-  test("reads answer fixtures that pass the response schema; writes and uploads answer 501", async () => {
-    for (const route of ROUTES) {
+describe("API v2 routes of later phases", () => {
+  test("answer 501 after authentication and validation", async () => {
+    for (const route of ROUTES.filter((r) => NOT_YET.has(r.operationId))) {
       const res = await call(requestFor(route, ownerAuth));
-      const declared = Object.keys(route.responses).map(Number);
-      if (!isFixtureRoute(route)) {
-        expect(res.status, route.operationId).toBe(501);
-        const body = ApiError.parse(await res.json());
-        expect(body.error.code).toBe("not_implemented");
-        expect(body.error.details).toEqual({ operation_id: route.operationId });
-        continue;
-      }
-      expect(declared, route.operationId).toContain(res.status);
-      const response = route.responses[res.status]!;
-      if (response.contentType === "text/event-stream") {
-        expect(res.headers.get("content-type")).toStartWith("text/event-stream");
-        expect(parseSse(await res.text()).length).toBeGreaterThan(0);
-        continue;
-      }
-      expect(res.headers.get("content-type")).toStartWith("application/json");
-      expect(res.headers.get("cache-control")).toBe("no-store");
-      const parsed = response.schema!.safeParse(await res.json());
-      expect(parsed.success, `${route.operationId}: ${parsed.error?.message}`).toBe(true);
+      expect(res.status, route.operationId).toBe(501);
+      const body = ApiError.parse(await res.json());
+      expect(body.error.code).toBe("not_implemented");
+      expect(body.error.details).toEqual({ operation_id: route.operationId });
     }
   });
 
-  test("every list fixture has at least one item, so clients see real shapes", async () => {
-    for (const route of ROUTES.filter(isFixtureRoute)) {
+  test("every other route has a real handler (no route answers 501)", async () => {
+    for (const route of ROUTES.filter((r) => !NOT_YET.has(r.operationId) && !r.path.startsWith("/ask"))) {
       const res = await call(requestFor(route, ownerAuth));
-      if (route.responses[200]?.contentType === "text/event-stream") continue;
-      const body: any = await res.json();
-      if ("items" in body) expect(body.items.length, route.operationId).toBeGreaterThan(0);
+      expect(res.status, route.operationId).not.toBe(501);
+      await res.body?.cancel();
     }
-  });
-
-  test("the fixtures form one graph a client can walk", async () => {
-    const me = (await getJson("/me", ownerAuth)).body;
-    const workspaces = (await getJson("/workspaces", ownerAuth)).body.items;
-    expect(workspaces.map((w: any) => w.workspace.id)).toContain(me.personal_workspace_id);
-
-    let documentCount = 0;
-    for (const { workspace } of workspaces) {
-      const folderIds = (await getJson(`/folders?workspace_id=${workspace.id}`, ownerAuth)).body.items.map((f: any) => f.id);
-      const tagIds = (await getJson(`/tags?workspace_id=${workspace.id}`, ownerAuth)).body.items.map((t: any) => t.id);
-      const recordings = (await getJson(`/recordings?workspace_id=${workspace.id}`, ownerAuth)).body.items;
-      expect(recordings.length).toBeGreaterThan(0);
-      for (const item of recordings) {
-        expect(item.workspace_id).toBe(workspace.id);
-        if (item.folder_id) expect(folderIds).toContain(item.folder_id);
-        for (const tagId of item.tag_ids) expect(tagIds).toContain(tagId);
-
-        const detail = await getJson(`/recordings/${item.id}`, ownerAuth);
-        expect(detail.status).toBe(200);
-        expect(detail.body.recording).toEqual(Object.fromEntries(Object.entries(item).filter(([k]) => k !== "tag_ids")));
-
-        const transcript = (await getJson(`/recordings/${item.id}/transcript`, ownerAuth)).body;
-        const speakerIds = transcript.speakers.map((s: any) => s.id);
-        transcript.segments.forEach((segment: any, i: number) => {
-          expect(segment.idx).toBe(i);
-          if (segment.speaker_id) expect(speakerIds).toContain(segment.speaker_id);
-        });
-
-        for (const document of detail.body.documents) {
-          documentCount += 1;
-          const doc = await getJson(`/documents/${document.id}`, ownerAuth);
-          expect(doc.status).toBe(200);
-          expect(doc.res.headers.get("etag")).toBe(versionETag(document.current_version));
-          expect(doc.body.version.version).toBe(document.current_version);
-          // Every transcript source points at a segment that exists.
-          for (const block of doc.body.version.body.sections.flatMap((s: any) => s.blocks)) {
-            const sources = [...block.sources, ...(block.items ?? []).flatMap((it: any) => it.sources)];
-            for (const source of sources.filter((s: any) => s.kind === "transcript")) {
-              expect(source.end_idx).toBeLessThan(transcript.segments.length);
-            }
-          }
-          const versions = (await getJson(`/documents/${document.id}/versions`, ownerAuth)).body.items;
-          expect(versions[0].version).toBe(document.current_version);
-          expect(versions[0].body).toBeUndefined();
-        }
-        if (detail.body.active_job) {
-          expect((await getJson(`/jobs/${detail.body.active_job.id}`, ownerAuth)).status).toBe(200);
-        }
-      }
-    }
-    expect(documentCount).toBeGreaterThan(0);
-  });
-
-  test("unknown ids answer 404, other workspaces 403, malformed input 400", async () => {
-    const unknown = "0199f0a0-ffff-7000-8000-000000000000";
-    for (const path of [`/recordings/${unknown}`, `/documents/${unknown}`, `/documents/${ID.docOs5}/versions/99`, `/workspaces/${unknown}`, `/jobs/${unknown}`]) {
-      const res = await getJson(path, ownerAuth);
-      expect(res.status, path).toBe(404);
-      expect(ApiError.parse(res.body).error.code).toBe("not_found");
-    }
-    // System jobs only show up under /admin.
-    expect((await getJson(`/jobs/${ID.jobMaintenance}`, ownerAuth)).status).toBe(404);
-    expect((await getJson(`/admin/jobs/${ID.jobMaintenance}`, ownerAuth)).status).toBe(200);
-
-    const foreign = await getJson(`/recordings?workspace_id=${unknown}`, ownerAuth);
-    expect(foreign.status).toBe(403);
-    expect(ApiError.parse(foreign.body).error.code).toBe("forbidden");
-
-    const missing = await getJson("/recordings", ownerAuth);
-    expect(missing.status).toBe(400);
-    expect(missing.body.error.code).toBe("validation_failed");
-    expect(missing.body.error.details.issues[0].path).toEqual(["query", "workspace_id"]);
-    expect((await getJson("/recordings/not%20an%20id", ownerAuth)).status).toBe(400);
-    expect((await getJson(`/workspaces?limit=0`, ownerAuth)).status).toBe(400);
-  });
-
-  test("lists filter by their query and page with an opaque cursor", async () => {
-    const os = await getJson(`/recordings?workspace_id=${ID.wsPersonal}&folder_id=${ID.folderOs}&status=ready`, ownerAuth);
-    expect(os.body.items.map((r: any) => r.id)).toEqual([ID.recOs5]);
-    const tagged = await getJson(`/recordings?workspace_id=${ID.wsPersonal}&tag_id=${ID.tagReview}`, ownerAuth);
-    expect(tagged.body.items.map((r: any) => r.id)).toEqual([ID.recOs5]);
-    const accepted = await getJson(`/calendar/suggestions?workspace_id=${ID.wsPersonal}&status=accepted`, ownerAuth);
-    expect(accepted.body.items.map((e: any) => e.id)).toEqual([ID.eventMidterm]);
-
-    const first = await getJson("/workspaces?limit=1", ownerAuth);
-    expect(first.body.items).toHaveLength(1);
-    expect(first.body.next_cursor).toBeString();
-    const second = await getJson(`/workspaces?limit=1&cursor=${first.body.next_cursor}`, ownerAuth);
-    expect(second.body.items[0].workspace.id).not.toBe(first.body.items[0].workspace.id);
-    expect(second.body.next_cursor).toBeNull();
-    expect((await getJson("/workspaces?cursor=garbage", ownerAuth)).status).toBe(400);
-  });
-
-  test("search highlights matches in transcripts, documents and PDF pages", async () => {
-    const hits = (await getJson(`/search?workspace_id=${ID.wsPersonal}&q=${encodeURIComponent("대기 시간")}`, ownerAuth)).body.items;
-    expect(new Set(hits.map((h: any) => h.kind))).toEqual(new Set(["document", "pdf_page"]));
-    for (const hit of hits) {
-      expect(hit.snippet.map((p: any) => p.text).join("")).toContain("대기 시간");
-      expect(hit.snippet.filter((p: any) => p.highlight).map((p: any) => p.text)).toContain("대기 시간");
-    }
-    const none = await getJson(`/search?workspace_id=${ID.wsTeam}&q=FCFS`, ownerAuth);
-    expect(none.body.items).toEqual([]);
   });
 });
 
 describe("API v2 request handling", () => {
   const createVersion = (headers: Record<string, string>, body: string) =>
     call(
-      new Request(`http://localhost${API_BASE_PATH}/documents/${ID.docOs5}/versions`, {
+      new Request(`http://localhost${API_BASE_PATH}/documents/${SAMPLE_ID}/versions`, {
         method: "POST",
         headers: { ...ownerAuth, ...headers },
         body,
@@ -386,7 +265,7 @@ describe("API v2 request handling", () => {
     const malformed = await createVersion({ "Content-Type": "application/json", "If-Match": "2" }, validBody);
     expect(malformed.status).toBe(400);
     const present = await createVersion({ "Content-Type": "application/json", "If-Match": versionETag(2) }, validBody);
-    expect(present.status).toBe(501);
+    expect(present.status).toBe(404); // validated, then the unknown document
   });
 
   test("JSON bodies need the JSON media type, valid JSON and the request schema", async () => {
@@ -400,31 +279,7 @@ describe("API v2 request handling", () => {
     const invalid = await createVersion({ ...ifMatch, "Content-Type": "application/json; charset=utf-8" }, "{}");
     expect(invalid.status).toBe(400);
     const issues = (await invalid.json()).error.details.issues;
-    expect(issues[0].path).toEqual(["body", "body"]);
-  });
-
-  test("SSE replays only what follows Last-Event-ID, per workspace", async () => {
-    const stream = (lastEventId?: string, workspaceId: string = ID.wsPersonal) =>
-      call(
-        new Request(`http://localhost${API_BASE_PATH}/events?workspace_id=${workspaceId}`, {
-          headers: { ...ownerAuth, ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}) },
-        })
-      );
-    const ids = async (res: Response) => parseSse(await res.text()).map((e): string => e.id);
-
-    const all = await ids(await stream());
-    expect(all).toEqual(["1001", "1002", "1004", "1005"]);
-    expect(await ids(await stream("1002"))).toEqual(["1004", "1005"]);
-    expect(await ids(await stream("1005"))).toEqual([]);
-    // An id the log does not hold: the gap is unknown, so everything is replayed.
-    expect(await ids(await stream("424242"))).toEqual(all);
-    expect(await ids(await stream(undefined, ID.wsTeam))).toEqual(["1003"]);
-
-    const first = await stream();
-    expect(first.headers.get("content-type")).toStartWith("text/event-stream");
-    expect(await first.text()).toStartWith("retry: ");
-    expect((await stream("not an id!")).status).toBe(400);
-    expect((await stream(undefined, "0199f0a0-ffff-7000-8000-000000000000")).status).toBe(403);
+    expect(issues[0].path).toEqual(["body", "body"]); // neither body nor markdown
   });
 
   test("unknown v2 paths answer 404 in the v2 shape; other paths still reach the legacy router", async () => {
