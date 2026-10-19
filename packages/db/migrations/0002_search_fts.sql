@@ -11,3 +11,7 @@ CREATE VIRTUAL TABLE `search_chunk_fts` USING fts5(
 	contentless_delete = 1,
 	tokenize = 'unicode61 remove_diacritics 0'
 );
+--> statement-breakpoint
+-- Per-token document counts, so queries can drop tokens that match most chunks
+-- (ranking them costs time and adds almost no BM25 weight).
+CREATE VIRTUAL TABLE `search_chunk_fts_vocab` USING fts5vocab('search_chunk_fts', 'row');

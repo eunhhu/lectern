@@ -7,6 +7,7 @@ import {
   hasEvidence,
   indexGeneration,
   lexicalSearch,
+  pruneCommonTerms,
   putEmbeddings,
   QueryEmbeddingCache,
   quantizeInt8,
@@ -109,6 +110,23 @@ describe("lexical search", () => {
     expect(hits.length).toBeGreaterThan(0);
     const one = lexicalSearch(db, access(), [], { fallbackText: "벡" });
     expect(one.some((h) => h.chunk.text.includes("벡터"))).toBe(true);
+  });
+});
+
+describe("common terms", () => {
+  test("a term in most chunks is dropped while a rarer one remains", () => {
+    const db = tempDb();
+    const segments = Array.from({ length: 12 }, (_, i) => ({
+      idx: i,
+      start_ms: i * 120_000,
+      end_ms: i * 120_000 + 1_000,
+      text: i === 5 ? "공통 주제와 희귀한 단어" : `공통 주제 ${i}`,
+    }));
+    const chunks = chunkRecording({ workspaceId: WS, recordingId: REC.crypto, transcript: { segments } });
+    syncRecordingChunks(db, { workspaceId: WS, recordingId: REC.crypto, kinds: ["transcript"], chunks });
+    expect(pruneCommonTerms(db, queryTerms("공통 희귀")).terms.map((t) => t.text)).toEqual(["희귀"]);
+    expect(pruneCommonTerms(db, queryTerms("공통 주제"))).toMatchObject({ allCommon: true });
+    expect(lexicalSearch(db, access({ kind: "recording", recording_id: REC.crypto }), queryTerms("공통")).length).toBe(12);
   });
 });
 
