@@ -153,6 +153,12 @@ export function ftsQuery(terms: readonly QueryTerm[]): string | null {
   return phrases.length ? phrases.join(" OR ") : null;
 }
 
+/** The longest letter/digit run of `text`, for the one-character fallback (`법?` → `법`). */
+export function fallbackNeedle(text: string): string {
+  const runs = normalizeText(text).match(/[\p{L}\p{N}]+/gu) ?? [];
+  return runs.reduce((best, run) => (run.length > best.length ? run : best), "");
+}
+
 /** Text without whitespace, for spacing-insensitive containment checks. */
 export function compact(text: string): string {
   return normalizeText(text).replace(/\s+/gu, "");

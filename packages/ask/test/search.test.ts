@@ -114,6 +114,7 @@ for (const [path, smallScope] of [
     test("a one-character question still finds text", () => {
       expect(search(access(), "XOR").length).toBeGreaterThan(0);
       expect(search(access(), "", "벡").some((h) => h.chunk.text.includes("벡터"))).toBe(true);
+      expect(search(access(), "", "벡?").some((h) => h.chunk.text.includes("벡터"))).toBe(true);
     });
   });
 }

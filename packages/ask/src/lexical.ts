@@ -3,7 +3,7 @@
 import type { Database } from "bun:sqlite";
 import type { AccessScope } from "./scope.ts";
 import { CHUNK_COLUMNS, type ChunkRow, chunkColumns, toChunkRow } from "./store.ts";
-import { compact, ftsQuery, normalizeText, type QueryTerm } from "./text.ts";
+import { compact, fallbackNeedle, ftsQuery, type QueryTerm } from "./text.ts";
 
 /** A term whose rarest token is in more than this share of all chunks is dropped (when others remain). */
 export const COMMON_TERM_SHARE = 0.2;
@@ -104,7 +104,7 @@ export function lexicalSearch(
       .all(match, access.workspaceId, allow, limit) as Array<Parameters<typeof toChunkRow>[0] & { bm25: number }>;
     return rows.map((r, i) => ({ chunk: toChunkRow(r), score: -r.bm25, rank: i + 1 }));
   }
-  const needle = opts.fallbackText ? normalizeText(opts.fallbackText).trim() : "";
+  const needle = opts.fallbackText ? fallbackNeedle(opts.fallbackText) : "";
   if (!needle) return [];
   const rows = db
     .query(
@@ -137,7 +137,7 @@ function scanScope(
        WHERE workspace_id = ? AND recording_id IN (SELECT value FROM json_each(?)) ORDER BY recording_id, ordinal`,
     )
     .all(access.workspaceId, JSON.stringify(access.recordingIds)) as Array<Parameters<typeof toChunkRow>[0]>;
-  const needles = terms.length ? terms.map((t) => t.text) : fallbackText ? [compact(fallbackText)].filter(Boolean) : [];
+  const needles = terms.length ? terms.map((t) => t.text) : fallbackText ? [fallbackNeedle(fallbackText)].filter(Boolean) : [];
   if (needles.length === 0 || rows.length === 0) return [];
   const texts = rows.map((r) => compact(`${r.heading ?? ""}${r.text}`));
   const avgLen = texts.reduce((n, t) => n + t.length, 0) / texts.length || 1;
