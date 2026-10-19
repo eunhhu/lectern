@@ -99,6 +99,10 @@
   min-width: 0;
 }
 
+.notReady {
+  padding: var(--space-16) var(--space-32) 0;
+}
+
 .mainHeader {
   flex: none;
   padding: var(--space-24) var(--space-32) 0;
@@ -304,6 +308,29 @@
   background: var(--color-bg-active);
 }
 
+/* A source the server could not tie to the sentence well: shown, but flagged. */
+.mark[data-weak] {
+  background: var(--color-status-attention-subtle);
+  color: var(--color-status-attention-fg);
+}
+
+/* A source that was deleted or is no longer visible: a number without a link. */
+.mark[data-unavailable] {
+  background: transparent;
+  border: 1px dashed var(--color-border-default);
+  color: var(--color-text-tertiary);
+  cursor: default;
+}
+
+.weakNote {
+  font: var(--typography-caption);
+  color: var(--color-status-attention-fg);
+}
+
+.weakBadge {
+  color: var(--color-status-attention-fg);
+}
+
 .preview {
   max-width: 360px;
   padding: var(--space-12);
@@ -455,8 +482,37 @@
 }
 
 .stopped {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
   font: var(--typography-caption);
   color: var(--color-text-tertiary);
+}
+
+/* `unsupported`: an answer without a valid source, collapsed behind a warning. */
+.unsupported {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-12) var(--space-16);
+  border: 1px solid var(--color-status-attention-border);
+  border-radius: var(--radius-md);
+  line-height: var(--font-line-height-relaxed);
+}
+
+.unsupportedTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-status-attention-fg);
+}
+
+.source[data-unavailable] {
+  cursor: default;
+  border-style: dashed;
 }
 
 /* Composer */
@@ -554,7 +610,11 @@
     padding-top: var(--space-12);
   }
 
-  .mainHeader {
+  .notReady {
+  padding: var(--space-16) var(--space-32) 0;
+}
+
+.mainHeader {
     padding: var(--space-16) var(--space-16) 0;
   }
 

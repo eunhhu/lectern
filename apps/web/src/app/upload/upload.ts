@@ -3,7 +3,7 @@
 // complete. Parts already received (a resumed session) are skipped.
 
 import type { ApiClient } from "../../api/client.ts";
-import type { CompleteUploadResponse, CreateUploadRequest, RecordingDomain, UploadFileSpec } from "../../api/types.ts";
+import type { CompleteUploadResponse, CreateUploadRequest, FolderId, RecordingDomain, UploadFileSpec, WorkspaceId } from "../../api/types.ts";
 import { extensionOf, type UploadGroup } from "../../lib/pairing.ts";
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -27,9 +27,9 @@ export function mimeOf(file: File): string {
 }
 
 export interface UploadOptions {
-  workspaceId: string;
+  workspaceId: WorkspaceId;
   title: string | null;
-  folderId: string | null;
+  folderId: FolderId | null;
   domain: RecordingDomain | null;
 }
 

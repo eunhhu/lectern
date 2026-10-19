@@ -8,6 +8,7 @@ import { Form, Input, TextField } from "react-aria-components";
 import {
   useAskThreads,
   useConfirmedEvents,
+  useFolders,
   useDecideSuggestion,
   useJobProgress,
   useRecording,
@@ -15,7 +16,8 @@ import {
   useSuggestions,
   useWorkspaceActionItems,
 } from "../../api/queries.ts";
-import type { EventCandidate, RecordingListItem } from "../../api/types.ts";
+import type { EventCandidate, JobId, RecordingListItem } from "../../api/types.ts";
+import { scopeLabel } from "../ask/citations.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { DOMAIN_LABEL, STATUS, stageLabel } from "../../app/labels.ts";
 import { openOverlay } from "../../app/overlays.ts";
@@ -178,7 +180,7 @@ function BusyRow({ rec }: { rec: RecordingListItem }) {
 }
 
 /** Job ids are exposed on RecordingDetail.active_job; the event stream keeps it fresh. */
-function useActiveJobId(recordingId: string): string | null {
+function useActiveJobId(recordingId: string): JobId | null {
   return useRecording(recordingId).data?.active_job?.id ?? null;
 }
 
@@ -273,6 +275,8 @@ function AskCard() {
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
   const threads = (useAskThreads(workspaceId).data ?? []).slice(0, 3);
+  const folders = useFolders(workspaceId).data ?? [];
+  const recordings = useRecordings(workspaceId).data ?? [];
   const [question, setQuestion] = useState("");
   const now = new Date();
   return (
@@ -309,7 +313,7 @@ function AskCard() {
                   {t.title}
                 </Link>
                 <p className={s.rowMeta}>
-                  {t.scope_label} · {formatRelative(t.updated_at, now)}
+                  {scopeLabel(t.scope, folders, recordings)} · {formatRelative(t.updated_at, now)}
                 </p>
               </div>
             </li>

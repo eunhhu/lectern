@@ -79,7 +79,7 @@ export function LibraryPage() {
   }, [all, view, tag, folder, folders, search.folder, query, now]);
 
   // The selection only ever covers rows that are shown.
-  const visibleIds = new Set(visible.map((r) => r.id));
+  const visibleIds = new Set<string>(visible.map((r) => r.id));
   const selection = [...selected].filter((id) => visibleIds.has(id));
   const allSelected = visible.length > 0 && selection.length === visible.length;
 

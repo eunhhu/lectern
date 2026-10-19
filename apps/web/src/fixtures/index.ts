@@ -8,8 +8,8 @@
 // the preview is opened; tests pass a fixed `now`.
 
 import type {
-  AskMessage,
   AskThread,
+  AskTurn,
   ActionItem,
   AssetDto,
   AssetId,
@@ -88,7 +88,7 @@ export interface FixtureData {
   devices: Device[];
   /** 물어보기 history (seeded by the fixture client). */
   askThreads: AskThread[];
-  askMessages: AskMessage[];
+  askTurns: AskTurn[];
 }
 
 // ---------------------------------------------------------------------------
@@ -569,7 +569,7 @@ export function buildFixtureData(now = new Date()): FixtureData {
     members: [],
     devices: [],
     askThreads: [],
-    askMessages: [],
+    askTurns: [],
   };
 
   // Team members (synthetic names, example.com addresses) and this user's devices.
@@ -591,7 +591,7 @@ export function buildFixtureData(now = new Date()): FixtureData {
     person("usr_fixture_dohyun", "최도현", "dohyun@example.com", TEAM_WS, "member"),
   );
   const device = (id: string, client: "web" | "native", name: string, agent: string, lastSeen: string, current = false): Device => ({
-    id,
+    id: id as Device["id"],
     workspace_id: PERSONAL_WS,
     user_id: ME_ID,
     client,

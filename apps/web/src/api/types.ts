@@ -1,111 +1,106 @@
-// packages/domain types as the web app uses them.
-//
-// Workaround (apps/web/README.md "domain 요청" #1): in packages/domain every id schema
-// built by `idSchema()` is typed `ZodType<unknown, unknown>` (the generic brand collapses),
-// so `z.infer`/`z.input` give `unknown` for every id and even drop the `null` of nullable
-// ids. The schema *structure* is intact, though: `Out<S>` infers from the zod wrappers
-// (object, nullable, optional, array, union) and maps the collapsed id leaves to
-// `string`. When the domain exports real branded types, replace `Out<>` with `z.infer<>`.
+// packages/domain types as the web app uses them: `z.infer` of the domain schemas, so ids
+// are the domain's branded strings (a RecordingId is not a FolderId). Strings that come
+// from outside the API (URL params, remembered choices, fixture generators) become ids
+// through `asId` at that boundary; everything the API returns already has the brand.
 
 import type * as D from "@lectern/domain";
 import type { z } from "zod";
 
-type Simplify<T> = { [K in keyof T]: T[K] } & {};
-type IsOptional<S> = S extends z.ZodOptional<z.ZodType> ? true : false;
-type ObjOut<Shape> = Simplify<
-  { [K in keyof Shape as IsOptional<Shape[K]> extends true ? K : never]?: Out<Shape[K]> } & {
-    [K in keyof Shape as IsOptional<Shape[K]> extends true ? never : K]: Out<Shape[K]>;
-  }
->;
-
-/** Output type of a domain schema, with collapsed (unknown) id leaves as `string`. */
-export type Out<S> =
-  S extends z.ZodNullable<infer I>
-    ? Out<I> | null
-    : S extends z.ZodOptional<infer I>
-      ? Out<I> | undefined
-      : S extends z.ZodObject<infer Shape, any>
-        ? ObjOut<Shape>
-        : S extends z.ZodArray<infer E>
-          ? Out<E>[]
-          : S extends z.ZodDiscriminatedUnion<infer O, any>
-            ? Out<O[number]>
-            : S extends z.ZodUnion<infer O>
-              ? Out<O[number]>
-              : S extends z.ZodType<infer O>
-                ? unknown extends O
-                  ? string
-                  : O
-                : never;
-type In<S> = Out<S>;
-
 // Ids
-export type WorkspaceId = string;
-export type UserId = string;
-export type FolderId = string;
-export type TagId = string;
-export type RecordingId = string;
-export type AssetId = string;
-export type SpeakerId = string;
-export type DocumentId = string;
-export type DocumentVersionId = string;
-export type BlockId = string;
-export type QuestionId = string;
-export type EventCandidateId = string;
-export type ActionItemId = string;
-export type JobId = string;
-export type UploadId = string;
-export type TemplateId = string;
+export type {
+  ActionItemId,
+  AskThreadId,
+  AskTurnId,
+  AssetId,
+  BlockId,
+  ChunkId,
+  DocumentId,
+  DocumentVersionId,
+  EventCandidateId,
+  FolderId,
+  JobId,
+  QuestionId,
+  RecordingId,
+  SpeakerId,
+  TagId,
+  TemplateId,
+  UploadId,
+  UserId,
+  WorkspaceId,
+} from "@lectern/domain";
+
+/**
+ * A string from outside the API (a URL param, a remembered choice, a fixture) as a domain
+ * id. The brand only exists in the type system; the server validates the value.
+ */
+export function asId<T extends string>(value: string): T {
+  return value as T;
+}
 
 // Entities and DTOs
-export type Me = In<typeof D.Me>;
-export type Workspace = In<typeof D.Workspace>;
-export type MyWorkspace = In<typeof D.MyWorkspace>;
-export type Folder = In<typeof D.Folder>;
-export type Tag = In<typeof D.Tag>;
-export type RecordingTag = In<typeof D.RecordingTag>;
-export type Recording = In<typeof D.Recording>;
-export type RecordingListItem = In<typeof D.RecordingListItem>;
-export type AssetDto = In<typeof D.AssetDto>;
-export type Speaker = In<typeof D.Speaker>;
-export type TranscriptSegment = In<typeof D.TranscriptSegment>;
-export type TranscriptGap = In<typeof D.TranscriptGap>;
-export type Transcript = In<typeof D.Transcript>;
-export type Document = In<typeof D.Document>;
-export type DocumentVersion = In<typeof D.DocumentVersion>;
-export type DocumentWithVersion = In<typeof D.DocumentWithVersion>;
-export type DocumentBody = In<typeof D.DocumentBody>;
-export type DocumentSection = In<typeof D.DocumentSection>;
-export type DocumentBlock = In<typeof D.DocumentBlock>;
-export type SourceRef = In<typeof D.SourceRef>;
-export type Question = In<typeof D.Question>;
-export type EventCandidate = In<typeof D.EventCandidate>;
-export type ActionItem = In<typeof D.ActionItem>;
-export type Job = In<typeof D.Job>;
-export type RecordingDetail = In<typeof D.RecordingDetail>;
-export type ServerEvent = In<typeof D.ServerEvent>;
-export type SearchHit = In<typeof D.SearchHit>;
-export type UploadSession = In<typeof D.UploadSession>;
-export type UploadPartReceipt = In<typeof D.UploadPartReceipt>;
-export type CompleteUploadResponse = In<typeof D.CompleteUploadResponse>;
+export type Me = z.infer<typeof D.Me>;
+export type Workspace = z.infer<typeof D.Workspace>;
+export type MyWorkspace = z.infer<typeof D.MyWorkspace>;
+export type Folder = z.infer<typeof D.Folder>;
+export type Tag = z.infer<typeof D.Tag>;
+export type RecordingTag = z.infer<typeof D.RecordingTag>;
+export type Recording = z.infer<typeof D.Recording>;
+export type RecordingListItem = z.infer<typeof D.RecordingListItem>;
+export type AssetDto = z.infer<typeof D.AssetDto>;
+export type Speaker = z.infer<typeof D.Speaker>;
+export type TranscriptSegment = z.infer<typeof D.TranscriptSegment>;
+export type TranscriptGap = z.infer<typeof D.TranscriptGap>;
+export type Transcript = z.infer<typeof D.Transcript>;
+export type Document = z.infer<typeof D.Document>;
+export type DocumentVersion = z.infer<typeof D.DocumentVersion>;
+export type DocumentWithVersion = z.infer<typeof D.DocumentWithVersion>;
+export type DocumentBody = z.infer<typeof D.DocumentBody>;
+export type DocumentSection = z.infer<typeof D.DocumentSection>;
+export type DocumentBlock = z.infer<typeof D.DocumentBlock>;
+export type SourceRef = z.infer<typeof D.SourceRef>;
+export type Question = z.infer<typeof D.Question>;
+export type EventCandidate = z.infer<typeof D.EventCandidate>;
+export type ActionItem = z.infer<typeof D.ActionItem>;
+export type Job = z.infer<typeof D.Job>;
+export type RecordingDetail = z.infer<typeof D.RecordingDetail>;
+export type ServerEvent = z.infer<typeof D.ServerEvent>;
+export type SearchHit = z.infer<typeof D.SearchHit>;
+export type UploadSession = z.infer<typeof D.UploadSession>;
+export type UploadPartReceipt = z.infer<typeof D.UploadPartReceipt>;
+export type CompleteUploadResponse = z.infer<typeof D.CompleteUploadResponse>;
 
-export type Device = In<typeof D.DeviceDto>;
-export type WorkspaceMember = In<typeof D.WorkspaceMember>;
+export type Device = z.infer<typeof D.DeviceDto>;
+export type WorkspaceMember = z.infer<typeof D.WorkspaceMember>;
 
 // Requests
-export type UpdateMeRequest = In<typeof D.UpdateMeRequest>;
-export type UpdateActionItemRequest = In<typeof D.UpdateActionItemRequest>;
-export type CreateFolderRequest = In<typeof D.CreateFolderRequest>;
-export type UpdateFolderRequest = In<typeof D.UpdateFolderRequest>;
-export type CreateTagRequest = In<typeof D.CreateTagRequest>;
-export type UpdateTagRequest = In<typeof D.UpdateTagRequest>;
-export type UpdateRecordingRequest = In<typeof D.UpdateRecordingRequest>;
-export type UpdateEventCandidateRequest = In<typeof D.UpdateEventCandidateRequest>;
-export type CreateUploadRequest = In<typeof D.CreateUploadRequest>;
-export type UploadFileSpec = In<typeof D.UploadFileSpec>;
-export type ListRecordingsParams = In<typeof D.ListRecordingsQuery>;
-export type ListSuggestionsParams = In<typeof D.ListCalendarSuggestionsQuery>;
-export type SearchParams = In<typeof D.SearchQuery>;
+export type UpdateMeRequest = z.infer<typeof D.UpdateMeRequest>;
+export type UpdateActionItemRequest = z.infer<typeof D.UpdateActionItemRequest>;
+export type CreateFolderRequest = z.infer<typeof D.CreateFolderRequest>;
+export type UpdateFolderRequest = z.infer<typeof D.UpdateFolderRequest>;
+export type CreateTagRequest = z.infer<typeof D.CreateTagRequest>;
+export type UpdateTagRequest = z.infer<typeof D.UpdateTagRequest>;
+export type UpdateRecordingRequest = z.infer<typeof D.UpdateRecordingRequest>;
+export type UpdateEventCandidateRequest = z.infer<typeof D.UpdateEventCandidateRequest>;
+export type CreateUploadRequest = z.infer<typeof D.CreateUploadRequest>;
+export type UploadFileSpec = z.infer<typeof D.UploadFileSpec>;
+export type CreateDocumentVersionRequest = z.infer<typeof D.CreateDocumentVersionRequest>;
+export type ListRecordingsParams = z.infer<typeof D.ListRecordingsQuery>;
+export type ListSuggestionsParams = z.infer<typeof D.ListCalendarSuggestionsQuery>;
+export type SearchParams = z.infer<typeof D.SearchQuery>;
+
+// 물어보기 (docs/adr/0009-ask-rag.md, packages/domain/src/api/ask.ts)
+export type AskScope = z.infer<typeof D.AskScope>;
+export type AskCitation = z.infer<typeof D.AskCitation>;
+export type AskTranscriptCitation = z.infer<typeof D.AskTranscriptCitation>;
+export type AskDocumentCitation = z.infer<typeof D.AskDocumentCitation>;
+export type AskPdfPageCitation = z.infer<typeof D.AskPdfPageCitation>;
+export type AskTurn = z.infer<typeof D.AskTurn>;
+export type AskThread = z.infer<typeof D.AskThread>;
+export type AskThreadDetail = z.infer<typeof D.AskThreadDetail>;
+export type AskUsage = z.infer<typeof D.AskUsage>;
+export type AskStreamEvent = z.infer<typeof D.AskStreamEvent>;
+export type CreateAskThreadRequest = z.infer<typeof D.CreateAskThreadRequest>;
+export type ListAskThreadsQuery = z.infer<typeof D.ListAskThreadsQuery>;
 
 // Pages
 type Page<T> = { items: T[]; next_cursor: string | null };
@@ -119,10 +114,14 @@ export type ActionItemPage = Page<ActionItem>;
 export type SearchHitPage = Page<SearchHit>;
 export type DevicePage = Page<Device>;
 export type WorkspaceMemberPage = Page<WorkspaceMember>;
+export type AskThreadPage = Page<AskThread>;
 
-// Enums are typed correctly in the domain; only ids need the workaround.
 export type {
   ActionItemStatus,
+  AskCitationSupport,
+  AskContextMode,
+  AskOutcome,
+  AskTurnStatus,
   EventCandidateStatus,
   EventKind,
   GapKind,
@@ -136,76 +135,3 @@ export type {
   TagSource,
   VerifyFlag,
 } from "@lectern/domain";
-
-// ---------------------------------------------------------------------------
-// 물어보기 (ask). Not in packages/domain yet: these are app-local shapes for the RAG
-// endpoints another stream is designing. README "domain 요청" lists the contract this
-// UI needs; replace these with the domain types once they exist.
-// ---------------------------------------------------------------------------
-
-/** What an answer may draw on: one note, a folder (with its subfolders) or the workspace. */
-export type AskScope = { kind: "workspace" } | { kind: "folder"; folder_id: string } | { kind: "recording"; recording_id: string };
-
-/** One source of an answer, cited in the answer text as `[n]`. */
-export interface AskCitation {
-  n: number;
-  recording_id: string;
-  recording_title: string;
-  /** Inclusive transcript segment idx range, as in a domain SourceRef. */
-  start_idx: number;
-  end_idx: number;
-  /** Original-audio ms of the range. */
-  start_ms: number;
-  end_ms: number;
-  speaker: string | null;
-  quote: string;
-}
-
-/** `no_evidence`: nothing in scope was relevant, so the answer says so instead of guessing. */
-export type AskAnswerStatus = "complete" | "no_evidence";
-
-export interface AskMessage {
-  id: string;
-  thread_id: string;
-  role: "user" | "assistant";
-  text: string;
-  /** Assistant only. */
-  citations: AskCitation[];
-  status: AskAnswerStatus;
-  /** Assistant only: how many notes were searched. */
-  searched: number;
-  created_at: string;
-}
-
-export interface AskThread {
-  id: string;
-  workspace_id: string;
-  title: string;
-  scope: AskScope;
-  /** Display label of the scope ("운영체제 7주차 — CPU 스케줄링", "운영체제 폴더", "전체 노트"). */
-  scope_label: string;
-  message_count: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AskThreadDetail {
-  thread: AskThread;
-  messages: AskMessage[];
-}
-
-export interface AskRequest {
-  workspace_id: string;
-  /** Continue a conversation; omit to start one. */
-  thread_id?: string | null;
-  question: string;
-  scope: AskScope;
-}
-
-/** Server-sent events of one answer (`POST /ask`, `text/event-stream`). */
-export type AskStreamEvent =
-  | { type: "retrieval"; searched: number; citations: AskCitation[] }
-  | { type: "delta"; text: string }
-  | { type: "done"; thread: AskThread; question: AskMessage; answer: AskMessage };
-
-export type AskThreadPage = Page<AskThread>;

@@ -259,6 +259,28 @@
   color: var(--color-status-danger-fg);
 }
 
+/* "준비 중": a feature the server does not offer yet */
+.notReady {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-16);
+  border: 1px solid var(--color-status-info-border);
+  border-radius: var(--radius-md);
+  background: var(--color-status-info-subtle);
+  color: var(--color-text-primary);
+  line-height: var(--font-line-height-relaxed);
+}
+
+.notReadyTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-status-info-fg);
+}
+
 /* Skeleton and spinner (DESIGN.md §4.2) */
 .skeleton {
   display: block;

@@ -10,7 +10,7 @@ import { DropZone, FileTrigger, Input, isFileDropItem, Label, TextField, type Dr
 
 type DropEvent = Parameters<NonNullable<DropZoneProps["onDrop"]>>[0];
 import { useApi, useFolders, queryKeys } from "../../api/queries.ts";
-import type { RecordingDomain } from "../../api/types.ts";
+import { asId, type FolderId, type RecordingDomain } from "../../api/types.ts";
 import { formatBytes, formatDateTime } from "../../lib/format.ts";
 import { assignPdf, pairFiles, type PairingResult, type PairReason, type UploadGroup } from "../../lib/pairing.ts";
 import { Icon } from "../../ui/Icon.tsx";
@@ -146,7 +146,7 @@ function UploadBody({
           {
             workspaceId,
             title: (titles[group.id] ?? group.title ?? "").trim() || null,
-            folderId: folderId === "none" ? null : folderId,
+            folderId: folderId === "none" ? null : asId<FolderId>(folderId),
             domain: domain === "auto" ? null : (domain as RecordingDomain),
           },
           (sent, total) => setStates((prev) => ({ ...prev, [group.id]: { status: "uploading", sent, total } })),

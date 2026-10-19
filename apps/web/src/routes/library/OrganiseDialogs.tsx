@@ -4,6 +4,7 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { useRecordings } from "../../api/queries.ts";
+import { asId, type FolderId } from "../../api/types.ts";
 import { useWorkspace } from "../../app/workspace.tsx";
 import { formatCount } from "../../lib/format.ts";
 import { Button, ModalDialog, SelectField, uiStyles } from "../../ui/controls.tsx";
@@ -49,7 +50,7 @@ function FolderMoveDialog({ dialog, onClose }: { dialog: Extract<OrganiseDialog,
           <Button
             variant="primary"
             onPress={() => {
-              if (folder) void move(folder, current === "root" ? null : current);
+              if (folder) void move(folder, current === "root" ? null : asId<FolderId>(current));
               close();
             }}
           >

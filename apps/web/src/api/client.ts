@@ -1,33 +1,33 @@
 // The data boundary of the web app. Screens and TanStack Query hooks only talk to this
 // interface; its types are the packages/domain DTOs of /api/v2 (one method per route in
-// packages/domain/src/api/routes.ts, named after the operationId; types via ./types.ts). Today it is backed by
-// fixtures (./fixture/client.ts); the real /api/v2 client replaces it in ./index.ts.
+// packages/domain/src/api/routes.ts, named after the operationId; types via ./types.ts).
+// Two implementations: the real /api/v2 client (./http/client.ts, production builds) and
+// the in-memory fixtures (./fixture/client.ts, tests and `web:dev`). ./index.ts picks one
+// at build time.
 
 import type {
-  AskMessage,
-  AskRequest,
-  AskScope,
-  AskStreamEvent,
-  AskThreadDetail,
-  AskThreadPage,
   ActionItem,
   ActionItemPage,
-  UpdateActionItemRequest,
+  AskStreamEvent,
+  AskThread,
+  AskThreadDetail,
+  AskThreadPage,
+  AskTurn,
+  AskUsage,
+  CompleteUploadResponse,
+  CreateAskThreadRequest,
+  CreateDocumentVersionRequest,
   CreateFolderRequest,
   CreateTagRequest,
-  DevicePage,
-  Folder,
-  Tag,
-  UpdateFolderRequest,
-  UpdateMeRequest,
-  UpdateTagRequest,
-  WorkspaceMemberPage,
-  CompleteUploadResponse,
   CreateUploadRequest,
+  DevicePage,
+  DocumentVersion,
   DocumentWithVersion,
   EventCandidate,
   EventCandidatePage,
+  Folder,
   FolderPage,
+  ListAskThreadsQuery,
   ListRecordingsParams,
   ListSuggestionsParams,
   Me,
@@ -39,31 +39,65 @@ import type {
   SearchHitPage,
   SearchParams,
   ServerEvent,
+  Tag,
   TagPage,
   Transcript,
+  UpdateActionItemRequest,
   UpdateEventCandidateRequest,
+  UpdateFolderRequest,
+  UpdateMeRequest,
   UpdateRecordingRequest,
+  UpdateTagRequest,
   UploadPartReceipt,
   UploadSession,
   WorkspaceId,
+  WorkspaceMemberPage,
 } from "./types.ts";
 
-/** Error thrown by every ApiClient method: the domain's `{ error: { code, message } }`. */
+/**
+ * Error thrown by every ApiClient method. `code` is the domain ErrorCode of the
+ * `{ error: { code, message } }` body, or one of the client's own codes:
+ * `network` (no response, or the stream broke) and `invalid_response` (a body that does
+ * not match the domain schema).
+ */
 export class ApiClientError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
     message: string,
     readonly requestId: string | null = null,
+    readonly details: Record<string, unknown> | null = null,
   ) {
     super(message);
     this.name = "ApiClientError";
   }
 }
 
+/** The signed-in account as the existing (v1) auth endpoints report it. */
+export interface SessionUser {
+  id: string;
+  email: string;
+  displayName: string | null;
+}
+
+export interface AskQuestionOptions {
+  signal?: AbortSignal;
+  /** Every stream event, in order (`turn.started`, `retrieval`, `answer.delta`, …). */
+  onEvent: (event: AskStreamEvent) => void;
+}
+
 export interface ApiClient {
   /** "fixture" shows the preview banner and runs the silent media clock. */
   readonly mode: "fixture" | "http";
+
+  // --- session (the existing cookie auth: /api/auth/*) -------------------------
+  /** The signed-in user, or null without a session. */
+  getSession(): Promise<SessionUser | null>;
+  /** Signs in; the server sets the HttpOnly session cookie. Rejects with the server's message. */
+  login(email: string, password: string): Promise<SessionUser>;
+  logout(): Promise<void>;
+  /** Called whenever a request answers 401 (the session ended). Returns an unsubscribe function. */
+  onUnauthorized(listener: () => void): () => void;
 
   getMe(): Promise<Me>;
   updateMe(body: UpdateMeRequest): Promise<Me>;
@@ -95,29 +129,38 @@ export interface ApiClient {
   listActionItems(recordingId: string): Promise<ActionItemPage>;
   updateActionItem(actionItemId: string, body: UpdateActionItemRequest): Promise<ActionItem>;
   getDocument(documentId: string): Promise<DocumentWithVersion>;
+  /**
+   * Saves a user edit as a new version. `baseVersion` is the version the edit started
+   * from (sent as `If-Match`); a newer version on the server answers 412
+   * `precondition_failed`.
+   */
+  createDocumentVersion(documentId: string, body: CreateDocumentVersionRequest, baseVersion: number): Promise<DocumentVersion>;
 
   listCalendarSuggestions(query: ListSuggestionsParams): Promise<EventCandidatePage>;
   updateCalendarSuggestion(eventCandidateId: string, body: UpdateEventCandidateRequest): Promise<EventCandidate>;
 
   search(query: SearchParams): Promise<SearchHitPage>;
 
+  // --- 물어보기 (docs/adr/0009-ask-rag.md) ------------------------------------------
+  /** Starts a conversation over a recording, a folder or the workspace (no model call). */
+  createAskThread(body: CreateAskThreadRequest): Promise<AskThread>;
   /**
-   * 물어보기: answers a question from the notes in scope, streaming events as it goes
-   * (retrieval, then text deltas, then done). Resolves with the answer; rejects with an
-   * ApiClientError (network, validation) or an AbortError when `signal` aborts. Not in
-   * the domain contract yet (README "domain 요청").
+   * Asks a question in a thread. Resolves with the completed turn (`turn.completed`).
+   * Rejects with an ApiClientError for an error response or an `error` event, or with an
+   * AbortError when `signal` aborts. The server finishes and stores the turn even after an
+   * abort or a broken stream; read it back with getAskThread.
    */
-  ask(body: AskRequest, options: { signal?: AbortSignal; onEvent: (event: AskStreamEvent) => void }): Promise<AskMessage>;
-  listAskThreads(workspaceId: WorkspaceId): Promise<AskThreadPage>;
+  askQuestion(threadId: string, question: string, options: AskQuestionOptions): Promise<AskTurn>;
+  listAskThreads(query: ListAskThreadsQuery): Promise<AskThreadPage>;
   getAskThread(threadId: string): Promise<AskThreadDetail>;
-  /** Questions worth asking about the scope (chips under the composer). */
-  listAskSuggestions(workspaceId: WorkspaceId, scope: AskScope): Promise<string[]>;
+  deleteAskThread(threadId: string): Promise<void>;
+  getAskUsage(workspaceId: WorkspaceId): Promise<AskUsage>;
 
   createUpload(body: CreateUploadRequest, idempotencyKey: string): Promise<UploadSession>;
   uploadPart(uploadId: string, part: number, bytes: Blob): Promise<UploadPartReceipt>;
   completeUpload(uploadId: string, idempotencyKey: string): Promise<CompleteUploadResponse>;
 
-  /** URL of an asset's bytes (`/assets/{id}/content`), or null when there are none (fixtures). */
+  /** URL of an asset's bytes (`/assets/{id}/content`, Range requests), or null when there are none (fixtures). */
   assetContentUrl(assetId: string): string | null;
 
   /** Workspace event stream (SSE `/events`). Returns an unsubscribe function. */

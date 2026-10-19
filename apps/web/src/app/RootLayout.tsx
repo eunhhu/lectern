@@ -17,6 +17,7 @@ import {
   Separator,
 } from "react-aria-components";
 import { useApi, useMe, useRecordings, useSuggestions } from "../api/queries.ts";
+import { asId, type WorkspaceId } from "../api/types.ts";
 import { Icon } from "../ui/Icon.tsx";
 import { Button, Kbd, uiStyles } from "../ui/controls.tsx";
 import { LiveRegion, showToast, Toasts } from "../ui/toast.tsx";
@@ -175,7 +176,7 @@ function WorkspaceSwitcher() {
             onSelectionChange={(keys) => {
               const [key] = keys === "all" ? [] : [...keys];
               if (key !== undefined && key !== workspaceId) {
-                switchTo(String(key));
+                switchTo(asId<WorkspaceId>(String(key)));
                 void navigate({ to: "/" });
               }
             }}

@@ -21,7 +21,7 @@ import {
   type Key,
 } from "react-aria-components";
 import { useFolderActions, useFolders } from "../../api/queries.ts";
-import type { Folder, RecordingListItem } from "../../api/types.ts";
+import { asId, type Folder, type FolderId, type RecordingListItem } from "../../api/types.ts";
 import { useWorkspace } from "../../app/workspace.tsx";
 import { josa } from "../../lib/josa.ts";
 import { Icon } from "../../ui/Icon.tsx";
@@ -38,7 +38,7 @@ export function useFolderEditing() {
   const folders = useFolders(workspaceId).data ?? [];
   const actions = useFolderActions(workspaceId);
 
-  const create = async (parentId: string | null): Promise<Folder | null> => {
+  const create = async (parentId: FolderId | null): Promise<Folder | null> => {
     const siblings = folders.filter((f) => f.parent_id === parentId).map((f) => f.name);
     try {
       return await actions.create.mutateAsync({ name: uniqueName("새 폴더", siblings), parent_id: parentId });
@@ -57,7 +57,7 @@ export function useFolderEditing() {
     }
   };
 
-  const move = async (folder: Folder, parentId: string | null, { undo = true } = {}) => {
+  const move = async (folder: Folder, parentId: FolderId | null, { undo = true } = {}) => {
     if (folder.parent_id === parentId) return;
     const before = folder.parent_id;
     try {
@@ -96,7 +96,7 @@ export function FolderTree({
   const parents = folders.filter((f) => folders.some((c) => c.parent_id === f.id)).map((f) => f.id);
   const expandedKeys = expanded ?? new Set<Key>(parents);
   const tree = folderTree(folders);
-  const byId = new Map(folders.map((f) => [f.id, f]));
+  const byId = new Map<string, Folder>(folders.map((f) => [f.id, f]));
 
   const countIn = (id: string) => {
     const ids = folderAndDescendants(folders, id);
@@ -104,7 +104,7 @@ export function FolderTree({
   };
   const unfiled = all.filter((r) => r.folder_id === null).length;
 
-  const newFolder = async (parentId: string | null) => {
+  const newFolder = async (parentId: FolderId | null) => {
     const folder = await create(parentId);
     if (!folder) return;
     if (parentId) setExpanded(new Set([...expandedKeys, parentId]));
@@ -120,7 +120,7 @@ export function FolderTree({
     getDropOperation: (target) => (target.type === "item" && target.dropPosition === "on" ? "move" : "cancel"),
     onItemDrop: async (e) => {
       const target = String(e.target.key);
-      const parentId = target === "none" ? null : target;
+      const parentId = target === "none" ? null : asId<FolderId>(target);
       const items = e.items.filter(isTextDropItem);
       const recordings = await Promise.all(items.filter((i) => i.types.has(DRAG_TYPE)).map((i) => i.getText(DRAG_TYPE)));
       const moved = await Promise.all(items.filter((i) => i.types.has(FOLDER_DRAG_TYPE)).map((i) => i.getText(FOLDER_DRAG_TYPE)));

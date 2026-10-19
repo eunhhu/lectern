@@ -33,7 +33,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const workspaces = list.data ?? [];
   const fallback = me.data?.personal_workspace_id ?? workspaces[0]?.workspace.id ?? null;
-  const workspaceId = workspaces.some((w) => w.workspace.id === chosen) ? chosen : fallback;
+  const workspaceId = workspaces.find((w) => w.workspace.id === chosen)?.workspace.id ?? fallback;
 
   useWorkspaceEvents(workspaceId);
 

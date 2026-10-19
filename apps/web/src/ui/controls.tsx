@@ -117,6 +117,20 @@ export function ErrorBox({ title, children, onRetry }: { title: string; children
   );
 }
 
+/** A feature the server does not offer yet (API v2 stubs answer 501): calm, no retry. */
+export function NotReady({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
+  return (
+    <div className={s.notReady} role="note">
+      <p className={s.notReadyTitle}>
+        <Icon name="clock" />
+        {title}
+      </p>
+      {children && <p>{children}</p>}
+      {action}
+    </div>
+  );
+}
+
 export function Spinner({ label = "불러오는 중…" }: { label?: string }) {
   return <span className={s.spinner} role="status" aria-label={label} />;
 }

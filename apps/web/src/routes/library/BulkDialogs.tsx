@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { Input, Label, TextField } from "react-aria-components";
 import { useBulkDelete, useBulkUpdate, useFolders, useRecordings, useTags } from "../../api/queries.ts";
-import type { RecordingListItem } from "../../api/types.ts";
+import { asId, type FolderId, type RecordingListItem, type TagId } from "../../api/types.ts";
 import { useWorkspace } from "../../app/workspace.tsx";
 import { formatDuration } from "../../lib/format.ts";
 import { Button, CheckboxField, ModalDialog, SelectField, uiStyles } from "../../ui/controls.tsx";
@@ -21,7 +21,7 @@ export function useBulkMove() {
   const folders = useFolders(workspaceId).data ?? [];
   const recordings = useRecordings(workspaceId).data ?? [];
   const update = useBulkUpdate(workspaceId);
-  return async (ids: string[], folderId: string | null, onFailed?: (ids: string[]) => void) => {
+  return async (ids: string[], folderId: FolderId | null, onFailed?: (ids: string[]) => void) => {
     const before = new Map(recordings.filter((r) => ids.includes(r.id)).map((r) => [r.id, r.folder_id]));
     const result = await update.mutateAsync({ ids, patch: () => ({ folder_id: folderId }) });
     const name = folderId ? (folders.find((f) => f.id === folderId)?.name ?? "폴더") : null;
@@ -90,7 +90,7 @@ function MoveDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClose:
               const list = ids ?? [];
               setTarget(null);
               onClose();
-              await move(list, current === "none" ? null : current, onFailed);
+              await move(list, current === "none" ? null : asId<FolderId>(current), onFailed);
             }}
           >
             이동
@@ -135,7 +135,7 @@ function TagDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClose: 
 
   const stateOf = (tagId: string) => {
     if (tagId in changes) return { selected: changes[tagId]!, indeterminate: false };
-    const n = targets.filter((r) => r.tag_ids.includes(tagId)).length;
+    const n = targets.filter((r) => r.tag_ids.includes(asId<TagId>(tagId))).length;
     return { selected: n > 0 && n === targets.length, indeterminate: n > 0 && n < targets.length };
   };
 
@@ -149,7 +149,7 @@ function TagDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClose: 
     const before = new Map(targets.map((r) => [r.id, r.tag_ids]));
     const next = (rec: RecordingListItem | undefined) => {
       const set = new Set(rec?.tag_ids ?? []);
-      for (const [tagId, on] of Object.entries(changes)) on ? set.add(tagId) : set.delete(tagId);
+      for (const [tagId, on] of Object.entries(changes)) on ? set.add(asId<TagId>(tagId)) : set.delete(asId<TagId>(tagId));
       return { tag_ids: [...set] };
     };
     const list = ids ?? [];

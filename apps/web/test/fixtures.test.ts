@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import * as D from "@lectern/domain";
 import type { z } from "zod";
 import { createFixtureClient } from "../src/api/fixture/client.ts";
-import type { CreateUploadRequest, Folder, SourceRef } from "../src/api/types.ts";
+import { asId, type CreateUploadRequest, type Folder, type SourceRef } from "../src/api/types.ts";
 import { buildFixtureData, PERSONAL_WS, TEAM_WS } from "../src/fixtures/index.ts";
 
 const NOW = new Date("2026-10-19T03:00:00.000Z"); // 12:00 KST
@@ -79,7 +79,7 @@ describe("fixture data set", () => {
   });
 
   test("every source points at an existing transcript range or PDF page of the same recording", () => {
-    const check = (recordingId: string, refs: readonly SourceRef[], where: string) => {
+    const check = (recordingId: D.RecordingId, refs: readonly SourceRef[], where: string) => {
       const segs = data.transcripts.get(recordingId)?.segments ?? [];
       for (const ref of refs) {
         if (ref.kind === "transcript") {
@@ -112,7 +112,7 @@ describe("fixture data set", () => {
     const block = doc.body!.sections.flatMap((s) => s.blocks).find((b) => b.type === "term" && b.term.startsWith("호위 효과"))!;
     const ref = block.sources[0]!;
     if (ref.kind !== "transcript") throw new Error("expected a transcript source");
-    expect(data.transcripts.get("rec_os07")!.segments[ref.start_idx]!.text).toContain("호위 효과");
+    expect(data.transcripts.get(asId("rec_os07"))!.segments[ref.start_idx]!.text).toContain("호위 효과");
   });
 
   test("folders, tags and documents reference rows that exist in the same workspace", () => {
@@ -141,7 +141,7 @@ describe("fixture data set", () => {
   test("is deterministic for a given clock", () => {
     const again = buildFixtureData(NOW);
     expect(again.recordings).toEqual(data.recordings);
-    expect(again.transcripts.get("rec_os07")).toEqual(data.transcripts.get("rec_os07"));
+    expect(again.transcripts.get(asId("rec_os07"))).toEqual(data.transcripts.get(asId("rec_os07")));
     expect(again.versions).toEqual(data.versions);
   });
 });
@@ -191,7 +191,7 @@ describe("fixture ApiClient responses", () => {
     const pdf = new Blob([new Uint8Array(300)], { type: "application/pdf" });
     const request: CreateUploadRequest = {
       workspace_id: PERSONAL_WS,
-      recording: { title: "업로드 테스트", folder_id: "fld_os" },
+      recording: { title: "업로드 테스트", folder_id: asId("fld_os") },
       files: [
         { kind: "audio", filename: "업로드 테스트.m4a", mime: "audio/mp4", bytes: audio.size },
         { kind: "pdf", filename: "업로드 테스트.pdf", mime: "application/pdf", bytes: pdf.size },
@@ -207,7 +207,7 @@ describe("fixture ApiClient responses", () => {
     const done = await api.completeUpload(session.id, "idem-2");
     D.CompleteUploadResponse.parse(done);
     expect(done.recording.status).toBe("queued");
-    expect(done.recording.folder_id).toBe("fld_os");
+    expect(String(done.recording.folder_id)).toBe("fld_os");
 
     await new Promise((r) => setTimeout(r, 200));
     off();

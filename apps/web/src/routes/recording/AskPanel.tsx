@@ -1,11 +1,12 @@
 // "이 노트에 물어보기": the 물어보기 conversation in the recording's side panel. A citation
-// from this note opens the transcript at that moment (the conversation stays and one
-// click brings it back); one from another note opens that recording.
+// from this note opens the transcript at that moment, or the PDF page (the conversation
+// stays and one click brings it back); one from another note opens that recording.
 
 import { useNavigate } from "@tanstack/react-router";
 import { useAskSuggestions } from "../../api/queries.ts";
 import type { AskCitation, AskScope, Recording } from "../../api/types.ts";
 import { AskConversation } from "../ask/AskConversation.tsx";
+import { citationRange, citationStartMs } from "../ask/citations.ts";
 import { NoteScopePicker } from "../ask/ScopePicker.tsx";
 import type { AskSession } from "../ask/session.ts";
 import { usePlayback } from "./playback.tsx";
@@ -27,16 +28,25 @@ export function AskPanel({
   autoFocus?: boolean;
 }) {
   const navigate = useNavigate();
-  const { jumpToRange } = usePlayback();
-  const suggestions = useAskSuggestions(recording.workspace_id, scope).data ?? [];
+  const { jumpToRange, jumpToTime, showPdfPage } = usePlayback();
+  const suggestions = useAskSuggestions(recording.workspace_id, scope);
 
   const openCitation = (c: AskCitation) => {
-    if (c.recording_id === recording.id) {
-      jumpToRange({ start_idx: c.start_idx, end_idx: c.end_idx });
-      onJump();
-    } else {
-      void navigate({ to: "/recordings/$recordingId", params: { recordingId: c.recording_id }, search: { t: c.start_ms } });
+    if (c.recording_id !== recording.id) {
+      const t = citationStartMs(c);
+      void navigate({ to: "/recordings/$recordingId", params: { recordingId: c.recording_id }, search: t !== null ? { t } : {} });
+      return;
     }
+    if (c.kind === "pdf_page") {
+      showPdfPage(c.asset_id, c.page);
+      return;
+    }
+    const range = citationRange(c);
+    const t = citationStartMs(c);
+    if (range) jumpToRange(range);
+    else if (t !== null) jumpToTime(t);
+    else return;
+    onJump();
   };
 
   return (

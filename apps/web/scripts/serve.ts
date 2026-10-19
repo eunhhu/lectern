@@ -8,7 +8,8 @@
 
 import { webShellResponse } from "../../server/src/web-shell.ts";
 import { BASE_PATH } from "./html.ts";
-import { DIST_DIR } from "./build.ts";
+import { join } from "node:path";
+import { DIST_DIR, argValue } from "./build.ts";
 
 export const PREVIEW_CSP = [
   "default-src 'self'",
@@ -46,6 +47,7 @@ export function startPreviewServer({ port = 4173, distDir = DIST_DIR }: { port?:
 }
 
 if (import.meta.main) {
-  const portArg = process.argv.indexOf("--port");
-  startPreviewServer({ port: portArg > 0 ? Number(process.argv[portArg + 1]) : undefined });
+  const port = argValue("port");
+  const dist = argValue("dist");
+  startPreviewServer({ port: port ? Number(port) : undefined, ...(dist ? { distDir: join(process.cwd(), dist) } : {}) });
 }

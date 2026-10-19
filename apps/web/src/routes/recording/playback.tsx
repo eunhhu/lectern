@@ -9,7 +9,7 @@ import type { Speaker, TranscriptGap, TranscriptSegment } from "../../api/types.
 import { speakerName } from "../../app/labels.ts";
 import { formatSpokenTime } from "../../lib/format.ts";
 import type { MediaClock } from "../../lib/media-clock.ts";
-import { resolveSourceRange } from "../../lib/segments.ts";
+import { findLastStartedIndex, resolveSourceRange } from "../../lib/segments.ts";
 import { announce } from "../../ui/toast.tsx";
 
 export type SidePanel = "transcript" | "files" | "ask";
@@ -34,6 +34,8 @@ interface PlaybackValue {
   seekToSegment: (index: number) => void;
   /** A source chip: seek, highlight the range for 1.5 s, and scroll the transcript to it. */
   jumpToRange: (ref: { start_idx: number; end_idx: number }) => void;
+  /** Like jumpToRange for a source that only has a time (a `[MM:SS]` mark of a legacy note). */
+  jumpToTime: (ms: number) => void;
   pdfTarget: { assetId: string; page: number; token: number } | null;
   showPdfPage: (assetId: string, page: number) => void;
 }
@@ -96,6 +98,23 @@ export function PlaybackProvider({
     [clock, segments, onRequestPanel],
   );
 
+  const jumpToTime = useCallback(
+    (ms: number) => {
+      clock.seek(ms);
+      setFollow(true);
+      onRequestPanel("transcript");
+      const index = findLastStartedIndex(segments, ms);
+      if (index >= 0) {
+        setHighlight({ first: index, last: index });
+        setScrollRequest({ index, align: "start", token: ++token.current });
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => setHighlight(null), 1500);
+      }
+      announce(`${formatSpokenTime(ms)} 구간으로 이동했습니다.`);
+    },
+    [clock, segments, onRequestPanel],
+  );
+
   const showPdfPage = useCallback(
     (assetId: string, page: number) => {
       onRequestPanel("files");
@@ -106,8 +125,8 @@ export function PlaybackProvider({
   );
 
   const value = useMemo<PlaybackValue>(
-    () => ({ clock, segments, gaps, speakerNames, follow, setFollow, highlight, scrollRequest, seekToSegment, jumpToRange, pdfTarget, showPdfPage }),
-    [clock, segments, gaps, speakerNames, follow, highlight, scrollRequest, seekToSegment, jumpToRange, pdfTarget, showPdfPage],
+    () => ({ clock, segments, gaps, speakerNames, follow, setFollow, highlight, scrollRequest, seekToSegment, jumpToRange, jumpToTime, pdfTarget, showPdfPage }),
+    [clock, segments, gaps, speakerNames, follow, highlight, scrollRequest, seekToSegment, jumpToRange, jumpToTime, pdfTarget, showPdfPage],
   );
   return <PlaybackContext.Provider value={value}>{children}</PlaybackContext.Provider>;
 }

@@ -1,18 +1,21 @@
 // 물어보기 (agent / RAG over the notes): ask across the workspace, a folder or one note and
 // get an answer that cites the moments it came from. The conversation history is on the
 // left; ⌘K and the home card open this screen with a question (?q=) and it asks at once.
-// Answers come from ApiClient.ask (fixtures today; README "domain 요청").
+// Answers stream from ApiClient.askQuestion (packages/domain/src/api/ask.ts). While the
+// server has no 물어보기 (501), the screen says it is 준비 중 instead of failing.
 
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useAskSuggestions, useAskThread, useAskThreads } from "../../api/queries.ts";
-import type { AskCitation, AskScope } from "../../api/types.ts";
+import { isNotReady } from "../../api/errors.ts";
+import { useAskSuggestions, useAskThread, useAskThreads, useFolders, useRecordings } from "../../api/queries.ts";
+import { asId, type AskCitation, type AskScope } from "../../api/types.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { useWorkspace } from "../../app/workspace.tsx";
 import { formatRelative } from "../../lib/format.ts";
 import { Icon } from "../../ui/Icon.tsx";
-import { Button } from "../../ui/controls.tsx";
+import { Button, NotReady } from "../../ui/controls.tsx";
 import { AskConversation } from "./AskConversation.tsx";
+import { citationStartMs, scopeLabel } from "./citations.ts";
 import { ScopePicker } from "./ScopePicker.tsx";
 import { useAskSession } from "./session.ts";
 import layout from "../../app/layout.module.css";
@@ -27,12 +30,13 @@ export interface AskSearch {
 }
 
 function scopeFromSearch(search: AskSearch): AskScope {
-  if (search.scope === "folder" && search.id) return { kind: "folder", folder_id: search.id };
-  if (search.scope === "recording" && search.id) return { kind: "recording", recording_id: search.id };
+  if (search.scope === "folder" && search.id) return { kind: "folder", folder_id: asId(search.id), include_subfolders: true };
+  if (search.scope === "recording" && search.id) return { kind: "recording", recording_id: asId(search.id) };
   return { kind: "workspace" };
 }
 
 const SCOPE_ICON = { workspace: "library", folder: "folder", recording: "audio" } as const;
+const scopeIcon = (kind: string) => SCOPE_ICON[kind as keyof typeof SCOPE_ICON] ?? "spark";
 
 export function AskPage() {
   usePageTitle("물어보기");
@@ -40,10 +44,14 @@ export function AskPage() {
   const search = useSearch({ from: "/ask" });
   const { workspaceId } = useWorkspace();
   const session = useAskSession(workspaceId);
-  const threads = useAskThreads(workspaceId).data ?? [];
+  const threadsQuery = useAskThreads(workspaceId);
+  const threads = threadsQuery.data ?? [];
+  const notReady = isNotReady(threadsQuery.error);
+  const folders = useFolders(workspaceId).data ?? [];
+  const recordings = useRecordings(workspaceId).data ?? [];
   const detail = useAskThread(search.thread ?? null);
   const [scope, setScope] = useState<AskScope>(() => scopeFromSearch(search));
-  const suggestions = useAskSuggestions(workspaceId, scope).data ?? [];
+  const suggestions = useAskSuggestions(workspaceId, scope);
   const asked = useRef<string | null>(null);
 
   // ?q= from ⌘K or the home card: ask once, then drop it from the URL.
@@ -58,9 +66,12 @@ export function AskPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.q]);
 
-  // ?thread= shows a saved conversation (unless it is the one on screen).
+  // ?thread= shows a saved conversation (unless it is the one on screen). A stored turn
+  // that is still running is shown as pending and replaced when the thread is read again.
   useEffect(() => {
-    if (detail.data && detail.data.thread.id !== session.threadId) {
+    if (!detail.data) return;
+    const pending = session.turns.some((t) => t.phase === "pending");
+    if (detail.data.thread.id !== session.threadId || pending) {
       session.load(detail.data);
       setScope(detail.data.thread.scope);
     }
@@ -84,7 +95,10 @@ export function AskPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
 
-  const openCitation = (c: AskCitation) => void navigate({ to: "/recordings/$recordingId", params: { recordingId: c.recording_id }, search: { t: c.start_ms } });
+  const openCitation = (c: AskCitation) => {
+    const t = citationStartMs(c);
+    void navigate({ to: "/recordings/$recordingId", params: { recordingId: c.recording_id }, search: t !== null ? { t } : {} });
+  };
 
   return (
     <div className={s.page}>
@@ -105,7 +119,9 @@ export function AskPage() {
             새 대화
           </Button>
         </div>
-        {threads.length === 0 ? (
+        {notReady ? (
+          <p className={s.historyEmpty}>물어보기가 준비되면 대화가 여기에 남습니다.</p>
+        ) : threads.length === 0 ? (
           <p className={s.historyEmpty}>아직 대화가 없습니다.</p>
         ) : (
           <ul className={s.threadList} role="list">
@@ -119,8 +135,8 @@ export function AskPage() {
                 >
                   <span className={s.threadTitle}>{t.title}</span>
                   <span className={s.threadMeta}>
-                    <Icon name={SCOPE_ICON[t.scope.kind]} size={14} />
-                    <span className={s.threadScope}>{t.scope_label}</span> · {formatRelative(t.updated_at, new Date())}
+                    <Icon name={scopeIcon(t.scope.kind)} size={14} />
+                    <span className={s.threadScope}>{scopeLabel(t.scope, folders, recordings)}</span> · {formatRelative(t.updated_at, new Date())}
                   </span>
                 </button>
               </li>
@@ -134,6 +150,13 @@ export function AskPage() {
             물어보기
           </h1>
         </header>
+        {notReady && (
+          <div className={s.notReady}>
+            <NotReady title="물어보기는 아직 준비 중입니다">
+              이 서버에서 물어보기가 아직 켜지지 않았습니다. 켜지면 녹음과 문서에서 답을 찾아 출처와 함께 보여 줍니다.
+            </NotReady>
+          </div>
+        )}
         <AskConversation
           session={session}
           onAsk={(q) => session.send(q, scope)}

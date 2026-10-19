@@ -6,21 +6,31 @@
 // - Intents first: 요약, 마감·일정, 할 일, 결정. They pick the matching parts of the notes.
 // - A question close to an extracted question gets that question's answer.
 // - Otherwise passages are ranked by character-bigram overlap with the question; below a
-//   threshold the answer is `no_evidence` ("관련 내용을 찾지 못했습니다") instead of a guess.
+//   threshold the outcome is `no_answer` ("관련 내용을 찾지 못했습니다") instead of a guess.
 //
-// The real retrieval is designed elsewhere (README "domain 요청").
+// The output has the shape of the real one (packages/domain/src/api/ask.ts): `[c1]`
+// markers in the text, transcript citations narrowed to the cited segments, `support`
+// set when the turn completes. The real retrieval is apps/server + packages/ask.
 
-import { speakerName } from "../../app/labels.ts";
 import type { FixtureData } from "../../fixtures/index.ts";
 import { formatDate, formatTimeOfDay } from "../../lib/format.ts";
 import { findByIdx } from "../../lib/segments.ts";
-import type { AskCitation, AskRequest, AskScope, DocumentBlock, Recording, SourceRef } from "../types.ts";
+import { asId, type AskOutcome, type AskScope, type AskTranscriptCitation, type ChunkId, type DocumentBlock, type Recording, type SourceRef } from "../types.ts";
 
 export interface ComposedAnswer {
   text: string;
-  citations: AskCitation[];
-  status: "complete" | "no_evidence";
-  searched: number;
+  /** Every citation of the text, in order of first use; `support` is set (the stream sends them with null). */
+  citations: AskTranscriptCitation[];
+  outcome: Extract<AskOutcome, "answered" | "no_answer">;
+  /** How many notes were in scope and how many passages were used. */
+  recordingCount: number;
+  passageCount: number;
+}
+
+export interface AskInput {
+  workspaceId: string;
+  scope: AskScope;
+  question: string;
 }
 
 interface Passage {
@@ -95,7 +105,8 @@ export function recordingsInScope(data: FixtureData, workspaceId: string, scope:
   const all = data.recordings.filter((r) => r.workspace_id === workspaceId && PROCESSED.has(r.status) && data.transcripts.has(r.id));
   if (scope.kind === "recording") return all.filter((r) => r.id === scope.recording_id);
   if (scope.kind === "folder") {
-    const ids = new Set([scope.folder_id]);
+    const ids = new Set<string>([scope.folder_id]);
+    if (!scope.include_subfolders) return all.filter((r) => r.folder_id === scope.folder_id);
     for (let grew = true; grew; ) {
       grew = false;
       for (const f of data.folders) if (f.parent_id && ids.has(f.parent_id) && !ids.has(f.id)) (ids.add(f.id), (grew = true));
@@ -103,12 +114,6 @@ export function recordingsInScope(data: FixtureData, workspaceId: string, scope:
     return all.filter((r) => r.folder_id !== null && ids.has(r.folder_id));
   }
   return all;
-}
-
-export function scopeLabel(data: FixtureData, scope: AskScope): string {
-  if (scope.kind === "recording") return data.recordings.find((r) => r.id === scope.recording_id)?.title ?? "노트";
-  if (scope.kind === "folder") return `${data.folders.find((f) => f.id === scope.folder_id)?.name ?? "폴더"} 폴더`;
-  return "전체 노트";
 }
 
 function passagesOf(data: FixtureData, recording: Recording): Passage[] {
@@ -148,18 +153,18 @@ const INTENTS = {
   decision: /결정|합의|정했|결론/,
 };
 
-export function composeAnswer(data: FixtureData, req: AskRequest): ComposedAnswer {
-  const recordings = recordingsInScope(data, req.workspace_id, req.scope);
+export function composeAnswer(data: FixtureData, req: AskInput): ComposedAnswer {
+  const recordings = recordingsInScope(data, req.workspaceId, req.scope);
   const searched = recordings.length;
   const all = recordings.flatMap((r) => passagesOf(data, r));
-  const citations: AskCitation[] = [];
+  const citations: AskTranscriptCitation[] = [];
   const cite = (p: Passage): string => {
     const existing = citations.find((c) => c.recording_id === p.recording.id && c.start_idx === p.source.start_idx);
-    if (existing) return `[${existing.n}]`;
+    if (existing) return `[${existing.label}]`;
     const c = toCitation(data, p, citations.length + 1);
     if (!c) return "";
     citations.push(c);
-    return `[${c.n}]`;
+    return `[${c.label}]`;
   };
   const many = recordings.length > 1;
   // Bullets name their note only when the picked passages span several notes.
@@ -186,7 +191,7 @@ export function composeAnswer(data: FixtureData, req: AskRequest): ComposedAnswe
   const q = req.question.trim();
   const qGrams = grams(questionKey(q));
   const topic = (ps: Passage[]) => (qGrams.size > 1 ? ps.filter((p) => coverage(qGrams, `${p.recording.title} ${p.text}`) >= 0.3) : []);
-  const done = (text: string): ComposedAnswer => ({ text, citations, status: "complete", searched });
+  const done = (text: string): ComposedAnswer => ({ text, citations, outcome: "answered", recordingCount: searched, passageCount: citations.length });
 
   // 마감·일정: events and dated to-dos, soonest first.
   if (INTENTS.deadline.test(q) && !INTENTS.decision.test(q) && !INTENTS.summary.test(q)) {
@@ -263,8 +268,9 @@ export function composeAnswer(data: FixtureData, req: AskRequest): ComposedAnswe
           ? "이 범위에는 처리가 끝난 노트가 없습니다."
           : `이 범위의 노트 ${searched}개에서 ‘${q}’와 관련된 내용을 찾지 못했습니다. 다른 표현으로 묻거나 범위를 넓혀 보세요.`,
       citations: [],
-      status: "no_evidence",
-      searched,
+      outcome: "no_answer",
+      recordingCount: searched,
+      passageCount: 0,
     };
   }
   const picked = relevant.map((x) => x.p);
@@ -272,58 +278,35 @@ export function composeAnswer(data: FixtureData, req: AskRequest): ComposedAnswe
   return done(`${head}\n${bullets(picked, (p) => titled(p, p.text))}`);
 }
 
-function toCitation(data: FixtureData, p: Passage, n: number): AskCitation | null {
+function toCitation(data: FixtureData, p: Passage, n: number): AskTranscriptCitation | null {
   const segments = data.transcripts.get(p.recording.id)?.segments ?? [];
   const first = findByIdx(segments, p.source.start_idx);
   const last = findByIdx(segments, p.source.end_idx);
   if (first < 0 || last < first) return null;
-  const seg = segments[first]!;
-  const speaker = data.speakers.find((s) => s.id === seg.speaker_id);
   const quote = segments
     .slice(first, last + 1)
     .map((s) => s.text)
     .join(" ");
   return {
-    n,
+    kind: "transcript",
+    label: `c${n}`,
+    chunk_id: asId<ChunkId>(`chk_${p.recording.id}_${p.source.start_idx}`),
     recording_id: p.recording.id,
     recording_title: p.recording.title,
+    snippet: quote.length > 160 ? `${quote.slice(0, 160)}…` : quote,
+    // The fixture's sentences are the notes' own, so every citation is supported.
+    support: "supported",
+    available: true,
     start_idx: p.source.start_idx,
     end_idx: p.source.end_idx,
-    start_ms: seg.start_ms,
+    start_ms: segments[first]!.start_ms,
     end_ms: segments[last]!.end_ms,
-    speaker: speaker ? speakerName(speaker.label, speaker.display_name) : null,
-    quote: quote.length > 160 ? `${quote.slice(0, 160)}…` : quote,
   };
 }
 
-/** Chips under the composer: what is worth asking about this scope. */
-export function suggestionsFor(data: FixtureData, workspaceId: string, scope: AskScope): string[] {
-  const recordings = recordingsInScope(data, workspaceId, scope);
-  if (scope.kind === "recording") {
-    const rec = recordings[0];
-    if (!rec) return [];
-    const fromQuestions = data.questions
-      .filter((q) => q.recording_id === rec.id && q.answer)
-      .slice(0, 2)
-      .map((q) => q.prompt);
-    const base =
-      rec.domain === "meeting" || rec.domain === "interview"
-        ? ["결정된 사항은?", "누가 무엇을 맡았어?"]
-        : rec.domain === "lecture"
-          ? ["핵심 내용을 요약해 줘", "시험이나 과제 관련 내용은?"]
-          : ["핵심 내용을 요약해 줘", "해야 할 일이 있었어?"];
-    return [...base, ...fromQuestions].slice(0, 4);
-  }
-  const latest = [...recordings].sort((a, b) => b.recorded_at.localeCompare(a.recorded_at))[0];
-  const out = [scope.kind === "folder" ? "이 폴더 노트들의 핵심을 요약해 줘" : "다가오는 마감과 일정을 정리해 줘", "해야 할 일을 모아 줘"];
-  if (recordings.some((r) => r.domain === "meeting")) out.push("최근 회의에서 결정된 사항은?");
-  if (latest) out.push(`‘${latest.title}’ 핵심 요약`);
-  return out.slice(0, 4);
-}
-
-/** Splits an answer into stream deltas without breaking `[n]` markers or `**`. */
+/** Splits an answer into stream deltas without breaking `[c1]` markers or `**`. */
 export function streamChunks(text: string, size = 4): string[] {
-  const tokens = text.match(/\[\d+\]|\*\*|[\s\S]/g) ?? [];
+  const tokens = text.match(/\[c\d+\]|\*\*|[\s\S]/g) ?? [];
   const out: string[] = [];
   for (let i = 0; i < tokens.length; i += size) out.push(tokens.slice(i, i + size).join(""));
   return out;
