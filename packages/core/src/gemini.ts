@@ -339,6 +339,7 @@ export async function distillLectureAudio(
       modelRequested
     )}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
+    const generateStarted = Date.now();
     const genRes = await geminiFetch("generateContent", genUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -363,6 +364,7 @@ export async function distillLectureAudio(
     }
 
     const data: any = await genRes.json();
+    const generateMs = Date.now() - generateStarted;
     const parts = data?.candidates?.[0]?.content?.parts || [];
     const markdown = parts
       .map((p: any) => p.text || "")
@@ -394,6 +396,9 @@ export async function distillLectureAudio(
       modelUsed,
       durationSec: prep.durationSec,
       sizeBytes: prep.sizeBytes,
+      usage: data?.usageMetadata ?? undefined,
+      requestId: typeof data?.responseId === "string" ? data.responseId : undefined,
+      generateMs,
     };
   } finally {
     if (uploaded?.name) {

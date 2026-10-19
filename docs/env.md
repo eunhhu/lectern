@@ -25,6 +25,7 @@
 | `LECTERN_GEMINI_MODEL` | `gemini-3.8-flash` |  | Pinned Gemini model id (never a -latest alias) |
 | `LECTERN_GEMINI_ALLOWED_MODELS` | — |  | Comma-separated extra model ids requests may select |
 | `LECTERN_GEMINI_TIMEOUT_MS` | `900000` |  | Deadline for one generateContent call |
+| `LECTERN_DISTILL_ENGINE` | `legacy` |  | legacy: the distill job calls packages/core directly; harness: the same Gemini call runs as one stage on packages/harness (stage_run, artifact and ai_call cost rows, resume without a second Gemini call) |
 | `LECTERN_OWNER_EMAIL` | — |  | Bootstrap owner account email |
 | `LECTERN_OWNER_NAME` | — |  | Bootstrap owner display name |
 | `LECTERN_OWNER_ALIASES` | — |  | Comma-separated login ids that resolve to the owner email |
