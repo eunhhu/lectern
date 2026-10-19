@@ -179,7 +179,7 @@ test("loudnessGainDb: towards the target, clamped, 0 for silence", () => {
 });
 
 test("isSupportedCodec", () => {
-  for (const codec of ["aac", "mp3", "opus", "vorbis", "flac", "alac", "amr_nb", "amr_wb", "pcm_s16le", "pcm_s24be", "pcm_f32le"]) {
+  for (const codec of ["aac", "mp3", "opus", "vorbis", "flac", "alac", "amr_nb", "amr_wb", "pcm_s16le", "pcm_s24be", "pcm_f32le", "adpcm_ima_wav", "adpcm_ms"]) {
     expect(isSupportedCodec(codec)).toBe(true);
   }
   for (const codec of ["ac3", "eac3", "dts", "wmav2", "mjpeg", ""]) expect(isSupportedCodec(codec)).toBe(false);

@@ -8,7 +8,7 @@ import { probeAudio, type AudioProbe } from "./probe.ts";
 // normalization or provider cost. Silence is judged on samples spread over the whole recording,
 // not its first five minutes.
 
-/** Audio codecs the pipeline accepts (the upload whitelist's containers), plus every `pcm_*`. */
+/** Audio codecs the pipeline accepts (the upload whitelist's containers), plus every `pcm_*` and `adpcm_*` (WAV). */
 export const SUPPORTED_CODECS: ReadonlySet<string> = new Set([
   "aac",
   "mp3",
@@ -21,7 +21,7 @@ export const SUPPORTED_CODECS: ReadonlySet<string> = new Set([
 ]);
 
 export function isSupportedCodec(codec: string): boolean {
-  return SUPPORTED_CODECS.has(codec) || codec.startsWith("pcm_");
+  return SUPPORTED_CODECS.has(codec) || codec.startsWith("pcm_") || codec.startsWith("adpcm_");
 }
 
 export const SCREEN_DEFAULTS = Object.freeze({

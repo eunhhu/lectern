@@ -42,7 +42,7 @@ map.cuts.map(formatGapMarker); // ["[쉬는 시간: 50:12~1:02:40]", "[종료 �
 
 - 무음 검출: 정규화된 파일에 `silencedetect=noise=-35dB:d=2`(`SILENCE_DEFAULTS`).
 - 지속 발화가 하나도 없으면 아무것도 자르지 않는다.
-- 사전 거부(`SCREEN_DEFAULTS`): 1초 미만·0바이트는 `empty`, 읽기 실패는 `corrupt`, 오디오 트랙 없음은 `no_audio_stream`, 허용 목록(`SUPPORTED_CODECS` + `pcm_*`) 밖은 `unsupported_codec`, 최대 음량 -60dBFS 이하는 `silent`. 무음 판정은 전체 길이에 고르게 퍼진 12개 × 10초 표본으로 하고, 표본이 무음이면 전체 파일을 한 번 더 확인한 뒤에 거부한다.
+- 사전 거부(`SCREEN_DEFAULTS`): 1초 미만·0바이트는 `empty`, 읽기 실패는 `corrupt`, 오디오 트랙 없음은 `no_audio_stream`, 허용 목록(`SUPPORTED_CODECS` + `pcm_*`·`adpcm_*`) 밖은 `unsupported_codec`, 최대 음량 -60dBFS 이하는 `silent`. 무음 판정은 전체 길이에 고르게 퍼진 12개 × 10초 표본으로 하고, 표본이 무음이면 전체 파일을 한 번 더 확인한 뒤에 거부한다.
 
 ## 불변식
 
@@ -50,6 +50,10 @@ map.cuts.map(formatGapMarker); // ["[쉬는 시간: 50:12~1:02:40]", "[종료 �
 - 시간 맵은 잘린 시간에서 0부터 빈틈없이 이어지고, 원본 시간에서 겹치지 않고 증가한다(`validateTimeMap`).
 - `toOriginalMs`는 잘린 오디오 끝을 넘는 시간을 마지막 보존 구간의 끝으로 자른다(공급자는 최대 1초 넘길 수 있다).
 - 청크의 `core_*` 범위는 `[0, cut_duration_ms)`를 정확히 나눈다. 이음매(`seam_ms`)는 겹침 안의 무음에 놓인다.
+
+## ffmpeg 요구 사항
+
+ffmpeg·ffprobe 5.0 이상이 PATH에 있어야 한다. `alimiter`의 `latency` 옵션을 쓰기 때문이다. 확인: `ffmpeg -h filter=alimiter | grep latency`. 옵션이 없는 ffmpeg에서는 정규화가 실패한다(시간이 조용히 밀리지 않는다).
 
 ## 테스트
 
