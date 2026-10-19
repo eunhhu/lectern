@@ -1,0 +1,3 @@
+# The generated files are committed: production deploys a git checkout with no build step,
+# and the test fails when they drift from tokens.json. Re-include them over the root dist/ rule.
+!dist/

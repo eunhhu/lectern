@@ -54,6 +54,10 @@
         "drizzle-kit": "0.31.11",
       },
     },
+    "packages/design-tokens": {
+      "name": "@lectern/design-tokens",
+      "version": "1.0.0",
+    },
     "packages/domain": {
       "name": "@lectern/domain",
       "version": "0.1.0",
@@ -126,6 +130,8 @@
     "@lectern/core": ["@lectern/core@workspace:packages/core"],
 
     "@lectern/db": ["@lectern/db@workspace:packages/db"],
+
+    "@lectern/design-tokens": ["@lectern/design-tokens@workspace:packages/design-tokens"],
 
     "@lectern/domain": ["@lectern/domain@workspace:packages/domain"],
 

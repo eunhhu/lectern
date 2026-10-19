@@ -1,0 +1,14 @@
+{
+  "name": "@lectern/design-tokens",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tokens.json": "./tokens.json",
+    "./tokens.css": "./dist/tokens.css",
+    "./tokens-css": "./dist/tokens-css.ts"
+  },
+  "scripts": {
+    "build": "bun scripts/build.ts"
+  }
+}

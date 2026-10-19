@@ -15,7 +15,8 @@
     "domain:openapi": "bun packages/domain/scripts/openapi.ts",
     "test": "bun test",
     "typecheck": "bun x tsc --noEmit",
-    "config:docs": "bun packages/config/scripts/write-env-docs.ts"
+    "config:docs": "bun packages/config/scripts/write-env-docs.ts",
+    "tokens:build": "bun packages/design-tokens/scripts/build.ts"
   },
   "license": "MIT",
   "devDependencies": {
