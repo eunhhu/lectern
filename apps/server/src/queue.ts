@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { config } from "@lectern/config";
 import { db } from "./db.ts";
+import { logger } from "./log.ts";
 import { openSecret, sealSecret } from "./secrets.ts";
 
 export interface JobOutcome {
@@ -326,7 +327,7 @@ export function reclaimExpiredLeases(now = Date.now()): { requeued: number; fail
       try {
         handlers.get(job.kind)?.onLost?.({ id: job.id, subjectId: job.subject_id, ownerId: job.owner_id });
       } catch (err) {
-        console.error(`onLost for ${job.kind} ${job.id} failed:`, err);
+        logger.error("onLost hook failed", { job_id: job.id, kind: job.kind, err });
       }
     }
   }
@@ -345,8 +346,8 @@ export class JobWorker {
 
   constructor(options: { id?: string; leaseTtlMs?: number; pollMs?: number } = {}) {
     this.id = options.id ?? `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
-    this.leaseTtlMs = options.leaseTtlMs ?? 60_000;
-    this.pollMs = options.pollMs ?? 1_000;
+    this.leaseTtlMs = options.leaseTtlMs ?? config().jobLeaseTtlMs;
+    this.pollMs = options.pollMs ?? config().jobPollMs;
   }
 
   start(): void {
@@ -392,7 +393,7 @@ export class JobWorker {
         }
       }
     } catch (err) {
-      console.error("Job worker tick failed:", err);
+      logger.error("job worker tick failed", { err });
     }
     this.schedule(this.pollMs);
   }
@@ -426,7 +427,7 @@ export class JobWorker {
           this.id
         );
       } catch (err) {
-        console.error(`Heartbeat for ${row.id} failed:`, err);
+        logger.error("job heartbeat failed", { job_id: row.id, err });
       }
     }, Math.max(250, Math.floor(this.leaseTtlMs / 3)));
     heartbeat.unref?.();
@@ -473,7 +474,7 @@ export class JobWorker {
         this.id
       );
     } catch (err) {
-      console.error(`Could not record the outcome of ${row.id}:`, err);
+      logger.error("could not record job outcome", { job_id: row.id, err });
     }
     active.delete(row.id);
     if (this.activeCount === 0) {

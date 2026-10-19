@@ -131,6 +131,10 @@ export interface AdminOpsDto {
     ffmpegAvailable: boolean;
     /** Requests served since boot, and how many ended in a 5xx. */
     requests: { total: number; errors5xx: number };
+    /** Where jobs run: in the API process, or in lectern-worker processes. */
+    workerMode?: "embedded" | "external";
+    /** External workers seen in the last minute (empty in embedded mode). */
+    workers?: Array<{ id: string; pid: number; sha: string; active: number; lastSeenAt: string }>;
   };
   jobs: {
     concurrency: { distill: number; compact: number };

@@ -15,6 +15,8 @@
 | `LECTERN_LOG_FORMAT` | `json` |  | json for journald/production, pretty for local development |
 | `LECTERN_SHUTDOWN_GRACE_SEC` | `20` |  | Seconds running jobs get to finish on SIGTERM / deploy |
 | `LECTERN_MAX_CONCURRENT_JOBS` | `2` |  | Concurrent distillations |
+| `LECTERN_JOB_LEASE_TTL_MS` | `60000` |  | How long a worker's claim on a job lasts without a heartbeat before others reclaim it |
+| `LECTERN_JOB_POLL_MS` | `1000` |  | Worker poll interval for new jobs |
 | `LECTERN_MAX_CONCURRENT_COMPACT` | `1` |  | Concurrent audio compactions |
 | `LECTERN_MAINTENANCE_INTERVAL_MIN` | `60` |  | Maintenance cadence (expired rows, trash, retention, backups, WAL) |
 | `LECTERN_BACKUP_KEEP` | `7` |  | Database backups kept |

@@ -71,6 +71,11 @@ const ENV = {
     description: "Seconds running jobs get to finish on SIGTERM / deploy",
   },
   LECTERN_MAX_CONCURRENT_JOBS: { schema: int(1, 16, 2), description: "Concurrent distillations" },
+  LECTERN_JOB_LEASE_TTL_MS: {
+    schema: int(1_000, 3_600_000, 60_000),
+    description: "How long a worker's claim on a job lasts without a heartbeat before others reclaim it",
+  },
+  LECTERN_JOB_POLL_MS: { schema: int(50, 60_000, 1_000), description: "Worker poll interval for new jobs" },
   LECTERN_MAX_CONCURRENT_COMPACT: { schema: int(1, 8, 1), description: "Concurrent audio compactions" },
   LECTERN_MAINTENANCE_INTERVAL_MIN: {
     schema: int(5, 1440, 60),
@@ -144,6 +149,8 @@ export interface Config {
   shutdownGraceMs: number;
   maxConcurrentJobs: number;
   maxConcurrentCompact: number;
+  jobLeaseTtlMs: number;
+  jobPollMs: number;
   maintenanceIntervalMin: number;
   backupKeep: number;
   backupIntervalHours: number;
@@ -199,6 +206,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     shutdownGraceMs: p.LECTERN_SHUTDOWN_GRACE_SEC * 1000,
     maxConcurrentJobs: p.LECTERN_MAX_CONCURRENT_JOBS,
     maxConcurrentCompact: p.LECTERN_MAX_CONCURRENT_COMPACT,
+    jobLeaseTtlMs: p.LECTERN_JOB_LEASE_TTL_MS,
+    jobPollMs: p.LECTERN_JOB_POLL_MS,
     maintenanceIntervalMin: p.LECTERN_MAINTENANCE_INTERVAL_MIN,
     backupKeep: p.LECTERN_BACKUP_KEEP,
     backupIntervalHours: p.LECTERN_BACKUP_INTERVAL_HOURS,
