@@ -35,6 +35,18 @@ for (const [path, expected] of checks) {
   }
 }
 
+// Build this release's web app now, before the restart; the new server promotes it at
+// boot (web-build.ts). A broken build fails the deploy like any other check.
+if (failures.length === 0) {
+  try {
+    const { resolveGitSha } = await import("./ops.ts");
+    const { stageWebBuild } = await import("./web-build.ts");
+    await stageWebBuild(resolveGitSha());
+  } catch (err: any) {
+    failures.push(`web build → ${err?.message || err}`);
+  }
+}
+
 if (failures.length) {
   console.error(`Preflight failed:\n${failures.join("\n")}`);
   process.exit(1);
