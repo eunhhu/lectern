@@ -111,6 +111,15 @@ describe("pairFiles", () => {
     expect(names(far.unmatched)).toEqual(["c.pdf"]);
   });
 
+  test("time alone does not choose between recordings that are about as close", () => {
+    const r = pairFiles([
+      file("새로운 녹음 23.m4a", { lastModified: T }),
+      file("새로운 녹음 24.m4a", { lastModified: T + 60_000 }),
+      file("handout.pdf", { lastModified: T + 30_000 }),
+    ]);
+    expect(names(r.unmatched)).toEqual(["handout.pdf"]);
+  });
+
   test("a drop with one recording takes every PDF", () => {
     const r = pairFiles([file("녹음.m4a"), file("slides.pdf", { lastModified: T - 48 * HOUR }), file("reading.pdf")]);
     expect(r.groups).toHaveLength(1);

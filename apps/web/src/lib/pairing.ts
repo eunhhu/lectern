@@ -8,7 +8,7 @@
 // 2. Numbers in both names ("7주차", "lecture07") must share at least one value.
 // 3. Shared words (minus filler like "녹음", "slides", "강의자료") raise the score.
 // 4. Close modification times add a little (within 3 hours), and alone are enough
-//    within about 15 minutes.
+//    within about 15 minutes, as long as no other recording is about as close.
 // 5. If the drop has a single recording, every PDF belongs to it.
 // Audio files that differ only by an explicit part marker ("1부"/"2부", "part1") become
 // one recording with several audio parts.
@@ -143,6 +143,8 @@ export interface PairingResult<F> {
 
 export const PAIR_THRESHOLD = 0.45;
 const TIME_WINDOW_MS = 3 * 3_600_000;
+/** A time-only match must beat every other recording by this much (≈20 minutes). */
+const TIME_MARGIN = 0.05;
 
 interface Candidate {
   score: number;
@@ -231,19 +233,21 @@ export function pairFiles<F extends FileLike>(files: readonly F[], timeZone = DE
 
   const unmatched: F[] = [];
   for (const pdf of pdfs) {
-    let best: { group: number; candidate: Candidate } | null = null;
-    audioGroups.forEach((parts, g) => {
+    // Best candidate per group (over its audio parts), then the best and runner-up groups.
+    const perGroup = audioGroups.map((parts, group) => {
+      let best: Candidate | null = null;
       for (const part of parts) {
-        const candidate = scorePair(part, pdf);
-        const better =
-          !best ||
-          candidate.score > best.candidate.score ||
-          (candidate.score === best.candidate.score && candidate.timeGap < best.candidate.timeGap);
-        if (better) best = { group: g, candidate };
+        const c = scorePair(part, pdf);
+        if (!best || c.score > best.score || (c.score === best.score && c.timeGap < best.timeGap)) best = c;
       }
+      return { group, candidate: best! };
     });
-    const chosen = best as { group: number; candidate: Candidate } | null;
-    if (chosen && chosen.candidate.score >= PAIR_THRESHOLD) {
+    perGroup.sort((a, b) => b.candidate.score - a.candidate.score || a.candidate.timeGap - b.candidate.timeGap || a.group - b.group);
+    const [chosen, runnerUp] = perGroup;
+    // Modification time alone only decides when it clearly singles out one recording.
+    const timeOnly = chosen !== undefined && chosen.candidate.reasons.every((r) => r === "time");
+    const ambiguous = timeOnly && runnerUp !== undefined && runnerUp.candidate.score >= chosen!.candidate.score - TIME_MARGIN;
+    if (chosen && chosen.candidate.score >= PAIR_THRESHOLD && !ambiguous) {
       groups[chosen.group]!.pdfs.push({ file: pdf.file, reasons: chosen.candidate.reasons });
     } else if (groups.length === 1) {
       groups[0]!.pdfs.push({ file: pdf.file, reasons: ["only_recording"] });

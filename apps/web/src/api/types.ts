@@ -109,18 +109,19 @@ export type EventCandidatePage = Page<EventCandidate>;
 export type ActionItemPage = Page<ActionItem>;
 export type SearchHitPage = Page<SearchHit>;
 
-// Enums. The domain's exported enum types widen to `string`, and a top-level enum schema
-// does not infer cleanly either, so each is read off the entity field that uses it.
-export type RecordingDomain = Recording["domain"];
-export type RecordingStatus = Recording["status"];
-export type JobState = Job["state"];
-export type StageName = Out<typeof D.StageRun>["stage"];
-export type StageRunState = Out<typeof D.StageRun>["state"];
-export type MembershipRole = MyWorkspace["role"];
-export type GapKind = TranscriptGap["kind"];
-export type EventKind = EventCandidate["kind"];
-export type EventCandidateStatus = EventCandidate["status"];
-export type ActionItemStatus = ActionItem["status"];
-export type QuestionKind = Question["kind"];
-export type VerifyFlag = Question["flags"][number];
-export type TagSource = RecordingTag["source"];
+// Enums are typed correctly in the domain; only ids need the workaround.
+export type {
+  ActionItemStatus,
+  EventCandidateStatus,
+  EventKind,
+  GapKind,
+  JobState,
+  MembershipRole,
+  QuestionKind,
+  RecordingDomain,
+  RecordingStatus,
+  StageName,
+  StageRunState,
+  TagSource,
+  VerifyFlag,
+} from "@lectern/domain";

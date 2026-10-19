@@ -21,6 +21,7 @@ import {
   TreeItem,
   TreeItemContent,
   useDragAndDrop,
+  type Key,
   type Selection,
 } from "react-aria-components";
 import { useFolders, useRecordings, useTags } from "../../api/queries.ts";
@@ -188,6 +189,10 @@ function FilterPane({
   const tags = useTags(workspaceId).data ?? [];
   const move = useBulkMove();
   const tree = folderTree(folders);
+  // Parents start expanded once the folders have loaded; the viewer can collapse them.
+  const [expanded, setExpanded] = useState<Set<Key> | null>(null);
+  const parents = folders.filter((f) => folders.some((c) => c.parent_id === f.id)).map((f) => f.id);
+  const expandedKeys = expanded ?? new Set<Key>(parents);
 
   const countIn = (id: string) => {
     const ids = folderAndDescendants(folders, id);
@@ -261,7 +266,8 @@ function FilterPane({
             const [key] = keys === "all" ? [] : [...keys];
             if (key !== undefined) void navigate({ to: "/library", search: { folder: String(key) } });
           }}
-          defaultExpandedKeys={folders.filter((f) => folders.some((c) => c.parent_id === f.id)).map((f) => f.id)}
+          expandedKeys={expandedKeys}
+          onExpandedChange={(keys) => setExpanded(new Set(keys))}
           dragAndDropHooks={dragAndDropHooks}
         >
           {tree.map(renderNode)}
