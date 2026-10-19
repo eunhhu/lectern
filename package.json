@@ -13,6 +13,7 @@
     "dev": "bun --watch apps/server/src/index.ts",
     "start": "bun apps/server/src/index.ts",
     "cli": "bun packages/core/src/cli.ts",
+    "harness": "bun packages/harness/src/cli.ts",
     "domain:openapi": "bun packages/domain/scripts/openapi.ts",
     "test": "bun test",
     "typecheck": "bun x tsc --noEmit",

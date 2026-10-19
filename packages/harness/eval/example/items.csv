@@ -1,0 +1,3 @@
+id,audio,reference,language,domain,consent,notes
+lecture-break,synth,ref/lecture-break.md,ko,lecture,synthetic,"합성 강의: 20분 휴식과 꼬리, 학생 질문"
+interview-2p,synth,ref/interview-2p.md,ko,interview,synthetic,"합성 인터뷰: 두 화자, 4~6분은 검수 안 함"
