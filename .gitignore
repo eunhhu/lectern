@@ -16,6 +16,10 @@ apps/android/app/build/
 apps/windows/bin/
 apps/windows/obj/
 
+# apps/web release builds staged by the deploy preflight (apps/server/src/web-build.ts)
+apps/web/dist.next/
+apps/web/dist.prev/
+
 # apps/web Playwright output
 apps/web/test-results/
 apps/web/playwright-report/
