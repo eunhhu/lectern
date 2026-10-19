@@ -11,7 +11,6 @@ const SCREENS: { path: string; label: string; ready: string | RegExp }[] = [
   { path: "/app/recordings/rec_ds04", label: "녹음 상세(일부 완료)", ready: "일부 구간을 전사하지 못했습니다." },
   { path: "/app/recordings/rec_os08", label: "녹음 상세(처리 중)", ready: /전사 중/ },
   { path: "/app/recordings/rec_test", label: "녹음 상세(실패)", ready: "이 녹음을 처리하지 못했습니다." },
-  { path: "/app/review", label: "복습", ready: "정답 보기" },
   { path: "/app/calendar", label: "일정", ready: "캘린더 연결" },
   { path: "/app/settings", label: "설정", ready: "한 글자 단축키 사용" },
 ];
@@ -93,12 +92,6 @@ test("new screens and states have no axe violations", async ({ page, axe }) => {
   await page.getByRole("tab", { name: "주" }).click();
   await expect(page.getByRole("button", { name: "다음 주" })).toBeVisible();
   await axe(page, "일정 (주)");
-
-  // Review with the answer shown.
-  await page.goto("/app/review");
-  await page.getByRole("button", { name: "정답 보기" }).click();
-  await expect(page.getByRole("button", { name: /알았어요/ })).toBeVisible();
-  await axe(page, "복습 (정답)");
 
   // Library: folder menu open, then a folder being renamed, then the tag menu.
   await page.goto("/app/library");

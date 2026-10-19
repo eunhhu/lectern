@@ -1,4 +1,4 @@
-// Not-found route (the review, calendar and settings screens have their own modules now).
+// Not-found route (every other screen has its own module).
 
 import { useNavigate } from "@tanstack/react-router";
 import { usePageTitle } from "../app/RootLayout.tsx";

@@ -171,30 +171,6 @@
   color: var(--color-text-tertiary);
 }
 
-.reviewStats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-16);
-  padding: var(--space-20) var(--space-16);
-}
-
-.stat {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.statValue {
-  font: var(--typography-display);
-  letter-spacing: var(--typography-display-letter-spacing);
-  font-variant-numeric: tabular-nums;
-}
-
-.statLabel {
-  font: var(--typography-caption);
-  color: var(--color-text-secondary);
-}
-
 .recentSection {
   margin-top: var(--space-32);
 }

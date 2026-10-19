@@ -95,7 +95,7 @@ describe("account through the ApiClient", () => {
   });
 });
 
-describe("fixture calendar and review data", () => {
+describe("fixture calendar data", () => {
   const api = client();
 
   test("confirmed events, suggestions and dated to-dos are spread over several weeks", () => {
@@ -106,14 +106,6 @@ describe("fixture calendar and review data", () => {
     const days = new Set([...confirmed, ...suggested].map((e) => dayKey(e.start_at)));
     expect(days.size).toBeGreaterThanOrEqual(7);
     expect(api.data.actionItems.filter((a) => a.due_at).length).toBeGreaterThanOrEqual(6);
-  });
-
-  test("review has recall cards with difficulty and meeting issues", () => {
-    const recall = api.data.questions.filter((q) => q.kind === "recall");
-    expect(recall.length).toBeGreaterThanOrEqual(15);
-    expect(new Set(recall.map((q) => q.difficulty))).toEqual(new Set(["easy", "medium", "hard"]));
-    expect(api.data.questions.some((q) => q.kind === "issue")).toBe(true);
-    expect(api.data.questions.some((q) => q.kind === "discussion")).toBe(true);
   });
 });
 

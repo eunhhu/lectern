@@ -6,7 +6,7 @@ import type { IconName } from "../ui/Icon.tsx";
 export interface ShortcutInfo {
   keys: string[];
   label: string;
-  group: "이동" | "명령" | "목록" | "폴더·태그" | "녹음 상세" | "복습";
+  group: "이동" | "명령" | "목록" | "폴더·태그" | "녹음 상세";
 }
 
 export const SHORTCUTS: ShortcutInfo[] = [
@@ -15,7 +15,6 @@ export const SHORTCUTS: ShortcutInfo[] = [
   { keys: ["?"], label: "단축키 보기", group: "명령" },
   { keys: ["G", "H"], label: "홈으로 이동", group: "이동" },
   { keys: ["G", "L"], label: "라이브러리로 이동", group: "이동" },
-  { keys: ["G", "R"], label: "복습으로 이동", group: "이동" },
   { keys: ["G", "C"], label: "일정으로 이동", group: "이동" },
   { keys: ["G", "S"], label: "설정으로 이동", group: "이동" },
   { keys: ["↑", "↓"], label: "항목 사이 이동", group: "목록" },
@@ -31,25 +30,19 @@ export const SHORTCUTS: ShortcutInfo[] = [
   { keys: ["⇧←", "⇧→"], label: "30초 뒤로, 앞으로", group: "녹음 상세" },
   { keys: ["[", "]"], label: "재생 속도 낮추기, 높이기", group: "녹음 상세" },
   { keys: ["Enter"], label: "전사 구간으로 이동", group: "녹음 상세" },
-  { keys: ["Space"], label: "정답 보기", group: "복습" },
-  { keys: ["1"], label: "다시 볼래요", group: "복습" },
-  { keys: ["2"], label: "알았어요", group: "복습" },
-  { keys: ["←", "→"], label: "이전 카드, 다음 카드", group: "복습" },
 ];
 
-export const GO_KEYS: Record<string, "/" | "/library" | "/review" | "/calendar" | "/settings"> = {
+export const GO_KEYS: Record<string, "/" | "/library" | "/calendar" | "/settings"> = {
   h: "/",
   l: "/library",
-  r: "/review",
   c: "/calendar",
   s: "/settings",
 };
 
 /** Sidebar order is fixed (WCAG 3.2.3). */
-export const NAV_ITEMS: { to: "/" | "/library" | "/review" | "/calendar" | "/settings"; label: string; icon: IconName; key: string }[] = [
+export const NAV_ITEMS: { to: "/" | "/library" | "/calendar" | "/settings"; label: string; icon: IconName; key: string }[] = [
   { to: "/", label: "홈", icon: "inbox", key: "H" },
   { to: "/library", label: "라이브러리", icon: "library", key: "L" },
-  { to: "/review", label: "복습", icon: "review", key: "R" },
   { to: "/calendar", label: "일정", icon: "calendar", key: "C" },
   { to: "/settings", label: "설정", icon: "settings", key: "S" },
 ];

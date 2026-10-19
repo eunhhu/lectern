@@ -762,69 +762,6 @@
   gap: var(--space-4);
 }
 
-.questions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-12);
-}
-
-.question {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
-  padding: var(--space-12);
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-md);
-}
-
-.questionPrompt {
-  font-weight: var(--font-weight-medium);
-  line-height: var(--font-line-height-relaxed);
-}
-
-.questionNumber {
-  color: var(--color-text-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-.questionMeta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-6);
-}
-
-.disclosureHeading {
-  font: inherit;
-}
-
-.disclosureButton {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-4);
-  height: var(--size-control-sm);
-  padding: 0 var(--space-6);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.disclosureButton[data-hovered] {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.disclosureButton[aria-expanded="true"] svg {
-  transform: rotate(90deg);
-}
-
-.disclosurePanel {
-  padding: var(--space-4) var(--space-6) 0;
-  line-height: var(--font-line-height-relaxed);
-}
-
 .itemList {
   display: flex;
   flex-direction: column;

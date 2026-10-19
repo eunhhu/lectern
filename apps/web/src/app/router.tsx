@@ -8,7 +8,6 @@ import { LibraryPage } from "../routes/library/LibraryPage.tsx";
 import { RecordingPage } from "../routes/recording/RecordingPage.tsx";
 import { CalendarPage } from "../routes/calendar/CalendarPage.tsx";
 import { NotFoundPage } from "../routes/placeholders.tsx";
-import { ReviewPage } from "../routes/review/ReviewPage.tsx";
 import { SettingsPage } from "../routes/settings/SettingsPage.tsx";
 
 export interface LibrarySearch {
@@ -48,11 +47,10 @@ const recordingRoute = createRoute({
   component: RecordingPage,
 });
 
-const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewPage });
 const calendarRoute = createRoute({ getParentRoute: () => rootRoute, path: "/calendar", component: CalendarPage });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage });
 
-const routeTree = rootRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, reviewRoute, calendarRoute, settingsRoute]);
+const routeTree = rootRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, calendarRoute, settingsRoute]);
 
 export function createAppRouter() {
   return createRouter({ routeTree, basepath: "/app", defaultPreload: false });

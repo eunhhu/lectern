@@ -50,7 +50,6 @@ interface Section {
 const NAV_ALIASES: Record<string, string[]> = {
   "/": ["home", "inbox", "수신함"],
   "/library": ["library", "recordings", "녹음"],
-  "/review": ["review", "questions", "카드"],
   "/calendar": ["calendar", "schedule", "events"],
   "/settings": ["settings", "preferences", "환경"],
 };

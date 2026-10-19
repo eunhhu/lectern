@@ -6,7 +6,6 @@ import type { SVGProps } from "react";
 const PATHS = {
   home: "M2.5 7.5 8 3l5.5 4.5M4 6.5V13h3v-3h2v3h3V6.5",
   library: "M3 2.5h2.5v11H3zM7 2.5h2.5v11H7zM11.2 3.2l2.3-.6 2 10.6-2.3.5z",
-  review: "M2.5 4.5h8v9h-8zM5.5 2.5h8v9",
   calendar: "M2.5 4h11v9.5h-11zM2.5 7h11M5.5 2.5v3M10.5 2.5v3",
   settings: "M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2",
   search: "M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9ZM10.3 10.3l3.2 3.2",

@@ -1,5 +1,5 @@
-// 홈/수신함 (ARCHITECTURE §7): recordings in progress, recordings that need attention and
-// the review deck on the left; event suggestions to confirm and what is coming up on the
+// 홈/수신함 (ARCHITECTURE §7): recordings in progress and recordings that need attention
+// on the left; event suggestions to confirm and what is coming up on the
 // right; recent documents below.
 
 import { Link } from "@tanstack/react-router";
@@ -12,7 +12,6 @@ import {
   useRecordings,
   useSuggestions,
   useWorkspaceActionItems,
-  useWorkspaceQuestions,
 } from "../../api/queries.ts";
 import type { EventCandidate, RecordingListItem } from "../../api/types.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
@@ -92,8 +91,6 @@ export function InboxPage() {
               </ul>
             </section>
           )}
-
-          <ReviewCard />
         </div>
         <div className={s.column}>
           <section className={s.card} aria-labelledby="inbox-suggestions">
@@ -264,35 +261,6 @@ function UpcomingCard({ now }: { now: Date }) {
           ))}
         </ul>
       )}
-    </section>
-  );
-}
-
-function ReviewCard() {
-  const { workspaceId } = useWorkspace();
-  const questions = useWorkspaceQuestions(workspaceId).data ?? [];
-  const recall = questions.filter(({ question }) => question.kind === "recall").length;
-  const issues = questions.length - recall;
-  return (
-    <section className={s.card} aria-labelledby="inbox-review">
-      <div className={s.cardHead}>
-        <h2 id="inbox-review" className={s.cardTitle}>
-          복습
-        </h2>
-        <Link to="/review" className={s.more}>
-          복습 시작 <Icon name="chevronRight" size={14} />
-        </Link>
-      </div>
-      <div className={s.reviewStats}>
-        <p className={s.stat}>
-          <span className={s.statValue}>{recall}</span>
-          <span className={s.statLabel}>강의 질문 카드</span>
-        </p>
-        <p className={s.stat}>
-          <span className={s.statValue}>{issues}</span>
-          <span className={s.statLabel}>회의 쟁점·토론</span>
-        </p>
-      </div>
     </section>
   );
 }

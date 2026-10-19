@@ -1,10 +1,10 @@
-// Right column: PDFs (viewer placeholder, ARCHITECTURE §7 PDF 뷰어 comes with pdf.js in
-// P3), recall questions, and extracted events and action items.
+// The files panel: PDFs (viewer placeholder, ARCHITECTURE §7 PDF 뷰어 comes with pdf.js in
+// P3) and the events and action items found in the recording.
 
 import { useEffect, useState } from "react";
-import { Button as AriaButton, Disclosure, DisclosurePanel, Heading, Tab, TabList, TabPanel, Tabs } from "react-aria-components";
-import { useActionItems, useQuestions, useRecordingEvents } from "../../api/queries.ts";
-import type { AssetDto, Question, SourceRef } from "../../api/types.ts";
+import { Button as AriaButton, Tab, TabList, TabPanel, Tabs } from "react-aria-components";
+import { useActionItems, useRecordingEvents } from "../../api/queries.ts";
+import type { AssetDto, SourceRef } from "../../api/types.ts";
 import { formatBytes, formatDate, formatTimeOfDay, formatTimestamp } from "../../lib/format.ts";
 import { resolveSourceRange } from "../../lib/segments.ts";
 import { Icon } from "../../ui/Icon.tsx";
@@ -12,7 +12,6 @@ import { Badge, EmptyState } from "../../ui/controls.tsx";
 import { usePlayback } from "./playback.tsx";
 import s from "./recording.module.css";
 
-const DIFFICULTY: Record<string, string> = { easy: "쉬움", medium: "보통", hard: "어려움" };
 const EVENT_STATUS: Record<string, { label: string; tone: "attention" | "success" | "neutral" | "info" }> = {
   suggested: { label: "제안", tone: "attention" },
   accepted: { label: "추가함", tone: "success" },
@@ -28,12 +27,9 @@ export function SidePane({ recordingId, assets, ready }: { recordingId: string; 
   }, [pdfTarget]);
   return (
     <Tabs className={s.sideTabs} selectedKey={tab} onSelectionChange={(k) => setTab(String(k))}>
-      <TabList className={s.tabList} aria-label="자료와 질문">
+      <TabList className={s.tabList} aria-label="자료">
         <Tab id="files" className={s.tab}>
-          자료
-        </Tab>
-        <Tab id="questions" className={s.tab}>
-          질문
+          파일
         </Tab>
         <Tab id="items" className={s.tab}>
           일정·할 일
@@ -41,9 +37,6 @@ export function SidePane({ recordingId, assets, ready }: { recordingId: string; 
       </TabList>
       <TabPanel id="files" className={s.tabPanel}>
         <Files assets={assets} />
-      </TabPanel>
-      <TabPanel id="questions" className={s.tabPanel}>
-        <Questions recordingId={recordingId} enabled={ready} />
       </TabPanel>
       <TabPanel id="items" className={s.tabPanel}>
         <Items recordingId={recordingId} enabled={ready} />
@@ -127,47 +120,6 @@ function SourceLinks({ sources }: { sources: SourceRef[] }) {
         return null;
       })}
     </span>
-  );
-}
-
-function Questions({ recordingId, enabled }: { recordingId: string; enabled: boolean }) {
-  const questions = useQuestions(recordingId, enabled).data ?? [];
-  if (!questions.length) {
-    return <EmptyState icon="review" title="질문이 없습니다.">처리가 끝난 강의에는 복습 질문이 만들어집니다.</EmptyState>;
-  }
-  return (
-    <ol className={s.questions} role="list">
-      {questions.map((q, i) => (
-        <QuestionCard key={q.id} question={q} n={i + 1} />
-      ))}
-    </ol>
-  );
-}
-
-function QuestionCard({ question, n }: { question: Question; n: number }) {
-  return (
-    <li className={s.question}>
-      <p className={s.questionPrompt}>
-        <span className={s.questionNumber}>Q{n}.</span> {question.prompt}
-      </p>
-      <p className={s.questionMeta}>
-        {question.difficulty && <Badge>{DIFFICULTY[question.difficulty]}</Badge>}
-        {question.flags.includes("low_confidence") && <Badge tone="attention">출처 확인 필요</Badge>}
-        <SourceLinks sources={question.sources} />
-      </p>
-      {question.answer && (
-        <Disclosure className={s.disclosure}>
-          <Heading level={3} className={s.disclosureHeading}>
-            <AriaButton slot="trigger" className={s.disclosureButton}>
-              <Icon name="chevronRight" size={12} /> 답 보기
-            </AriaButton>
-          </Heading>
-          <DisclosurePanel className={s.disclosurePanel}>
-            <p>{question.answer}</p>
-          </DisclosurePanel>
-        </Disclosure>
-      )}
-    </li>
   );
 }
 

@@ -1,4 +1,4 @@
-// Folder and tag editing, select all, review, calendar and the user menu.
+// Folder and tag editing, select all, calendar and the user menu.
 
 import { expect, tabTo, test } from "./fixtures.ts";
 
@@ -128,29 +128,6 @@ test("select all, partial selection and clearing from the list header", async ({
   await toolbar.getByRole("button", { name: "선택 해제" }).click();
   await expect(toolbar).toHaveCount(0);
   await expect(page.getByText("녹음 12개")).toBeVisible();
-});
-
-test("review: reveal, rate and finish with the keyboard", async ({ page }) => {
-  await page.goto("/app/review");
-  await page.getByRole("button", { name: "카드 종류" }).click();
-  await page.getByRole("option", { name: "회의 쟁점·토론" }).click();
-  // The personal workspace has no meetings; switch the deck back and filter by recording.
-  await page.getByRole("button", { name: "카드 종류" }).click();
-  await page.getByRole("option", { name: "강의 질문 카드" }).click();
-  await page.getByRole("main").getByRole("button", { name: /모든 녹음/ }).click();
-  await page.getByRole("option", { name: "자료구조 4주차 — 트리 순회" }).click();
-  await expect(page.getByText("1 / 2")).toBeVisible();
-  await page.locator("body").press("Space");
-  await expect(page.getByText("정답", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: /^출처 \d/ })).toBeVisible();
-  await page.locator("body").press("2");
-  await expect(page.getByText("2 / 2")).toBeVisible();
-  await page.locator("body").press("Space");
-  await page.locator("body").press("1");
-  await expect(page.getByText("카드 2장을 모두 봤습니다.")).toBeVisible();
-  await expect(page.getByText("알았어요 1 · 다시 볼래요 1")).toBeVisible();
-  await page.getByRole("button", { name: "다시 볼 카드만 (1)" }).click();
-  await expect(page.getByText("1 / 1")).toBeVisible();
 });
 
 test("calendar: confirmed events show, a suggestion can be added, days are reachable by keyboard", async ({ page }) => {

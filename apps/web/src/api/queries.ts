@@ -11,7 +11,6 @@ import type {
   CreateTagRequest,
   EventCandidate,
   JobId,
-  Question,
   RecordingListItem,
   ServerEvent,
   StageName,
@@ -46,7 +45,6 @@ export const queryKeys = {
   jobProgress: (jobId: string) => ["job-progress", jobId] as const,
   members: (ws: string) => ["members", ws] as const,
   devices: ["devices"] as const,
-  workspaceQuestions: (ws: string) => ["workspace-questions", ws] as const,
   workspaceActionItems: (ws: string) => ["workspace-action-items", ws] as const,
   calendar: (ws: string) => ["calendar", ws] as const,
 };
@@ -304,25 +302,11 @@ export function useTagActions(ws: WorkspaceId) {
   };
 }
 
-// --- review and calendar ----------------------------------------------------
-// There are no workspace-level lists for questions and action items yet (README
-// "domain 요청"), so these gather the per-recording lists of processed recordings.
+// --- calendar -----------------------------------------------------------------
+// There is no workspace-level list of action items yet (README "domain 요청"), so this
+// gathers the per-recording lists of processed recordings.
 
 const PROCESSED = new Set(["ready", "partial"]);
-
-export function useWorkspaceQuestions(ws: WorkspaceId) {
-  const api = useApi();
-  const recordings = useRecordings(ws).data;
-  return useQuery({
-    queryKey: [...queryKeys.workspaceQuestions(ws), recordings?.map((r) => r.id).join(",")],
-    enabled: Boolean(recordings),
-    queryFn: async (): Promise<{ question: Question; recording: RecordingListItem }[]> => {
-      const done = (recordings ?? []).filter((r) => PROCESSED.has(r.status));
-      const lists = await Promise.all(done.map((r) => allPages(() => api.listQuestions(r.id))));
-      return lists.flatMap((qs, i) => qs.map((question) => ({ question, recording: done[i]! })));
-    },
-  });
-}
 
 export function useWorkspaceActionItems(ws: WorkspaceId) {
   const api = useApi();
