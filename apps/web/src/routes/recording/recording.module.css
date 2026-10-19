@@ -518,9 +518,97 @@
   text-align: center;
 }
 
-.legacy {
-  white-space: pre-wrap;
-  font: inherit;
+/* legacy-markdown documents (v1 lecture notes) */
+.legacyDoc > .docH2 {
+  margin-top: var(--space-32);
+}
+
+.legacyDoc > .docH2:first-child {
+  margin-top: 0;
+}
+
+.docH4 {
+  margin: var(--space-12) 0 var(--space-4);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.docList .docList {
+  margin: var(--space-6) 0 0;
+}
+
+.docCode {
+  margin: 0 0 var(--space-16);
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--font-line-height-relaxed);
+  white-space: pre;
+}
+
+.docTableWrap {
+  margin: 0 0 var(--space-16);
+  overflow-x: auto;
+}
+
+.docTable {
+  border-collapse: collapse;
+  font-size: var(--font-size-base);
+}
+
+.docTable th,
+.docTable td {
+  padding: var(--space-6) var(--space-8);
+  border: 1px solid var(--color-border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.docTable th {
+  font-weight: var(--font-weight-semibold);
+  background: var(--color-bg-hover);
+}
+
+.docHr {
+  margin: var(--space-24) 0;
+  border: 0;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.legacyDoc a {
+  color: var(--color-accent-fg);
+  text-decoration: underline;
+}
+
+.legacyDoc code {
+  font-family: var(--font-family-mono);
+  font-size: 0.9em;
+}
+
+/* A [MM:SS] mark of a v1 note: jumps the player and the transcript there. */
+.timeMark {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin: 0 var(--space-4) 0 0;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-selected);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-accent-fg);
+  vertical-align: 0.1em;
+  cursor: pointer;
+}
+
+.timeMark[data-hovered],
+.timeMark[data-focus-visible] {
+  background: var(--color-bg-active);
 }
 
 /* Source marks in the document (DESIGN.md §3.13): small, footnote-like, details on hover/focus */
@@ -944,4 +1032,20 @@
 
 .tagDot[data-color="indigo"] {
   background: var(--color-accent-solid);
+}
+
+/* The audio could not be loaded (the server does not serve asset bytes yet, or the file is gone). */
+.audioNote {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.audioNoteText {
+  font: var(--typography-caption);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

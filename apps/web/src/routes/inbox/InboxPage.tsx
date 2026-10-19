@@ -8,6 +8,7 @@ import { Form, Input, TextField } from "react-aria-components";
 import {
   useAskThreads,
   useConfirmedEvents,
+  useFolders,
   useDecideSuggestion,
   useJobProgress,
   useRecording,
@@ -15,7 +16,8 @@ import {
   useSuggestions,
   useWorkspaceActionItems,
 } from "../../api/queries.ts";
-import type { EventCandidate, RecordingListItem } from "../../api/types.ts";
+import type { EventCandidate, JobId, RecordingListItem } from "../../api/types.ts";
+import { scopeLabel } from "../ask/citations.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { DOMAIN_LABEL, STATUS, stageLabel } from "../../app/labels.ts";
 import { openOverlay } from "../../app/overlays.ts";
@@ -24,6 +26,7 @@ import { formatDate, formatDateTime, formatDuration, formatRelative, formatTimeO
 import { Icon } from "../../ui/Icon.tsx";
 import { Badge, Button, Dot, EmptyState, Progress } from "../../ui/controls.tsx";
 import { showToast } from "../../ui/toast.tsx";
+import { toastError } from "../library/organise.ts";
 import layout from "../../app/layout.module.css";
 import s from "./inbox.module.css";
 
@@ -178,7 +181,7 @@ function BusyRow({ rec }: { rec: RecordingListItem }) {
 }
 
 /** Job ids are exposed on RecordingDetail.active_job; the event stream keeps it fresh. */
-function useActiveJobId(recordingId: string): string | null {
+function useActiveJobId(recordingId: string): JobId | null {
   return useRecording(recordingId).data?.active_job?.id ?? null;
 }
 
@@ -187,7 +190,12 @@ function SuggestionRow({ event, recording, now }: { event: EventCandidate; recor
   const decide = useDecideSuggestion(workspaceId);
   const when = event.all_day ? formatDate(event.start_at, now) : `${formatDate(event.start_at, now)} ${formatTimeOfDay(event.start_at)}`;
   const run = async (status: "accepted" | "dismissed") => {
-    await decide.mutateAsync({ id: event.id, status });
+    try {
+      await decide.mutateAsync({ id: event.id, status });
+    } catch (err) {
+      toastError(status === "accepted" ? "일정을 추가하지 못했습니다." : "제안을 무시하지 못했습니다.", err);
+      return;
+    }
     showToast({
       title: status === "accepted" ? `‘${event.title}’ 일정을 추가했습니다.` : `‘${event.title}’ 제안을 무시했습니다.`,
       tone: status === "accepted" ? "success" : "neutral",
@@ -273,6 +281,8 @@ function AskCard() {
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
   const threads = (useAskThreads(workspaceId).data ?? []).slice(0, 3);
+  const folders = useFolders(workspaceId).data ?? [];
+  const recordings = useRecordings(workspaceId).data ?? [];
   const [question, setQuestion] = useState("");
   const now = new Date();
   return (
@@ -309,7 +319,7 @@ function AskCard() {
                   {t.title}
                 </Link>
                 <p className={s.rowMeta}>
-                  {t.scope_label} · {formatRelative(t.updated_at, now)}
+                  {scopeLabel(t.scope, folders, recordings)} · {formatRelative(t.updated_at, now)}
                 </p>
               </div>
             </li>

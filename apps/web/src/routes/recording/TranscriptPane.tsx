@@ -21,7 +21,7 @@ import { readableText } from "../../lib/fillers.ts";
 import { formatDuration, formatTimestamp } from "../../lib/format.ts";
 import { findActiveSegment } from "../../lib/segments.ts";
 import { buildParagraphs, paragraphOf } from "../../lib/transcript-paragraphs.ts";
-import { Button } from "../../ui/controls.tsx";
+import { Button, EmptyState } from "../../ui/controls.tsx";
 import { usePlayback } from "./playback.tsx";
 import s from "./recording.module.css";
 
@@ -121,6 +121,18 @@ export function TranscriptPane({ headingId, mode }: { headingId: string; mode: T
   const items = virtualizer.getVirtualItems();
   const activeParagraph = paragraphOf(paragraphs, active);
   const showReturn = !follow && active >= 0;
+
+  if (segments.length === 0) {
+    // Notes made by the v1 pipeline kept no transcript: the document's time marks still
+    // move the player.
+    return (
+      <div className={s.transcript}>
+        <EmptyState icon="audio" title="이 노트에는 전사가 없습니다.">
+          예전 방식으로 정리된 노트입니다. 문서의 시각 표시를 누르면 그 시점부터 들을 수 있습니다.
+        </EmptyState>
+      </div>
+    );
+  }
 
   return (
     <div className={s.transcript}>

@@ -91,7 +91,8 @@ test("물어보기 screen: no evidence, the offline error with retry, and stoppi
   await input.fill("이 폴더 노트들의 핵심을 요약해 줘");
   await input.press("Enter");
   await page.getByRole("button", { name: "답 멈추기" }).click();
-  await expect(page.getByText(/^답을 멈췄습니다\. 같은 질문을/)).toBeVisible();
+  await expect(page.getByText(/^답을 멈췄습니다\. 서버는 이 답을/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "끝까지 만든 답 보기" })).toBeVisible();
   await expect(page.getByRole("button", { name: "보내기" })).toBeVisible();
 });
 

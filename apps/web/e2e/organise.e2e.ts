@@ -115,19 +115,19 @@ test.describe("tags", () => {
 
 test("select all, partial selection and clearing from the list header", async ({ page }) => {
   await page.goto("/app/library");
-  await expect(page.getByRole("grid", { name: "녹음 목록" }).getByRole("row")).toHaveCount(12);
+  await expect(page.getByRole("grid", { name: "녹음 목록" }).getByRole("row")).toHaveCount(13);
   const selectAll = page.getByRole("checkbox", { name: "모두 선택" });
   await selectAll.focus();
   await page.keyboard.press("Space");
   const toolbar = page.getByRole("toolbar", { name: "선택한 녹음 작업" });
-  await expect(toolbar).toContainText("12개 선택됨");
+  await expect(toolbar).toContainText("13개 선택됨");
   await page.getByRole("grid", { name: "녹음 목록" }).getByRole("row").first().focus();
   await page.keyboard.press("Space");
-  await expect(toolbar).toContainText("11개 선택됨");
+  await expect(toolbar).toContainText("12개 선택됨");
   expect(await selectAll.evaluate((el) => (el as HTMLInputElement).indeterminate)).toBe(true);
   await toolbar.getByRole("button", { name: "선택 해제" }).click();
   await expect(toolbar).toHaveCount(0);
-  await expect(page.getByText("녹음 12개")).toBeVisible();
+  await expect(page.getByText("녹음 13개")).toBeVisible();
 });
 
 test("calendar: confirmed events show, a suggestion can be added, days are reachable by keyboard", async ({ page }) => {
@@ -153,7 +153,7 @@ test("calendar: confirmed events show, a suggestion can be added, days are reach
   await expect(task).toBeChecked();
 });
 
-test("user menu: profile and account settings", async ({ page }) => {
+test("user menu: profile and account settings", async ({ page, axe }) => {
   await page.goto("/app/");
   await page.getByRole("button", { name: /미리보기 사용자/ }).click();
   await page.getByRole("menuitem", { name: "프로필과 계정" }).click();
@@ -167,7 +167,39 @@ test("user menu: profile and account settings", async ({ page }) => {
   await page.getByRole("button", { name: "로그아웃: Lectern for Mac" }).click();
   await expect(page.getByText("Lectern for Mac에서 로그아웃했습니다.")).toBeVisible();
 
+  // Signing out shows the login screen; signing in returns to the app.
   await page.getByRole("button", { name: /김지우/ }).click();
   await page.getByRole("menuitem", { name: "로그아웃" }).click();
-  await expect(page.getByText("미리보기에서는 로그아웃할 세션이 없습니다.")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "로그인" })).toBeVisible();
+  await expect(page).toHaveURL(/\/app\/login$/);
+  await axe(page, "로그인");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "로그인 (다크)");
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.getByRole("textbox", { name: "이메일" }).fill("someone@example.com");
+  await page.getByLabel("비밀번호").fill("wrong");
+  await page.getByRole("button", { name: "로그인" }).click();
+  await expect(page.getByRole("alert")).toContainText("올바르지 않습니다");
+  await axe(page, "로그인 (오류)");
+  await page.getByRole("textbox", { name: "이메일" }).fill("preview@example.com");
+  await page.getByLabel("비밀번호").fill("any");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { level: 1, name: "홈" })).toBeVisible();
+});
+
+test("a deep link without a session goes to login and comes back after it", async ({ page }) => {
+  await page.goto("/app/settings");
+  await page.getByRole("button", { name: /미리보기 사용자/ }).click();
+  await page.getByRole("menuitem", { name: "로그아웃" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "로그인" })).toBeVisible();
+  // The fixture session is in memory, so stay in the page: navigate inside the app.
+  await page.evaluate(() => {
+    history.pushState({}, "", "/app/library?view=recent");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page).toHaveURL(/\/app\/login\?next=/);
+  await page.getByRole("textbox", { name: "이메일" }).fill("preview@example.com");
+  await page.getByLabel("비밀번호").fill("any");
+  await page.getByRole("button", { name: "로그인" }).click();
+  await expect(page).toHaveURL(/\/app\/library\?view=recent$/);
 });

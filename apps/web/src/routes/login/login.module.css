@@ -1,0 +1,73 @@
+.page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: var(--space-24) var(--space-16);
+  background: var(--color-bg-canvas);
+}
+
+.card {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: var(--space-32);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-raised);
+  box-shadow: var(--shadow-md);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-accent-fg);
+}
+
+.title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.3px;
+  line-height: var(--font-line-height-tight);
+}
+
+.lead {
+  color: var(--color-text-secondary);
+  line-height: var(--font-line-height-relaxed);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  margin-top: var(--space-8);
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  color: var(--color-status-danger-fg);
+  line-height: var(--font-line-height-relaxed);
+}
+
+.error > svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.note {
+  margin-top: var(--space-8);
+  font: var(--typography-caption);
+  color: var(--color-text-tertiary);
+  line-height: var(--font-line-height-relaxed);
+}
+
+.note a {
+  color: var(--color-accent-fg);
+  text-decoration: underline;
+}

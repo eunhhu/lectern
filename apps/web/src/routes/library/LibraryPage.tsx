@@ -44,7 +44,7 @@ import s from "./library.module.css";
 const VIEW_ICON: Record<string, IconName> = { recent: "clock", processing: "spark", attention: "alert", lectures: "book", meetings: "users" };
 
 export function LibraryPage() {
-  const search = useSearch({ from: "/library" });
+  const search = useSearch({ from: "/_authed/library" });
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
   const recordings = useRecordings(workspaceId);
@@ -79,7 +79,7 @@ export function LibraryPage() {
   }, [all, view, tag, folder, folders, search.folder, query, now]);
 
   // The selection only ever covers rows that are shown.
-  const visibleIds = new Set(visible.map((r) => r.id));
+  const visibleIds = new Set<string>(visible.map((r) => r.id));
   const selection = [...selected].filter((id) => visibleIds.has(id));
   const allSelected = visible.length > 0 && selection.length === visible.length;
 

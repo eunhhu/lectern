@@ -36,6 +36,7 @@ import { DEFAULT_TIME_ZONE, formatDate, formatTimeOfDay } from "../../lib/format
 import { Icon } from "../../ui/Icon.tsx";
 import { Badge, Button, CheckboxField, EmptyState } from "../../ui/controls.tsx";
 import { announce, showToast } from "../../ui/toast.tsx";
+import { toastError } from "../library/organise.ts";
 import layout from "../../app/layout.module.css";
 import s from "./calendar.module.css";
 
@@ -298,7 +299,12 @@ function SuggestionInbox({ suggestions, titleOf, now }: { suggestions: EventCand
   const { workspaceId } = useWorkspace();
   const decide = useDecideSuggestion(workspaceId);
   const run = async (e: EventCandidate, status: "accepted" | "dismissed") => {
-    await decide.mutateAsync({ id: e.id, status });
+    try {
+      await decide.mutateAsync({ id: e.id, status });
+    } catch (err) {
+      toastError(status === "accepted" ? "일정을 추가하지 못했습니다." : "제안을 무시하지 못했습니다.", err);
+      return;
+    }
     showToast({ title: status === "accepted" ? `‘${e.title}’ 일정을 추가했습니다.` : `‘${e.title}’ 제안을 무시했습니다.`, tone: status === "accepted" ? "success" : "neutral" });
   };
   return (
@@ -361,8 +367,12 @@ function OpenTasks() {
               <CheckboxField
                 isSelected={item.status === "done"}
                 onChange={async (done) => {
-                  await update.mutateAsync({ id: item.id, status: done ? "done" : "open" });
-                  announce(done ? `‘${item.text}’ 완료` : `‘${item.text}’ 다시 열림`);
+                  try {
+                    await update.mutateAsync({ id: item.id, status: done ? "done" : "open" });
+                    announce(done ? `‘${item.text}’ 완료` : `‘${item.text}’ 다시 열림`);
+                  } catch (err) {
+                    toastError("할 일을 바꾸지 못했습니다.", err);
+                  }
                 }}
               >
                 <span className={s.taskText} data-done={item.status === "done" || undefined}>

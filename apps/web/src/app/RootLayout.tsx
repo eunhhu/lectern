@@ -16,7 +16,10 @@ import {
   Header,
   Separator,
 } from "react-aria-components";
-import { useApi, useMe, useRecordings, useSuggestions } from "../api/queries.ts";
+import { useQueryClient } from "@tanstack/react-query";
+import { errorMessage } from "../api/errors.ts";
+import { queryKeys, useApi, useMe, useRecordings, useSuggestions } from "../api/queries.ts";
+import { asId, type WorkspaceId } from "../api/types.ts";
 import { Icon } from "../ui/Icon.tsx";
 import { Button, Kbd, uiStyles } from "../ui/controls.tsx";
 import { LiveRegion, showToast, Toasts } from "../ui/toast.tsx";
@@ -175,7 +178,7 @@ function WorkspaceSwitcher() {
             onSelectionChange={(keys) => {
               const [key] = keys === "all" ? [] : [...keys];
               if (key !== undefined && key !== workspaceId) {
-                switchTo(String(key));
+                switchTo(asId<WorkspaceId>(String(key)));
                 void navigate({ to: "/" });
               }
             }}
@@ -221,6 +224,20 @@ function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
   const api = useApi();
   const { current } = useWorkspace();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const logout = async () => {
+    try {
+      await api.logout();
+    } catch (err) {
+      showToast({ title: "로그아웃하지 못했습니다.", description: errorMessage(err), tone: "danger" });
+      return;
+    }
+    // Leave the signed-in screens first, then drop everything of this account from memory.
+    queryClient.setQueryData(queryKeys.session, null);
+    await navigate({ to: "/login", replace: true });
+    queryClient.clear();
+    queryClient.setQueryData(queryKeys.session, null);
+  };
   if (!me) return null;
   return (
     <MenuTrigger>
@@ -241,9 +258,7 @@ function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
             else if (key === "settings") void navigate({ to: "/settings" });
             else if (key === "shortcuts") openOverlay("shortcuts");
             else if (key === "theme") cycleTheme();
-            else if (key === "logout") {
-              if (api.mode === "fixture") showToast({ title: "미리보기에서는 로그아웃할 세션이 없습니다.", description: "실제 서버에 연결되면 이 메뉴로 로그아웃합니다.", tone: "info" });
-            }
+            else if (key === "logout") void logout();
           }}
         >
           <MenuSection>

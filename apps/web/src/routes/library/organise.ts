@@ -1,7 +1,7 @@
 // Shared state and helpers for editing folders and tags in the library.
 
 import type { Folder, Tag } from "../../api/types.ts";
-import { ApiClientError } from "../../api/client.ts";
+import { errorMessage, isNotReady } from "../../api/errors.ts";
 import { showToast } from "../../ui/toast.tsx";
 
 export const DRAG_TYPE = "application/x-lectern-recording";
@@ -39,6 +39,7 @@ export function nextTagColor(tags: readonly Tag[]): string {
   return (TAG_COLORS.find((c) => !used.has(c.id)) ?? TAG_COLORS[tags.length % TAG_COLORS.length]!).id;
 }
 
+/** A failed write: the server's reason, or "준비 중" (calm, not an error) when the API does not offer it yet. */
 export function toastError(title: string, err: unknown) {
-  showToast({ title, description: err instanceof ApiClientError ? err.message : "잠시 후 다시 시도하세요.", tone: "danger" });
+  showToast({ title, description: errorMessage(err, "잠시 후 다시 시도하세요."), tone: isNotReady(err) ? "info" : "danger" });
 }

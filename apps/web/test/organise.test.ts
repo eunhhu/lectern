@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import * as D from "@lectern/domain";
 import { createFixtureClient } from "../src/api/fixture/client.ts";
+import { asId } from "../src/api/types.ts";
 import type { Tag } from "../src/api/types.ts";
 import { PERSONAL_WS, TEAM_WS } from "../src/fixtures/index.ts";
 import { addDays, dayKey, groupByDay, weekOf, type CalendarItem } from "../src/lib/calendar.ts";
@@ -33,9 +34,9 @@ describe("folders through the ApiClient", () => {
   test("rejects empty names, duplicate siblings and cycles with domain error codes", async () => {
     const api = client();
     await expect(api.createFolder({ workspace_id: PERSONAL_WS, name: "   " })).rejects.toMatchObject({ code: "validation_failed" });
-    await expect(api.createFolder({ workspace_id: PERSONAL_WS, name: "운영체제", parent_id: "fld_semester" })).rejects.toMatchObject({ code: "conflict" });
-    await expect(api.updateFolder("fld_semester", { parent_id: "fld_os" })).rejects.toMatchObject({ status: 409, code: "conflict" });
-    await expect(api.updateFolder("fld_os", { parent_id: "fld_os" })).rejects.toMatchObject({ code: "conflict" });
+    await expect(api.createFolder({ workspace_id: PERSONAL_WS, name: "운영체제", parent_id: asId("fld_semester") })).rejects.toMatchObject({ code: "conflict" });
+    await expect(api.updateFolder("fld_semester", { parent_id: asId("fld_os") })).rejects.toMatchObject({ status: 409, code: "conflict" });
+    await expect(api.updateFolder("fld_os", { parent_id: asId("fld_os") })).rejects.toMatchObject({ code: "conflict" });
     await expect(api.updateFolder("fld_missing", { name: "x" })).rejects.toMatchObject({ code: "not_found" });
   });
 

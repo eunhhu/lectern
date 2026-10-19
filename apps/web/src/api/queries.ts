@@ -5,6 +5,8 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect } from "react";
 import { ApiClientError, type ApiClient } from "./client.ts";
+import { errorMessage } from "./errors.ts";
+import { askSuggestions } from "../lib/ask-suggestions.ts";
 import type {
   AskScope,
   ActionItem,
@@ -31,6 +33,7 @@ export function useApi(): ApiClient {
 }
 
 export const queryKeys = {
+  session: ["session"] as const,
   me: ["me"] as const,
   workspaces: ["workspaces"] as const,
   folders: (ws: string) => ["folders", ws] as const,
@@ -205,7 +208,7 @@ async function settle(ids: string[], run: (id: string) => Promise<unknown>): Pro
   const out: BulkResult = { succeeded: [], failed: [] };
   results.forEach((r, i) => {
     if (r.status === "fulfilled") out.succeeded.push(ids[i]!);
-    else out.failed.push({ id: ids[i]!, message: r.reason instanceof ApiClientError ? r.reason.message : "요청을 처리하지 못했습니다." });
+    else out.failed.push({ id: ids[i]!, message: errorMessage(r.reason, "요청을 처리하지 못했습니다.") });
   });
   return out;
 }
@@ -359,20 +362,41 @@ export function useRevokeDevice() {
 }
 
 // --- 물어보기 ---------------------------------------------------------------------
-// Answers stream through ApiClient.ask (routes/ask/session.ts); these read history and
-// suggestions.
+// Answers stream through ApiClient.askQuestion (routes/ask/session.ts); these read
+// history. Threads are not filtered by workspace id here: while the server bridges v1
+// lectures, it answers with the caller's own workspace id rather than the one asked for.
 
-export function useAskThreads(ws: WorkspaceId) {
+export const askKeys = {
+  threads: (ws: string) => ["ask-threads", ws] as const,
+  thread: (id: string | null) => ["ask-thread", id] as const,
+};
+
+export function useAskThreads(ws: WorkspaceId, recordingId?: string) {
   const api = useApi();
-  return useQuery({ queryKey: ["ask-threads", ws], queryFn: () => allPages(() => api.listAskThreads(ws)) });
+  return useQuery({
+    queryKey: [...askKeys.threads(ws), recordingId ?? null],
+    queryFn: () => allPages((cursor) => api.listAskThreads({ workspace_id: ws, cursor, limit: 200, ...(recordingId ? { recording_id: recordingId as never } : {}) })),
+    retry: (count, err) => !(err instanceof ApiClientError && err.status > 0 && err.status < 500) && count < 1,
+  });
 }
 
+/** A saved conversation; read again every 2 s while one of its turns is still running. */
 export function useAskThread(threadId: string | null) {
   const api = useApi();
-  return useQuery({ queryKey: ["ask-thread", threadId], enabled: threadId !== null, queryFn: () => api.getAskThread(threadId!) });
+  return useQuery({
+    queryKey: askKeys.thread(threadId),
+    enabled: threadId !== null,
+    queryFn: () => api.getAskThread(threadId!),
+    refetchInterval: (query) => (query.state.data?.turns.some((t) => t.status === "running") ? 2_000 : false),
+  });
 }
 
-export function useAskSuggestions(ws: WorkspaceId, scope: AskScope) {
-  const api = useApi();
-  return useQuery({ queryKey: ["ask-suggestions", ws, scope], queryFn: () => api.listAskSuggestions(ws, scope), staleTime: 60_000 });
+const PROCESSED_STATUSES = new Set(["ready", "partial"]);
+
+/** Chips under the composer, from the notes the screen already loaded. */
+export function useAskSuggestions(ws: WorkspaceId, scope: AskScope): string[] {
+  const recordings = (useRecordings(ws).data ?? []).filter((r) => PROCESSED_STATUSES.has(r.status));
+  const recordingId = scope.kind === "recording" ? scope.recording_id : "";
+  const questions = useQuestions(recordingId, scope.kind === "recording").data;
+  return askSuggestions({ scope, recordings, questions: questions ?? [] });
 }
