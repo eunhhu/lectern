@@ -6,7 +6,8 @@
   "workspaces": [
     "packages/*",
     "apps/server",
-    "apps/worker"
+    "apps/worker",
+    "apps/web"
   ],
   "scripts": {
     "dev": "bun --watch apps/server/src/index.ts",
@@ -16,7 +17,10 @@
     "test": "bun test",
     "typecheck": "bun x tsc --noEmit",
     "config:docs": "bun packages/config/scripts/write-env-docs.ts",
-    "tokens:build": "bun packages/design-tokens/scripts/build.ts"
+    "tokens:build": "bun packages/design-tokens/scripts/build.ts",
+    "web:build": "bun run --cwd apps/web build",
+    "web:dev": "bun run --cwd apps/web dev",
+    "web:e2e": "bun run --cwd apps/web e2e"
   },
   "license": "MIT",
   "devDependencies": {

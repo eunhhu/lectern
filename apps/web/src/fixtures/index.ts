@@ -1,0 +1,841 @@
+// The fixture data set behind FixtureApiClient: two workspaces, folders, tags, sixteen
+// recordings across domains (lectures, a seminar, meetings, interviews, a call, a memo),
+// transcripts (one with thousands of segments), documents, questions, event suggestions
+// and action items. Everything is synthetic and typed with packages/domain; the tests
+// parse every entity with the domain's zod schemas.
+//
+// Times are relative to `now` so "최근 7일" and relative dates stay meaningful whenever
+// the preview is opened; tests pass a fixed `now`.
+
+import type {
+  ActionItem,
+  AssetDto,
+  AssetId,
+  Document,
+  DocumentId,
+  DocumentVersion,
+  DocumentVersionId,
+  EventCandidate,
+  EventCandidateId,
+  Folder,
+  FolderId,
+  Job,
+  JobId,
+  Me,
+  MembershipRole,
+  Question,
+  QuestionId,
+  Recording,
+  RecordingDomain,
+  RecordingId,
+  RecordingStatus,
+  RecordingTag,
+  SourceRef,
+  Speaker,
+  StageName,
+  Tag,
+  TagId,
+  TemplateId,
+  TranscriptGap,
+  TranscriptSegment,
+  UserId,
+  Workspace,
+  WorkspaceId,
+  ActionItemId,
+} from "../api/types.ts";
+import { DEFAULT_TIME_ZONE, zonedTimeToUtc } from "../lib/format.ts";
+import { DocBuilder, renderMarkdown } from "./doc-builder.ts";
+import * as Docs from "./documents.ts";
+import { fakeSha256 } from "./random.ts";
+import * as S from "./scripts.ts";
+import { generateTranscript, type GeneratedTranscript, type Script } from "./transcript-gen.ts";
+
+export const ME_ID = "usr_fixture_me" as UserId;
+const TEAMMATE_ID = "usr_fixture_jimin" as UserId;
+export const PERSONAL_WS = "ws_personal" as WorkspaceId;
+export const TEAM_WS = "ws_team" as WorkspaceId;
+
+export interface JobProgress {
+  stage: StageName;
+  progress: number;
+  chunk_index: number | null;
+  chunk_count: number | null;
+}
+
+export interface FixtureData {
+  now: Date;
+  me: Me;
+  workspaces: { workspace: Workspace; role: MembershipRole }[];
+  folders: Folder[];
+  tags: Tag[];
+  recordings: Recording[];
+  recordingTags: RecordingTag[];
+  assets: AssetDto[];
+  speakers: Speaker[];
+  transcripts: Map<RecordingId, { segments: TranscriptSegment[]; gaps: TranscriptGap[] }>;
+  documents: Document[];
+  versions: DocumentVersion[];
+  questions: Question[];
+  events: EventCandidate[];
+  actionItems: ActionItem[];
+  jobs: Job[];
+  progress: Map<JobId, JobProgress>;
+}
+
+// ---------------------------------------------------------------------------
+// Time helpers (local wall clock in Asia/Seoul)
+// ---------------------------------------------------------------------------
+
+function localDate(now: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: DEFAULT_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(now)
+    .split("-")
+    .map(Number);
+  return { year: parts[0]!, month: parts[1]!, day: parts[2]! };
+}
+
+function makeClock(now: Date) {
+  const today = localDate(now);
+  const base = Date.UTC(today.year, today.month - 1, today.day);
+  const local = (daysAgo: number, hour: number, minute = 0) => {
+    const d = new Date(base - daysAgo * 86_400_000);
+    return zonedTimeToUtc({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(), hour, minute });
+  };
+  return {
+    /** ISO time `daysAgo` days before today at hh:mm KST, never later than now. */
+    at(daysAgo: number, hour: number, minute = 0): string {
+      const t = local(daysAgo, hour, minute);
+      return new Date(Math.min(t.getTime(), now.getTime() - 60_000)).toISOString();
+    },
+    /** A future (or past) local time relative to `fromIso`: "next week's Tuesday 23:59" etc. */
+    nextWeekday(fromIso: string, weekday: number, weeksAhead: number, hour: number, minute: number): string {
+      const from = localDate(new Date(fromIso));
+      const d = new Date(Date.UTC(from.year, from.month - 1, from.day));
+      const monday = new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86_400_000);
+      const target = new Date(monday.getTime() + (weeksAhead * 7 + ((weekday + 6) % 7)) * 86_400_000);
+      return zonedTimeToUtc({
+        year: target.getUTCFullYear(),
+        month: target.getUTCMonth() + 1,
+        day: target.getUTCDate(),
+        hour,
+        minute,
+      }).toISOString();
+    },
+    plusMinutes(iso: string, minutes: number): string {
+      return new Date(new Date(iso).getTime() + minutes * 60_000).toISOString();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue
+// ---------------------------------------------------------------------------
+
+interface RecordingSpec {
+  id: string;
+  ws: WorkspaceId;
+  title: string;
+  domain: RecordingDomain;
+  folder: string | null;
+  daysAgo: number;
+  hour: number;
+  minute?: number;
+  durationMin: number;
+  status: RecordingStatus;
+  tags?: [tag: string, source?: "user" | "ai"][];
+  script?: Script;
+  doc?: Docs.DocumentWriter;
+  pdf?: { name: string; pages: number };
+  /** For processing / queued recordings. */
+  job?: JobProgress & { state: "queued" | "running" };
+  createdBy?: UserId;
+  userEdited?: boolean;
+}
+
+const FOLDERS: [id: string, ws: WorkspaceId, parent: string | null, name: string][] = [
+  ["fld_semester", PERSONAL_WS, null, "2026년 2학기"],
+  ["fld_os", PERSONAL_WS, "fld_semester", "운영체제"],
+  ["fld_ds", PERSONAL_WS, "fld_semester", "자료구조"],
+  ["fld_econ", PERSONAL_WS, "fld_semester", "미시경제학"],
+  ["fld_research", PERSONAL_WS, null, "연구실"],
+  ["fld_seminar", PERSONAL_WS, "fld_research", "세미나"],
+  ["fld_personal", PERSONAL_WS, null, "개인"],
+  ["fld_weekly", TEAM_WS, null, "주간 회의"],
+  ["fld_interviews", TEAM_WS, null, "사용자 인터뷰"],
+];
+
+const TAGS: [id: string, ws: WorkspaceId, name: string, color: string][] = [
+  ["tag_exam", PERSONAL_WS, "시험 범위", "red"],
+  ["tag_assignment", PERSONAL_WS, "과제", "orange"],
+  ["tag_important", PERSONAL_WS, "중요", "yellow"],
+  ["tag_review", PERSONAL_WS, "복습 필요", "blue"],
+  ["tag_question", PERSONAL_WS, "질문 있음", "indigo"],
+  ["tag_idea", PERSONAL_WS, "아이디어", "green"],
+  ["tag_decision", TEAM_WS, "결정 사항", "green"],
+  ["tag_roadmap", TEAM_WS, "로드맵", "blue"],
+  ["tag_feedback", TEAM_WS, "고객 피드백", "yellow"],
+];
+
+const RECORDINGS: RecordingSpec[] = [
+  {
+    id: "rec_os07",
+    ws: PERSONAL_WS,
+    title: "운영체제 7주차 — CPU 스케줄링",
+    domain: "lecture",
+    folder: "fld_os",
+    daysAgo: 1,
+    hour: 10,
+    durationMin: 190,
+    status: "ready",
+    tags: [["tag_exam"], ["tag_assignment", "ai"], ["tag_important"]],
+    script: S.OS_SCHEDULING,
+    doc: Docs.OS_SCHEDULING_DOC,
+    pdf: { name: "운영체제_07_CPU스케줄링.pdf", pages: 24 },
+  },
+  {
+    id: "rec_os08",
+    ws: PERSONAL_WS,
+    title: "운영체제 8주차 — 동기화",
+    domain: "lecture",
+    folder: "fld_os",
+    daysAgo: 0,
+    hour: 10,
+    durationMin: 80,
+    status: "processing",
+    pdf: { name: "운영체제_08_동기화.pdf", pages: 21 },
+    job: { state: "running", stage: "transcribe", progress: 0.42, chunk_index: 5, chunk_count: 12 },
+  },
+  {
+    id: "rec_os06",
+    ws: PERSONAL_WS,
+    title: "운영체제 6주차 — 프로세스와 스레드",
+    domain: "lecture",
+    folder: "fld_os",
+    daysAgo: 8,
+    hour: 10,
+    durationMin: 74,
+    status: "ready",
+    tags: [["tag_exam"]],
+    script: S.OS_THREADS,
+    doc: Docs.OS_THREADS_DOC,
+    pdf: { name: "운영체제_06_프로세스와스레드.pdf", pages: 18 },
+  },
+  {
+    id: "rec_ds05",
+    ws: PERSONAL_WS,
+    title: "자료구조 5주차 — 힙과 우선순위 큐",
+    domain: "lecture",
+    folder: "fld_ds",
+    daysAgo: 2,
+    hour: 13,
+    durationMin: 70,
+    status: "ready",
+    tags: [["tag_review"]],
+    script: S.DS_HEAP,
+    doc: Docs.DS_HEAP_DOC,
+    userEdited: true,
+  },
+  {
+    id: "rec_ds06",
+    ws: PERSONAL_WS,
+    title: "자료구조 6주차 — 그래프 탐색",
+    domain: "lecture",
+    folder: "fld_ds",
+    daysAgo: 0,
+    hour: 13,
+    durationMin: 65,
+    status: "queued",
+    job: { state: "queued", stage: "ingest", progress: 0, chunk_index: null, chunk_count: null },
+  },
+  {
+    id: "rec_ds04",
+    ws: PERSONAL_WS,
+    title: "자료구조 4주차 — 트리 순회",
+    domain: "lecture",
+    folder: "fld_ds",
+    daysAgo: 9,
+    hour: 13,
+    durationMin: 52,
+    status: "partial",
+    script: S.DS_TREES,
+    doc: Docs.DS_TREES_DOC,
+  },
+  {
+    id: "rec_econ04",
+    ws: PERSONAL_WS,
+    title: "미시경제학 4주차 — 소비자 선택",
+    domain: "lecture",
+    folder: "fld_econ",
+    daysAgo: 3,
+    hour: 15,
+    durationMin: 90,
+    status: "ready",
+    tags: [["tag_exam"], ["tag_question"]],
+    script: S.ECON_CHOICE,
+    doc: Docs.ECON_CHOICE_DOC,
+    pdf: { name: "미시경제학_4주차_소비자선택.pdf", pages: 14 },
+  },
+  {
+    id: "rec_sem01",
+    ws: PERSONAL_WS,
+    title: "연구실 세미나 — 음성 인식 평가 지표",
+    domain: "seminar",
+    folder: "fld_seminar",
+    daysAgo: 4,
+    hour: 17,
+    durationMin: 58,
+    status: "ready",
+    tags: [["tag_question", "ai"]],
+    script: S.SEMINAR_ASR,
+    doc: Docs.SEMINAR_ASR_DOC,
+    pdf: { name: "세미나_음성인식평가_발표.pdf", pages: 12 },
+  },
+  {
+    id: "rec_adv",
+    ws: PERSONAL_WS,
+    title: "대학원 진학 상담",
+    domain: "one_on_one",
+    folder: "fld_research",
+    daysAgo: 6,
+    hour: 16,
+    minute: 30,
+    durationMin: 32,
+    status: "ready",
+    tags: [["tag_important"]],
+    script: S.ADVISING,
+    doc: Docs.ADVISING_DOC,
+  },
+  {
+    id: "rec_call",
+    ws: PERSONAL_WS,
+    title: "치과 예약 변경 통화",
+    domain: "call",
+    folder: "fld_personal",
+    daysAgo: 5,
+    hour: 12,
+    minute: 10,
+    durationMin: 3,
+    status: "ready",
+    script: S.DENTIST_CALL,
+    doc: Docs.DENTIST_CALL_DOC,
+  },
+  {
+    id: "rec_memo",
+    ws: PERSONAL_WS,
+    title: "산책하며 떠올린 아이디어",
+    domain: "other",
+    folder: null,
+    daysAgo: 2,
+    hour: 21,
+    durationMin: 6,
+    status: "ready",
+    tags: [["tag_idea"]],
+    script: S.IDEA_MEMO,
+    doc: Docs.IDEA_MEMO_DOC,
+  },
+  {
+    id: "rec_test",
+    ws: PERSONAL_WS,
+    title: "녹음 테스트",
+    domain: "other",
+    folder: null,
+    daysAgo: 12,
+    hour: 9,
+    durationMin: 1,
+    status: "failed",
+  },
+  {
+    id: "rec_tw42",
+    ws: TEAM_WS,
+    title: "제품팀 주간 회의 — 10월 3주차",
+    domain: "meeting",
+    folder: "fld_weekly",
+    daysAgo: 1,
+    hour: 11,
+    durationMin: 48,
+    status: "ready",
+    tags: [["tag_decision"], ["tag_roadmap", "ai"]],
+    script: S.TEAM_WEEKLY,
+    doc: Docs.TEAM_WEEKLY_DOC,
+    createdBy: TEAMMATE_ID,
+  },
+  {
+    id: "rec_roadmap",
+    ws: TEAM_WS,
+    title: "4분기 로드맵 리뷰",
+    domain: "meeting",
+    folder: "fld_weekly",
+    daysAgo: 0,
+    hour: 9,
+    durationMin: 62,
+    status: "processing",
+    tags: [["tag_roadmap"]],
+    job: { state: "running", stage: "structure", progress: 0.78, chunk_index: null, chunk_count: null },
+    createdBy: TEAMMATE_ID,
+  },
+  {
+    id: "rec_ui12",
+    ws: TEAM_WS,
+    title: "사용자 인터뷰 #12 — 대학원생",
+    domain: "interview",
+    folder: "fld_interviews",
+    daysAgo: 3,
+    hour: 14,
+    durationMin: 36,
+    status: "ready",
+    tags: [["tag_feedback"]],
+    script: S.USER_INTERVIEW,
+    doc: Docs.USER_INTERVIEW_DOC,
+  },
+  {
+    id: "rec_ui13",
+    ws: TEAM_WS,
+    title: "사용자 인터뷰 #13 — 직장인",
+    domain: "interview",
+    folder: "fld_interviews",
+    daysAgo: 0,
+    hour: 8,
+    durationMin: 29,
+    status: "uploading",
+    createdBy: TEAMMATE_ID,
+  },
+];
+
+export const TEMPLATE_FOR: Record<RecordingDomain, "lecture" | "meeting" | null> = {
+  lecture: "lecture",
+  seminar: "lecture",
+  meeting: "meeting",
+  one_on_one: "meeting",
+  call: "meeting",
+  interview: "meeting",
+  other: null,
+};
+
+// ---------------------------------------------------------------------------
+// Build
+// ---------------------------------------------------------------------------
+
+export interface ProcessedParts {
+  segments: TranscriptSegment[];
+  gaps: TranscriptGap[];
+  speakers: Speaker[];
+  document: Document;
+  version: DocumentVersion;
+  anchors: GeneratedTranscript["anchors"];
+  durationMs: number;
+}
+
+/** Transcript, speakers and document for one recording (also used for fixture uploads). */
+export function processRecording(
+  rec: Pick<Recording, "id" | "workspace_id" | "title" | "domain">,
+  script: Script,
+  writer: Docs.DocumentWriter,
+  durationMs: number,
+  createdAt: string,
+  pdfAssetId: AssetId | null,
+  userEdited = false,
+): ProcessedParts {
+  const generated = generateTranscript(script, { workspaceId: rec.workspace_id, recordingId: rec.id }, durationMs, rec.id);
+  const speakers: Speaker[] = script.speakers.map((s, i) => ({
+    id: generated.speakerIds[s.label]!,
+    workspace_id: rec.workspace_id,
+    recording_id: rec.id,
+    label: s.label,
+    display_name: s.name,
+    confidence: Math.round((0.95 - i * 0.07) * 100) / 100,
+    created_at: createdAt,
+    updated_at: createdAt,
+  }));
+  const documentId = `${rec.id}_doc` as DocumentId;
+  const builder = new DocBuilder(documentId, generated.anchors, pdfAssetId);
+  const body = { sections: writer(builder, { gaps: generated.gaps }) };
+  const template = (TEMPLATE_FOR[rec.domain] ?? "lecture") as TemplateId;
+  const version = userEdited ? 2 : 1;
+  const document: Document = {
+    id: documentId,
+    workspace_id: rec.workspace_id,
+    recording_id: rec.id,
+    template_id: template,
+    template_version: 1,
+    current_version: version,
+    user_edited: userEdited,
+    created_at: createdAt,
+    updated_at: createdAt,
+  };
+  const documentVersion: DocumentVersion = {
+    id: `${documentId}_v${version}` as DocumentVersionId,
+    workspace_id: rec.workspace_id,
+    document_id: documentId,
+    recording_id: rec.id,
+    version,
+    base_version: userEdited ? 1 : null,
+    template_id: template,
+    template_version: 1,
+    body,
+    rendered_md: renderMarkdown(rec.title, body),
+    created_by: userEdited ? "user" : "ai",
+    author_id: userEdited ? ME_ID : null,
+    created_at: createdAt,
+  };
+  return {
+    segments: generated.segments,
+    gaps: generated.gaps,
+    speakers,
+    document,
+    version: documentVersion,
+    anchors: generated.anchors,
+    durationMs: generated.durationMs,
+  };
+}
+
+export function buildFixtureData(now = new Date()): FixtureData {
+  const clock = makeClock(now);
+  const createdAt = clock.at(30, 9);
+
+  const me: Me = {
+    id: ME_ID,
+    email: "preview@example.com",
+    display_name: "미리보기 사용자",
+    timezone: DEFAULT_TIME_ZONE,
+    system_role: "owner",
+    personal_workspace_id: PERSONAL_WS,
+  };
+
+  const workspaces: FixtureData["workspaces"] = [
+    {
+      workspace: { id: PERSONAL_WS, name: "개인", kind: "personal", plan: "free", settings: { default_language: "ko" }, created_at: createdAt, updated_at: createdAt },
+      role: "owner",
+    },
+    {
+      workspace: {
+        id: TEAM_WS,
+        name: "제품팀",
+        kind: "team",
+        plan: "team",
+        settings: { calendar_auto_add: { enabled: false, min_confidence: 0.85 }, default_language: "ko" },
+        created_at: createdAt,
+        updated_at: createdAt,
+      },
+      role: "member",
+    },
+  ];
+
+  const folders: Folder[] = FOLDERS.map(([id, ws, parent, name], i) => ({
+    id: id as FolderId,
+    workspace_id: ws,
+    parent_id: parent as FolderId | null,
+    name,
+    sort_key: `a${String(i).padStart(2, "0")}`,
+    created_at: createdAt,
+    updated_at: createdAt,
+  }));
+
+  const tags: Tag[] = TAGS.map(([id, ws, name, color]) => ({
+    id: id as TagId,
+    workspace_id: ws,
+    name,
+    color,
+    created_at: createdAt,
+    updated_at: createdAt,
+  }));
+
+  const data: FixtureData = {
+    now,
+    me,
+    workspaces,
+    folders,
+    tags,
+    recordings: [],
+    recordingTags: [],
+    assets: [],
+    speakers: [],
+    transcripts: new Map(),
+    documents: [],
+    versions: [],
+    questions: [],
+    events: [],
+    actionItems: [],
+    jobs: [],
+    progress: new Map(),
+  };
+
+  const anchorsById = new Map<string, GeneratedTranscript["anchors"]>();
+  const pdfById = new Map<string, AssetId>();
+
+  for (const spec of RECORDINGS) {
+    const id = spec.id as RecordingId;
+    // Recordings from "today" must have ended (and been uploaded) before now.
+    const latestStart = now.getTime() - (spec.durationMin + 15) * 60_000;
+    const recordedAt = new Date(
+      Math.min(new Date(clock.at(spec.daysAgo, spec.hour, spec.minute ?? 0)).getTime(), latestStart),
+    ).toISOString();
+    const uploadedAt = clock.plusMinutes(recordedAt, spec.durationMin + 7);
+    const finishedAt = new Date(Math.min(new Date(clock.plusMinutes(uploadedAt, 9)).getTime(), now.getTime() - 30_000)).toISOString();
+    let durationMs: number | null = spec.status === "uploading" ? null : spec.durationMin * 60_000;
+    const rec: Recording = {
+      id,
+      workspace_id: spec.ws,
+      folder_id: spec.folder as FolderId | null,
+      title: spec.title,
+      domain: spec.domain,
+      template_id: (TEMPLATE_FOR[spec.domain] as TemplateId | null) ?? null,
+      language: "ko",
+      recorded_at: recordedAt,
+      recorded_at_source: spec.domain === "call" ? "media" : "client",
+      duration_ms: durationMs,
+      status: spec.status,
+      created_by: spec.createdBy ?? ME_ID,
+      visibility: spec.ws === TEAM_WS ? "workspace" : "private",
+      created_at: uploadedAt,
+      updated_at: spec.script ? finishedAt : uploadedAt,
+    };
+
+    if (spec.status !== "uploading") {
+      data.assets.push({
+        id: `${spec.id}_audio0` as AssetId,
+        workspace_id: spec.ws,
+        recording_id: id,
+        kind: "audio",
+        part_index: 0,
+        sha256: fakeSha256(`${spec.id}:audio`),
+        bytes: Math.round(spec.durationMin * 60 * 16_000),
+        mime: "audio/mp4",
+        duration_ms: durationMs,
+        page_count: null,
+        meta: { original_name: `${spec.title.replace(/\s—\s/g, "_").replace(/\s+/g, "_")}.m4a` },
+        created_at: uploadedAt,
+      });
+    }
+    if (spec.pdf) {
+      const pdfId = `${spec.id}_pdf` as AssetId;
+      pdfById.set(spec.id, pdfId);
+      data.assets.push({
+        id: pdfId,
+        workspace_id: spec.ws,
+        recording_id: id,
+        kind: "pdf",
+        part_index: 0,
+        sha256: fakeSha256(`${spec.id}:pdf`),
+        bytes: spec.pdf.pages * 180_000,
+        mime: "application/pdf",
+        duration_ms: null,
+        page_count: spec.pdf.pages,
+        meta: { original_name: spec.pdf.name },
+        created_at: uploadedAt,
+      });
+    }
+
+    if (spec.script && spec.doc) {
+      const parts = processRecording(rec, spec.script, spec.doc, spec.durationMin * 60_000, finishedAt, pdfById.get(spec.id) ?? null, spec.userEdited);
+      rec.duration_ms = durationMs = parts.durationMs;
+      const audio = data.assets.find((a) => a.id === `${spec.id}_audio0`);
+      if (audio) audio.duration_ms = durationMs;
+      data.transcripts.set(id, { segments: parts.segments, gaps: parts.gaps });
+      data.speakers.push(...parts.speakers);
+      data.documents.push(parts.document);
+      data.versions.push(parts.version);
+      anchorsById.set(spec.id, parts.anchors);
+    }
+
+    for (const [tag, source = "user"] of spec.tags ?? []) {
+      data.recordingTags.push({
+        workspace_id: spec.ws,
+        recording_id: id,
+        tag_id: tag as TagId,
+        source,
+        confidence: source === "ai" ? 0.82 : null,
+        created_at: finishedAt,
+      });
+    }
+
+    if (spec.job) {
+      const jobId = `job_${spec.id}` as JobId;
+      data.jobs.push({
+        id: jobId,
+        workspace_id: spec.ws,
+        recording_id: id,
+        kind: "process",
+        state: spec.job.state,
+        priority: 0,
+        run_after: uploadedAt,
+        attempts: spec.job.state === "running" ? 1 : 0,
+        lease_owner: spec.job.state === "running" ? "fixture-worker" : null,
+        lease_until: spec.job.state === "running" ? new Date(now.getTime() + 60_000).toISOString() : null,
+        budget_microusd: 400_000,
+        spent_microusd: Math.round(spec.job.progress * 120_000),
+        idempotency_key: null,
+        error_code: null,
+        created_at: uploadedAt,
+        updated_at: uploadedAt,
+      });
+      const { state: _state, ...progress } = spec.job;
+      data.progress.set(jobId, progress);
+    }
+
+    data.recordings.push(rec);
+  }
+
+  addExtractedItems(data, anchorsById, pdfById, clock);
+  return data;
+}
+
+function addExtractedItems(
+  data: FixtureData,
+  anchorsById: Map<string, GeneratedTranscript["anchors"]>,
+  pdfById: Map<string, AssetId>,
+  clock: ReturnType<typeof makeClock>,
+) {
+  const rec = (id: string) => data.recordings.find((r) => r.id === id)!;
+  const src = (id: string, ...keys: string[]): SourceRef[] =>
+    keys.map((k) => ({ kind: "transcript" as const, ...anchorsById.get(id)![k]! }));
+  const page = (id: string, p: number): SourceRef => ({ kind: "pdf_page", asset_id: pdfById.get(id)!, page: p });
+  const stamp = (id: string) => rec(id).updated_at;
+
+  const questions: [string, string, string, string[], "easy" | "medium" | "hard", SourceRef[]?][] = [
+    ["rec_os07", "FCFS에서 호위 효과가 생기는 이유는?", "실행 시간이 긴 프로세스가 먼저 CPU를 잡으면 비선점이라 뒤의 짧은 프로세스들이 모두 기다려야 하기 때문이다.", ["convoy"], "easy"],
+    ["rec_os07", "SJF가 최적이면서도 그대로 쓰기 어려운 이유는?", "다음 CPU 버스트 길이를 미리 알 수 없기 때문이다. 그래서 지수 평균으로 예측한다.", ["sjf_optimal", "sjf_predict"], "medium"],
+    ["rec_os07", "라운드 로빈에서 타임 퀀텀이 너무 크면 어떻게 되는가?", "사실상 FCFS와 같아진다.", ["rr_quantum_large"], "easy"],
+    ["rec_os07", "타임 퀀텀을 정하는 경험 규칙은?", "CPU 버스트의 80%가 한 퀀텀 안에 끝나도록 잡는다.", ["rr_rule"], "medium"],
+    ["rec_os07", "기아 상태와 그 해결책을 설명하라.", "낮은 우선순위 프로세스가 계속 실행되지 못하는 상태이며, 기다린 시간에 따라 우선순위를 올리는 에이징으로 해결한다.", ["starvation", "aging"], "medium"],
+    ["rec_os07", "프로세서 친화성과 부하 분산은 왜 부딪히는가?", "부하 분산은 프로세스를 다른 코어로 옮기지만, 옮기면 캐시를 다시 채워야 해서 친화성의 이점을 잃는다.", ["affinity"], "hard"],
+    ["rec_ds05", "배열로 힙을 만드는 시간 복잡도는?", "아래에서부터 내리면 O(n)이다.", ["heap_build"], "medium"],
+    ["rec_ds05", "힙 정렬의 최악 시간 복잡도는?", "O(n log n)", ["heapsort"], "easy"],
+    ["rec_econ04", "소비자 균형의 조건은?", "한계대체율이 두 재화의 가격비와 같다.", ["optimum"], "medium"],
+  ];
+  questions.forEach(([id, prompt, answer, keys, difficulty], i) => {
+    const sources = [...src(id, ...keys), ...(id === "rec_os07" && i === 2 ? [page(id, 12)] : [])];
+    data.questions.push({
+      id: `q_${id}_${i}` as QuestionId,
+      workspace_id: rec(id).workspace_id,
+      recording_id: rec(id).id,
+      kind: "recall",
+      prompt,
+      answer,
+      sources,
+      difficulty,
+      flags: i === 5 ? ["low_confidence"] : [],
+      created_at: stamp(id),
+      updated_at: stamp(id),
+    });
+  });
+  data.questions.push({
+    id: "q_rec_tw42_0" as QuestionId,
+    workspace_id: TEAM_WS,
+    recording_id: rec("rec_tw42").id,
+    kind: "issue",
+    prompt: "연간 요금제를 결제 화면 앞에 계속 둘 것인가?",
+    answer: null,
+    sources: src("rec_tw42", "pricing_open"),
+    difficulty: null,
+    flags: [],
+    created_at: stamp("rec_tw42"),
+    updated_at: stamp("rec_tw42"),
+  });
+
+  const event = (
+    id: string,
+    n: number,
+    e: Pick<EventCandidate, "kind" | "title" | "start_at" | "end_at" | "all_day" | "raw_expression" | "confidence" | "status"> & {
+      rule: string | null;
+      keys: string[];
+      quote: string;
+      flags?: EventCandidate["flags"];
+    },
+  ) => {
+    data.events.push({
+      id: `ev_${id}_${n}` as EventCandidateId,
+      workspace_id: rec(id).workspace_id,
+      recording_id: rec(id).id,
+      kind: e.kind,
+      title: e.title,
+      start_at: e.start_at,
+      end_at: e.end_at,
+      all_day: e.all_day,
+      tz: DEFAULT_TIME_ZONE,
+      raw_expression: e.raw_expression,
+      resolution: { method: e.rule ? "parser" : "model", rule: e.rule },
+      confidence: e.confidence,
+      evidence: { sources: src(id, ...e.keys), quote: e.quote },
+      flags: e.flags ?? [],
+      status: e.status,
+      created_at: stamp(id),
+      updated_at: stamp(id),
+    });
+  };
+  const os = rec("rec_os07").recorded_at;
+  event("rec_os07", 0, {
+    kind: "deadline",
+    title: "운영체제 과제 3 제출",
+    start_at: clock.nextWeekday(os, 2, 1, 23, 59),
+    end_at: null,
+    all_day: false,
+    raw_expression: "다음 주 화요일 밤 11시 59분까지",
+    confidence: 0.93,
+    status: "suggested",
+    rule: "next_week_weekday",
+    keys: ["assignment"],
+    quote: "다음 주 화요일 밤 11시 59분까지 제출하세요",
+  });
+  event("rec_os07", 1, {
+    kind: "exam",
+    title: "운영체제 중간고사",
+    start_at: clock.nextWeekday(os, 3, 1, 10, 0),
+    end_at: clock.nextWeekday(os, 3, 1, 11, 15),
+    all_day: false,
+    raw_expression: "다음 주 수요일 수업 시간에",
+    confidence: 0.71,
+    status: "suggested",
+    rule: "next_week_weekday",
+    keys: ["midterm"],
+    quote: "중간고사는 다음 주 수요일 수업 시간에 봅니다",
+    flags: ["needs_review"],
+  });
+  event("rec_econ04", 0, {
+    kind: "exam",
+    title: "미시경제학 쪽지 시험",
+    start_at: clock.nextWeekday(rec("rec_econ04").recorded_at, 4, 1, 15, 0),
+    end_at: null,
+    all_day: false,
+    raw_expression: "다음 주 목요일에",
+    confidence: 0.88,
+    status: "accepted",
+    rule: "next_week_weekday",
+    keys: ["quiz"],
+    quote: "다음 주 목요일에 이 단원으로 쪽지 시험을 봅니다",
+  });
+  event("rec_tw42", 0, {
+    kind: "meeting",
+    title: "출시 점검 회의",
+    start_at: clock.nextWeekday(rec("rec_tw42").recorded_at, 4, 1, 14, 0),
+    end_at: clock.nextWeekday(rec("rec_tw42").recorded_at, 4, 1, 15, 0),
+    all_day: false,
+    raw_expression: "다음 주 목요일 오후 2시에",
+    confidence: 0.95,
+    status: "suggested",
+    rule: "next_week_weekday_time",
+    keys: ["release_date"],
+    quote: "출시 점검 회의는 다음 주 목요일 오후 2시에 하겠습니다",
+  });
+
+  const item = (id: string, n: number, text: string, owner: string | null, due: string | null, raw: string | null, keys: string[], status: ActionItem["status"] = "open") => {
+    data.actionItems.push({
+      id: `ai_${id}_${n}` as ActionItemId,
+      workspace_id: rec(id).workspace_id,
+      recording_id: rec(id).id,
+      text,
+      owner_name: owner,
+      due_at: due,
+      due_raw: raw,
+      status,
+      evidence: { sources: src(id, ...keys), quote: null },
+      flags: [],
+      created_at: stamp(id),
+      updated_at: stamp(id),
+    });
+  };
+  const tw = rec("rec_tw42").recorded_at;
+  item("rec_tw42", 0, "QA 체크리스트 정리", "윤서아", clock.nextWeekday(tw, 3, 0, 18, 0), "수요일까지", ["qa_owner"]);
+  item("rec_tw42", 1, "릴리스 노트 초안 작성", "최도현", clock.nextWeekday(tw, 5, 0, 18, 0), "금요일까지", ["notes_owner"]);
+  item("rec_tw42", 2, "가입 직후 올리기 화면으로 이동", "한지민", null, null, ["onboarding_decision"], "done");
+  item("rec_adv", 0, "추천 논문 세 편 읽고 요약", "나", null, "다음 면담 전까지", ["reading"]);
+}

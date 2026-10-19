@@ -100,6 +100,7 @@ import { emitRetentionOutcome, runMaintenanceNow, startMaintenanceSchedule } fro
 import { liveWorkers, publishApiRelease } from "./coordination.ts";
 import { makePrivate } from "./fsperm.ts";
 import { createHttpApp } from "./http.ts";
+import { WEB_SHELL_DIST_DIR } from "./web-shell.ts";
 import { logger } from "./log.ts";
 
 export { isRetryableDistillError, toLectureSummaryDto };
@@ -964,7 +965,9 @@ function buildOpsDto(): AdminOpsDto {
   };
 }
 
-const httpApp = createHttpApp(routeRequest);
+const httpApp = createHttpApp(routeRequest, {
+  webShellDistDir: config().webShell ? WEB_SHELL_DIST_DIR : null,
+});
 
 export async function handleRequest(req: Request): Promise<Response> {
   let res: Response;

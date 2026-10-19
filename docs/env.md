@@ -11,6 +11,7 @@
 | `LECTERN_REPO_DIR` | — |  | Checkout the CD webhook resets to origin/main; deploys are refused without one |
 | `LECTERN_WORKER_MODE` | `embedded` |  | embedded: the API process also runs the job worker (until lectern-worker.service is installed); external: only apps/worker runs jobs |
 | `LECTERN_TRUSTED_PROXY_HOPS` | `1` |  | Reverse proxies in front of the server (X-Forwarded-For hops to trust) |
+| `LECTERN_WEB_SHELL` | `false` |  | 1: serve the new web app (apps/web/dist, built with `bun run web:build`) at /app |
 | `LECTERN_LOG_REQUESTS` | `true` |  | Write one log line per request |
 | `LECTERN_LOG_FORMAT` | `json` |  | json for journald/production, pretty for local development |
 | `LECTERN_SHUTDOWN_GRACE_SEC` | `20` |  | Seconds running jobs get to finish on SIGTERM / deploy |
