@@ -112,6 +112,10 @@
         "zod": "4.6.7",
       },
     },
+    "packages/media": {
+      "name": "@lectern/media",
+      "version": "0.1.0",
+    },
   },
   "packages": {
     "@axe-core/playwright": ["@axe-core/playwright@4.13.0", "", { "dependencies": { "axe-core": "~4.13.0" }, "peerDependencies": { "playwright-core": ">= 1.0.0" } }, "sha512-6YLx+kxXu5GJceG4ozFg+33a2EMTdjYwWGloJ3sb9Kta5pp+ZNS53uxGVog5JetIY8s++P5UrtX+cri+u0VAVg=="],
@@ -193,6 +197,8 @@
     "@lectern/domain": ["@lectern/domain@workspace:packages/domain"],
 
     "@lectern/harness": ["@lectern/harness@workspace:packages/harness"],
+
+    "@lectern/media": ["@lectern/media@workspace:packages/media"],
 
     "@lectern/server": ["@lectern/server@workspace:apps/server"],
 
