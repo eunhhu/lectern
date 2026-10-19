@@ -48,6 +48,7 @@ DESIGN.md, AGENTS.md
 - `apps/*` → `packages/{harness,db,media,ui,config}` → `packages/domain` → (없음)
 - `packages/domain`은 런타임 의존성이 zod뿐이고 저장소 안의 다른 패키지를 import하지 않는다.
 - `apps/*`끼리는 서로 import하지 않는다. 공유할 코드는 `packages/`로 옮긴다.
+  - **과도기 예외**: P0의 `apps/worker`는 `@lectern/server`에 의존한다(`apps/worker/package.json`). 가져다 쓰는 것은 작업 처리 모듈(`job-handlers.ts`, `queue.ts`, `events.ts`, `maintenance.ts` 등)뿐이고 `index.ts`(HTTP 서버)는 import하지 않는다. 이 코드는 P1에서 `packages/harness`·`packages/db`로 옮기고, 옮긴 뒤 이 예외를 없앤다.
 - 경계 파일은 `packages/domain` 하나뿐이다. 동결 후에는 하위 호환 추가만 허용하고, 깨는 변경은 ADR을 거친다.
 
 ## 결과 (Consequences)
