@@ -110,7 +110,12 @@ export type TemplateBlock = z.infer<typeof TemplateBlock>;
 // Persisted form
 // ---------------------------------------------------------------------------
 
-const storedBlocks = blockShapes({ id: BlockId }, { sources: z.array(SourceRef) });
+const Edited = z
+  .boolean()
+  .optional()
+  .describe("True when a user changed this block (DESIGN §3.12 \"직접 수정\"). The server sets it by comparing with the base version; absent means false.");
+
+const storedBlocks = blockShapes({ id: BlockId, edited: Edited }, { sources: z.array(SourceRef) });
 
 export const ListItem = named("ListItem", storedBlocks.listItem);
 export const ParagraphBlock = named("ParagraphBlock", storedBlocks.paragraph);

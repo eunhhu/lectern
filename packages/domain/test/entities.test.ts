@@ -29,6 +29,7 @@ const EXPECTED_ENTITIES = [
   "access_token",
   "integration",
   "usage_ledger",
+  "saved_view",
 ].sort();
 
 const entityNames = Object.keys(ENTITY_SCHEMAS) as EntityName[];

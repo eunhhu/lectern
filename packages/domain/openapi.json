@@ -29,6 +29,9 @@
       "name": "folders"
     },
     {
+      "name": "views"
+    },
+    {
       "name": "tags"
     },
     {
@@ -760,7 +763,7 @@
       },
       "delete": {
         "operationId": "deleteFolder",
-        "summary": "Delete a folder (recordings move to the parent)",
+        "summary": "Delete a folder (its recordings and subfolders move to its parent)",
         "tags": [
           "folders"
         ],
@@ -771,6 +774,199 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/FolderId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done. No body."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/views": {
+      "get": {
+        "operationId": "listSavedViews",
+        "summary": "The caller's saved views in a workspace",
+        "tags": [
+          "views"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque `next_cursor` from the previous page.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size, 50 when omitted.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved views by `sort_key`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSavedView",
+        "summary": "Save a library view",
+        "tags": [
+          "views"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSavedViewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/views/{view_id}": {
+      "patch": {
+        "operationId": "updateSavedView",
+        "summary": "Rename, change or reorder a saved view",
+        "tags": [
+          "views"
+        ],
+        "parameters": [
+          {
+            "name": "view_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SavedViewId"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSavedViewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteSavedView",
+        "summary": "Delete a saved view",
+        "tags": [
+          "views"
+        ],
+        "parameters": [
+          {
+            "name": "view_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SavedViewId"
             }
           }
         ],
@@ -1323,11 +1519,47 @@
             }
           },
           {
+            "name": "include_subfolders",
+            "in": "query",
+            "required": false,
+            "description": "With `folder_id`: also recordings in its subfolders.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "unfiled",
+            "in": "query",
+            "required": false,
+            "description": "`true`: only recordings in no folder.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "tag_id",
             "in": "query",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/TagId"
+            }
+          },
+          {
+            "name": "tag_ids",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated tag ids: recordings with every one of them.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}(?:,[A-Za-z0-9_-]{1,64}){0,49}$"
             }
           },
           {
@@ -1344,6 +1576,43 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/RecordingStatus"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Case-insensitive substring of the title.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "recorded_after",
+            "in": "query",
+            "required": false,
+            "description": "`recorded_at` at or after this time.",
+            "schema": {
+              "$ref": "#/components/schemas/Timestamp"
+            }
+          },
+          {
+            "name": "recorded_before",
+            "in": "query",
+            "required": false,
+            "description": "`recorded_at` before this time.",
+            "schema": {
+              "$ref": "#/components/schemas/Timestamp"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/RecordingSort"
             }
           }
         ],
@@ -1366,6 +1635,65 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/recordings/batch": {
+      "post": {
+        "operationId": "batchRecordings",
+        "summary": "Move, tag, untag or delete many recordings",
+        "tags": [
+          "recordings"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Client-chosen key; repeating a mutation with the same key returns the first result.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRecordingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One result per recording.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchRecordingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           },
           "default": {
             "$ref": "#/components/responses/UnexpectedError"
@@ -2271,6 +2599,105 @@
         }
       }
     },
+    "/action-items": {
+      "get": {
+        "operationId": "listActionItems",
+        "summary": "Action items of a workspace, soonest due first",
+        "tags": [
+          "recordings"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque `next_cursor` from the previous page.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size, 50 when omitted.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ActionItemStatus"
+            }
+          },
+          {
+            "name": "due_after",
+            "in": "query",
+            "required": false,
+            "description": "`due_at` at or after this time (items without a due date are left out).",
+            "schema": {
+              "$ref": "#/components/schemas/Timestamp"
+            }
+          },
+          {
+            "name": "due_before",
+            "in": "query",
+            "required": false,
+            "description": "`due_at` before this time (items without a due date are left out).",
+            "schema": {
+              "$ref": "#/components/schemas/Timestamp"
+            }
+          },
+          {
+            "name": "recording_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/RecordingId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Action items with a due date first (ascending), then the rest by creation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionItemPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
     "/action-items/{action_item_id}": {
       "patch": {
         "operationId": "updateActionItem",
@@ -2860,9 +3287,37 @@
             "name": "status",
             "in": "query",
             "required": false,
-            "description": "Default: `suggested`.",
+            "description": "Default: `suggested`. Ignored when `statuses` is sent.",
             "schema": {
               "$ref": "#/components/schemas/EventCandidateStatus"
+            }
+          },
+          {
+            "name": "statuses",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated statuses, e.g. `accepted,synced` for a calendar view.",
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:suggested|accepted|dismissed|synced)(?:,(?:suggested|accepted|dismissed|synced)){0,3}$"
+            }
+          },
+          {
+            "name": "start_after",
+            "in": "query",
+            "required": false,
+            "description": "`start_at` at or after this time.",
+            "schema": {
+              "$ref": "#/components/schemas/Timestamp"
+            }
+          },
+          {
+            "name": "start_before",
+            "in": "query",
+            "required": false,
+            "description": "`start_at` before this time.",
+            "schema": {
+              "$ref": "#/components/schemas/Timestamp"
             }
           }
         ],
@@ -5177,6 +5632,182 @@
         ],
         "description": "Accept or dismiss many suggestions at once."
       },
+      "BatchRecordingResult": {
+        "type": "object",
+        "properties": {
+          "recording_id": {
+            "$ref": "#/components/schemas/RecordingId"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "$ref": "#/components/schemas/ErrorCode"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this recording was skipped."
+          }
+        },
+        "required": [
+          "recording_id",
+          "ok",
+          "error"
+        ]
+      },
+      "BatchRecordingsRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "move"
+              },
+              "recording_ids": {
+                "minItems": 1,
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RecordingId"
+                }
+              },
+              "folder_id": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/FolderId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Target folder; null takes the recordings out of every folder."
+              }
+            },
+            "required": [
+              "action",
+              "recording_ids",
+              "folder_id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "add_tags"
+              },
+              "recording_ids": {
+                "minItems": 1,
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RecordingId"
+                }
+              },
+              "tag_ids": {
+                "minItems": 1,
+                "maxItems": 50,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TagId"
+                }
+              }
+            },
+            "required": [
+              "action",
+              "recording_ids",
+              "tag_ids"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "remove_tags"
+              },
+              "recording_ids": {
+                "minItems": 1,
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RecordingId"
+                }
+              },
+              "tag_ids": {
+                "minItems": 1,
+                "maxItems": 50,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TagId"
+                }
+              }
+            },
+            "required": [
+              "action",
+              "recording_ids",
+              "tag_ids"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "delete"
+              },
+              "recording_ids": {
+                "minItems": 1,
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RecordingId"
+                }
+              }
+            },
+            "required": [
+              "action",
+              "recording_ids"
+            ]
+          }
+        ],
+        "description": "One action on many recordings. Each recording succeeds or fails on its own.",
+        "discriminator": {
+          "propertyName": "action"
+        }
+      },
+      "BatchRecordingsResponse": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BatchRecordingResult"
+            },
+            "description": "One result per requested id, in request order."
+          }
+        },
+        "required": [
+          "results"
+        ]
+      },
       "BlockId": {
         "type": "string",
         "pattern": "^[A-Za-z0-9_-]{1,64}$",
@@ -5239,6 +5870,10 @@
         "properties": {
           "id": {
             "$ref": "#/components/schemas/BlockId"
+          },
+          "edited": {
+            "description": "True when a user changed this block (DESIGN §3.12 \"직접 수정\"). The server sets it by comparing with the base version; absent means false.",
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -5413,13 +6048,16 @@
         "type": "object",
         "properties": {
           "body": {
+            "description": "The edited structured document; the server renders Markdown.",
             "$ref": "#/components/schemas/DocumentBody"
+          },
+          "markdown": {
+            "description": "The edited Markdown of a `legacy-markdown` document, which has no body.",
+            "type": "string",
+            "maxLength": 1000000
           }
         },
-        "required": [
-          "body"
-        ],
-        "description": "A user edit. Send the version it was based on in `If-Match`; the server renders Markdown."
+        "description": "A user edit: `body` for structured documents, `markdown` for `legacy-markdown` ones (400 otherwise). Send the version it was based on in `If-Match`."
       },
       "CreateFolderRequest": {
         "type": "object",
@@ -5452,6 +6090,34 @@
         "required": [
           "workspace_id",
           "name"
+        ],
+        "description": "409 `conflict` when a sibling (same parent) already has this name, compared trimmed and case-insensitively, or when `parent_id` is the folder itself or one of its descendants."
+      },
+      "CreateSavedViewRequest": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "query": {
+            "$ref": "#/components/schemas/SavedViewQuery"
+          },
+          "sort_key": {
+            "description": "Omit to append after the caller's last view.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "workspace_id",
+          "name",
+          "query"
         ]
       },
       "CreateShareLinkRequest": {
@@ -5523,7 +6189,8 @@
           "workspace_id",
           "name",
           "color"
-        ]
+        ],
+        "description": "409 `conflict` when another tag in the workspace has this name, compared trimmed and case-insensitively. Offer the `TagColorName` colours."
       },
       "CreateUploadRequest": {
         "type": "object",
@@ -5909,7 +6576,8 @@
           "snippet",
           "document_id",
           "block_id"
-        ]
+        ],
+        "description": "A document block matched. In a `legacy-markdown` document, which has no blocks, `block_id` is `md-<n>`: the n-th (0-based) blank-line-separated paragraph of `rendered_md`."
       },
       "DocumentSection": {
         "type": "object",
@@ -6505,6 +7173,10 @@
           "id": {
             "$ref": "#/components/schemas/BlockId"
           },
+          "edited": {
+            "description": "True when a user changed this block (DESIGN §3.12 \"직접 수정\"). The server sets it by comparing with the base version; absent means false.",
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "formula"
@@ -7084,6 +7756,10 @@
           "id": {
             "$ref": "#/components/schemas/BlockId"
           },
+          "edited": {
+            "description": "True when a user changed this block (DESIGN §3.12 \"직접 수정\"). The server sets it by comparing with the base version; absent means false.",
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "list"
@@ -7326,6 +8002,10 @@
           "id": {
             "$ref": "#/components/schemas/BlockId"
           },
+          "edited": {
+            "description": "True when a user changed this block (DESIGN §3.12 \"직접 수정\"). The server sets it by comparing with the base version; absent means false.",
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "paragraph"
@@ -7526,6 +8206,10 @@
         "properties": {
           "id": {
             "$ref": "#/components/schemas/BlockId"
+          },
+          "edited": {
+            "description": "True when a user changed this block (DESIGN §3.12 \"직접 수정\"). The server sets it by comparing with the base version; absent means false.",
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -7819,6 +8503,28 @@
               }
             ],
             "description": "The queued or running job, if any."
+          },
+          "progress": {
+            "description": "Progress of `active_job`. Always sent by the server.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordingProgress"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failure": {
+            "description": "Set when the recording is `failed` (or `partial`). Always sent by the server.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordingFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -7842,6 +8548,48 @@
           "other"
         ],
         "description": "What kind of spoken session the recording is."
+      },
+      "RecordingFailure": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Machine-readable reason, e.g. `legacy_error`, `input_silent`."
+          },
+          "message": {
+            "type": "string",
+            "description": "Why processing failed, safe to show to the user."
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failed_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "job_id",
+          "failed_at"
+        ],
+        "description": "Why the last processing attempt of a `failed` or `partial` recording failed."
       },
       "RecordingId": {
         "type": "string",
@@ -7935,6 +8683,41 @@
             "items": {
               "$ref": "#/components/schemas/TagId"
             }
+          },
+          "excerpt": {
+            "description": "A few words from the current document, for previews.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "audio_bytes": {
+            "description": "Bytes of audio stored for the recording.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pdf_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unverified_count": {
+            "description": "Document blocks flagged for checking (\"출처 확인 필요\").",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "progress": {
+            "description": "Set while a job is queued or running.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordingProgress"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -7955,7 +8738,7 @@
           "updated_at",
           "tag_ids"
         ],
-        "description": "A recording as shown in library lists."
+        "description": "A recording as shown in library lists. The optional fields are always sent by the server."
       },
       "RecordingPage": {
         "type": "object",
@@ -7983,6 +8766,109 @@
           "items",
           "next_cursor"
         ]
+      },
+      "RecordingProgress": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "$ref": "#/components/schemas/JobId"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running"
+            ]
+          },
+          "stage": {
+            "description": "Current stage; v1 pipeline jobs report `legacy_distill`.",
+            "$ref": "#/components/schemas/StageName"
+          },
+          "stage_state": {
+            "$ref": "#/components/schemas/StageRunState"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fraction of the whole job, when known."
+          },
+          "message": {
+            "description": "Short status line for the user, e.g. `노트 정리 중...`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "queue_position": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Place in the queue while `queued` (1 = next)."
+          }
+        },
+        "required": [
+          "job_id",
+          "state",
+          "stage",
+          "stage_state",
+          "progress",
+          "message",
+          "queue_position"
+        ],
+        "description": "Processing progress of a recording, for the first render; `job.progress` events update it."
+      },
+      "RecordingSearchHit": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "recording"
+          },
+          "recording_id": {
+            "$ref": "#/components/schemas/RecordingId"
+          },
+          "recording_title": {
+            "type": "string"
+          },
+          "snippet": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SnippetPart"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "recording_id",
+          "recording_title",
+          "snippet"
+        ],
+        "description": "The recording's title matched."
+      },
+      "RecordingSort": {
+        "type": "string",
+        "enum": [
+          "recorded_at_desc",
+          "recorded_at_asc",
+          "title_asc",
+          "updated_at_desc"
+        ],
+        "description": "List order. Default `recorded_at_desc`."
       },
       "RecordingStatus": {
         "type": "string",
@@ -8140,6 +9026,133 @@
           "job"
         ]
       },
+      "SavedView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/SavedViewId"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId"
+          },
+          "user_id": {
+            "description": "Views are private to the user who saved them.",
+            "$ref": "#/components/schemas/UserId"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "query": {
+            "$ref": "#/components/schemas/SavedViewQuery"
+          },
+          "sort_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Fractional index; views sort by this byte-wise."
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "user_id",
+          "name",
+          "query",
+          "sort_key",
+          "created_at",
+          "updated_at"
+        ],
+        "description": "A smart view (\"스마트 보기\") in the library sidebar."
+      },
+      "SavedViewId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "Opaque id of a saved library view. New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it."
+      },
+      "SavedViewPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SavedView"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as `cursor` for the next page; null on the last page."
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "SavedViewQuery": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "$ref": "#/components/schemas/FolderId"
+          },
+          "include_subfolders": {
+            "type": "boolean"
+          },
+          "unfiled": {
+            "type": "boolean"
+          },
+          "tag_ids": {
+            "description": "Recordings with every one of these tags.",
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagId"
+            }
+          },
+          "domain": {
+            "$ref": "#/components/schemas/RecordingDomain"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RecordingStatus"
+          },
+          "q": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "recorded_after": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "recorded_before": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "recorded_at_desc",
+              "recorded_at_asc",
+              "title_asc",
+              "updated_at_desc"
+            ]
+          }
+        },
+        "description": "A saved library filter: the `listRecordings` query without paging. Clients turn it back into query parameters."
+      },
       "SearchHit": {
         "oneOf": [
           {
@@ -8150,6 +9163,9 @@
           },
           {
             "$ref": "#/components/schemas/PdfPageSearchHit"
+          },
+          {
+            "$ref": "#/components/schemas/RecordingSearchHit"
           }
         ],
         "description": "Open union on `kind`: skip unknown kinds.",
@@ -8158,7 +9174,8 @@
           "mapping": {
             "transcript": "#/components/schemas/TranscriptSearchHit",
             "document": "#/components/schemas/DocumentSearchHit",
-            "pdf_page": "#/components/schemas/PdfPageSearchHit"
+            "pdf_page": "#/components/schemas/PdfPageSearchHit",
+            "recording": "#/components/schemas/RecordingSearchHit"
           }
         }
       },
@@ -8194,7 +9211,8 @@
         "enum": [
           "transcript",
           "document",
-          "pdf_page"
+          "pdf_page",
+          "recording"
         ]
       },
       "ServerEvent": {
@@ -8750,6 +9768,19 @@
           "updated_at"
         ]
       },
+      "TagColorName": {
+        "type": "string",
+        "enum": [
+          "red",
+          "orange",
+          "yellow",
+          "green",
+          "blue",
+          "indigo",
+          "gray"
+        ],
+        "description": "The tag colours clients offer. `Tag.color` also accepts other token names (so new colours are additive); clients render a name they do not know as `gray`."
+      },
       "TagId": {
         "type": "string",
         "pattern": "^[A-Za-z0-9_-]{1,64}$",
@@ -8799,6 +9830,10 @@
         "properties": {
           "id": {
             "$ref": "#/components/schemas/BlockId"
+          },
+          "edited": {
+            "description": "True when a user changed this block (DESIGN §3.12 \"직접 수정\"). The server sets it by comparing with the base version; absent means false.",
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -9060,6 +10095,17 @@
               }
             ],
             "description": "Index of the chunk that produced the segment."
+          },
+          "lang": {
+            "description": "Language of this segment when it differs from the recording's (e.g. an English quote in a Korean lecture). Absent or null: the recording's language.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LanguageTag"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -9169,7 +10215,8 @@
             "minLength": 1,
             "maxLength": 64
           }
-        }
+        },
+        "description": "409 `conflict` when a sibling (same parent) already has this name, compared trimmed and case-insensitively, or when `parent_id` is the folder itself or one of its descendants."
       },
       "UpdateMeRequest": {
         "type": "object",
@@ -9233,11 +10280,30 @@
             "$ref": "#/components/schemas/RecordingVisibility"
           },
           "tag_ids": {
-            "description": "Replaces the user-assigned tags.",
+            "description": "Replaces the recording's tags: every listed tag is attached, every other tag is removed, AI-attached ones included. Listed AI tags keep `source: ai`.",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/TagId"
             }
+          }
+        }
+      },
+      "UpdateSavedViewRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "query": {
+            "description": "Replaces the query.",
+            "$ref": "#/components/schemas/SavedViewQuery"
+          },
+          "sort_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           }
         }
       },
@@ -9305,7 +10371,8 @@
             "pattern": "^[a-z][a-z0-9-]{0,31}$",
             "description": "Design-token colour name (e.g. `blue`), never a raw colour value."
           }
-        }
+        },
+        "description": "409 `conflict` when another tag in the workspace has this name, compared trimmed and case-insensitively. Offer the `TagColorName` colours."
       },
       "UpdateWorkspaceRequest": {
         "type": "object",

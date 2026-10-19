@@ -34,6 +34,7 @@ export const ID = {
   integration: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a20",
   usage: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a21",
   upload: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a22",
+  savedView: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a23",
 } as const;
 
 const scope = { workspace_id: ID.workspace, recording_id: ID.recording } as const;
@@ -404,6 +405,17 @@ export const usageLedger = {
   updated_at: T1,
 } satisfies In<typeof D.UsageLedger>;
 
+export const savedView = {
+  id: ID.savedView,
+  workspace_id: ID.workspace,
+  user_id: ID.user,
+  name: "이번 주 시험",
+  query: { tag_ids: [ID.tag], recorded_after: T0, sort: "recorded_at_asc" },
+  sort_key: "m",
+  created_at: T0,
+  updated_at: T1,
+} satisfies In<typeof D.SavedView>;
+
 export const ENTITY_FIXTURES: Record<D.EntityName, unknown[]> = {
   workspace: [workspace],
   membership: [membership],
@@ -428,6 +440,7 @@ export const ENTITY_FIXTURES: Record<D.EntityName, unknown[]> = {
   access_token: [accessToken],
   integration: [integration],
   usage_ledger: [usageLedger],
+  saved_view: [savedView, { ...savedView, query: {} }],
 };
 
 /** Hand-written invalid rows; the tests also drop every required key of each valid fixture. */
@@ -480,6 +493,7 @@ export const ENTITY_INVALID: Record<D.EntityName, unknown[]> = {
   access_token: [{ ...accessToken, scopes: [] }, { ...accessToken, scopes: ["admin"] }],
   integration: [{ ...integration, provider: "outlook" }],
   usage_ledger: [{ ...usageLedger, period: "2026-13" }, { ...usageLedger, period: "2026-10-01" }],
+  saved_view: [{ ...savedView, query: { sort: "newest" } }, { ...savedView, query: { tag_ids: ["not an id"] } }],
 };
 
 // ---------------------------------------------------------------------------
@@ -632,6 +646,28 @@ export interface Case {
 
 /** Every published request/response body, keyed by OpenAPI component id. */
 export const API_CASES: Record<string, Case> = {
+  BatchRecordingsRequest: {
+    schema: D.BatchRecordingsRequest,
+    valid: [
+      { action: "move", recording_ids: [ID.recording], folder_id: null },
+      { action: "add_tags", recording_ids: [ID.recording], tag_ids: [ID.tag] },
+      { action: "delete", recording_ids: [ID.recording] },
+    ],
+    invalid: [{ action: "move", recording_ids: [], folder_id: null }, { action: "archive", recording_ids: [ID.recording] }, { action: "add_tags", recording_ids: [ID.recording], tag_ids: [] }],
+  },
+  BatchRecordingsResponse: {
+    schema: D.BatchRecordingsResponse,
+    valid: [{ results: [{ recording_id: ID.recording, ok: true, error: null }, { recording_id: ID.recording, ok: false, error: { code: "not_found", message: "녹음을 찾을 수 없습니다." } }] }],
+    invalid: [{ results: [{ recording_id: ID.recording, ok: false }] }],
+  },
+  SavedView: { schema: D.SavedView, valid: [savedView], invalid: [{ ...savedView, name: "" }] },
+  SavedViewPage: { schema: D.SavedViewPage, valid: [page([savedView])], invalid: [{ items: [savedView] }] },
+  CreateSavedViewRequest: {
+    schema: D.CreateSavedViewRequest,
+    valid: [{ workspace_id: ID.workspace, name: "시험", query: { status: "ready" } }],
+    invalid: [{ workspace_id: ID.workspace, name: "시험" }],
+  },
+  UpdateSavedViewRequest: { schema: D.UpdateSavedViewRequest, valid: [{}, { name: "새 이름", query: {} }], invalid: [{ name: "" }] },
   ApiError: {
     schema: D.ApiError,
     valid: [
@@ -706,12 +742,38 @@ export const API_CASES: Record<string, Case> = {
   },
   RecordingPage: {
     schema: D.RecordingPage,
-    valid: [page([{ ...recording, tag_ids: [ID.tag] }]), { items: [], next_cursor: "eyJrIjoxfQ" }],
+    valid: [
+      page([{ ...recording, tag_ids: [ID.tag] }]),
+      { items: [], next_cursor: "eyJrIjoxfQ" },
+      page([
+        {
+          ...recording,
+          tag_ids: [],
+          excerpt: "스케줄링 정리",
+          audio_bytes: 1024,
+          pdf_count: 1,
+          unverified_count: 0,
+          progress: { job_id: ID.job, state: "running", stage: "legacy_distill", stage_state: "running", progress: 0.4, message: "노트 정리 중...", queue_position: null },
+        },
+      ]),
+    ],
     invalid: [page([recording]), { items: [], next_cursor: "" }],
   },
   RecordingDetail: {
     schema: D.RecordingDetail,
-    valid: [{ recording, tags: [recordingTag], assets: [assetDto], speakers: [speaker], documents: [document], active_job: null }],
+    valid: [
+      { recording, tags: [recordingTag], assets: [assetDto], speakers: [speaker], documents: [document], active_job: null },
+      {
+        recording: { ...recording, status: "failed" },
+        tags: [],
+        assets: [],
+        speakers: [],
+        documents: [],
+        active_job: null,
+        progress: null,
+        failure: { code: "legacy_error", message: "Gemini 응답이 비었습니다.", job_id: null, failed_at: T1 },
+      },
+    ],
     invalid: [{ recording, tags: [], assets: [], speakers: [], documents: [] }],
   },
   Recording: { schema: D.Recording, valid: [recording], invalid: [{ ...recording, visibility: "public" }] },
