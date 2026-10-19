@@ -265,17 +265,33 @@ function jsonResponse(
   });
 }
 
+function resolveResendApiKey(): string {
+  const envKey = (process.env.RESEND_API_KEY || "").trim();
+  if (envKey) return envKey;
+  try {
+    const credPath = "/home/eunhhu/.hermes/credentials/accounts.json";
+    if (existsSync(credPath)) {
+      const parsed = JSON.parse(
+        new TextDecoder().decode(Bun.spawnSync(["cat", credPath]).stdout)
+      );
+      const fileKey = String(parsed?.resend?.api_key || "").trim();
+      if (fileKey) return fileKey;
+    }
+  } catch {}
+  return "";
+}
+
 async function sendResendVerificationEmail(
   toEmail: string,
   code: string,
   purpose: "signup" | "reset"
 ): Promise<{ sent: boolean; id?: string }> {
-  const apiKey = (process.env.RESEND_API_KEY || "").trim();
+  const apiKey = resolveResendApiKey();
   const from = (
     process.env.RESEND_FROM_EMAIL || "Lectern <noreply@qucord.com>"
   ).trim();
   if (!apiKey) {
-    return { sent: false };
+    throw new Error("이메일 발송 API 키(RESEND_API_KEY)가 설정되지 않았습니다.");
   }
 
   const subject =

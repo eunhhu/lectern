@@ -417,10 +417,19 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
                         Column(Modifier.padding(10.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(item.course, color = Color(0xFF5E9EFF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                Text(item.dateLabel, color = Color(0xFF8E95A5), fontSize = 11.sp)
+                                Text(
+                                    item.course,
+                                    color = Color(0xFF5E9EFF),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false).padding(end = 6.dp)
+                                )
+                                Text(item.dateLabel, color = Color(0xFF8E95A5), fontSize = 11.sp, maxLines = 1)
                             }
                             Spacer(Modifier.height(4.dp))
                             Text(item.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -442,7 +451,15 @@ fun LecternNativeComposeApp(serverBase: String, autoQuickRecord: Boolean) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("${lec.course} · ${lec.dateLabel}", color = Color(0xFF93C5FD), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${lec.course} · ${lec.dateLabel}",
+                        color = Color(0xFF93C5FD),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutlinedButton(
                             onClick = { exportPdf(lec) },
