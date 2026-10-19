@@ -1,0 +1,29 @@
+# Lectern worker (durable job queue runner: harness stages, audio compaction,
+# maintenance, reminders, calendar sync).
+#
+# AVAILABLE AFTER THE P0 WORKER LANDS. apps/worker/src/index.ts is being built in
+# parallel; until it is on main, do not install or enable this unit (systemd would
+# restart-loop on a missing file). See docs/runbooks/host-setup.md.
+#
+# It shares the checkout, the EnvironmentFile and DATA_DIR (SQLite + blobs) with
+# lectern.service. TimeoutStopSec gives a running stage time to checkpoint; a stage that
+# is killed anyway resumes from its last finished step on the next start (ADR-0007).
+
+[Unit]
+Description=Lectern worker
+After=network-online.target lectern.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=eunhhu
+WorkingDirectory=/home/eunhhu/work/lectern
+EnvironmentFile=/etc/lectern/lectern.env
+ExecStart=/home/eunhhu/.bun/bin/bun run /home/eunhhu/work/lectern/apps/worker/src/index.ts
+Restart=always
+RestartSec=1
+TimeoutStopSec=40
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

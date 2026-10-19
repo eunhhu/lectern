@@ -1,0 +1,30 @@
+# Lectern API (HTTP API, web UI, SSE, CD webhook).
+#
+# Template of the production unit on the Raspberry Pi. Install it with
+# docs/runbooks/host-setup.md, and diff it against the live unit before replacing it:
+#   systemctl cat lectern.service
+#
+# Restart=always also restarts after a clean exit: a CD deploy (POST /api/cd/deploy)
+# makes the server exit 0 after a graceful shutdown and relies on systemd to start the
+# new checkout. TimeoutStopSec must stay above LECTERN_SHUTDOWN_GRACE_SEC (default 20s)
+# plus the 5s the server allows itself to close connections.
+
+[Unit]
+Description=Lectern API server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=eunhhu
+WorkingDirectory=/home/eunhhu/work/lectern
+# Secrets and settings (mode 0600, owner root or eunhhu). See deploy/systemd/lectern.env.example.
+EnvironmentFile=/etc/lectern/lectern.env
+ExecStart=/home/eunhhu/.bun/bin/bun run /home/eunhhu/work/lectern/apps/server/src/index.ts
+Restart=always
+RestartSec=1
+TimeoutStopSec=40
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
