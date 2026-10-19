@@ -1163,4 +1163,57 @@ describe("security regressions", () => {
 
     deleteUserAndData(user.id);
   });
+
+  test("the web UI's cookie-only auth works for fetch, SSE, ingest, audio, downloads and logout", async () => {
+    const user = makeUser();
+    const loginRes = await login(user.email, "correct_password_1", "203.0.113.60");
+    const session = /lectern_session=([^;]+)/.exec(loginRes.headers.get("set-cookie") || "")![1];
+    const cookie = { Cookie: `lectern_session=${session}` };
+    const get = (path: string) =>
+      handleRequest(new Request(`http://localhost${path}`, { headers: cookie }));
+
+    const me: any = await (await get("/api/auth/me")).json();
+    expect(me.user.id).toBe(user.id);
+
+    const sse = await get("/api/events");
+    expect(sse.status).toBe(200);
+    try {
+      await sse.body?.cancel();
+    } catch {}
+
+    const id = generateId("test_cookie");
+    const idemKey = uniq("cookie_idem");
+    createPendingLecture({
+      id,
+      ownerId: user.id,
+      title: "쿠키 인증",
+      course: "보안테스트",
+      audioPath: writeUploadFile(".m4a", new Uint8Array([1, 2, 3, 4])),
+      audioMime: "audio/mp4",
+      audioSize: 4,
+      audioSha256: idemKey,
+      modelRequested: "gemini-flash-latest",
+      sourceClient: "bun-test",
+    });
+    // Multipart ingest with only the cookie (dedupes onto the lecture above, so nothing runs)
+    const ingestRes = await handleRequest(
+      new Request("http://localhost/api/lectures/ingest", {
+        method: "POST",
+        headers: { ...cookie, "X-Idempotency-Key": idemKey },
+        body: audioForm("lecture.m4a", "audio/mp4"),
+      })
+    );
+    expect(ingestRes.status).toBe(200);
+    expect(((await ingestRes.json()) as any).lecture.id).toBe(id);
+    expect((await get(`/api/lectures/${id}/audio`)).status).toBe(200);
+    expect((await get(`/api/lectures/${id}/markdown`)).status).toBe(200);
+
+    const logoutRes = await handleRequest(
+      new Request("http://localhost/api/auth/logout", { method: "POST", headers: cookie })
+    );
+    expect(logoutRes.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect((await get("/api/auth/me")).status).toBe(401);
+
+    deleteUserAndData(user.id);
+  });
 });
