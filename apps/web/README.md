@@ -96,6 +96,7 @@ e2e/       Playwright (*.e2e.ts: bun test가 집어 가지 않도록 .spec이 �
 - **`packages/ui`를 만들지 않았다.** 공용 컨트롤은 `src/ui`에 있다. 지금 소비자가 이 앱 하나뿐이라 패키지 경계와 CSS Modules 교차 번들링 비용만 생긴다. 관리자 콘솔을 React로 옮길 때(P5) 분리한다.
 - **Pretendard를 싣지 않았다.** `main`에는 직접 호스팅한 글꼴이 없고(jsDelivr CDN만 있음, 직접 호스팅은 미병합 브랜치 `claude/xenodochial-hamilton-b49ae7`의 `apps/server/assets/pretendard`), CDN은 금지라서 토큰의 시스템 글꼴 대체(`-apple-system`, `Apple SD Gothic Neo` 등)로 보인다. 그 브랜치가 들어오면 `@font-face`로 같은 경로를 가리키면 된다. CDN 링크를 다시 넣지 않는다.
 - **진행 막대는 React Aria `Slider`가 아니라 기본 `<input type="range">`다.** DESIGN §3.10이 요구하는 `aria-valuetext`("12분 30초 / 1시간 23분 45초")를 React Aria Slider에서는 지정할 수 없다.
+- **출처 칩의 접근 가능한 이름은 "출처 12:30, 김 교수"다.** DESIGN §3.13은 "출처: 12분 30초, 화자 1"을 예로 들지만, 그러면 보이는 글자("12:30")가 이름에 들어가지 않아 음성 입력 사용자가 칩을 부를 수 없다(WCAG 2.5.3 이름 안의 레이블). 화자 이름은 그대로 붙인다.
 - **출처는 ms가 아니라 domain 계약의 전사 idx 범위로 저장된다.** domain이 동결됐고 `SourceRef`가 idx 범위라서 그대로 따랐다. 화면에서는 구간의 원본 오디오 ms로 바꿔 쓰므로 결과는 지시와 같다.
 - **설정 자리 표시에 실제 옵션 두 개(테마, 한 글자 단축키)를 넣었다.** WCAG 2.1.4가 단축키를 끌 방법을 요구한다.
 - **녹음 목록은 가상 스크롤하지 않는다.** 목록이 작다. 긴 전사는 가상 스크롤한다.
