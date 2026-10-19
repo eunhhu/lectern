@@ -196,6 +196,29 @@ for (const lecture of E2E_LECTURES) {
   });
   const outcome = await indexLecture(id, { jobId: `job_e2e_${id}`, embedder: service.embedder });
   if (!outcome.ok) throw new Error(`e2e server: indexing ${id} failed: ${JSON.stringify(outcome)}`);
+  if (lecture.transcript) seedTranscript(id, lecture.transcript);
+}
+
+/**
+ * v1 lectures project to v2 rows with an empty transcript. The suite also needs a
+ * recording whose transcript follows the audio, so this writes one (speaker + segments)
+ * into the projected recording, as the transcription pipeline will.
+ */
+function seedTranscript(recordingId: string, rows: NonNullable<(typeof E2E_LECTURES)[number]["transcript"]>) {
+  db.syncPendingLectures();
+  const sql = db.db;
+  const recording = sql.query(`SELECT id, workspace_id FROM recording WHERE id = ?`).get(recordingId) as { id: string; workspace_id: string } | null;
+  if (!recording) throw new Error(`e2e server: lecture ${recordingId} was not projected to a v2 recording`);
+  const now = Date.now();
+  const speakerId = `spk_e2e_${recordingId.slice(0, 8)}`;
+  sql
+    .query(`INSERT INTO speaker (id, workspace_id, recording_id, label, display_name, confidence, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`)
+    .run(speakerId, recording.workspace_id, recording.id, "S1", "교수", now, now);
+  rows.forEach((row, idx) =>
+    sql
+      .query(`INSERT INTO transcript_segment (workspace_id, recording_id, idx, start_ms, end_ms, speaker_id, text, confidence, source_chunk, lang) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'ko')`)
+      .run(recording.workspace_id, recording.id, idx, row.startMs, row.endMs, speakerId, row.text),
+  );
 }
 
 const server = Bun.serve({ port, hostname: "127.0.0.1", idleTimeout: 120, fetch: (req) => handleRequest(req) });
