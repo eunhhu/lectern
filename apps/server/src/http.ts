@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
+import { API_BASE_PATH, createApiV2App } from "./api/v2/index.ts";
 import { logger } from "./log.ts";
 
 const LEGAL_DIR = join(import.meta.dir, "../static/legal");
@@ -37,6 +38,8 @@ export function createHttpApp(legacy: (req: Request) => Promise<Response>) {
     });
     return c.json({ error: "서버 내부 오류가 발생했습니다.", request_id: requestId }, 500);
   });
+
+  app.route(API_BASE_PATH, createApiV2App());
 
   // Public policy pages (linked from the OAuth consent screen and the app stores).
   for (const page of ["privacy", "terms"] as const) {
