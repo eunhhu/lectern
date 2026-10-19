@@ -1416,10 +1416,6 @@ export function completeLectureRecord(
   const now = new Date().toISOString();
   const rec = getLectureById(id);
   const owner = rec ? getUserById(rec.owner_id) : null;
-  const isTestClient =
-    rec?.source_client === "bun-test" ||
-    id.startsWith("test_") ||
-    id.startsWith("unauth_");
   const kst = formatKstTimestamp(rec?.created_at || now);
   const shortUuid =
     id
@@ -1427,9 +1423,10 @@ export function completeLectureRecord(
       .replace(/-/g, "")
       .slice(0, 8) || randomBytes(4).toString("hex");
 
-  // Persist to /home/eunhhu/work/lectures/<course>/ only for real admin/owner lectures (never test runs)
+  // Admin/owner lectures are also written to the lecture archive (LECTURES_ROOT/<course>/).
+  // Tests run against a sandboxed LECTURES_ROOT (test/preload.ts), so no test special case.
   let mdSourcePath: string | null = null;
-  if (!isTestClient && (!owner || owner.is_admin === 1)) {
+  if (!owner || owner.is_admin === 1) {
     try {
       const safeCourse =
         result.courseName

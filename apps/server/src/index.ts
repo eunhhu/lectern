@@ -239,15 +239,7 @@ export function resumeInterruptedLectures(
   const resumed: string[] = [];
   const failed: string[] = [];
   for (const item of items) {
-    if (
-      !item.audio_path ||
-      !existsSync(item.audio_path) ||
-      item.source_client === "bun-test" ||
-      item.id.startsWith("test_") ||
-      item.id.startsWith("unauth_")
-    ) {
-      continue;
-    }
+    if (!item.audio_path || !existsSync(item.audio_path)) continue;
     // Already in the durable queue (it survives restarts): the worker will pick it up.
     if (getLectureJob(item.id)) continue;
     if (!canUseServerKey(getUserById(item.owner_id))) {
