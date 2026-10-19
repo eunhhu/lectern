@@ -14,10 +14,16 @@ export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 // One fresh z.string() per brand: `.brand()` returns the same instance, so a
 // shared base would make every id the same registry entry.
-function idSchema<const B extends string>(brand: B, what: string) {
+//
+// The return type is spelled out: `.brand<B>()` is a conditional type
+// (`PropertyKey extends B ? this : $ZodBranded<...>`) that stays unresolved for
+// a generic B, and TS 7 then infers every id as `unknown`.
+type IdSchema<B extends string> = z.core.$ZodBranded<z.ZodString, B, "out">;
+
+function idSchema<const B extends string>(brand: B, what: string): IdSchema<B> {
   return named(
     brand,
-    z.string().regex(ID_PATTERN).brand<B>(),
+    z.string().regex(ID_PATTERN).brand<B>() as IdSchema<B>,
     `Opaque id of a ${what}. New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it.`,
   );
 }
