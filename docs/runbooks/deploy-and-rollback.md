@@ -64,19 +64,18 @@ git fetch origin main && git rev-parse origin/main
 ```
 
 - `gitSha`가 머지한 커밋과 같고, `status`가 `ok`, `checks.database`가 `ok`이며, `uptimeSec`가 작아야(방금 재시작) 성공이다.
+- `checks.worker`는 `"embedded"`(API가 작업 실행) 또는 `"ok"`(외부 워커가 1분 안에 하트비트를 보냄)여야 한다. `"missing"`이면 [incident-response.md §3.7](incident-response.md#37-작업이-처리-중에서-멈춤).
 - 관리자 콘솔(`/admin`) 감사 로그에 `ops.deploy  <이전 7자리> → <새 7자리>`가 있다.
 - 호스트에서 확인하려면:
   ```bash
-  journalctl -u lectern --since "10 min ago" --no-pager | tail -50
+  journalctl -u lectern --since "10 min ago" -o cat --no-pager | grep -E '"msg":"(shutting down|server listening)"'
   ```
-  `Shutting down (deploy)...` 다음에 `🚀 Lectern Bun Server listening on http://127.0.0.1:18775 (sha <새 7자리>)`가 보여야 한다.
-- (P0 워커가 들어온 뒤) 워커도 새 코드로 돌고 있는지 확인한다. 워커를 재시작하는 방식은 워커 구현에서 정한다. 확인 명령은 다음과 같다.
+  로그는 JSON 한 줄 형식이다. `"msg":"shutting down","reason":"deploy"` 다음에 `"msg":"server listening"`과 `"sha":"<새 7자리>"`가 보여야 한다.
+- (외부 워커를 쓰는 경우) 배포는 API만 재시작한다. 워커는 15초마다 API가 기록한 릴리스를 확인하고, 더 새 릴리스면 실행 중인 작업을 마치거나 큐로 돌려준 뒤 종료하며, systemd가 새 코드로 다시 띄운다. 배포 후 1~2분 안에 워커도 새 SHA로 떠야 한다.
   ```bash
-  systemctl status lectern-worker --no-pager
+  journalctl -u lectern-worker --since "10 min ago" -o cat --no-pager | grep -E '"msg":"lectern-worker (shutting down|started)"'
   ```
-  ```bash
-  journalctl -u lectern-worker --since "10 min ago" --no-pager | tail -30
-  ```
+  `"msg":"lectern-worker started"`의 `sha`가 새 7자리와 같아야 한다. 관리자 콘솔 운영 보기의 워커 목록에서도 SHA를 볼 수 있다.
 
 ## 3. 수동 배포 트리거
 
@@ -180,8 +179,9 @@ CI를 기다릴 수 없을 때(서비스가 죽었거나 데이터를 망가뜨�
    sudo systemctl restart lectern
    ```
    ```bash
-   sudo systemctl restart lectern-worker   # P0 워커가 들어온 뒤
+   sudo systemctl restart lectern-worker   # 외부 워커를 쓰는 경우
    ```
+   워커는 API의 릴리스가 바뀐 것을 보고 스스로 재시작하지만, 직접 재시작하면 기다릴 필요가 없다.
 4. 검증한다.
    ```bash
    curl -fsS http://127.0.0.1:18775/api/health | jq '{status, gitSha}'

@@ -20,7 +20,7 @@
 
 - [ ] **공개 홈페이지.** Google은 홈페이지가 로그인한 사용자만 보는 페이지이면 안 되고, 앱을 설명하고 개인정보처리방침을 링크해야 한다고 요구한다. **지금 `https://lectern.qucord.com/`은 로그인 화면뿐이라 이 조건을 못 맞춘다.**
   - 할 일: 로그아웃 상태의 `/`(또는 홈페이지로 등록할 공개 경로)에 Lectern이 무엇을 하는지(녹음 → 전사·문서, 일정 추출, Google 캘린더 연동), `/privacy`·`/terms` 링크, 문의처를 보이게 한다. 이 작업은 웹 UI(`apps/server/src/ui.ts`)와 라우트를 소유한 세션의 몫이다.
-- [ ] **`/privacy`와 `/terms`가 실제로 서빙된다.** 파일은 `apps/server/static/legal/privacy.html`, `terms.html`에 있고, 라우트는 `apps/server/src/index.ts`를 소유한 세션이 붙인다.
+- [ ] **`/privacy`와 `/terms`가 실제로 서빙된다.** 파일은 `apps/server/static/legal/privacy.html`, `terms.html`이고, `apps/server/src/http.ts`(Hono 진입점)가 `/privacy`, `/terms`로 서빙한다. 이 코드가 `main`에 배포돼야 운영에서 열린다.
   - 두 페이지는 인라인 `<style>` 하나를 쓴다. CSP의 `style-src`에서 `'unsafe-inline'`을 빼면 그 해시(`'sha256-Ia0aH08zjPbxs8BI3T0x37ocu7Zu4c1RwKfMXdGTJDo='`)를 두 경로의 CSP에 넣어야 스타일이 적용된다. 스타일이 막혀도 내용은 읽힌다.
 - [ ] **자리표시자 교체.** 다음 명령의 결과가 비어 있어야 한다.
   ```bash

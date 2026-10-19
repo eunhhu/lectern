@@ -14,16 +14,18 @@
 ```
 apps/
   server/            Bun HTTP 서버 (운영 진입점: apps/server/src/index.ts, systemd가 직접 실행)
-    src/index.ts     라우터, 인증, 업로드, SSE, 관리자 API, CD 웹훅 (Hono로 이행 중)
+    src/index.ts     레거시 라우터: 인증, 업로드, SSE, 관리자 API, CD 웹훅, /api/health
+    src/http.ts      Hono 진입점: request id, 오류 응답, /privacy·/terms. 새 v2 라우트는 여기에 모듈별로 붙인다
     src/db.ts        bun:sqlite 스키마·쿼리, 오너 부트스트랩
     src/ui.ts        웹 앱·공유 페이지·관리자 콘솔 HTML (P2에 apps/web으로 대체)
     src/queue.ts     SQLite 영속 작업 큐 (lease, 재개)
-    src/job-handlers.ts, events.ts, maintenance.ts   워커가 쓰는 작업 처리 모듈
+    src/job-handlers.ts, events.ts, maintenance.ts, coordination.ts   워커가 쓰는 작업 처리·조정 모듈
+    src/log.ts       JSON 한 줄 로거 (console.log 대신 logger를 쓴다)
     src/ops.ts       유지보수, 백업, CD 배포 실행기 / src/preflight.ts 배포 사전 점검
     src/storage.ts   업로드 저장, 압축, 휴지통, 보존 정책
     static/legal/    개인정보처리방침·이용약관 (정적 HTML)
     test/            bun test (preload.ts가 샌드박스를 만든다)
-  worker/            작업 러너 프로세스 (P0에서 만드는 중)
+  worker/            작업 러너 프로세스 (LECTERN_WORKER_MODE=external일 때 lectern-worker.service로 실행)
   macos/ android/ windows/ ios/   네이티브 클라이언트 (v1 API 사용)
 packages/
   config/            환경 변수 zod 스키마 = 설정의 단일 진실 공급원
@@ -93,7 +95,7 @@ bun test
   - 브라우저 UI는 HttpOnly `lectern_session` 쿠키(`Secure`, `SameSite=Lax`)로만 인증한다. 토큰을 `localStorage`에 두거나 `X-Lectern-Token` 헤더·`?token=` 쿼리를 브라우저 코드에서 보내지 않는다.
   - 헤더 토큰(`X-Lectern-Token`)과 `?token=`은 네이티브 클라이언트와 단축어용이다.
   - 쿠키로 인증하는 변경 요청에 CSRF 방어를 넣는다면 `Origin`/`Sec-Fetch-Site` 기반으로 한다. 커스텀 헤더를 요구하면 웹 UI가 깨진다.
-- 로그에 토큰이나 키를 남기지 않는다. URL 쿼리의 자격 증명은 `redactUrlForLog()`로 가린다.
+- 로그는 `apps/server/src/log.ts`의 `logger`로 남긴다(JSON 한 줄, `request_id`·`job_id` 같은 필드를 붙인다). 토큰, 키, 쿠키, 요청 본문은 남기지 않는다. URL 쿼리의 자격 증명은 `redactUrlForLog()`로 가린다.
 - 업로드는 MIME·확장자 화이트리스트를 지키고, 오디오는 확장자 기준 MIME과 `nosniff`로 서빙한다.
 
 ### 일반

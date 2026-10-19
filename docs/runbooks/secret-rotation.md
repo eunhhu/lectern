@@ -25,6 +25,7 @@
    ```
    `Environment=` 줄에 값이 보이면 [host-setup.md §4](host-setup.md#4-환경-파일-만들기)로 먼저 옮긴다. 이 명령은 값을 화면에 출력하므로 화면 공유 중에는 돌리지 않는다.
 2. 재시작하면 실행 중인 작업이 큐로 돌아갔다가 다시 실행된다. 관리자 콘솔의 작업 보기에서 긴 작업이 없을 때 재시작한다.
+   - **외부 워커를 쓰면**(`/api/health`의 `checks.worker`가 `"ok"`) 워커도 같은 환경 파일을 읽으므로, 아래의 `sudo systemctl restart lectern`을 `sudo systemctl restart lectern lectern-worker`로 바꿔 실행한다. 특히 Gemini 키는 작업을 실행하는 워커가 쓴다.
 3. 환경 파일은 항상 `sudoedit`로 고친다(편집기가 임시 사본을 쓰고 권한을 유지한다).
    ```bash
    sudoedit /etc/lectern/lectern.env
@@ -80,12 +81,15 @@
 1. Google AI Studio(또는 Google Cloud 콘솔 → APIs & Services → Credentials)에서 **결제가 연결된 프로젝트**에 새 키를 만든다.
    - API 제한을 "Generative Language API"로 건다.
    - 프로젝트가 유료 계층(Paid tier)인지 확인한다. 무료 계층에서는 Google이 입력과 응답을 제품 개선에 쓸 수 있어서 [개인정보처리방침](../../apps/server/static/legal/privacy.html)과 맞지 않는다.
-2. 환경 파일의 `GEMINI_API_KEY=`를 바꾸고 재시작한다.
+2. 환경 파일의 `GEMINI_API_KEY=`를 바꾸고 재시작한다(외부 워커가 있으면 워커도).
    ```bash
    sudoedit /etc/lectern/lectern.env
    ```
    ```bash
    sudo systemctl restart lectern
+   ```
+   ```bash
+   sudo systemctl restart lectern-worker   # 외부 워커를 쓰는 경우
    ```
 3. 검증한다. 키를 명령줄에 쓰지 않도록 환경 파일에서 읽는다. 모델 이름이 출력되면 키가 유효하다.
    ```bash
@@ -158,17 +162,23 @@ EOF
 
 DB 사본이 유출되면 모든 API 토큰(평문), 세션, 공유 토큰이 노출되고 비밀번호 해시도 오프라인 공격 대상이 된다.
 
-1. 서버를 멈춘다(워커가 있으면 워커도).
+1. 서버를 멈춘다(외부 워커가 있으면 워커도).
    ```bash
    sudo systemctl stop lectern
+   ```
+   ```bash
+   sudo systemctl stop lectern-worker   # 외부 워커를 쓰는 경우
    ```
 2. 수동 백업을 뜬 뒤([backup-restore.md §2.2](backup-restore.md#22-호스트에서-순환-대상이-아닌-이름으로)) 모든 API 토큰을 새로 만들고 세션을 지운다.
    ```bash
    cd /home/eunhhu/work/lectern/data && /home/eunhhu/.bun/bin/bun -e "import { Database } from 'bun:sqlite'; import { randomBytes } from 'node:crypto'; const db = new Database('lectern.sqlite'); const users = db.query('SELECT id FROM users').all(); const upd = db.query('UPDATE users SET api_token = ? WHERE id = ?'); db.transaction(() => { for (const u of users) upd.run('lct_' + randomBytes(20).toString('base64url'), u.id); db.exec('DELETE FROM sessions'); })(); console.log('rotated', users.length)"
    ```
-3. 서버를 시작하고 health를 확인한다.
+3. 서버(와 워커)를 시작하고 health를 확인한다.
    ```bash
    sudo systemctl start lectern && curl -fsS http://127.0.0.1:18775/api/health | jq .status
+   ```
+   ```bash
+   sudo systemctl start lectern-worker   # 외부 워커를 쓰는 경우
    ```
 4. 오너 비밀번호(§5)와 env 파일의 시크릿(§2~§4)도 모두 교체한다.
 5. 모든 사용자에게 비밀번호 재설정을 안내한다. 공유 토큰(`/s/:token`)은 이 절차로 바뀌지 않는다. 비공개 강의의 공유 링크는 원래 소유자만 열 수 있지만, **공개로 설정된 강의는 유출된 토큰으로 계속 열린다.** 노출되면 안 되는 강의는 공개를 해제한다.
@@ -182,7 +192,13 @@ DB 사본이 유출되면 모든 API 토큰(평문), 세션, 공유 토큰이 �
 1. 관리자 콘솔 작업 보기에서 대기·실행 중인 작업이 없을 때 진행한다. 남아 있는 작업 중 사용자 키를 가진 것은 "키를 열 수 없음" 오류로 끝나고, 사용자가 다시 시도해야 한다.
 2. 서버를 멈추고 키 파일을 지운 뒤 다시 시작한다. 첫 사용 때 새 키가 만들어진다.
    ```bash
+   sudo systemctl stop lectern-worker   # 외부 워커를 쓰는 경우
+   ```
+   ```bash
    sudo systemctl stop lectern && rm /home/eunhhu/work/lectern/data/secret.key && sudo systemctl start lectern
+   ```
+   ```bash
+   sudo systemctl start lectern-worker   # 외부 워커를 쓰는 경우
    ```
 3. 검증: 사용자 키를 붙인 짧은 업로드가 끝까지 처리되고, `secret.key`가 권한 600으로 다시 생겼는지 확인한다.
    ```bash

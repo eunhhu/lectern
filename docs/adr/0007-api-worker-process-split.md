@@ -31,7 +31,9 @@ v2 하네스는 단계가 많고(전사 청크 병렬, 구조화, 추출, 검증
   - 점유는 원자적 `UPDATE … RETURNING`과 lease(`lease_owner`, `lease_until`, 하트비트)로 한다. 만료된 lease는 회수해 다시 `queued`로 돌린다.
   - 기록 순서는 "산출물 저장 → `artifact` 행 → `stage_run` 상태 전이(항상 마지막)"다. 그래서 어디서 죽어도 끝나지 않은 단계부터 다시 한다.
 - 진행 상황은 워커가 `job_events`에 쓰고, API가 읽어서 SSE로 보낸다(`Last-Event-ID`로 재전송).
-- API의 `/api/ready`는 워커 하트비트가 60초 이내인지 함께 본다.
+- 워커는 하트비트를 `system_state`에 쓰고, API의 `/api/health`는 `checks.worker`(`embedded` | `ok` | `missing`, 하트비트 60초 기준)로 보고한다.
+- **배포는 API만 재시작한다.** API는 부팅할 때 자기 릴리스(git SHA)를 `system_state`에 기록하고, 외부 워커는 15초마다 이를 확인해 더 새 릴리스이면 작업을 마치거나 큐로 돌려준 뒤 종료한다. systemd(`Restart=always`)가 새 코드로 다시 띄운다.
+- 이행 스위치는 `LECTERN_WORKER_MODE`다. `embedded`(기본)는 API 프로세스 안에서 같은 큐 워커를 돌리고, `external`은 `lectern-worker.service`만 작업을 실행한다. 워커 프로세스는 `external`이 아니면 시작하지 않는다.
 - 이행: P0에서 현재 인메모리 작업(분석, 압축, 유지보수)을 새 큐로 옮긴다. 사용자가 보기에 달라지는 것은 없어야 한다.
 
 ## 결과 (Consequences)
@@ -43,7 +45,7 @@ v2 하네스는 단계가 많고(전사 청크 병렬, 구조화, 추출, 검증
   - 처리량이 부족하면 워커만 두 번째 호스트로 옮길 수 있다([ADR-0003](0003-single-node-pi-hosting.md) 확장 경로).
 - 감수하는 것
   - 두 프로세스가 같은 SQLite에 쓴다. WAL과 `busy_timeout`으로 다루고, 쓰기 트랜잭션을 짧게 유지한다. 경합이 관측되면 Postgres 전환 신호로 본다.
-  - 배포가 두 프로세스를 모두 새 코드로 재시작해야 한다. 한쪽만 바뀐 상태(버전 불일치)를 피하려면 큐 스키마 변경은 하위 호환으로 하고, 마이그레이션은 두 프로세스가 모두 멈추지 않아도 되게 쓴다.
+  - 배포 직후 짧은 시간(워커의 확인 주기 15초 + 작업 정리 시간) 동안 새 API와 옛 워커가 함께 돈다. 그래서 큐와 테이블의 스키마 변경은 하위 호환으로 하고, 마이그레이션은 옛 코드가 읽을 수 있게 쓴다.
   - systemd 유닛과 운영 런북이 늘어난다([deploy/systemd](../../deploy/systemd/), [host-setup](../runbooks/host-setup.md)).
 - 다시 검토할 신호
   - SQLite 쓰기 경합(`SQLITE_BUSY`)이 반복될 때

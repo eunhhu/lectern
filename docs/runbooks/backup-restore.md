@@ -63,7 +63,7 @@ cd /home/eunhhu/work/lectern/data && /home/eunhhu/.bun/bin/bun -e "import { Data
    sudo systemctl stop lectern
    ```
    ```bash
-   sudo systemctl stop lectern-worker   # P0 워커가 들어온 뒤
+   sudo systemctl stop lectern-worker   # 외부 워커를 쓰는 경우
    ```
 2. 현재 DB 파일 세 개(본체, `-wal`, `-shm`)를 **모두** 옆으로 옮긴다. `-wal`을 남겨 두면 복원한 파일 위에 옛 WAL이 재생돼 DB가 망가질 수 있다.
    ```bash
@@ -79,7 +79,7 @@ cd /home/eunhhu/work/lectern/data && /home/eunhhu/.bun/bin/bun -e "import { Data
    sudo systemctl start lectern
    ```
    ```bash
-   sudo systemctl start lectern-worker   # P0 워커가 들어온 뒤
+   sudo systemctl start lectern-worker   # 외부 워커를 쓰는 경우
    ```
 5. 검증한다.
    ```bash

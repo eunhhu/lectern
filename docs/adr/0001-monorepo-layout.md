@@ -59,8 +59,8 @@ DESIGN.md, AGENTS.md
   - 서버 파일이 기능 모듈로 나뉘어 리뷰와 인계가 쉬워진다.
 - 감수하는 것
   - 패키지 경계를 지키는 규칙이 아직 도구로 강제되지 않는다. 처음에는 리뷰로 지키고, 위반이 생기면 lint 규칙(import 경로 제한)을 추가한다.
-  - CI의 배포 판단(`deploy-server` 잡의 경로 필터)이 `apps/server/`와 `packages/`만 본다. `apps/worker/`가 생기면 필터에 추가해야 한다.
-  - `tsconfig.json`의 `include`도 새 앱과 패키지를 포함하도록 넓혀야 한다.
+  - CI의 배포 판단(`deploy-server` 잡의 경로 필터)이 `apps/server/`와 `packages/`만 본다. `apps/worker/`도 필터에 넣어야 워커만 바꾼 커밋이 배포된다. 새 앱을 추가할 때마다 필터를 확인한다.
+  - `tsconfig.json`의 `include`도 새 앱을 추가할 때마다 넓힌다(`apps/worker`는 P0에서 추가됨).
 - 다시 검토할 신호
   - 네이티브 클라이언트의 릴리스 주기가 서버와 크게 달라 CI가 서로를 막을 때
   - 외부 기여자가 생겨 저장소 권한을 나눠야 할 때

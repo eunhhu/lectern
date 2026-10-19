@@ -153,11 +153,11 @@ diff -u ~/lectern-host-snapshot/lectern.service.bak /home/eunhhu/work/lectern/de
    curl -fsS https://lectern.qucord.com/api/health | jq '{status, gitSha}'
    ```
    ```bash
-   journalctl -u lectern --since "5 min ago" --no-pager | tail -30
+   journalctl -u lectern --since "5 min ago" -o cat --no-pager | tail -30
    ```
    - `ActiveState=active`, `EnvironmentFiles=/etc/lectern/lectern.env`, `TimeoutStopUSec=40s`, `Restart=always`
    - health가 `ok`이고, 웹 로그인과 강의 목록이 된다.
-   - 로그에 `Invalid environment`나 "LECTERN_REPO_DIR이 설정되지 않았습니다" 같은 오류가 없다.
+   - 로그에 `server listening`(JSON 한 줄, `sha`와 `worker_mode` 포함)이 있고 `Invalid environment` 같은 오류가 없다.
    - CD가 새 환경 파일로도 동작하는지 확인한다: `gh workflow run ci-cd.yml --ref main` → `already-deployed` 200.
 5. 문제가 생기면 되돌린다.
    ```bash
@@ -170,43 +170,52 @@ diff -u ~/lectern-host-snapshot/lectern.service.bak /home/eunhhu/work/lectern/de
 
 ## 6. 워커 유닛 설치 (P0 워커가 들어온 뒤)
 
-`apps/worker/src/index.ts`는 P0에서 병렬로 만들고 있다. 그 파일이 `main`에 들어오기 전에는 이 절을 하지 않는다. 없는 파일을 가리키는 유닛은 재시작을 무한히 반복한다.
+`apps/worker/src/index.ts`가 `main`으로 배포된 뒤에만 이 절을 한다. 없는 파일을 가리키는 유닛은 재시작을 무한히 반복한다. 워커는 `LECTERN_WORKER_MODE=external`이 아니면 바로 종료(상태 2)하므로, **모드를 먼저 바꾸고 워커를 켠다.** 그 사이 몇 초 동안 새 작업은 영속 큐에서 기다릴 뿐 사라지지 않는다.
 
 1. 진입점이 배포됐는지 확인한다.
    ```bash
    test -f /home/eunhhu/work/lectern/apps/worker/src/index.ts && echo present
    ```
 2. CI의 배포 경로 필터(`.github/workflows/ci-cd.yml`의 `deploy-server`)에 `apps/worker/`가 들어 있는지 확인한다. 없으면 워커만 바꾼 커밋이 배포되지 않는다.
-3. 유닛을 설치하고 켠다. 이 시점에는 API도 작업을 실행하지만(`embedded`), 작업은 lease로 한 프로세스만 가져가므로 겹쳐 실행되지 않는다.
+   ```bash
+   grep -n "apps/worker" /home/eunhhu/work/lectern/.github/workflows/ci-cd.yml
+   ```
+3. 유닛을 설치만 하고 아직 켜지 않는다.
    ```bash
    sudo install -m 0644 /home/eunhhu/work/lectern/deploy/systemd/lectern-worker.service /etc/systemd/system/lectern-worker.service
    ```
    ```bash
-   sudo systemd-analyze verify /etc/systemd/system/lectern-worker.service && sudo systemctl daemon-reload && sudo systemctl enable --now lectern-worker
+   sudo systemd-analyze verify /etc/systemd/system/lectern-worker.service && sudo systemctl daemon-reload
    ```
-4. API가 작업을 그만 실행하도록 환경 파일에서 `LECTERN_WORKER_MODE=external`로 바꾸고 둘 다 재시작한다.
+4. 관리자 콘솔 작업 보기에서 긴 작업이 없을 때, 환경 파일에서 `LECTERN_WORKER_MODE=external`로 바꾼다.
    ```bash
    sudoedit /etc/lectern/lectern.env
    ```
+5. API를 재시작해 작업 실행을 멈추게 하고, 곧바로 워커를 켠다. API 로그에 "no lectern-worker heartbeat yet" 경고가 잠깐 보이는 것은 정상이다.
    ```bash
-   sudo systemctl restart lectern lectern-worker
+   sudo systemctl restart lectern && sudo systemctl enable --now lectern-worker
    ```
-5. 검증한다.
+6. 검증한다.
    ```bash
-   systemctl status lectern-worker --no-pager
+   curl -fsS http://127.0.0.1:18775/api/health | jq '{status, gitSha, worker: .checks.worker}'
    ```
    ```bash
-   journalctl -u lectern-worker --since "5 min ago" --no-pager | tail -30
+   journalctl -u lectern-worker --since "5 min ago" -o cat --no-pager | tail -20
    ```
+   - 1분 안에 `checks.worker`가 `"ok"`가 된다(`"missing"`이면 워커 하트비트가 없다는 뜻이다).
+   - 워커 로그에 `lectern-worker started`와 지금 배포된 SHA가 보인다. 관리자 콘솔 운영 보기의 워커 목록에도 나온다.
    - 짧은 테스트 녹음을 올리면 워커 로그에 작업이 나타나고 노트가 완성된다.
-   - 재개 확인(선택): 처리 중에 워커를 강제로 죽이고, 다시 떠서 이어서 처리하는지 본다.
+   - 재개 확인(선택): 처리 중에 워커를 강제로 죽인다. systemd가 다시 띄우고, lease가 만료된 뒤(기본 60초) 작업이 이어서 처리된다.
      ```bash
      sudo systemctl kill -s KILL lectern-worker
      ```
-   - (구현되면) `/api/ready`가 워커 하트비트를 정상으로 보고한다.
-6. 배포할 때 워커가 새 코드로 재시작되는지 [deploy-and-rollback.md §2.3](deploy-and-rollback.md#23-검증)으로 매번 확인한다. 재시작 방식은 워커 구현에서 정한다.
+7. 배포할 때는 API만 재시작된다. 워커는 15초마다 API가 기록한 릴리스를 확인하고, 더 새 릴리스면 작업을 넘긴 뒤 종료해 systemd가 새 코드로 다시 띄운다. 매 배포 뒤 [deploy-and-rollback.md §2.3](deploy-and-rollback.md#23-검증)대로 워커의 SHA를 확인한다.
 
-되돌리기: `LECTERN_WORKER_MODE=embedded`로 바꾸고 `sudo systemctl disable --now lectern-worker && sudo systemctl restart lectern`.
+되돌리기: 환경 파일을 `LECTERN_WORKER_MODE=embedded`로 바꾸고 다음을 실행한다.
+```bash
+sudo systemctl disable --now lectern-worker && sudo systemctl restart lectern
+```
+검증: `checks.worker`가 `"embedded"`.
 
 ## 7. 새 호스트의 첫 부팅
 

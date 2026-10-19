@@ -37,8 +37,17 @@
    systemctl show lectern -p NRestarts -p ActiveEnterTimestamp
    ```
    ```bash
-   journalctl -u lectern -n 200 --no-pager
+   journalctl -u lectern -n 200 -o cat --no-pager
    ```
+   로그는 JSON 한 줄 형식이다. 오류만 보려면:
+   ```bash
+   journalctl -u lectern --since "1 hour ago" -o cat --no-pager | jq -c 'select(.level == "error" or .level == "warn")'
+   ```
+   사용자가 받은 오류 응답에 `request_id`가 있으면(응답 헤더 `X-Request-Id`도 같다) 그 요청의 로그를 바로 찾는다.
+   ```bash
+   journalctl -u lectern --since "1 day ago" -o cat --no-pager | grep '<request_id>'
+   ```
+   외부 워커를 쓰면 `lectern-worker` 유닛에도 같은 명령을 돌린다.
 4. 자원
    ```bash
    df -h /home/eunhhu && free -h && uptime
@@ -142,6 +151,22 @@
 
 ### 3.7 작업이 "처리 중"에서 멈춤
 
+먼저 작업을 실행할 프로세스가 살아 있는지 본다.
+```bash
+curl -fsS http://127.0.0.1:18775/api/health | jq .checks.worker
+```
+
+- `"missing"`: `LECTERN_WORKER_MODE=external`인데 1분 넘게 워커 하트비트가 없다. 작업은 큐에 쌓이기만 한다.
+  ```bash
+  systemctl status lectern-worker --no-pager
+  ```
+  ```bash
+  journalctl -u lectern-worker -n 100 -o cat --no-pager
+  ```
+  - 유닛이 없거나 꺼져 있으면 [host-setup.md §6](host-setup.md#6-워커-유닛-설치-p0-워커가-들어온-뒤)대로 켠다.
+  - 종료 상태 2로 계속 재시작하면 워커가 보는 `LECTERN_WORKER_MODE`가 `external`이 아니다. 환경 파일을 확인한다.
+  - 급하면 환경 파일을 `LECTERN_WORKER_MODE=embedded`로 바꾸고 `sudo systemctl restart lectern`을 해서 API가 작업을 실행하게 한다.
+- `"ok"` 또는 `"embedded"`인데 멈춰 있으면 아래를 본다.
 - 작업은 영속 큐(`job` 테이블)에 있고 lease로 점유된다. 프로세스가 죽으면 lease가 만료된 뒤 다시 큐로 돌아간다. 몇 분 기다린 뒤에도 그대로면 작업을 실행하는 프로세스를 재시작한다.
   ```bash
   sudo systemctl restart lectern            # LECTERN_WORKER_MODE=embedded
