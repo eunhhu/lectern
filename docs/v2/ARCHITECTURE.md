@@ -184,6 +184,9 @@ erDiagram
   1. 레거시 문서로 두고 "전사 없음 · 재처리 가능"으로 표시한다. 재처리는 녹음마다 **예상 비용을 보여 준 뒤 사용자가 직접** 실행한다.
   2. 관리자 녹음만 일괄 재처리한다(비용 상한을 둔 관리자 액션).
   3. 전체 백필(권장하지 않음. P2 첫날에 상한 없는 비용이 나간다).
+- **P1 브리지 기간의 편집 충돌**: P1 동안 v2 하네스가 렌더한 Markdown을 `lectures.markdown`에도 쓴다. 사용자가 기존 UI에서 이 Markdown을 고치면 v2 문서(JSON)와 어긋난다. 규칙은 다음과 같다.
+  - 브리지된 강의가 편집되면 v2 문서를 `user_edited`로 표시한다.
+  - P2 이전 마이그레이션 때 편집된 Markdown은 `legacy-markdown` 버전으로, AI JSON은 별도 버전으로 **둘 다 보존**하고 최신 버전은 사용자 편집본으로 둔다. 두 버전을 병합하지 않는다.
 - 마이그레이션은 v1 테이블을 지우지 않는다. v1 API가 v2 테이블을 읽는 어댑터로 바뀌는 시점(P2 말)까지 두 모델을 함께 유지하고, 완전히 이전된 뒤 v1 테이블을 읽기 전용으로 동결한다.
 
 ## 6. API v2
@@ -201,6 +204,7 @@ erDiagram
   - 파일을 메모리에 버퍼링하지 않고 스트리밍으로 디스크에 쓴다. 250MB 제한을 없애기 위한 것으로, 3시간 WAV를 보내는 Windows 클라이언트가 가장 먼저 필요하다.
   - 오디오와 PDF를 한 번의 업로드 세션으로 묶을 수 있다.
 - **업로드 계약에 `recorded_at` 추가**: 클라이언트가 녹음 시작 시각을 보낸다. 없으면 미디어 메타데이터(`creation_time`), 그것도 없으면 업로드 시각을 쓰고, 어디서 왔는지를 `recorded_at_source`에 남긴다. 일정 추출의 상대 날짜 해석이 이 값에 의존한다([AI_HARNESS.md §3.9](AI_HARNESS.md#39-verify--결정적-검증과-1회-수리)).
+  - 현재 iOS 단축어(`X-Course`만 보냄)와 Android 타일(메타데이터 없음)은 녹음 시각을 보내지 않는다. 미디어 메타데이터도 없으면 v1 어댑터가 `recorded_at_source=upload`로 표시한다. 같은 강의라도 어느 클라이언트로 올렸느냐에 따라 상대 날짜 일정의 신뢰도가 달라지는 이유가 이것이다. P6에서 클라이언트들이 `recorded_at`을 보내게 한다.
 - **실시간 이벤트**: `GET /api/v2/events`(SSE). 녹음 상태, 단계 진행률, 문서 갱신, 일정 제안을 워크스페이스 단위로 보낸다. 재연결할 때는 `Last-Event-ID`로 놓친 이벤트를 다시 보낸다(`job_events` 테이블).
 - 주요 리소스: `workspaces`, `folders`, `tags`, `recordings`(+ `:id/transcript`, `:id/documents`, `:id/questions`, `:id/events`, `:id/action-items`, `:id/reprocess`), `uploads`, `search`, `calendar/suggestions`, `integrations/google`, `me`(+ `devices`, `tokens`), `share-links`, `admin/*`.
 
@@ -299,12 +303,15 @@ erDiagram
 ## 12. 검색
 
 - SQLite FTS5에 `transcript_fts`(세그먼트), `document_fts`(블록 텍스트), `pdf_page_fts`(페이지 텍스트)를 둔다. 한국어는 `trigram` 토크나이저를 쓴다(형태소 분석기 없이도 부분 일치가 된다).
+  - 트레이드오프: 어간 처리가 없고, 3글자 미만 검색어는 색인을 쓰지 못한다(2글자 검색은 `LIKE` 보조 경로로 처리). 색인 크기는 원문의 약 3배다.
+  - 형태소 분석기(mecab-ko 등 외부 토크나이저)는 보류한다. 트리거는 "조사가 붙은 형태로 검색이 안 된다"는 피드백이다.
 - 결과는 워크스페이스 권한으로 거르고, 타임스탬프나 페이지 앵커로 바로 이동할 수 있다.
 - 의미 검색(임베딩)은 보류 목록에 있다. 트리거는 "FTS로 못 찾는다"는 피드백이 반복될 때다.
 
 ## 13. 운영(Ops)·DX
 
 - **프로세스**: systemd에서 `lectern.service`(API)와 `lectern-worker.service`(워커)를 따로 돌린다. 워커는 유지보수, 리마인더, 캘린더 동기화도 맡는다(타이머를 따로 두지 않는다).
+  - 지금 유닛 파일은 호스트의 `/etc/systemd/system`에만 있고 저장소에는 없다. P0에서 `deploy/systemd/*.service` 템플릿과 `EnvironmentFile` 예시를 저장소에 두고, 적용 런북(`docs/runbooks/host-setup.md`)을 만들어 호스트를 재현할 수 있게 한다. 개인 값(이메일 등)은 템플릿에 넣지 않는다.
 - **설정**: `packages/config`에서 zod로 환경 변수를 검증한다. 필수 값이 없으면 부팅에 실패해 사전 점검에서 걸린다.
 - **로깅**: JSON 한 줄 로그(`level`, `ts`, `msg`, `request_id`, `job_id`, `stage`, `user_id`)를 쓰고 토큰은 가린다. journald에서 `jq`로 조회한다.
 - **헬스**: `/api/health`(살아 있음 + DB·디스크)는 현행대로 두고, `/api/ready`(마이그레이션 완료, 워커 하트비트 60초 이내)를 추가한다. 외부 업타임 모니터를 붙인다.
