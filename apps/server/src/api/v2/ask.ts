@@ -1,10 +1,9 @@
 // /api/v2/ask (docs/adr/0009-ask-rag.md): threads, the streamed question, usage.
 //
-// Real, not a fixture: until P2 the notes are the caller's v1 lectures (ask/legacy.ts) in
-// their personal workspace `wsp_<user id>`. The fixture personal workspace id that the
-// stubbed GET /me returns is accepted as an alias for it, so the web shell can call these
-// routes with the id it already has; any other workspace id is 403. While LECTERN_ASK is
-// off every route answers 501, like the other unimplemented v2 routes.
+// The notes are the v1 lectures migrated to v2 rows (ask/legacy.ts): the index is built per
+// personal workspace `wsp_<user id>`, so asking works there; scopes use the v2 recordings
+// and folders, and membership decides access (access.ts). While LECTERN_ASK is off every
+// route answers 501, like the other unimplemented v2 routes.
 
 import {
   type AskScope,
@@ -30,29 +29,32 @@ import {
   type ScopeError,
 } from "@lectern/ask";
 import { folderRows, personalWorkspaceId, recordingRows } from "../../ask/legacy.ts";
+import { roleIn } from "./access.ts";
 import type { AskService } from "../../ask/service.ts";
 import { db } from "../../db.ts";
 import { logger } from "../../log.ts";
 import { apiError, defineRouter, notImplemented, ok, okPage, type V2Request } from "./common.ts";
-import { ID } from "./fixtures.ts";
 
 const HEARTBEAT_MS = 15_000;
 
-/** The caller's personal workspace for `requested`, or the 403 response. */
+/**
+ * `requested` when it is the caller's personal workspace, or the 403 response. Only
+ * personal workspaces have a search index until the harness indexes v2 recordings.
+ */
 function workspaceFor(req: V2Request, requested: unknown): string | Response {
   const own = personalWorkspaceId(req.user!.id);
-  if (requested === own || requested === ID.wsPersonal) return own;
+  if (requested === own && roleIn(req.user!.id, own)) return own;
   return apiError(req.c, 403, "forbidden", "이 워크스페이스에 접근할 권한이 없습니다.");
 }
 
 function accessFor(userId: string, scope: AskScope): AccessScope | ScopeError {
+  const workspaceId = personalWorkspaceId(userId);
   return resolveAccessScope({
-    workspaceId: personalWorkspaceId(userId),
-    // A v1 user owns their personal workspace.
-    caller: { userId, role: "owner" },
+    workspaceId,
+    caller: { userId, role: roleIn(userId, workspaceId) },
     scope,
-    recordings: recordingRows(userId),
-    folders: folderRows(userId),
+    recordings: recordingRows(workspaceId),
+    folders: folderRows(workspaceId),
   });
 }
 
@@ -72,7 +74,7 @@ function crossSiteCookie(req: V2Request): boolean {
 
 /** Hides citations of notes that were deleted (or became invisible) since the answer. */
 function withAvailability(turns: AskTurn[], userId: string): AskTurn[] {
-  const visible = new Set(recordingRows(userId).filter((r) => r.status === "ready").map((r) => r.id));
+  const visible = new Set(recordingRows(personalWorkspaceId(userId)).filter((r) => r.status === "ready").map((r) => r.id));
   return turns.map((t) => ({
     ...t,
     citations: t.citations.map((c) => (visible.has(c.recording_id) ? c : { ...c, available: false, snippet: "" })),

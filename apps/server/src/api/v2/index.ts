@@ -1,10 +1,11 @@
 // API v2 (docs/v2/ARCHITECTURE.md §6), mounted by http.ts at API_BASE_PATH (/api/v2).
-// Every route in packages/domain's ROUTES is registered by one resource router below. In
-// P0 the reads answer fixed fixtures and the writes answer 501; see README.md here for
-// the per-endpoint table and the order in which they become real.
+// Every route in packages/domain's ROUTES is registered by one resource router below,
+// over the v2 tables (packages/db). README.md here has the per-endpoint table; the few
+// routes of later phases still answer 501.
 
 import { Hono } from "hono";
 import { API_BASE_PATH, serializeOpenApi } from "@lectern/domain";
+import { syncPendingLectures } from "../../db.ts";
 import { logger } from "../../log.ts";
 import { askService, type AskService } from "../../ask/service.ts";
 import { actionItemsRouter } from "./action-items.ts";
@@ -23,7 +24,9 @@ import { recordingsRouter } from "./recordings.ts";
 import { searchRouter } from "./search.ts";
 import { shareLinksRouter } from "./share-links.ts";
 import { tagsRouter } from "./tags.ts";
-import { uploadsRouter } from "./uploads.ts";
+import { digestPendingAssets } from "./store.ts";
+import { sweepOrphanParts, uploadsRouter } from "./uploads.ts";
+import { viewsRouter } from "./views.ts";
 import { workspacesRouter } from "./workspaces.ts";
 
 export { API_BASE_PATH };
@@ -32,6 +35,7 @@ export const RESOURCE_ROUTERS = [
   meRouter,
   workspacesRouter,
   foldersRouter,
+  viewsRouter,
   tagsRouter,
   uploadsRouter,
   recordingsRouter,
@@ -54,8 +58,32 @@ export interface ApiV2Options {
   askService?: () => AskService | null;
 }
 
+/** How often missing digests of migrated audio are computed (store.ts digestPendingAssets). */
+const DIGEST_INTERVAL_MS = 5 * 60_000;
+let backgroundStarted = false;
+
+/** Upload leftovers and asset digests, once per process; timers never keep it alive. */
+function startBackgroundWork(): void {
+  if (backgroundStarted) return;
+  backgroundStarted = true;
+  try {
+    sweepOrphanParts();
+  } catch (err) {
+    logger.error("could not sweep upload parts", { err });
+  }
+  const timer = setInterval(() => void digestPendingAssets().catch((err) => logger.error("asset digests failed", { err })), DIGEST_INTERVAL_MS);
+  timer.unref?.();
+}
+
 export function createApiV2App(options: ApiV2Options = {}) {
   const v2 = new Hono<V2Env>();
+  startBackgroundWork();
+
+  // Lecture writes that bypassed db.ts (compaction) are projected before any v2 read.
+  v2.use("*", async (_c, next) => {
+    syncPendingLectures();
+    await next();
+  });
 
   // Authenticated API responses are never stored by browsers or proxies.
   v2.use("*", async (c, next) => {

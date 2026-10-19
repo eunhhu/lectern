@@ -16,6 +16,8 @@ import {
   Question,
   Recording,
   RecordingTag,
+  SavedView,
+  SavedViewQuery,
   ShareLink,
   ShareScope,
   Speaker,
@@ -39,6 +41,8 @@ import {
   RecordingStatus,
   RecordingVisibility,
   ShareTargetType,
+  StageName,
+  StageRunState,
   SystemRole,
 } from "../enums.ts";
 import {
@@ -57,6 +61,7 @@ import {
   Milliseconds,
   Period,
   RecordingId,
+  SavedViewId,
   ShareLinkId,
   SpeakerId,
   TagId,
@@ -67,7 +72,7 @@ import {
   WorkspaceId,
 } from "../primitives.ts";
 import { named } from "../registry.ts";
-import { pageOf, PageQuery, WorkspaceScopedPageQuery } from "./common.ts";
+import { ErrorCode, pageOf, PageQuery, WorkspaceScopedPageQuery } from "./common.ts";
 
 // Request/response DTOs for the /api/v2 resources in ARCHITECTURE §6.
 // Entities that are safe to expose are returned as-is; the rest get a DTO
@@ -183,6 +188,9 @@ export const WorkspaceMemberPage = pageOf("WorkspaceMemberPage", WorkspaceMember
 export const FolderParams = z.object({ folder_id: FolderId });
 export const FolderPage = pageOf("FolderPage", Folder);
 
+const FOLDER_CONFLICTS =
+  "409 `conflict` when a sibling (same parent) already has this name, compared trimmed and case-insensitively, or when `parent_id` is the folder itself or one of its descendants.";
+
 export const CreateFolderRequest = named(
   "CreateFolderRequest",
   z.object({
@@ -191,6 +199,7 @@ export const CreateFolderRequest = named(
     name: Name,
     sort_key: z.string().min(1).max(64).optional().describe("Omit to append after the last sibling."),
   }),
+  FOLDER_CONFLICTS,
 );
 export type CreateFolderRequest = z.infer<typeof CreateFolderRequest>;
 
@@ -201,6 +210,7 @@ export const UpdateFolderRequest = named(
     name: Name.optional(),
     sort_key: z.string().min(1).max(64).optional(),
   }),
+  FOLDER_CONFLICTS,
 );
 export type UpdateFolderRequest = z.infer<typeof UpdateFolderRequest>;
 
@@ -209,15 +219,20 @@ export const TagPage = pageOf("TagPage", Tag);
 
 const TagColor = Tag.shape.color;
 
+const TAG_CONFLICTS =
+  "409 `conflict` when another tag in the workspace has this name, compared trimmed and case-insensitively. Offer the `TagColorName` colours.";
+
 export const CreateTagRequest = named(
   "CreateTagRequest",
   z.object({ workspace_id: WorkspaceId, name: z.string().min(1).max(64), color: TagColor }),
+  TAG_CONFLICTS,
 );
 export type CreateTagRequest = z.infer<typeof CreateTagRequest>;
 
 export const UpdateTagRequest = named(
   "UpdateTagRequest",
   z.object({ name: z.string().min(1).max(64).optional(), color: TagColor.optional() }),
+  TAG_CONFLICTS,
 );
 export type UpdateTagRequest = z.infer<typeof UpdateTagRequest>;
 
@@ -227,18 +242,74 @@ export type UpdateTagRequest = z.infer<typeof UpdateTagRequest>;
 
 export const RecordingParams = z.object({ recording_id: RecordingId });
 
+/** `true`/`false` in a query string (no transform: requests and responses share JSON Schema). */
+const QueryBool = z.enum(["true", "false"]);
+/** Comma-separated ids in a query string, e.g. `tag_ids=a,b`. */
+const IdList = z.string().regex(/^[A-Za-z0-9_-]{1,64}(?:,[A-Za-z0-9_-]{1,64}){0,49}$/);
+
+export const RecordingSort = named(
+  "RecordingSort",
+  z.enum(["recorded_at_desc", "recorded_at_asc", "title_asc", "updated_at_desc"]),
+  "List order. Default `recorded_at_desc`.",
+);
+
 export const ListRecordingsQuery = WorkspaceScopedPageQuery.extend({
   folder_id: FolderId.optional(),
+  include_subfolders: QueryBool.optional().describe("With `folder_id`: also recordings in its subfolders."),
+  unfiled: QueryBool.optional().describe("`true`: only recordings in no folder."),
   tag_id: TagId.optional(),
+  tag_ids: IdList.optional().describe("Comma-separated tag ids: recordings with every one of them."),
   domain: RecordingDomain.optional(),
   status: RecordingStatus.optional(),
+  q: z.string().min(1).max(200).optional().describe("Case-insensitive substring of the title."),
+  recorded_after: Timestamp.optional().describe("`recorded_at` at or after this time."),
+  recorded_before: Timestamp.optional().describe("`recorded_at` before this time."),
+  sort: RecordingSort.optional(),
 });
 export type ListRecordingsQuery = z.infer<typeof ListRecordingsQuery>;
 
+export const RecordingProgress = named(
+  "RecordingProgress",
+  z.object({
+    job_id: JobId,
+    state: z.enum(["queued", "running"]),
+    stage: StageName.describe("Current stage; v1 pipeline jobs report `legacy_distill`."),
+    stage_state: StageRunState,
+    progress: z.number().min(0).max(1).nullable().describe("Fraction of the whole job, when known."),
+    message: z.string().nullable().describe("Short status line for the user, e.g. `노트 정리 중...`."),
+    queue_position: z.int().nonnegative().nullable().describe("Place in the queue while `queued` (1 = next)."),
+  }),
+  "Processing progress of a recording, for the first render; `job.progress` events update it.",
+);
+export type RecordingProgress = z.infer<typeof RecordingProgress>;
+
+export const RecordingFailure = named(
+  "RecordingFailure",
+  z.object({
+    code: z.string().min(1).max(64).describe("Machine-readable reason, e.g. `legacy_error`, `input_silent`."),
+    message: z.string().describe("Why processing failed, safe to show to the user."),
+    job_id: JobId.nullable(),
+    failed_at: Timestamp.nullable(),
+  }),
+  "Why the last processing attempt of a `failed` or `partial` recording failed.",
+);
+export type RecordingFailure = z.infer<typeof RecordingFailure>;
+
 export const RecordingListItem = named(
   "RecordingListItem",
-  Recording.extend({ tag_ids: z.array(TagId) }),
-  "A recording as shown in library lists.",
+  Recording.extend({
+    tag_ids: z.array(TagId),
+    excerpt: z.string().nullable().optional().describe("A few words from the current document, for previews."),
+    audio_bytes: z.int().nonnegative().optional().describe("Bytes of audio stored for the recording."),
+    pdf_count: z.int().nonnegative().optional(),
+    unverified_count: z
+      .int()
+      .nonnegative()
+      .optional()
+      .describe("Document blocks flagged for checking (\"출처 확인 필요\")."),
+    progress: RecordingProgress.nullable().optional().describe("Set while a job is queued or running."),
+  }),
+  "A recording as shown in library lists. The optional fields are always sent by the server.",
 );
 export type RecordingListItem = z.infer<typeof RecordingListItem>;
 export const RecordingPage = pageOf("RecordingPage", RecordingListItem);
@@ -260,6 +331,10 @@ export const RecordingDetail = named(
     speakers: z.array(Speaker),
     documents: z.array(Document),
     active_job: Job.nullable().describe("The queued or running job, if any."),
+    progress: RecordingProgress.nullable().optional().describe("Progress of `active_job`. Always sent by the server."),
+    failure: RecordingFailure.nullable()
+      .optional()
+      .describe("Set when the recording is `failed` (or `partial`). Always sent by the server."),
   }),
 );
 export type RecordingDetail = z.infer<typeof RecordingDetail>;
@@ -274,10 +349,46 @@ export const UpdateRecordingRequest = named(
     language: LanguageTag.nullable().optional(),
     recorded_at: Timestamp.optional().describe("Sets `recorded_at_source` to `client`."),
     visibility: RecordingVisibility.optional(),
-    tag_ids: z.array(TagId).optional().describe("Replaces the user-assigned tags."),
+    tag_ids: z
+      .array(TagId)
+      .optional()
+      .describe(
+        "Replaces the recording's tags: every listed tag is attached, every other tag is removed, AI-attached ones included. Listed AI tags keep `source: ai`.",
+      ),
   }),
 );
 export type UpdateRecordingRequest = z.infer<typeof UpdateRecordingRequest>;
+
+export const BatchRecordingsRequest = named(
+  "BatchRecordingsRequest",
+  z.discriminatedUnion("action", [
+    z.object({
+      action: z.literal("move"),
+      recording_ids: z.array(RecordingId).min(1).max(200),
+      folder_id: FolderId.nullable().describe("Target folder; null takes the recordings out of every folder."),
+    }),
+    z.object({ action: z.literal("add_tags"), recording_ids: z.array(RecordingId).min(1).max(200), tag_ids: z.array(TagId).min(1).max(50) }),
+    z.object({ action: z.literal("remove_tags"), recording_ids: z.array(RecordingId).min(1).max(200), tag_ids: z.array(TagId).min(1).max(50) }),
+    z.object({ action: z.literal("delete"), recording_ids: z.array(RecordingId).min(1).max(200) }),
+  ]),
+  "One action on many recordings. Each recording succeeds or fails on its own.",
+);
+export type BatchRecordingsRequest = z.infer<typeof BatchRecordingsRequest>;
+
+export const BatchRecordingResult = named(
+  "BatchRecordingResult",
+  z.object({
+    recording_id: RecordingId,
+    ok: z.boolean(),
+    error: z.object({ code: ErrorCode, message: z.string() }).nullable().describe("Why this recording was skipped."),
+  }),
+);
+
+export const BatchRecordingsResponse = named(
+  "BatchRecordingsResponse",
+  z.object({ results: z.array(BatchRecordingResult).describe("One result per requested id, in request order.") }),
+);
+export type BatchRecordingsResponse = z.infer<typeof BatchRecordingsResponse>;
 
 export const Transcript = named(
   "Transcript",
@@ -352,8 +463,20 @@ export const DocumentVersionPage = pageOf("DocumentVersionPage", DocumentVersion
 
 export const CreateDocumentVersionRequest = named(
   "CreateDocumentVersionRequest",
-  z.object({ body: DocumentBody }),
-  "A user edit. Send the version it was based on in `If-Match`; the server renders Markdown.",
+  z
+    .object({
+      body: DocumentBody.optional().describe("The edited structured document; the server renders Markdown."),
+      markdown: z
+        .string()
+        .max(1_000_000)
+        .optional()
+        .describe("The edited Markdown of a `legacy-markdown` document, which has no body."),
+    })
+    .refine((req) => (req.body === undefined) !== (req.markdown === undefined), {
+      message: "send exactly one of body and markdown",
+      path: ["body"],
+    }),
+  "A user edit: `body` for structured documents, `markdown` for `legacy-markdown` ones (400 otherwise). Send the version it was based on in `If-Match`.",
 );
 export type CreateDocumentVersionRequest = z.infer<typeof CreateDocumentVersionRequest>;
 
@@ -367,6 +490,14 @@ export const QuestionPage = pageOf("QuestionPage", Question);
 export const EventCandidatePage = pageOf("EventCandidatePage", EventCandidate);
 
 export const ActionItemParams = z.object({ action_item_id: ActionItemId });
+
+export const ListActionItemsQuery = WorkspaceScopedPageQuery.extend({
+  status: ActionItemStatus.optional(),
+  due_after: Timestamp.optional().describe("`due_at` at or after this time (items without a due date are left out)."),
+  due_before: Timestamp.optional().describe("`due_at` before this time (items without a due date are left out)."),
+  recording_id: RecordingId.optional(),
+});
+export type ListActionItemsQuery = z.infer<typeof ListActionItemsQuery>;
 export const ActionItemPage = pageOf("ActionItemPage", ActionItem);
 
 export const UpdateActionItemRequest = named(
@@ -385,7 +516,14 @@ export type UpdateActionItemRequest = z.infer<typeof UpdateActionItemRequest>;
 // ---------------------------------------------------------------------------
 
 export const ListCalendarSuggestionsQuery = WorkspaceScopedPageQuery.extend({
-  status: EventCandidateStatus.optional().describe("Default: `suggested`."),
+  status: EventCandidateStatus.optional().describe("Default: `suggested`. Ignored when `statuses` is sent."),
+  statuses: z
+    .string()
+    .regex(/^(?:suggested|accepted|dismissed|synced)(?:,(?:suggested|accepted|dismissed|synced)){0,3}$/)
+    .optional()
+    .describe("Comma-separated statuses, e.g. `accepted,synced` for a calendar view."),
+  start_after: Timestamp.optional().describe("`start_at` at or after this time."),
+  start_before: Timestamp.optional().describe("`start_at` before this time."),
 });
 export type ListCalendarSuggestionsQuery = z.infer<typeof ListCalendarSuggestionsQuery>;
 
@@ -421,7 +559,7 @@ export const EventCandidateList = named("EventCandidateList", z.object({ items: 
 // search
 // ---------------------------------------------------------------------------
 
-export const SearchKind = named("SearchKind", z.enum(["transcript", "document", "pdf_page"]));
+export const SearchKind = named("SearchKind", z.enum(["transcript", "document", "pdf_page", "recording"]));
 
 export const SearchQuery = WorkspaceScopedPageQuery.extend({
   q: z.string().min(1).max(200),
@@ -445,15 +583,22 @@ export const TranscriptSearchHit = named(
 export const DocumentSearchHit = named(
   "DocumentSearchHit",
   z.object({ kind: z.literal("document"), ...hitBase, document_id: DocumentId, block_id: BlockId }),
+  "A document block matched. In a `legacy-markdown` document, which has no blocks, `block_id` is `md-<n>`: the n-th (0-based) blank-line-separated paragraph of `rendered_md`.",
 );
 export const PdfPageSearchHit = named(
   "PdfPageSearchHit",
   z.object({ kind: z.literal("pdf_page"), ...hitBase, asset_id: AssetId, page: z.int().min(1) }),
 );
 
+export const RecordingSearchHit = named(
+  "RecordingSearchHit",
+  z.object({ kind: z.literal("recording"), ...hitBase }),
+  "The recording's title matched.",
+);
+
 export const SearchHit = named(
   "SearchHit",
-  z.discriminatedUnion("kind", [TranscriptSearchHit, DocumentSearchHit, PdfPageSearchHit]),
+  z.discriminatedUnion("kind", [TranscriptSearchHit, DocumentSearchHit, PdfPageSearchHit, RecordingSearchHit]),
   "Open union on `kind`: skip unknown kinds.",
 );
 export type SearchHit = z.infer<typeof SearchHit>;
@@ -559,3 +704,27 @@ export type JobDetail = z.infer<typeof JobDetail>;
 
 export const AdminUsageQuery = PageQuery.extend({ period: Period.optional() });
 export const UsageLedgerPage = pageOf("UsageLedgerPage", UsageLedger);
+
+// ---------------------------------------------------------------------------
+// saved views ("스마트 보기")
+// ---------------------------------------------------------------------------
+
+export const SavedViewParams = z.object({ view_id: SavedViewId });
+export const SavedViewPage = pageOf("SavedViewPage", SavedView);
+
+export const CreateSavedViewRequest = named(
+  "CreateSavedViewRequest",
+  z.object({
+    workspace_id: WorkspaceId,
+    name: Name,
+    query: SavedViewQuery,
+    sort_key: z.string().min(1).max(64).optional().describe("Omit to append after the caller's last view."),
+  }),
+);
+export type CreateSavedViewRequest = z.infer<typeof CreateSavedViewRequest>;
+
+export const UpdateSavedViewRequest = named(
+  "UpdateSavedViewRequest",
+  z.object({ name: Name.optional(), query: SavedViewQuery.optional().describe("Replaces the query."), sort_key: z.string().min(1).max(64).optional() }),
+);
+export type UpdateSavedViewRequest = z.infer<typeof UpdateSavedViewRequest>;

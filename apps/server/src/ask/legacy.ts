@@ -4,9 +4,9 @@
 // workspace. The ids derived here are the ones the P2 migration must keep (ARCHITECTURE
 // §5.3), so search rows and ask threads need no re-keying.
 //
-// This module only reads `lectures`; it never imports db.ts's write paths.
+// This module only reads (`lectures` for the index, the v2 recording and folder rows for
+// scopes); it never imports db.ts's write paths.
 
-import { createHash } from "node:crypto";
 import type { RecordingSources } from "@lectern/ask";
 import type { FolderRow, RecordingAccessRow } from "@lectern/ask";
 import { db } from "../db.ts";
@@ -14,53 +14,36 @@ import { personalWorkspaceId } from "./workspace.ts";
 
 export { personalWorkspaceId };
 
-const short = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 32);
+// The id rules are shared with the P2 migration (@lectern/db ids.ts).
+import { courseFolderId, lectureDocumentId } from "@lectern/db";
+export { courseFolderId, lectureDocumentId };
 
-/** A stable folder id per (owner, course name). */
-export function courseFolderId(ownerId: string, course: string): string {
-  return `fld_${short(`${ownerId}\n${course}`)}`;
-}
-
-/** The legacy-markdown document of a lecture (one per lecture, version 1). */
-export function lectureDocumentId(lectureId: string): string {
-  return `doc_${lectureId}`.length <= 64 ? `doc_${lectureId}` : `doc_${short(lectureId)}`;
-}
-
-interface LectureRow {
+interface RecordingRow {
   id: string;
+  workspace_id: string;
+  folder_id: string | null;
+  visibility: string;
+  created_by: string;
   title: string;
-  course: string;
-  status: "processing" | "done" | "error";
-  created_at: string;
+  recorded_at: number;
+  status: string;
 }
 
-function statusOf(status: LectureRow["status"]): string {
-  return status === "done" ? "ready" : status === "processing" ? "processing" : "failed";
-}
-
-/** The caller's lectures as recordings (titles and status only, no Markdown). */
-export function recordingRows(ownerId: string): RecordingAccessRow[] {
-  const workspaceId = personalWorkspaceId(ownerId);
+/**
+ * The workspace's recordings for the scope check (titles and status only, no notes). Since
+ * P2 these are the v2 rows the lectures were migrated to (packages/db legacy.ts), so v2
+ * folders, moves and renames apply.
+ */
+export function recordingRows(workspaceId: string): RecordingAccessRow[] {
   const rows = db
-    .query(`SELECT id, title, course, status, created_at FROM lectures WHERE owner_id = ?`)
-    .all(ownerId) as LectureRow[];
-  return rows.map((l) => ({
-    id: l.id,
-    workspace_id: workspaceId,
-    folder_id: courseFolderId(ownerId, l.course),
-    visibility: "private",
-    created_by: ownerId,
-    title: l.title,
-    recorded_at: l.created_at,
-    status: statusOf(l.status),
-  }));
+    .query(`SELECT id, workspace_id, folder_id, visibility, created_by, title, recorded_at, status FROM recording WHERE workspace_id = ?`)
+    .all(workspaceId) as RecordingRow[];
+  return rows.map((r) => ({ ...r, recorded_at: new Date(r.recorded_at).toISOString() }));
 }
 
-/** One folder per course name; v1 has no nesting. */
-export function folderRows(ownerId: string): FolderRow[] {
-  const workspaceId = personalWorkspaceId(ownerId);
-  const courses = db.query(`SELECT DISTINCT course FROM lectures WHERE owner_id = ?`).all(ownerId) as Array<{ course: string }>;
-  return courses.map(({ course }) => ({ id: courseFolderId(ownerId, course), workspace_id: workspaceId, parent_id: null }));
+/** The workspace's folders (nested since P2). */
+export function folderRows(workspaceId: string): FolderRow[] {
+  return db.query(`SELECT id, workspace_id, parent_id FROM folder WHERE workspace_id = ?`).all(workspaceId) as FolderRow[];
 }
 
 export interface IndexableLecture {

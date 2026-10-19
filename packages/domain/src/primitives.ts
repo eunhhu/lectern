@@ -80,6 +80,8 @@ export const AskThreadId = idSchema("AskThreadId", "ask conversation thread");
 export type AskThreadId = z.infer<typeof AskThreadId>;
 export const AskTurnId = idSchema("AskTurnId", "ask turn (one question and its answer)");
 export type AskTurnId = z.infer<typeof AskTurnId>;
+export const SavedViewId = idSchema("SavedViewId", "saved library view");
+export type SavedViewId = z.infer<typeof SavedViewId>;
 
 /** Template ids are slugs (`lecture`, `meeting`, `legacy-markdown`), not row ids. */
 export const TemplateId = named(

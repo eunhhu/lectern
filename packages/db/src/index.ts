@@ -97,3 +97,6 @@ export function runMigrations(
   migrate(drizzle(sqlite), { migrationsFolder: MIGRATIONS_DIR });
   return { applied: pending.map((p) => p.tag), backup };
 }
+
+export * from "./ids.ts";
+export * from "./legacy.ts";

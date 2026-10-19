@@ -3,7 +3,6 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { ApiError, AskStreamEvent, AskThread, AskThreadDetail, AskThreadPage, AskUsage } from "@lectern/domain";
 import { type AskModel, type AskModelEvent, type AskModelRequest, FakeEmbedder, syncRecordingChunks } from "@lectern/ask";
 import { createApiV2App } from "../src/api/v2/index.ts";
-import { ID } from "../src/api/v2/fixtures.ts";
 import { indexLecture, reconcileAskIndex, runAskUpkeep } from "../src/ask/index-job.ts";
 import { lectureDocumentId, personalWorkspaceId } from "../src/ask/legacy.ts";
 import { createAskService, type AskService } from "../src/ask/service.ts";
@@ -113,7 +112,7 @@ function parseSse(text: string): AskStreamEvent[] {
     });
 }
 
-async function newThread(svc: AskService, u: UserRecord, scope: unknown, workspaceId = ID.wsPersonal) {
+async function newThread(svc: AskService, u: UserRecord, scope: unknown, workspaceId = personalWorkspaceId(u.id)) {
   const res = await call(svc, u, "POST", "/ask/threads", { workspace_id: workspaceId, scope });
   expect(res.status).toBe(201);
   return AskThread.parse(await res.json());
@@ -134,7 +133,7 @@ beforeAll(async () => {
 
 describe("ask routes", () => {
   test("answer 501 while LECTERN_ASK is off", async () => {
-    const res = await call(null, me, "POST", "/ask/threads", { workspace_id: ID.wsPersonal, scope: { kind: "workspace" } });
+    const res = await call(null, me, "POST", "/ask/threads", { workspace_id: personalWorkspaceId(me.id), scope: { kind: "workspace" } });
     expect(res.status).toBe(501);
     expect(ApiError.parse(await res.json()).error.code).toBe("not_implemented");
   });
@@ -143,7 +142,7 @@ describe("ask routes", () => {
     const model = new CitingModel("시험 범위", "시험 범위는 운영 모드까지입니다");
     const svc = service(model);
     const thread = await newThread(svc, me, { kind: "recording", recording_id: lecture.id });
-    expect(thread.workspace_id as string).toBe(personalWorkspaceId(me.id)); // the fixture id is an alias
+    expect(thread.workspace_id as string).toBe(personalWorkspaceId(me.id));
     const { res, events } = await ask(svc, me, thread.id, "시험 범위가 어디까지야?");
     expect(res.headers.get("content-type")).toStartWith("text/event-stream");
     expect(events.map((e) => e.type)).toEqual(["turn.started", "retrieval", "answer.delta", "citation", "turn.completed"]);
@@ -166,7 +165,7 @@ describe("ask routes", () => {
     const detail = AskThreadDetail.parse(await (await call(svc, me, "GET", `/ask/threads/${thread.id}`)).json());
     expect(detail.thread.title).toBe("시험 범위가 어디까지야?");
     expect(detail.turns.map((t) => t.answer)).toEqual([done.turn.answer]);
-    const listed = AskThreadPage.parse(await (await call(svc, me, "GET", `/ask/threads?workspace_id=${ID.wsPersonal}&recording_id=${lecture.id}`)).json());
+    const listed = AskThreadPage.parse(await (await call(svc, me, "GET", `/ask/threads?workspace_id=${personalWorkspaceId(me.id)}&recording_id=${lecture.id}`)).json());
     expect(listed.items.map((t) => t.id)).toContain(thread.id);
     const usage = AskUsage.parse(await (await call(svc, me, "GET", `/ask/usage?workspace_id=${personalWorkspaceId(me.id)}`)).json());
     expect(usage.spent_microusd).toBeGreaterThanOrEqual(done.turn.cost_microusd);
@@ -193,10 +192,10 @@ describe("ask routes", () => {
     const mine = await newThread(svc, me, { kind: "workspace" });
     expect((await call(svc, other, "GET", `/ask/threads/${mine.id}`)).status).toBe(404);
     expect((await ask(svc, other, mine.id, "시험 범위는?")).res.status).toBe(404);
-    const res = await call(svc, other, "POST", "/ask/threads", { workspace_id: ID.wsPersonal, scope: { kind: "recording", recording_id: lecture.id } });
+    const res = await call(svc, other, "POST", "/ask/threads", { workspace_id: personalWorkspaceId(other.id), scope: { kind: "recording", recording_id: lecture.id } });
     expect(res.status).toBe(404);
     expect((await call(svc, other, "POST", "/ask/threads", { workspace_id: personalWorkspaceId(me.id), scope: { kind: "workspace" } })).status).toBe(403);
-    expect((await call(svc, me, "GET", `/ask/threads?workspace_id=${ID.wsTeam}`)).status).toBe(403);
+    expect((await call(svc, me, "GET", `/ask/threads?workspace_id=0199f0a0-1000-7000-8000-000000000002`)).status).toBe(403);
     // Their own workspace has no lectures: nothing to find, no model call.
     const model = new CitingModel("시험", "x");
     const theirs = await newThread(service(model), other, { kind: "workspace" });

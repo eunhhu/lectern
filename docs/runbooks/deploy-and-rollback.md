@@ -18,6 +18,7 @@
    3. `git reset --hard <sha>`
    4. 의존성 파일(`bun.lock`, 루트 `package.json`, `apps/*/package.json`, `packages/*/package.json`)이 바뀌었으면 `bun install --frozen-lockfile`.
    5. 사전 점검: 운영 DB를 `VACUUM INTO`로 임시 디렉터리에 복사하고, 새 코드(`apps/server/src/preflight.ts`)를 그 사본과 임시 경로로 띄운다. 새 릴리스의 마이그레이션이 **실제 데이터 사본에 먼저 적용**되고, `/api/health`, `/`, `/admin`, `/s/…`(404), `/api/lectures`(401), `/api/v2/me`(401), `/privacy`, `/terms`, `/assets/*` 응답을 확인한다. 설정 값이 잘못돼도(`packages/config` 검증 실패) 여기서 걸린다.
+      - P2부터는 v1 강의 → v2 행 이전(ARCHITECTURE §5.3)도 확인한다. 강의와 v2 행이 하나라도 다르거나(건수·필드 체크섬) API가 내보낼 수 없는 행이 있으면 실패한다. 실패 메시지에는 강의 id와 필드 이름만 나온다. 같은 검사를 백업 사본에서 미리 돌리려면 [§5.5](#55-v2-이전-리허설과-롤백)를 본다.
       - 점검이 모두 통과하면 새 웹 앱(`apps/web`)을 `apps/web/dist.next`에 빌드하고 릴리스 SHA를 찍는다(`apps/server/src/web-build.ts`). 빌드가 실패하면 사전 점검이 실패한 것으로 보고 되돌린다. 빌드는 재시작 전에 끝나므로 중단 시간에 들어가지 않고, 그동안 운영 서버는 기존 `/app`을 계속 서빙한다.
    6. 3~5 중 하나라도 실패하면 이전 커밋으로 `reset --hard`하고(필요하면 의존성도 다시 설치) 실패를 응답한다. **운영 서버는 재시작되지 않는다.**
    7. 성공하면 감사 로그에 `ops.deploy`를 남기고 응답한 뒤, 우아한 종료를 시작한다. 실행 중인 작업에 `LECTERN_SHUTDOWN_GRACE_SEC`(기본 20초)를 주고, SSE를 닫고, 종료 코드 0으로 끝난다.
@@ -200,6 +201,24 @@ CI를 기다릴 수 없을 때(서비스가 죽었거나 데이터를 망가뜨�
 - 옛 코드가 읽지 못하는 마이그레이션이 적용됐거나 잘못된 릴리스가 데이터를 망가뜨렸다면 백업을 복원한다([backup-restore.md §3](backup-restore.md#3-데이터베이스-복원)).
   - 1순위는 문제 릴리스가 부팅하면서 뜬 `DATA_DIR/backups/pre-migrate-YYYYMMDD-HHMMSS.sqlite`다. 시각이 배포 시각과 맞는지 확인한다.
   - 복원하면 그 백업 이후 생긴 데이터를 잃는다. 순서는 "코드 되돌리기(§5.3) → 서버 정지 → DB 복원 → 서버 시작"이다. 새 코드가 다시 뜨면 마이그레이션이 다시 적용되므로 순서를 바꾸지 않는다.
+
+### 5.5 v2 이전 리허설과 롤백
+
+P2 첫 배포는 부팅하면서 v1 강의를 v2 행(녹음, 폴더, 문서, 오디오 asset, 공유 링크)으로 옮긴다. v1 표는 지우거나 고치지 않는다.
+
+- **미리 리허설하기**: 운영 백업 사본으로 돌린다. 스크립트는 사본을 다시 임시 폴더에 복사해서 쓰고 끝나면 지운다. 출력은 건수, 체크섬, id뿐이다. 종료 코드 0이면 무손실이다.
+  ```bash
+  bun apps/server/scripts/rehearse-v2-migration.ts /path/to/lectern-YYYYMMDD-HHMMSS.sqlite
+  ```
+  - 백업 사본에는 개인정보가 들어 있으니 끝나면 지운다.
+- **운영에서 결과 확인**: 부팅할 때마다 검사해서 `system_state`의 `v2_migration`에 남긴다. 불일치는 `v2 rows disagree with lectures` 로그로도 남는다.
+  ```bash
+  sqlite3 /home/eunhhu/work/lectern/data/lectern.sqlite "SELECT value FROM system_state WHERE key = 'v2_migration'"
+  ```
+- **코드만 되돌릴 때**: P2 이전 코드는 v2 표를 읽지 않으므로 DB는 그대로 둔다. P0 코드가 그동안 쓴 강의 변경은 `lectures` 트리거가 `lecture_sync_pending`에 표시해 둔다. 다시 P2로 올리면 그 표시대로 v2 행에 반영된다.
+  - 웹(v2)에서만 한 정리는 되돌린 동안 v1에 보이지 않는다. 폴더 중첩, 태그, 저장한 보기가 그렇다.
+  - 제목, 과목 이름, Markdown 수정은 이미 강의에도 써 두었으므로 v1에도 보인다.
+- **이전 자체가 잘못됐을 때**: 백업 복원 순서(§5.4)를 따른다. 1순위는 `pre-migrate-*.sqlite`다.
 
 ## 6. 하지 말 것
 

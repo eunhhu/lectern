@@ -122,5 +122,32 @@ The design docs left these open. Each choice below is the one that is easiest to
 24. Documents are top-level (`/documents/{id}`, `/documents/{id}/versions`). The ETag is the version number in quotes.
 25. `POST /recordings/{id}/reprocess` takes `mode: document | full` and `dry_run`, which returns the cost estimate shown before legacy reprocessing (§5.3).
 26. Admin covers only jobs (with stage timeline and AI calls), retry, and usage. The v1 admin console keeps its v1 endpoints until it is ported.
-27. Not modelled yet, all additive later: the ICS feed token, a template catalogue endpoint, bulk recording operations, workspace invitations, and the OAuth callback (a browser redirect).
+27. Not modelled yet, all additive later: the ICS feed token, a template catalogue endpoint, workspace invitations, and the OAuth callback (a browser redirect). Bulk recording operations were added in P2 (below).
 28. The cookie name in `securitySchemes` is the current `lectern_session`.
+
+## P2 additions (2026-10-19)
+
+Requested by the web app (`apps/web/README.md` "domain 요청") while the real API v2 was built. All of them are additive under the freeze rule. `openapi.json` was regenerated in the same commit.
+
+New response fields are declared `.optional()` even though the server always sends them. That way the web app's fixtures and any parser written against the P0 contract keep working. Clients may rely on the server sending them.
+
+| # | Change | Decision and reason |
+|---|---|---|
+| 2 | `SavedView` entity (`saved_view` table) and `GET/POST /views`, `PATCH/DELETE /views/{view_id}` | A view is private to the user who saved it (like ask threads). `query` is the `listRecordings` filter without paging, as JSON (`SavedViewQuery`), so the client can turn it back into query parameters. |
+| 3 | `ListRecordingsQuery`: `include_subfolders`, `unfiled`, `tag_ids`, `q`, `recorded_after`, `recorded_before`, `sort` | Booleans are `true`/`false` strings and lists are comma-separated, because published schemas may not transform. `tag_ids` matches recordings with **every** tag. `q` is a title substring; full text goes through `/search`. |
+| 4 | `POST /recordings/batch` (`move`, `add_tags`, `remove_tags`, `delete`) | Answers 200 with one `BatchRecordingResult` per id, in request order. A missing or forbidden recording fails on its own (`not_found`) and does not fail the batch. A missing target folder or tag fails the whole request (404). |
+| 5 | `RecordingProgress` on `RecordingDetail.progress` and `RecordingListItem.progress` | The first render needs the stage and fraction without waiting for a `job.progress` event. v1 pipeline jobs report the stage `legacy_distill`. |
+| 6 | `RecordingFailure` on `RecordingDetail.failure` | `{ code, message, job_id, failed_at }`. It is set while the recording is `failed` or `partial`. Migrated v1 failures have the code `legacy_error` and the v1 error message. |
+| 7 | `edited` on stored document blocks | The server sets it on each block that differs from the base version when a user saves. Absent means false. The document-level `user_edited` stays. |
+| 8 | `RecordingListItem`: `excerpt`, `audio_bytes`, `pdf_count`, `unverified_count` | `unverified_count` counts blocks whose sources carry a `VerifyFlag`. |
+| 9 | `UpdateRecordingRequest.tag_ids` semantics | It replaces **all** tags, AI-attached ones included. A listed AI tag keeps `source: ai`. The user can remove an AI tag this way, which is what the web fixture already did. |
+| 10 | `TranscriptSegment.lang` (optional, nullable) | Set only when it differs from the recording's language, so screen readers can switch (WCAG 3.1.2). |
+| 11 | `deleteFolder` | The folder's recordings **and subfolders** move to its parent. Nothing is deleted with the folder. |
+| 12 | 409 rules | Folders: a sibling (same parent) with the same name, compared trimmed and case-insensitively, or a move into the folder itself or one of its descendants. Tags: another tag in the workspace with the same name, compared the same way. These rules are written into the request schema descriptions. |
+| 13 | `TagColorName` enum and `TAG_COLORS` (`red`, `orange`, `yellow`, `green`, `blue`, `indigo`, `gray`) | `Tag.color` keeps its token-name pattern. Narrowing it to the enum would tighten request validation, which the freeze rule calls breaking. Clients offer the seven colours and render an unknown name as `gray`. A new colour is an enum addition. |
+| 14 | `GET /action-items?workspace_id&status&due_after&due_before&recording_id` | Items with a due date come first (ascending), then the rest by creation. |
+| 15 | `ListCalendarSuggestionsQuery`: `statuses`, `start_after`, `start_before` | `statuses` is comma-separated and overrides `status`. A month view sends `statuses=accepted,synced&start_after=…&start_before=…`. |
+| — | `CreateDocumentVersionRequest.markdown` | A `legacy-markdown` document (every migrated v1 lecture, ARCHITECTURE §5.3) has no body, so its edit is Markdown. The request sends exactly one of `body` and `markdown`. The other one for that document's template is 400. Making `body` optional relaxes a request constraint. |
+| — | `RecordingSearchHit` (`kind: "recording"`, title matches) and `SearchKind` `recording` | A new union variant. Older clients skip it. In a legacy-markdown document a `DocumentSearchHit.block_id` is `md-<n>`, the n-th blank-line-separated paragraph of `rendered_md`. |
+
+Requests #16–21 (물어보기) are covered by `src/api/ask.ts` (ADR-0009). Request #1 (ids typed `unknown`) was fixed earlier in `primitives.ts`.

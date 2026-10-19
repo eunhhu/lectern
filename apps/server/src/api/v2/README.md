@@ -1,116 +1,135 @@
-# API v2 스텁 (`/api/v2`)
+# API v2 (`/api/v2`)
 
-`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 60개 엔드포인트를 모두 올린 P0 스텁이다. 읽기 27개는 고정 픽스처를, 쓰기·업로드 33개는 `501 not_implemented`를 돌려준다. ROADMAP "병렬화와 동결 지점"의 마지막 조건(v2 엔드포인트가 스텁으로 존재)을 채우고, 웹 셸(`apps/web`)이 픽스처 클라이언트 대신 이 API에 붙을 수 있게 하는 것이 목적이다.
+`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 뒤 단계(P4·P5) 기능 9개만 아직 `501 not_implemented`다.
 
 ## 요청 처리 순서
 
 모든 라우트는 리소스 라우터(`me.ts`, `recordings.ts` …)가 `defineRouter()`로 domain의 `RouteDef`에서 메서드·경로·스키마를 읽어 등록한다. 경로를 이 디렉터리에 다시 적지 않는다.
 
-1. **인증(401)**: v1과 같은 `authenticateRequest()`(`../../auth.ts`)를 쓴다. `lectern_session` 쿠키, `Authorization: Bearer`, `X-Lectern-Token`, `?token=`을 받는다. `RouteDef.public`인 라우트만 건너뛴다(현재 없음).
+1. **인증(401)**: v1과 같은 `authenticateRequest()`(`../../auth.ts`)를 쓴다. `lectern_session` 쿠키, `Authorization: Bearer`, `X-Lectern-Token`, `?token=`을 받는다.
 2. **운영자 확인(403)**: `admin` 태그 라우트는 v1 `isAdminUser()`가 참이어야 한다.
-3. **검증(400·428)**: params, query, 헤더, JSON 본문을 domain 스키마로 검증한다. 실패하면 `validation_failed`이고 `details.issues[].path` 앞에 `params`/`query`/`headers`/`body`가 붙는다. JSON 본문은 `Content-Type: application/json`이어야 한다(아니면 `bad_request`). 교차 사이트 HTML 폼이 쿠키 인증 변경 요청에 닿지 못하게 하려는 것이다. `If-Match`가 필수인 라우트에서 헤더가 없으면 428 `precondition_required`다.
-4. **처리**: 픽스처 응답은 라우트의 응답 스키마로 `parse()`한 뒤 보낸다. 스키마를 통과하지 못하면 500 `internal`이다(`details.request_id` 포함).
+3. **검증(400·428)**: params, query, 헤더, JSON 본문을 domain 스키마로 검증한다. 실패하면 `validation_failed`이고 `details.issues[].path` 앞에 `params`/`query`/`headers`/`body`가 붙는다. JSON 본문은 `Content-Type: application/json`이어야 한다(교차 사이트 HTML 폼 차단). `If-Match`가 필수인 라우트에서 헤더가 없으면 428이다.
+4. **처리**: 응답은 라우트의 응답 스키마로 `parse()`한 뒤 보낸다. 통과하지 못하면 500 `internal`이다.
 
-쓰기 엔드포인트도 1~3단계를 거친 뒤 501을 돌려준다. 그래서 클라이언트는 실제 구현 전에도 요청 형식을 이 서버로 검증할 수 있다. 등록되지 않은 `/api/v2/*` 경로와 메서드는 v2 형식의 404다. `/api/v2` 밖의 경로는 그대로 레거시 라우터로 간다. 응답에는 `Cache-Control: no-store`가 붙는다.
+모든 요청 앞에서 `syncPendingLectures()`가 db.ts를 거치지 않은 강의 쓰기(압축 등)를 v2 행에 반영한다. 응답에는 `Cache-Control: no-store`가 붙는다. 등록되지 않은 `/api/v2/*`는 v2 형식의 404다. `GET /api/v2/openapi.json`은 인증 없이 열린다.
 
-`GET /api/v2/openapi.json`은 domain에서 만든 OpenAPI 문서를 인증 없이 돌려준다. ARCHITECTURE §6에 적힌 경로이고, `ROUTES`에는 없는 추가 경로다.
+## 데이터: v1 강의와 v2 행
 
-## 픽스처
+녹음 처리는 아직 v1 파이프라인(강의 하나 = Gemini 호출 하나)이다. 그래서 강의 하나가 v2 행 여러 개로 존재하고(ARCHITECTURE §5.3), 두 쪽을 같은 상태로 유지한다.
 
-`fixtures.ts`의 합성 데이터다. 실제 사용자나 녹음에서 가져온 값은 없다. 이메일은 `example.com`이다.
+- **lectures → v2**: `packages/db` `legacy.ts`의 `projectLecture()`가 맞춘다. db.ts의 강의 쓰기 함수가 끝날 때마다 부르고, `lectures` 트리거가 db.ts 밖의 쓰기를 `lecture_sync_pending`에 표시한다.
+  - 녹음 제목, 상태, 길이, 실패 이유
+  - 과목 이름 → 폴더 (같은 이름 폴더를 찾고, 없으면 루트에 만든다)
+  - Markdown → `legacy-markdown` 문서의 새 버전
+  - 오디오 → asset
+  - 공유 토큰·공개 여부 → share link
+- **v2 → lectures**: v2 쓰기가 같은 IMMEDIATE 트랜잭션에서 강의에도 쓴다(`store.ts` `mirrorRecording`, db.ts `mirrorRecordingToLecture`). 그래서 그 뒤 투영은 바꿀 것이 없다.
+  - 녹음 제목
+  - 폴더 → 과목. v1 과목은 폴더의 이름이고, 폴더가 없으면 `미분류`다
+  - legacy 문서 저장 → `updateLectureMarkdown`. 아카이브 파일과 물어보기 색인도 따라간다
+  - 녹음 삭제 → `deleteLectureById`
+- **업로드**: 새 녹음은 강의도 함께 만든다(`ingest.ts`, v1 ingest도 같은 함수). `recorded_at`은 클라이언트 값, 없으면 미디어의 `creation_time`, 그것도 없으면 업로드 시각이다.
+- **오디오 digest**: v1 `audio_sha256`은 클라이언트의 멱등 키일 수 있어서 쓰지 않는다. 이전된 오디오의 `sha256`은 상세를 처음 열 때나 5분마다 도는 백그라운드 작업이 파일에서 계산한다(`store.ts` `ensureAssetDigest`). 파일이 없는 asset은 응답에서 빠진다.
 
-- 사용자 1명(`demo@example.com`)과 워크스페이스 2개(개인, 팀). 이 둘이 아닌 `workspace_id`는 403이다.
-- 녹음 3개: 처리 완료된 강의(문서 2개 버전, 질문, 일정, PDF 자산), 처리 중인 강의(진행 중인 작업, 빈 전사), 팀 회의(문서, 할 일).
-- id는 서로 이어진다. `/me` → `/workspaces` → 폴더·태그·녹음 → 상세 → 전사·문서·질문·일정·할 일 → 작업 순서로 따라갈 수 있다. 없는 id는 404다.
-- `/me`는 고정 사용자를 돌려주되 `system_role`만 호출자의 v1 역할을 따른다. 관리자 메뉴 노출과 `/admin/*`의 403이 어긋나지 않게 하려는 것이다.
-- 목록은 커서 페이지네이션(`limit`, 불투명한 `next_cursor`)과 각 라우트의 단순 필터(폴더, 태그, 상태, 종류, 기간)를 픽스처에 그대로 적용한다. 검색은 FTS 대신 부분 문자열 일치이고 `snippet`에 강조 구간을 나눠 준다.
+## 권한
+
+`access.ts`의 `can()`가 정책의 전부다. 표 테스트는 `test/api-v2-access.test.ts`에 있다.
+
+- 비멤버는 아무것도 못 한다.
+- 멤버는 워크스페이스, 폴더, 태그, 멤버 목록을 읽는다.
+- owner·admin·member는 녹음을 만들고 폴더와 태그를 고친다. viewer는 읽기만 한다.
+- `private` 녹음은 역할과 상관없이 만든 사람만 본다.
+- 녹음을 고치거나 지우는 사람은 만든 사람, 그리고 `workspace` 공개일 때의 owner·admin이다.
+- 보이지 않는 녹음은 403이 아니라 404다(존재를 알리지 않는다).
+- 시스템 운영자(`users.role`)라고 남의 워크스페이스를 볼 수 있지는 않다.
 
 ## 엔드포인트 상태
 
 | 메서드·경로 | operationId | 상태 | 비고 |
 |---|---|---|---|
-| `GET /me` | `getMe` | 픽스처 | `system_role`은 호출자 v1 역할 |
-| `PATCH /me` | `updateMe` | 501 | |
-| `GET /me/devices` | `listDevices` | 픽스처 | |
-| `DELETE /me/devices/{device_id}` | `revokeDevice` | 501 | |
-| `GET /me/tokens` | `listAccessTokens` | 픽스처 | |
-| `POST /me/tokens` | `createAccessToken` | 501 | |
-| `DELETE /me/tokens/{token_id}` | `revokeAccessToken` | 501 | |
-| `GET /workspaces` | `listWorkspaces` | 픽스처 | |
-| `POST /workspaces` | `createWorkspace` | 501 | |
-| `GET /workspaces/{workspace_id}` | `getWorkspace` | 픽스처 | 없는 id는 404 |
-| `PATCH /workspaces/{workspace_id}` | `updateWorkspace` | 501 | |
-| `GET /workspaces/{workspace_id}/members` | `listWorkspaceMembers` | 픽스처 | 없는 id는 404 |
-| `GET /folders` | `listFolders` | 픽스처 | 다른 워크스페이스는 403 |
-| `POST /folders` | `createFolder` | 501 | |
-| `PATCH /folders/{folder_id}` | `updateFolder` | 501 | |
-| `DELETE /folders/{folder_id}` | `deleteFolder` | 501 | |
-| `GET /tags` | `listTags` | 픽스처 | 다른 워크스페이스는 403 |
-| `POST /tags` | `createTag` | 501 | |
-| `PATCH /tags/{tag_id}` | `updateTag` | 501 | |
-| `DELETE /tags/{tag_id}` | `deleteTag` | 501 | |
-| `POST /uploads` | `createUpload` | 501 | |
-| `GET /uploads/{upload_id}` | `getUpload` | 501 | 업로드 세션을 만들 수 없으므로 읽기도 501 |
-| `PUT /uploads/{upload_id}/parts/{part}` | `putUploadPart` | 501 | |
-| `POST /uploads/{upload_id}/complete` | `completeUpload` | 501 | |
-| `DELETE /uploads/{upload_id}` | `abortUpload` | 501 | |
-| `GET /recordings` | `listRecordings` | 픽스처 | `folder_id`·`tag_id`·`domain`·`status` 필터, `recorded_at` 최신순 |
-| `GET /recordings/{recording_id}` | `getRecording` | 픽스처 | 없는 id는 404 |
-| `PATCH /recordings/{recording_id}` | `updateRecording` | 501 | |
-| `DELETE /recordings/{recording_id}` | `deleteRecording` | 501 | |
-| `GET /recordings/{recording_id}/transcript` | `getTranscript` | 픽스처 | 처리 중인 녹음은 빈 전사 |
-| `PATCH /recordings/{recording_id}/speakers/{speaker_id}` | `updateSpeaker` | 501 | |
-| `GET /recordings/{recording_id}/documents` | `listRecordingDocuments` | 픽스처 | |
-| `GET /recordings/{recording_id}/questions` | `listRecordingQuestions` | 픽스처 | `kind` 필터 |
-| `GET /recordings/{recording_id}/events` | `listRecordingEvents` | 픽스처 | 모든 상태 |
-| `GET /recordings/{recording_id}/action-items` | `listRecordingActionItems` | 픽스처 | 팀 회의에만 있음 |
-| `POST /recordings/{recording_id}/reprocess` | `reprocessRecording` | 501 | |
-| `GET /assets/{asset_id}/content` | `getAssetContent` | 501 | 바이너리라 스키마가 없고 블롭 저장소도 아직 없음 |
-| `GET /documents/{document_id}` | `getDocument` | 픽스처 | `ETag: "<current_version>"` |
-| `GET /documents/{document_id}/versions` | `listDocumentVersions` | 픽스처 | 최신순, 본문 제외 |
-| `GET /documents/{document_id}/versions/{version}` | `getDocumentVersion` | 픽스처 | 없는 버전은 404 |
-| `POST /documents/{document_id}/versions` | `createDocumentVersion` | 501 | `If-Match` 없으면 먼저 428 |
-| `PATCH /action-items/{action_item_id}` | `updateActionItem` | 501 | |
-| `GET /jobs/{job_id}` | `getJob` | 픽스처 | 시스템 작업은 404(관리자 API로만) |
-| `POST /jobs/{job_id}/cancel` | `cancelJob` | 501 | |
-| `GET /search` | `search` | 픽스처 | 부분 문자열 일치, 전사·문서·PDF |
-| `POST /ask/threads` | `createAskThread` | **실제**(`LECTERN_ASK=1`), 꺼지면 501 | v1 강의 위의 물어보기(`ask.ts`, ARCHITECTURE §12.4). 픽스처 개인 워크스페이스 id는 호출자의 `wsp_<user id>` 별칭 |
-| `GET /ask/threads` | `listAskThreads` | 실제 / 501 | 내 스레드만 |
-| `GET /ask/threads/{thread_id}` | `getAskThread` | 실제 / 501 | 지워진 노트 인용은 `available: false` |
-| `DELETE /ask/threads/{thread_id}` | `deleteAskThread` | 실제 / 501 | |
-| `POST /ask/threads/{thread_id}/turns` | `askQuestion` | 실제 / 501 | SSE(15초 heartbeat). 끊겨도 끝까지 만들어 저장. `Idempotency-Key` 재전송은 저장된 답을 다시 보냄. 교차 사이트 쿠키 요청은 403 |
-| `GET /ask/usage` | `getAskUsage` | 실제 / 501 | |
-| `GET /calendar/suggestions` | `listCalendarSuggestions` | 픽스처 | `status` 기본값 `suggested` |
-| `PATCH /calendar/suggestions/{event_candidate_id}` | `updateCalendarSuggestion` | 501 | |
-| `POST /calendar/suggestions/batch` | `batchCalendarSuggestions` | 501 | |
-| `GET /integrations` | `listIntegrations` | 픽스처 | |
-| `POST /integrations/google` | `startGoogleIntegration` | 501 | |
-| `DELETE /integrations/{integration_id}` | `disconnectIntegration` | 501 | |
-| `GET /share-links` | `listShareLinks` | 픽스처 | `target_id` 필터 |
-| `POST /share-links` | `createShareLink` | 501 | |
-| `PATCH /share-links/{share_link_id}` | `updateShareLink` | 501 | |
-| `DELETE /share-links/{share_link_id}` | `revokeShareLink` | 501 | |
-| `GET /events` | `streamEvents` | 픽스처 | SSE. 아래 참고 |
-| `GET /admin/jobs` | `adminListJobs` | 픽스처 | 운영자 전용, `state`·`kind`·`workspace_id` 필터 |
-| `GET /admin/jobs/{job_id}` | `adminGetJob` | 픽스처 | 운영자 전용, 단계·모델 호출 포함 |
-| `POST /admin/jobs/{job_id}/retry` | `adminRetryJob` | 501 | 운영자 전용 |
-| `GET /admin/usage` | `adminListUsage` | 픽스처 | 운영자 전용, `period` 필터 |
+| `GET /me` | `getMe` | 실제 | `personal_workspace_id` = `wsp_<user id>`, `timezone`은 `users.timezone` |
+| `PATCH /me` | `updateMe` | 실제 | 표시 이름, 시간대 |
+| `GET /me/devices` | `listDevices` | 실제 | v1 로그인 세션. 기기 이름·UA는 P5(`auth_session`)까지 null |
+| `DELETE /me/devices/{device_id}` | `revokeDevice` | 실제 | 그 세션 로그아웃 |
+| `GET /me/tokens` | `listAccessTokens` | 실제 | v1 API 토큰 하나(앞 8자만) |
+| `POST /me/tokens` | `createAccessToken` | 501 | PAT는 P5 |
+| `DELETE /me/tokens/{token_id}` | `revokeAccessToken` | 501 | P5. v1 `rotate-token`이 대신한다 |
+| `GET /workspaces` | `listWorkspaces` | 실제 | 개인 워크스페이스가 먼저 |
+| `POST /workspaces` | `createWorkspace` | 실제 | 팀 워크스페이스(초대는 P5) |
+| `GET /workspaces/{workspace_id}` | `getWorkspace` | 실제 | 비멤버는 403 |
+| `PATCH /workspaces/{workspace_id}` | `updateWorkspace` | 실제 | owner·admin |
+| `GET /workspaces/{workspace_id}/members` | `listWorkspaceMembers` | 실제 | |
+| `GET /folders` | `listFolders` | 실제 | 평면 목록, `sort_key` 순 |
+| `POST /folders` | `createFolder` | 실제 | 같은 부모 아래 같은 이름(공백·대소문자 무시)이면 409 |
+| `PATCH /folders/{folder_id}` | `updateFolder` | 실제 | 자기·하위로 이동하면 409. 이름을 바꾸면 v1 과목도 바뀐다 |
+| `DELETE /folders/{folder_id}` | `deleteFolder` | 실제 | 녹음과 하위 폴더는 부모로 |
+| `GET /views` 외 3개 | `listSavedViews` 등 | 실제 | 저장한 사람만 본다 |
+| `GET /tags` | `listTags` | 실제 | |
+| `POST /tags` | `createTag` | 실제 | 같은 이름이면 409 |
+| `PATCH /tags/{tag_id}` | `updateTag` | 실제 | |
+| `DELETE /tags/{tag_id}` | `deleteTag` | 실제 | 녹음에서도 떼어진다 |
+| `POST /uploads` | `createUpload` | 실제 | 개인 워크스페이스만. 새 녹음은 오디오 1개. 파트 8 MiB. `Idempotency-Key` |
+| `GET /uploads/{upload_id}` | `getUpload` | 실제 | 받은 파트 목록(재개) |
+| `PUT /uploads/{upload_id}/parts/{part}` | `putUploadPart` | 실제 | 디스크로 스트리밍. 크기가 틀리면 400/413. 다시 보내면 덮어쓴다 |
+| `POST /uploads/{upload_id}/complete` | `completeUpload` | 실제 | 파트를 합치고 SHA-256 확인, 녹음+강의 생성, 처리 작업 등록. 같은 오디오면 `deduplicated` |
+| `DELETE /uploads/{upload_id}` | `abortUpload` | 실제 | |
+| `GET /recordings` | `listRecordings` | 실제 | 폴더(하위 포함)·미분류·태그(모두)·종류·상태·제목·기간 필터, 정렬 4가지 |
+| `POST /recordings/batch` | `batchRecordings` | 실제 | move·add_tags·remove_tags·delete, 항목별 결과 |
+| `GET /recordings/{recording_id}` | `getRecording` | 실제 | `progress`, `failure` 포함 |
+| `PATCH /recordings/{recording_id}` | `updateRecording` | 실제 | `tag_ids`는 AI 태그까지 교체. `recorded_at`을 주면 `client` |
+| `DELETE /recordings/{recording_id}` | `deleteRecording` | 실제 | 강의·파일·아카이브·색인까지 |
+| `GET /recordings/{recording_id}/transcript` | `getTranscript` | 실제 | 이전된 강의는 빈 전사 |
+| `PATCH /recordings/{recording_id}/speakers/{speaker_id}` | `updateSpeaker` | 실제 | |
+| `GET /recordings/{recording_id}/documents` | `listRecordingDocuments` | 실제 | |
+| `GET /recordings/{recording_id}/questions` | `listRecordingQuestions` | 실제 | 폐기 예정, 비어 있음 |
+| `GET /recordings/{recording_id}/events` | `listRecordingEvents` | 실제 | P4 전까지 비어 있음 |
+| `GET /recordings/{recording_id}/action-items` | `listRecordingActionItems` | 실제 | |
+| `POST /recordings/{recording_id}/reprocess` | `reprocessRecording` | 실제 | 이전된 강의는 `full`만(v1 재분석). `dry_run`은 추정 비용. 전사가 없는데 `document`면 409 |
+| `GET /assets/{asset_id}/content` | `getAssetContent` | 실제 | Range, 확장자 기준 MIME, `?token=` 가능 |
+| `GET /documents/{document_id}` | `getDocument` | 실제 | `ETag: "<current_version>"` |
+| `GET /documents/{document_id}/versions` | `listDocumentVersions` | 실제 | 최신순, 본문 제외 |
+| `GET /documents/{document_id}/versions/{version}` | `getDocumentVersion` | 실제 | |
+| `POST /documents/{document_id}/versions` | `createDocumentVersion` | 실제 | `If-Match` 낙관적 잠금, 오래되면 412. legacy 문서는 `markdown`, 구조화 문서는 `body`(바뀐 블록에 `edited`) |
+| `GET /action-items` | `listActionItems` | 실제 | 마감 빠른 순 |
+| `PATCH /action-items/{action_item_id}` | `updateActionItem` | 실제 | |
+| `GET /jobs/{job_id}` | `getJob` | 실제 | v1 `distill`은 `process`. 시스템 작업은 404 |
+| `POST /jobs/{job_id}/cancel` | `cancelJob` | 501 | v1 큐에 취소가 없다(하네스) |
+| `GET /search` | `search` | 실제 | 제목·문서(legacy는 문단 `md-<n>`)·전사의 부분 문자열. 하이브리드 색인은 P3 |
+| `/ask/*` 6개 | `createAskThread` 등 | 실제(`LECTERN_ASK=1`), 꺼지면 501 | 개인 워크스페이스의 색인 위. 범위는 v2 녹음·폴더 |
+| `GET /calendar/suggestions` | `listCalendarSuggestions` | 실제 | `statuses`, 기간. P4 전까지 비어 있음 |
+| `PATCH /calendar/suggestions/{event_candidate_id}` | `updateCalendarSuggestion` | 실제 | `synced`는 409 |
+| `POST /calendar/suggestions/batch` | `batchCalendarSuggestions` | 실제 | |
+| `GET /integrations` | `listIntegrations` | 실제 | P4 전까지 비어 있음 |
+| `POST /integrations/google` | `startGoogleIntegration` | 501 | P4 |
+| `DELETE /integrations/{integration_id}` | `disconnectIntegration` | 501 | P4 |
+| `GET /share-links` | `listShareLinks` | 실제 | 공개된 v1 강의의 링크. 회수된(비공개) 링크는 빠진다 |
+| `POST/PATCH/DELETE /share-links…` | `createShareLink` 등 3개 | 501 | P5. 지금은 v1 `PATCH /api/lectures/{id}/visibility` |
+| `GET /events` | `streamEvents` | 실제 | SSE. 아래 참고 |
+| `GET /admin/jobs` | `adminListJobs` | 실제 | 운영자 전용 |
+| `GET /admin/jobs/{job_id}` | `adminGetJob` | 실제 | 단계·모델 호출 포함 |
+| `POST /admin/jobs/{job_id}/retry` | `adminRetryJob` | 501 | v1 관리자 콘솔의 재분석을 쓴다 |
+| `GET /admin/usage` | `adminListUsage` | 실제 | `usage_ledger`(쿼터 집계는 P5) |
 
 ### SSE (`GET /events`)
 
-- 메시지 형식은 실제와 같다: `id: <event.id>`, `event: <event.type>`, `data: <ServerEvent JSON>`. 첫 줄은 `retry: 30000`이다.
-- `Last-Event-ID`가 있으면 그 뒤의 이벤트만 보낸다. 로그에 없는 id(발급한 적 없거나 보존 기간이 지난 id)는 무엇을 놓쳤는지 알 수 없으므로 전체를 다시 보낸다. 형식이 틀린 id는 400이다.
-- 스텁은 픽스처 로그를 보내고 **연결을 닫는다**. 브라우저 `EventSource`는 30초 뒤 마지막 id로 다시 붙고, 새 이벤트가 없으니 빈 응답을 받는다. 실제 구현은 연결을 유지하고 `job_events`를 밀어 준다.
+- 모든 프로세스(API, 외부 워커)가 강의 변경을 `job_event`에 쓴다(`../../events.ts`). 이 라우트는 그 표를 1초마다 꼬리 읽기 한다. 행의 v1 페이로드는 보낼 때 domain `ServerEvent`로 바꾸고, 녹음은 그 순간의 상태를 싣는다.
+  - `created`는 `recording.created`가 된다.
+  - `progress`는 `job.progress`와 `recording.updated`가 된다.
+  - `completed`는 `recording.updated`와 `document.updated`가 된다.
+  - `updated`와 `error`는 `recording.updated`가 된다.
+  - `deleted`는 `recording.deleted`가 된다.
+- 메시지 id는 `<행 id>`이고, 한 행이 여러 이벤트가 되면 `<행 id>-<n>`이다.
+- `Last-Event-ID` 없이 붙으면 지금부터 보낸다. 있으면 그 뒤를 먼저 다시 보낸다. 로그(하루 보존)보다 오래된 id면 무엇을 놓쳤는지 모르므로 로그 전체를 보낸다.
+- 연결은 열린 채로 유지된다. 15초마다 `: ping`을 보내고, 첫 줄은 `retry: 5000`이다.
 
-## 실제 구현으로 바꿀 순서
+## 이전 리허설
 
-웹 셸 `ApiClient`가 쓰는 순서이자, v2 테이블 마이그레이션(P2)이 채워지는 순서다. 각 단계에서 리소스 라우터의 핸들러만 바꾸고, 검증·인증·응답 스키마 검사는 그대로 둔다. 바꾼 라우트는 계약 테스트의 `READ_STUBS`·501 기대값을 함께 고친다.
+`bun apps/server/scripts/rehearse-v2-migration.ts <백업 사본>`는 사본의 사본에서 이전을 돌리고 다음을 JSON으로 출력한다. 내용은 출력하지 않는다(건수, 체크섬, id만). 하나라도 틀리면 종료 코드가 1이다.
 
-1. `me`, `workspaces`: 사용자 → `Me`, 개인 워크스페이스·멤버십(마이그레이션 첫 단계). 정책 함수(`can()`)를 `access.ts` 자리에 넣는다.
-2. `folders`, `tags`의 읽기와 쓰기
-3. `recordings` 목록·상세, `transcript`, `documents`(읽기, 버전, `If-Match` 저장). 레거시 `lectures`를 v2로 옮긴 데이터가 이 단계부터 보인다.
-4. `uploads`(재개 가능한 청크 업로드, `recorded_at`)와 `assets/{id}/content`(Range). 블롭 저장소가 필요하다.
-5. `events`(SSE, `job_events` 기반)와 `jobs`
-6. `search`(FTS5)
-7. `calendar`, `integrations`, `share-links`(P4·P5)
-8. `admin/*`. v1 관리자 콘솔이 옮겨 올 때까지 v1 관리자 API가 남는다.
+- 건수: 사용자↔워크스페이스, 강의↔녹음, Markdown↔문서, 오디오↔asset, 과목↔폴더, 공개↔링크
+- 강의별 필드 체크섬
+- v1 표가 그대로인지
+- 다시 돌려도 아무것도 만들지 않는지
+- domain 스키마를 통과하지 못하는 행
+
+배포 사전 점검(`../../preflight.ts`)도 운영 DB 사본에서 같은 검사를 한다. 처음 P2를 배포할 때는 부팅이 이전을 실행하고, 결과가 틀리면 배포가 멈춘다.

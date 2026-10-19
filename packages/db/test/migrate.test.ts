@@ -16,13 +16,20 @@ describe("@lectern/db migrations", () => {
       const sqlite = new Database(join(dir, "fresh.sqlite"));
       expect(pendingMigrations(sqlite).length).toBeGreaterThan(0);
       const res = runMigrations(sqlite, { backupDir: join(dir, "backups") });
-      expect(res.applied).toEqual(["0000_job_queue", "0001_search_ask", "0002_search_fts"]);
+      expect(res.applied).toEqual(["0000_job_queue", "0001_search_ask", "0002_search_fts", "0003_v2_entities"]);
       expect(res.backup).toBeNull(); // nothing to protect yet
       const tables = (sqlite.query(`SELECT name FROM sqlite_master WHERE type='table'`).all() as any[]).map((r) => r.name);
       for (const t of ["job", "stage_run", "artifact", "ai_call", "job_event", "system_state"]) {
         expect(tables).toContain(t);
       }
       for (const t of ["search_chunk", "search_chunk_fts", "search_embedding", "search_index_state", "ask_thread", "ask_turn"]) {
+        expect(tables).toContain(t);
+      }
+      for (const t of [
+        "workspace", "membership", "folder", "tag", "recording", "recording_tag", "asset", "transcript_segment",
+        "transcript_gap", "speaker", "document", "document_version", "question", "event_candidate", "action_item",
+        "share_link", "integration", "usage_ledger", "saved_view", "upload", "upload_part", "lecture_sync_pending",
+      ]) {
         expect(tables).toContain(t);
       }
       expect(pendingMigrations(sqlite)).toEqual([]);

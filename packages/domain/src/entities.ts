@@ -50,6 +50,7 @@ import {
   Period,
   QuestionId,
   RecordingId,
+  SavedViewId,
   Sha256,
   ShareLinkId,
   Slug,
@@ -135,6 +136,16 @@ export const Folder = named(
 );
 export type Folder = z.infer<typeof Folder>;
 
+/** Tag colours clients offer (design tokens). Listed in this order in pickers. */
+export const TAG_COLORS = ["red", "orange", "yellow", "green", "blue", "indigo", "gray"] as const;
+
+export const TagColorName = named(
+  "TagColorName",
+  z.enum(TAG_COLORS),
+  "The tag colours clients offer. `Tag.color` also accepts other token names (so new colours are additive); clients render a name they do not know as `gray`.",
+);
+export type TagColorName = z.infer<typeof TagColorName>;
+
 export const Tag = named(
   "Tag",
   z.object({
@@ -163,6 +174,40 @@ export const RecordingTag = named(
   }),
 );
 export type RecordingTag = z.infer<typeof RecordingTag>;
+
+export const SavedViewQuery = named(
+  "SavedViewQuery",
+  z.object({
+    folder_id: FolderId.optional(),
+    include_subfolders: z.boolean().optional(),
+    unfiled: z.boolean().optional(),
+    tag_ids: z.array(TagId).max(50).optional().describe("Recordings with every one of these tags."),
+    domain: RecordingDomain.optional(),
+    status: RecordingStatus.optional(),
+    q: z.string().min(1).max(200).optional(),
+    recorded_after: Timestamp.optional(),
+    recorded_before: Timestamp.optional(),
+    sort: z.enum(["recorded_at_desc", "recorded_at_asc", "title_asc", "updated_at_desc"]).optional(),
+  }),
+  "A saved library filter: the `listRecordings` query without paging. Clients turn it back into query parameters.",
+);
+export type SavedViewQuery = z.infer<typeof SavedViewQuery>;
+
+export const SavedView = named(
+  "SavedView",
+  z.object({
+    id: SavedViewId,
+    workspace_id: WorkspaceId,
+    user_id: UserId.describe("Views are private to the user who saved them."),
+    name: Name,
+    query: SavedViewQuery,
+    sort_key: z.string().min(1).max(64).describe("Fractional index; views sort by this byte-wise."),
+    created_at: Timestamp,
+    updated_at: Timestamp,
+  }),
+  "A smart view (\"스마트 보기\") in the library sidebar.",
+);
+export type SavedView = z.infer<typeof SavedView>;
 
 // ---------------------------------------------------------------------------
 // Recordings and their media
@@ -220,6 +265,9 @@ export const TranscriptSegment = named(
       text: z.string(),
       confidence: Confidence.nullable(),
       source_chunk: z.int().nonnegative().nullable().describe("Index of the chunk that produced the segment."),
+      lang: LanguageTag.nullable()
+        .optional()
+        .describe("Language of this segment when it differs from the recording's (e.g. an English quote in a Korean lecture). Absent or null: the recording's language."),
     })
     .refine((seg) => seg.end_ms >= seg.start_ms, { message: "end_ms must be >= start_ms", path: ["end_ms"] }),
   "Merged transcript segment. Times are original-audio ms (AI_HARNESS §3.2 invariant). Keyed by (recording_id, idx).",
@@ -573,6 +621,7 @@ export const ENTITY_SCHEMAS = {
   access_token: AccessToken,
   integration: Integration,
   usage_ledger: UsageLedger,
+  saved_view: SavedView,
 } as const;
 export type EntityName = keyof typeof ENTITY_SCHEMAS;
 
