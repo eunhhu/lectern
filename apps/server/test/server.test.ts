@@ -212,11 +212,35 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     expect(appHtml).toContain("word-break: keep-all");
     expect(appHtml).toContain("font-variant-numeric: tabular-nums");
     expect(appHtml).toContain("id=\"auth-gate\"");
-    expect(appHtml).toContain("sendEmailVerificationCode");
-    expect(appHtml).toContain("lectern_audio_vault_v1");
-    expect(appHtml).toContain("retryLectureDistillation");
     expect(appHtml).not.toContain("gemini-flash-latest");
     expect(appHtml).not.toContain("BYOK");
+
+    // Pages only run same-origin script files: CSP forbids inline script, and the
+    // page script is served from /assets with a content hash.
+    for (const res of [appRes, shareRes]) {
+      const csp = res.headers.get("Content-Security-Policy") || "";
+      const scriptSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("script-src "));
+      expect(scriptSrc).toBe("script-src 'self'");
+    }
+    const appScriptSrc = appHtml.match(/<script src="(\/assets\/app\.js\?v=[0-9a-f]+)"><\/script>/)?.[1];
+    expect(appScriptSrc).toBeDefined();
+    const appJsRes = await handleRequest(new Request(`http://localhost${appScriptSrc}`));
+    expect(appJsRes.status).toBe(200);
+    expect(appJsRes.headers.get("Content-Type")).toBe("text/javascript; charset=utf-8");
+    expect(appJsRes.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(appJsRes.headers.get("Cache-Control")).toContain("immutable");
+    const appJs = await appJsRes.text();
+    expect(appJs).toContain("sendEmailVerificationCode");
+    expect(appJs).toContain("lectern_audio_vault_v1");
+    expect(appJs).toContain("retryLectureDistillation");
+    expect(appJs).not.toContain("gemini-flash-latest");
+    expect(appJs).not.toContain("BYOK");
+    const staleJsRes = await handleRequest(new Request("http://localhost/assets/app.js?v=stale"));
+    expect(staleJsRes.status).toBe(200);
+    expect(staleJsRes.headers.get("Cache-Control")).toBe("no-cache");
+    for (const missing of ["/assets/missing.js", "/assets/constructor", "/assets/"]) {
+      expect((await handleRequest(new Request(`http://localhost${missing}`))).status).toBe(404);
+    }
 
     // Verify Idempotent Upload Deduplication by Audio SHA-256 / Idempotency Key
     const idemKey = `test_idem_${Date.now()}`;

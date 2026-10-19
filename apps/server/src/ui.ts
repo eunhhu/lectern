@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { escapeHtml, renderMarkdownToHtml } from "@lectern/core";
 import type { LectureRecord } from "./db.ts";
 
@@ -389,9 +390,9 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       <span>Lectern</span>
     </a>
     <div class="actions">
-      <button class="btn" onclick="toggleTheme()" id="theme-btn" aria-label="테마 전환">테마 전환</button>
+      <button class="btn" id="theme-btn" aria-label="테마 전환">테마 전환</button>
       <a class="btn" href="/api/lectures/${encodeURIComponent(lecture.id)}/markdown?share=${encodeURIComponent(lecture.share_token)}" download>Markdown</a>
-      <button class="btn btn-primary" onclick="window.print()">PDF 인쇄</button>
+      <button class="btn btn-primary" id="print-btn">PDF 인쇄</button>
     </div>
   </header>
   <main class="container">
@@ -414,7 +415,13 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       </article>
     </div>
   </main>
-  <script>
+  ${pageScriptTag("share.js")}
+</body>
+</html>`;
+}
+
+// Served at /assets/share.js (see PAGE_SCRIPTS) so the page needs no inline script.
+const SHARE_PAGE_SCRIPT = `
     const savedTheme = localStorage.getItem('lectern_theme') || 'light';
     document.documentElement.setAttribute('data-theme', savedTheme);
     document.documentElement.setAttribute('data-elysium-theme', savedTheme === 'dark' ? 'Dark' : 'Light');
@@ -424,6 +431,8 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       document.documentElement.setAttribute('data-elysium-theme', cur === 'dark' ? 'Dark' : 'Light');
       localStorage.setItem('lectern_theme', cur);
     }
+    document.getElementById('theme-btn').addEventListener('click', toggleTheme);
+    document.getElementById('print-btn').addEventListener('click', () => window.print());
     document.getElementById('md-root')?.addEventListener('click', (e) => {
       const btn = e.target.closest('.ts-chip');
       if (!btn) return;
@@ -434,10 +443,7 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
         audio.play().catch(() => {});
       }
     });
-  </script>
-</body>
-</html>`;
-}
+`;
 
 export function renderAppHtml(): string {
   return `<!DOCTYPE html>
@@ -1310,12 +1316,12 @@ export function renderAppHtml(): string {
       </div>
 
       <div class="auth-tabs" role="tablist">
-        <button type="button" class="auth-tab active" id="tab-login-btn" onclick="switchAuthMode('login')">로그인</button>
-        <button type="button" class="auth-tab" id="tab-reg-btn" onclick="switchAuthMode('register')">회원가입</button>
-        <button type="button" class="auth-tab" id="tab-reset-btn" onclick="switchAuthMode('reset')">비번 재설정</button>
+        <button type="button" class="auth-tab active" id="tab-login-btn" data-action="auth-mode" data-auth-mode="login">로그인</button>
+        <button type="button" class="auth-tab" id="tab-reg-btn" data-action="auth-mode" data-auth-mode="register">회원가입</button>
+        <button type="button" class="auth-tab" id="tab-reset-btn" data-action="auth-mode" data-auth-mode="reset">비번 재설정</button>
       </div>
 
-      <form id="auth-form" onsubmit="submitAuthForm(event)" style="display:flex;flex-direction:column;gap:var(--elysium-space-16);">
+      <form id="auth-form" style="display:flex;flex-direction:column;gap:var(--elysium-space-16);">
         <div id="auth-name-wrap" class="field-group" style="display:none;">
           <label class="field-label" for="auth-name">이름 (닉네임)</label>
           <input type="text" id="auth-name" class="field-input" placeholder="표시할 이름 입력" autocomplete="name" />
@@ -1324,7 +1330,7 @@ export function renderAppHtml(): string {
           <label class="field-label" for="auth-email" id="auth-email-label">아이디 또는 이메일</label>
           <div style="display:flex;gap:8px;">
             <input type="text" id="auth-email" class="field-input" style="flex:1;" placeholder="아이디 또는 이메일 주소" autocomplete="username" required />
-            <button type="button" class="btn" id="btn-send-code" style="display:none;flex-shrink:0;" onclick="sendEmailVerificationCode()">인증번호 발송</button>
+            <button type="button" class="btn" id="btn-send-code" style="display:none;flex-shrink:0;" data-action="send-code">인증번호 발송</button>
           </div>
         </div>
         <div id="auth-code-wrap" class="field-group" style="display:none;">
@@ -1351,13 +1357,13 @@ export function renderAppHtml(): string {
             <span>Lectern</span>
             <span class="brand-sub">Library</span>
           </div>
-          <button class="btn btn-icon" onclick="toggleTheme()" title="라이트/다크 테마 전환" aria-label="테마 전환">
+          <button class="btn btn-icon" data-action="toggle-theme" title="라이트/다크 테마 전환" aria-label="테마 전환">
             <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
           </button>
         </div>
 
         <!-- Single Primary Action in Sidebar Area (Elysium Principle: One Primary Action per Region) -->
-        <button class="btn btn-primary btn-lg" style="width:100%;" onclick="openRecorderModal()">
+        <button class="btn btn-primary btn-lg" style="width:100%;" data-action="open-recorder">
           <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
           <span>새 강의 녹음 · 파일 업로드</span>
         </button>
@@ -1379,13 +1385,13 @@ export function renderAppHtml(): string {
           <span class="user-name" id="user-badge">로그인됨</span>
           <div style="display:flex;gap:6px;align-items:center;">
             <a href="/admin" class="btn" id="admin-nav-btn" style="display:none;height:32px;padding:0 10px;font-size:12.5px;color:var(--elysium-text-brand);border-color:var(--elysium-border-focus);background:var(--elysium-action-subtle);">어드민·CRM</a>
-            <button class="btn" style="height:32px;padding:0 10px;font-size:12.5px;" onclick="logoutAccount()">로그아웃</button>
+            <button class="btn" style="height:32px;padding:0 10px;font-size:12.5px;" data-action="logout">로그아웃</button>
           </div>
         </div>
         <div class="footer-actions">
-          <button class="btn btn-subtle" onclick="openCleanupModal()">기록·용량</button>
-          <button class="btn btn-subtle" onclick="openClientsModal()">기기 연동</button>
-          <button class="btn btn-subtle" onclick="openSettingsModal()">계정·비번</button>
+          <button class="btn btn-subtle" data-action="open-cleanup">기록·용량</button>
+          <button class="btn btn-subtle" data-action="open-clients">기기 연동</button>
+          <button class="btn btn-subtle" data-action="open-settings">계정·비번</button>
         </div>
       </div>
     </aside>
@@ -1401,12 +1407,12 @@ export function renderAppHtml(): string {
           <span class="meta-pill" id="sse-status-pill" style="color:var(--elysium-status-success-text);background:var(--elysium-status-success-surface);">실시간 동기화</span>
         </div>
         <div class="toolbar-actions">
-          <button class="btn" id="btn-visibility" onclick="toggleCurrentVisibility()" title="공유 링크 공개/비공개 전환">비공개</button>
-          <button class="btn" id="btn-edit" onclick="toggleEditor()">노트 편집</button>
-          <button class="btn" id="btn-md" onclick="downloadCurrentMarkdown()">MD 저장</button>
-          <button class="btn" id="btn-pdf" onclick="window.print()">PDF 인쇄</button>
-          <button class="btn" id="btn-cleanup" onclick="openCleanupModal()" title="기록 정리, 과목 이동, 오디오 관리 및 삭제">관리·삭제</button>
-          <button class="btn btn-primary" id="btn-share" onclick="shareCurrentLecture()">공유 링크 복사</button>
+          <button class="btn" id="btn-visibility" data-action="toggle-visibility" title="공유 링크 공개/비공개 전환">비공개</button>
+          <button class="btn" id="btn-edit" data-action="toggle-editor">노트 편집</button>
+          <button class="btn" id="btn-md" data-action="download-markdown">MD 저장</button>
+          <button class="btn" id="btn-pdf" data-action="print">PDF 인쇄</button>
+          <button class="btn" id="btn-cleanup" data-action="open-cleanup" title="기록 정리, 과목 이동, 오디오 관리 및 삭제">관리·삭제</button>
+          <button class="btn btn-primary" id="btn-share" data-action="share-lecture">공유 링크 복사</button>
         </div>
       </header>
 
@@ -1415,14 +1421,14 @@ export function renderAppHtml(): string {
           <div class="audio-bar" id="audio-bar">
             <span style="font:600 14px/20px var(--elysium-font-sans);color:var(--elysium-text-primary);white-space:nowrap;">원본 강의 오디오</span>
             <audio id="lecture-audio" controls preload="metadata"></audio>
-            <select class="speed-select" id="audio-speed" aria-label="재생 배속" onchange="changeAudioSpeed(this.value)">
+            <select class="speed-select" id="audio-speed" aria-label="재생 배속">
               <option value="1">1.0x</option>
               <option value="1.25">1.25x</option>
               <option value="1.5">1.5x</option>
               <option value="1.75">1.75x</option>
               <option value="2">2.0x</option>
             </select>
-            <button class="btn" onclick="downloadCurrentRawAudio()">원본 저장</button>
+            <button class="btn" data-action="download-audio">원본 저장</button>
           </div>
 
           <div class="document-sheet">
@@ -1430,7 +1436,7 @@ export function renderAppHtml(): string {
               <div style="padding:var(--elysium-space-32) 0;text-align:center;">
                 <h2 style="font:600 20px/30px var(--elysium-font-sans);color:var(--elysium-text-primary);margin:0 0 8px;">선택된 강의 노트가 없습니다</h2>
                 <p style="font:400 16px/24px var(--elysium-font-sans);color:var(--elysium-text-secondary);margin:0 0 24px;">왼쪽 라이브러리에서 강의를 선택하거나 새 강의를 녹음해 보세요.</p>
-                <button class="btn btn-primary" onclick="openRecorderModal()">새 강의 녹음 시작</button>
+                <button class="btn btn-primary" data-action="open-recorder">새 강의 녹음 시작</button>
               </div>
             </article>
 
@@ -1448,8 +1454,8 @@ export function renderAppHtml(): string {
                 <textarea id="edit-markdown" class="editor-textarea"></textarea>
               </div>
               <div style="display:flex;gap:12px;justify-content:flex-end;">
-                <button class="btn" onclick="toggleEditor(false)">취소</button>
-                <button class="btn btn-primary" onclick="saveMarkdownEdit()">변경사항 저장</button>
+                <button class="btn" data-action="close-editor">취소</button>
+                <button class="btn btn-primary" data-action="save-edit">변경사항 저장</button>
               </div>
             </div>
           </div>
@@ -1465,15 +1471,15 @@ export function renderAppHtml(): string {
 
   <!-- Elysium Mobile Bottom Navigation (H64 + Safe Area) -->
   <nav class="mobile-tabbar" aria-label="하단 내비게이션">
-    <button class="tab-btn" id="tab-list" onclick="switchMobileTab('list')">
+    <button class="tab-btn" id="tab-list" data-action="mobile-tab" data-tab="list">
       <svg class="icon-svg" viewBox="0 0 24 24"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>
       <span>라이브러리</span>
     </button>
-    <button class="tab-btn active" id="tab-reader" onclick="switchMobileTab('reader')">
+    <button class="tab-btn active" id="tab-reader" data-action="mobile-tab" data-tab="reader">
       <svg class="icon-svg" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
       <span>노트 리더</span>
     </button>
-    <button class="tab-btn" onclick="openRecorderModal()">
+    <button class="tab-btn" data-action="open-recorder">
       <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
       <span>녹음·업로드</span>
     </button>
@@ -1484,7 +1490,7 @@ export function renderAppHtml(): string {
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title">실시간 강의 녹음 및 오디오 증류</div>
-        <button class="btn btn-icon" onclick="closeModal('recorder-modal')" aria-label="닫기">✕</button>
+        <button class="btn btn-icon" data-action="close-modal" data-modal="recorder-modal" aria-label="닫기">✕</button>
       </div>
 
       <div class="field-group">
@@ -1499,27 +1505,27 @@ export function renderAppHtml(): string {
       </div>
 
       <div style="display:flex;gap:12px;">
-        <button class="btn btn-primary btn-lg" id="btn-rec-start" style="flex:1;" onclick="toggleMicRecording()">마이크 녹음 시작</button>
-        <button class="btn btn-lg" id="btn-rec-pause" style="display:none;" onclick="pauseResumeRecording()">일시정지</button>
+        <button class="btn btn-primary btn-lg" id="btn-rec-start" style="flex:1;" data-action="toggle-mic">마이크 녹음 시작</button>
+        <button class="btn btn-lg" id="btn-rec-pause" style="display:none;" data-action="pause-recording">일시정지</button>
       </div>
 
       <label style="display:flex;align-items:center;gap:12px;font:400 14px/22px var(--elysium-font-sans);color:var(--elysium-text-secondary);cursor:pointer;">
-        <input type="checkbox" id="chk-local-save" style="width:20px;height:20px;accent-color:var(--elysium-action-primary);" checked onchange="localStorage.setItem('lectern_autosave_local', this.checked ? '1' : '0')" />
+        <input type="checkbox" id="chk-local-save" style="width:20px;height:20px;accent-color:var(--elysium-action-primary);" checked />
         <span>녹음 종료 시 내 기기에 원본 오디오 파일 즉시 백업 + 브라우저 금고(IndexedDB) 이중 보호</span>
       </label>
 
       <div id="local-vault-box" style="display:none;padding:16px;border-radius:var(--elysium-radius-12);background:var(--elysium-status-warning-surface);border:1px solid var(--elysium-status-warning-text);">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
           <span style="font:600 14px/20px var(--elysium-font-sans);color:var(--elysium-status-warning-text);" id="local-vault-title">미전송 로컬 녹음 보관함 (네트워크 장애 보호됨)</span>
-          <button class="btn" style="height:32px;padding:0 12px;font-size:13px;" onclick="retryAllPendingLocalUploads()">전체 재업로드</button>
+          <button class="btn" style="height:32px;padding:0 12px;font-size:13px;" data-action="retry-all-uploads">전체 재업로드</button>
         </div>
         <div id="local-vault-list" style="display:flex;flex-direction:column;gap:8px;"></div>
       </div>
 
-      <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
+      <div class="dropzone" id="dropzone" data-action="pick-file">
         <div style="font:600 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:4px;">오디오 파일 드래그 앤 드롭 또는 클릭하여 선택</div>
         <div style="font:400 14px/22px var(--elysium-font-sans);color:var(--elysium-text-secondary);">지원 포맷: .m4a (음성메모), .mp3, .webm, .wav, .ogg (최대 200MB)</div>
-        <input type="file" id="file-input" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg,.aac" style="display:none" onchange="handleFileSelect(this.files)" />
+        <input type="file" id="file-input" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg,.aac" style="display:none" />
       </div>
 
       <div id="ingest-status" style="padding:16px;border-radius:var(--elysium-radius-12);background:var(--elysium-action-subtle);color:var(--elysium-text-brand);font:600 14px/20px var(--elysium-font-sans);display:none;"></div>
@@ -1531,7 +1537,7 @@ export function renderAppHtml(): string {
     <div class="modal-card" style="max-width:680px;">
       <div class="modal-header">
         <div class="modal-title">멀티플랫폼 네이티브 앱 & 퀵액션 연동</div>
-        <button class="btn btn-icon" onclick="closeModal('clients-modal')" aria-label="닫기">✕</button>
+        <button class="btn btn-icon" data-action="close-modal" data-modal="clients-modal" aria-label="닫기">✕</button>
       </div>
       <p style="margin:0;color:var(--elysium-text-secondary);font:400 16px/24px var(--elysium-font-sans);">
         어느 기기에서 녹음하든 쉬는시간·방치녹음이 자동 제거된 뒤 이 리더 화면에 즉시 동기화됩니다.
@@ -1569,7 +1575,7 @@ export function renderAppHtml(): string {
       <div style="padding:20px;border-radius:var(--elysium-radius-16);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
           <span style="font:600 14px/20px var(--elysium-font-sans);color:var(--elysium-text-primary);">내 계정 전용 API 토큰 (네이티브 앱 / iOS 단축어 연동용)</span>
-          <button class="btn" style="height:32px;padding:0 12px;font-size:13px;" onclick="copyApiToken()">토큰 복사</button>
+          <button class="btn" style="height:32px;padding:0 12px;font-size:13px;" data-action="copy-api-token">토큰 복사</button>
         </div>
         <code id="my-api-token-code" style="display:block;margin-bottom:16px;padding:10px 14px;background:var(--elysium-surface-default);border:1px solid var(--elysium-border-subtle);border-radius:var(--elysium-radius-8);font:500 14px/20px var(--elysium-font-mono);color:var(--elysium-text-brand);">lct_...</code>
         <div style="font:600 14px/20px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:8px;">원클릭 HTTP Ingest API (cURL / 단축어 연동)</div>
@@ -1586,7 +1592,7 @@ export function renderAppHtml(): string {
     <div class="modal-card" style="max-width:540px;">
       <div class="modal-header">
         <div class="modal-title">내 계정 및 보안 설정</div>
-        <button class="btn btn-icon" onclick="closeModal('settings-modal')" aria-label="닫기">✕</button>
+        <button class="btn btn-icon" data-action="close-modal" data-modal="settings-modal" aria-label="닫기">✕</button>
       </div>
 
       <!-- Admin Console Banner (visible for Owner/Admin) -->
@@ -1608,13 +1614,13 @@ export function renderAppHtml(): string {
           <label class="field-label" for="prof-display-name">표시 이름 (닉네임)</label>
           <div style="display:flex;gap:10px;">
             <input type="text" id="prof-display-name" class="field-input" style="flex:1;" placeholder="표시할 이름" />
-            <button type="button" class="btn" onclick="saveProfileDisplayName()">이름 변경</button>
+            <button type="button" class="btn" data-action="save-display-name">이름 변경</button>
           </div>
         </div>
       </div>
 
       <!-- Self-Service Password Change -->
-      <form onsubmit="submitPasswordChange(event)" style="padding:20px;border-radius:var(--elysium-radius-16);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);display:flex;flex-direction:column;gap:14px;">
+      <form id="pw-change-form" style="padding:20px;border-radius:var(--elysium-radius-16);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);display:flex;flex-direction:column;gap:14px;">
         <div style="font:600 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);">비밀번호 변경</div>
         <div class="field-group">
           <label class="field-label" for="pw-current">현재 비밀번호</label>
@@ -1632,9 +1638,9 @@ export function renderAppHtml(): string {
         </div>
         <div id="pw-change-msg" style="display:none;padding:10px 14px;border-radius:var(--elysium-radius-8);font:600 13px/20px var(--elysium-font-sans);"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-          <button type="button" class="btn" onclick="rotateMyApiToken()">기기 연동 API 토큰 재발급</button>
+          <button type="button" class="btn" data-action="rotate-api-token">기기 연동 API 토큰 재발급</button>
           <div style="display:flex;gap:10px;">
-            <button type="button" class="btn" onclick="closeModal('settings-modal')">닫기</button>
+            <button type="button" class="btn" data-action="close-modal" data-modal="settings-modal">닫기</button>
             <button type="submit" class="btn btn-primary">비밀번호 변경 저장</button>
           </div>
         </div>
@@ -1647,25 +1653,25 @@ export function renderAppHtml(): string {
     <div class="modal-card" style="max-width:560px;">
       <div class="modal-header">
         <div class="modal-title">기록 정리 · 삭제 · 공개 설정</div>
-        <button class="btn btn-icon" onclick="closeModal('cleanup-modal')" aria-label="닫기">✕</button>
+        <button class="btn btn-icon" data-action="close-modal" data-modal="cleanup-modal" aria-label="닫기">✕</button>
       </div>
 
       <div id="cleanup-current-box" style="padding:20px;border-radius:var(--elysium-radius-16);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);display:flex;flex-direction:column;gap:16px;">
         <div style="font:600 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);" id="cleanup-cur-title">현재 선택된 강의 노트</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button class="btn" id="cleanup-vis-btn" onclick="toggleCurrentVisibility()">공개/비공개 전환</button>
-          <button class="btn" onclick="rotateCurrentShareToken()">공유 링크 재발급 (기존 링크 차단)</button>
+          <button class="btn" id="cleanup-vis-btn" data-action="toggle-visibility">공개/비공개 전환</button>
+          <button class="btn" data-action="rotate-share-token">공유 링크 재발급 (기존 링크 차단)</button>
         </div>
         <div class="field-group">
           <label class="field-label" for="cleanup-move-course">과목 이동</label>
           <div style="display:flex;gap:10px;align-items:center;">
             <input type="text" id="cleanup-move-course" class="field-input" style="flex:1;" placeholder="변경할 과목명 입력" />
-            <button class="btn" onclick="moveCurrentLectureCourse()">과목 변경</button>
+            <button class="btn" data-action="move-course">과목 변경</button>
           </div>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button class="btn" id="cleanup-audio-btn" onclick="deleteCurrentAudioOnly()">원본 오디오만 삭제 (노트 보존)</button>
-          <button class="btn btn-danger" onclick="deleteCurrentLecture()">이 강의 노트 영구 삭제</button>
+          <button class="btn" id="cleanup-audio-btn" data-action="delete-audio">원본 오디오만 삭제 (노트 보존)</button>
+          <button class="btn btn-danger" data-action="delete-lecture">이 강의 노트 영구 삭제</button>
         </div>
       </div>
 
@@ -1676,7 +1682,7 @@ export function renderAppHtml(): string {
             <div style="font:600 15px/22px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:4px;">실패·중단된 분석 기록 정리</div>
             <div style="font:400 14px/20px var(--elysium-font-sans);color:var(--elysium-text-secondary);">오류 상태이거나 15분 이상 멈춘 미완료 기록과 임시 파일을 삭제합니다.</div>
           </div>
-          <button class="btn" onclick="runWorkspaceCleanup('failed')">일괄 정리</button>
+          <button class="btn" data-action="workspace-cleanup" data-cleanup-mode="failed">일괄 정리</button>
         </div>
 
         <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);">
@@ -1684,7 +1690,7 @@ export function renderAppHtml(): string {
             <div style="font:600 15px/22px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:4px;">짧은 테스트·단편 녹음(15초 미만) 정리</div>
             <div style="font:400 14px/20px var(--elysium-font-sans);color:var(--elysium-text-secondary);">실수로 눌렸거나 테스트로 녹음된 짧은 단편 노트를 일괄 삭제합니다.</div>
           </div>
-          <button class="btn" onclick="runWorkspaceCleanup('short_fragments')">단편 삭제</button>
+          <button class="btn" data-action="workspace-cleanup" data-cleanup-mode="short_fragments">단편 삭제</button>
         </div>
 
         <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);">
@@ -1692,7 +1698,7 @@ export function renderAppHtml(): string {
             <div style="font:600 15px/22px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:4px;">완료된 모든 노트의 원본 음성파일 비우기</div>
             <div style="font:400 14px/20px var(--elysium-font-sans);color:var(--elysium-text-secondary);">마크다운 강의 노트는 영구 보존하고 대용량 원본 오디오만 정리합니다.</div>
           </div>
-          <button class="btn" onclick="runWorkspaceCleanup('audio_only_all')">오디오 비우기</button>
+          <button class="btn" data-action="workspace-cleanup" data-cleanup-mode="audio_only_all">오디오 비우기</button>
         </div>
       </div>
     </div>
@@ -1700,7 +1706,13 @@ export function renderAppHtml(): string {
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script>
+  ${pageScriptTag("app.js")}
+</body>
+</html>`;
+}
+
+// Served at /assets/app.js (see PAGE_SCRIPTS) so the page needs no inline script.
+const APP_PAGE_SCRIPT = `
     let lectures = [];
     let currentLecture = null;
     let activeCourse = 'ALL';
@@ -2385,9 +2397,9 @@ export function renderAppHtml(): string {
             '<div style="font:400 14px/22px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:16px;word-break:break-all;">' + escapeClientHtml(currentLecture.error_message || '알 수 없는 오류') + '</div>' +
             '<div style="font:400 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:24px;">서버 디스크에 원본 음성 파일이 안전하게 보존되어 있습니다. 아래 버튼으로 즉시 재분석하거나 원본 음성을 다운로드할 수 있습니다.</div>' +
             '<div style="display:flex;gap:12px;flex-wrap:wrap;">' +
-              '<button class="btn btn-primary" onclick="retryLectureDistillation()">보존된 원본 오디오로 재분석</button>' +
-              '<button class="btn" onclick="downloadCurrentRawAudio()">원본 오디오 다운로드</button>' +
-              '<button class="btn btn-danger" onclick="deleteCurrentLecture()">기록 삭제</button>' +
+              '<button class="btn btn-primary" data-action="retry-distillation">보존된 원본 오디오로 재분석</button>' +
+              '<button class="btn" data-action="download-audio">원본 오디오 다운로드</button>' +
+              '<button class="btn btn-danger" data-action="delete-lecture">기록 삭제</button>' +
             '</div>' +
           '</div>';
       } else {
@@ -3463,6 +3475,53 @@ export function renderAppHtml(): string {
       return 'failed';
     }
 
+    // Markup carries data-action names instead of inline on* handlers so the page runs
+    // under a script-src 'self' CSP. Markup rendered at runtime uses the same names.
+    const CLICK_ACTIONS = {
+      'toggle-theme': () => toggleTheme(),
+      'print': () => window.print(),
+      'auth-mode': (el) => switchAuthMode(el.dataset.authMode),
+      'send-code': () => sendEmailVerificationCode(),
+      'open-recorder': () => openRecorderModal(),
+      'logout': () => logoutAccount(),
+      'open-cleanup': () => openCleanupModal(),
+      'open-clients': () => openClientsModal(),
+      'open-settings': () => openSettingsModal(),
+      'close-modal': (el) => closeModal(el.dataset.modal),
+      'toggle-visibility': () => toggleCurrentVisibility(),
+      'toggle-editor': () => toggleEditor(),
+      'close-editor': () => toggleEditor(false),
+      'save-edit': () => saveMarkdownEdit(),
+      'download-markdown': () => downloadCurrentMarkdown(),
+      'download-audio': () => downloadCurrentRawAudio(),
+      'share-lecture': () => shareCurrentLecture(),
+      'retry-distillation': () => retryLectureDistillation(),
+      'mobile-tab': (el) => switchMobileTab(el.dataset.tab),
+      'toggle-mic': () => toggleMicRecording(),
+      'pause-recording': () => pauseResumeRecording(),
+      'retry-all-uploads': () => retryAllPendingLocalUploads(),
+      'pick-file': () => document.getElementById('file-input').click(),
+      'copy-api-token': () => copyApiToken(),
+      'save-display-name': () => saveProfileDisplayName(),
+      'rotate-api-token': () => rotateMyApiToken(),
+      'rotate-share-token': () => rotateCurrentShareToken(),
+      'move-course': () => moveCurrentLectureCourse(),
+      'delete-audio': () => deleteCurrentAudioOnly(),
+      'delete-lecture': () => deleteCurrentLecture(),
+      'workspace-cleanup': (el) => runWorkspaceCleanup(el.dataset.cleanupMode),
+    };
+    document.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-action]');
+      if (el && Object.prototype.hasOwnProperty.call(CLICK_ACTIONS, el.dataset.action)) CLICK_ACTIONS[el.dataset.action](el, e);
+    });
+    document.getElementById('auth-form').addEventListener('submit', submitAuthForm);
+    document.getElementById('pw-change-form').addEventListener('submit', submitPasswordChange);
+    document.getElementById('audio-speed').addEventListener('change', (e) => changeAudioSpeed(e.target.value));
+    document.getElementById('file-input').addEventListener('change', (e) => handleFileSelect(e.target.files));
+    document.getElementById('chk-local-save').addEventListener('change', (e) => {
+      localStorage.setItem('lectern_autosave_local', e.target.checked ? '1' : '0');
+    });
+
     const savedAutoSave = localStorage.getItem('lectern_autosave_local');
     if (savedAutoSave === '0') {
       const chk = document.getElementById('chk-local-save');
@@ -3470,10 +3529,7 @@ export function renderAppHtml(): string {
     }
     recoverInterruptedCheckpointOnLoad();
     bootstrapAuth();
-  </script>
-</body>
-</html>`;
-}
+`;
 
 export function renderAdminPageHtml(): string {
   // Linear-style operations console. Everything below is one static document: the
@@ -3487,6 +3543,7 @@ export function renderAdminPageHtml(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="color-scheme" content="dark light" />
   <title>Lectern Admin</title>
+  ${pageScriptTag("admin-theme.js")}
   <link rel="icon" href="data:," />
   <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <style>
@@ -4058,7 +4115,7 @@ export function renderAdminPageHtml(): string {
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <div class="gate" id="gate" hidden></div>
 
-  <script>${ADMIN_PAGE_SCRIPT}</script>
+  ${pageScriptTag("admin.js")}
 </body>
 </html>`;
 }
@@ -5999,6 +6056,7 @@ const ADMIN_PAGE_SCRIPT = `
       updateSettingsDirty();
     });
     $('peek').addEventListener('keydown', function (e) {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         var f = $('peek').querySelector('form');
         if (f) { e.preventDefault(); f.requestSubmit(); }
@@ -6027,6 +6085,8 @@ const ADMIN_PAGE_SCRIPT = `
     var chordTimer = null;
     document.addEventListener('keydown', function (e) {
       if (S.gated || !S.me) return;
+      // Korean (IME) input: the Enter/arrow that commits a composition is not a command.
+      if (e.isComposing || e.keyCode === 229) return;
       var k = e.key;
       if ((e.metaKey || e.ctrlKey) && !e.altKey && (k === 'k' || k === 'K')) {
         e.preventDefault();
@@ -6106,3 +6166,40 @@ const ADMIN_PAGE_SCRIPT = `
     }
     boot();
 `;
+
+// Loaded synchronously in the admin <head> so the saved theme applies before first paint
+// (the main script runs at the end of <body>).
+const ADMIN_THEME_SCRIPT = `
+  (function () {
+    try {
+      var saved = localStorage.getItem('lectern_theme');
+      if (saved === 'light' || saved === 'dark') document.documentElement.setAttribute('data-theme', saved);
+    } catch (e) {}
+  })();
+`;
+
+export interface PageScript {
+  body: string;
+  hash: string;
+}
+
+function pageScript(body: string): PageScript {
+  return { body, hash: createHash("sha256").update(body).digest("hex").slice(0, 16) };
+}
+
+/**
+ * Page scripts served by index.ts at /assets/<name>. Pages reference them with a content
+ * hash so they can be cached immutably, and the HTML CSP can use script-src 'self'.
+ */
+export const PAGE_SCRIPTS: ReadonlyMap<string, PageScript> = new Map([
+  ["share.js", pageScript(SHARE_PAGE_SCRIPT)],
+  ["app.js", pageScript(APP_PAGE_SCRIPT)],
+  ["admin.js", pageScript(ADMIN_PAGE_SCRIPT)],
+  ["admin-theme.js", pageScript(ADMIN_THEME_SCRIPT)],
+]);
+
+function pageScriptTag(name: string): string {
+  const script = PAGE_SCRIPTS.get(name);
+  if (!script) throw new Error(`unknown page script: ${name}`);
+  return `<script src="/assets/${name}?v=${script.hash}"></script>`;
+}

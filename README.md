@@ -61,6 +61,48 @@ curl -X POST https://lectern.qucord.com/api/ingest/shortcut \
   -F "audio=@20261014_lecture.m4a"
 ```
 
+---
+
+## 🛠 Operations
+
+The admin console at `/admin` (owner/admin accounts) shows jobs, storage, members, audit log and policy, and runs the actions below. Shortcuts: `⌘K` command palette, `G` then a letter to switch views, `?` for the full list.
+
+**Jobs.** Distillations run in a bounded in-process queue, with one job per lecture. Only transient Gemini failures (network, timeout, 429, 5xx) are retried. Lectures interrupted by a restart are re-queued on boot.
+
+**Storage.**
+- Once a lecture finishes, its uploaded audio is re-encoded to mono AAC (`.m4a`, 40 kbps by default, about 18 MB per hour). The new file is kept only if it is at least 15% smaller and has the same duration.
+- The `_원본` copy in the lecture archive is a hard link and stays lossless.
+- Upload files that no lecture references are moved to `DATA_DIR/trash` and deleted after 7 days.
+- Retention policies are off by default. When enabled:
+  - the audio of old finished lectures is removed and their notes are kept;
+  - failed lectures that have sat unchanged past the limit are deleted.
+
+**Maintenance** runs hourly. It:
+- purges expired sessions and verification codes;
+- prunes audit logs older than 180 days by default;
+- moves orphaned uploads to the trash, and empties old trash and temp files;
+- applies the retention policies;
+- writes a daily `VACUUM INTO` backup to `DATA_DIR/backups` (the newest 7 are kept);
+- checkpoints the WAL.
+
+Backups sit on the same disk as the database, so copy them off the host for disaster recovery.
+
+**Deploys and shutdown.** `POST /api/cd/deploy` runs `git fetch`, `git reset --hard origin/main` and `bun install --frozen-lockfile` in `LECTERN_REPO_DIR`. It then shuts down gracefully, and the process supervisor restarts it. On SIGTERM, the server waits up to `LECTERN_SHUTDOWN_GRACE_SEC` for running jobs and then exits. For systemd, use `Restart=always` and `TimeoutStopSec=` larger than the grace period.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LECTERN_REPO_DIR` | legacy prod path if present | Checkout the CD webhook updates; deploys are refused without one |
+| `LECTERN_MAX_CONCURRENT_JOBS` | `2` | Concurrent Gemini distillations |
+| `LECTERN_MAX_CONCURRENT_COMPACT` | `1` | Concurrent ffmpeg compactions |
+| `LECTERN_GEMINI_TIMEOUT_MS` | `900000` | Deadline for one `generateContent` call |
+| `LECTERN_MAINTENANCE_INTERVAL_MIN` | `60` | Maintenance cadence |
+| `LECTERN_BACKUP_INTERVAL_HOURS` / `LECTERN_BACKUP_KEEP` | `24` / `7` | Backup frequency and rotation |
+| `LECTERN_TRASH_DAYS` | `7` | Days before trashed uploads are deleted |
+| `LECTERN_SHUTDOWN_GRACE_SEC` | `20` | Time running jobs get on shutdown or deploy |
+| `LECTERN_LOG_REQUESTS` | on | Set `0` to silence the request log (tokens are redacted) |
+
+`GET /api/health` reports `checks.database` and `checks.disk`, and answers `503` when the database is unreachable.
+
 ## 📄 License
 
 MIT © Sunwoo Moon (`eunhhu`)

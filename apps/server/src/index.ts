@@ -59,6 +59,7 @@ import {
   verifyPassword,
 } from "./db.ts";
 import {
+  PAGE_SCRIPTS,
   renderAdminPageHtml,
   renderAppHtml,
   renderSharePageHtml,
@@ -475,11 +476,13 @@ function jsonResponse(
   });
 }
 
-// The pages ship inline <script>/<style> and on* handlers, plus the Pretendard webfont
-// from jsDelivr; anything else (remote scripts, framing, plugins) is refused.
+// Page scripts are served from /assets/*.js and the markup has no inline <script> or on*
+// handlers, so only same-origin script files run. The pages still ship inline <style> and
+// style attributes, plus the Pretendard webfont from jsDelivr; anything else (remote
+// scripts, framing, plugins) is refused.
 const HTML_CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
   "font-src 'self' data: https://cdn.jsdelivr.net",
   "img-src 'self' data: blob:",
@@ -1141,6 +1144,22 @@ async function routeRequest(req: Request): Promise<Response> {
           "Cache-Control": "no-cache",
         },
       });
+    }
+
+    // 1b. Page scripts (kept out of the HTML so the CSP can forbid inline script)
+    if (req.method === "GET" && path.startsWith("/assets/")) {
+      const script = PAGE_SCRIPTS.get(path.slice("/assets/".length));
+      if (script) {
+        return new Response(script.body, {
+          headers: {
+            "Content-Type": "text/javascript; charset=utf-8",
+            "Cache-Control":
+              url.searchParams.get("v") === script.hash
+                ? "public, max-age=31536000, immutable"
+                : "no-cache",
+          },
+        });
+      }
     }
 
     // 2. PWA Manifest
