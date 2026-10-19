@@ -25,6 +25,9 @@
 | `LECTERN_GEMINI_MODEL` | `gemini-3.8-flash` |  | Pinned Gemini model id (never a -latest alias) |
 | `LECTERN_GEMINI_ALLOWED_MODELS` | — |  | Comma-separated extra model ids requests may select |
 | `LECTERN_GEMINI_TIMEOUT_MS` | `900000` |  | Deadline for one generateContent call |
+| `LECTERN_DISTILL_ENGINE` | `legacy` |  | legacy: the distill job calls packages/core directly; harness: the same Gemini call runs as one stage on packages/harness (stage_run, artifact and ai_call cost rows, resume without a second Gemini call) |
+| `LECTERN_ASK` | `false` |  | 1: turn on 물어보기 (/api/v2/ask) and its search index over each user's lectures (ADR-0009); index jobs and answers call Gemini (cost). 0: the ask routes answer 501 |
+| `LECTERN_ASK_MONTHLY_LIMIT_MICROUSD` | `2000000` |  | Per-workspace monthly ask budget in micro-USD (2000000 = $2, ROADMAP D14); 0 blocks asking |
 | `LECTERN_OWNER_EMAIL` | — |  | Bootstrap owner account email |
 | `LECTERN_OWNER_NAME` | — |  | Bootstrap owner display name |
 | `LECTERN_OWNER_ALIASES` | — |  | Comma-separated login ids that resolve to the owner email |

@@ -4,6 +4,9 @@ import { TemplateDefinition } from "./harness.ts";
 // The real ones, with prompts and renderers, belong to packages/harness/templates.
 // Parsing at module load keeps them honest.
 
+// Both placeholders still enable `questions` to prove the definition shape. Real
+// templates (packages/harness, P1) leave it off by default: review questions were
+// dropped from the default pipeline in ADR-0009 in favour of /ask.
 export const LECTURE_TEMPLATE = TemplateDefinition.parse({
   id: "lecture",
   version: 1,

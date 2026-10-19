@@ -1,6 +1,6 @@
 # 런북: 백업과 복원
 
-> 근거 코드: [apps/server/src/ops.ts](../../apps/server/src/ops.ts)(`backupDatabase`, `runMaintenance`), [apps/server/src/storage.ts](../../apps/server/src/storage.ts)(`scanOrphanUploads`, `moveToTrash`, `purgeTrash`)
+> 근거 코드: [apps/server/src/ops.ts](../../apps/server/src/ops.ts)(`backupDatabase`, `runMaintenance`), [apps/server/src/storage.ts](../../apps/server/src/storage.ts)(`scanOrphanUploads`, `moveToTrash`, `purgeTrash`), [packages/harness/src/retention.ts](../../packages/harness/src/retention.ts)(`sweepHarnessData`)
 > 운영 경로: `DATA_DIR=/home/eunhhu/work/lectern/data` (환경 변수 `LECTERN_DATA_DIR`)
 
 ## 1. 무엇이 어디에 백업되는가
@@ -10,6 +10,7 @@
 | SQLite DB (계정, 세션, 강의 Markdown·메타데이터, 설정, 감사 로그) | `DATA_DIR/lectern.sqlite` (+ `-wal`, `-shm`) | **자동.** `DATA_DIR/backups/lectern-YYYYMMDD-HHMMSS.sqlite` | 시각은 UTC |
 | 업로드 오디오 | `DATA_DIR/uploads/aud_<uuid>.<ext>` | **없음** | 오프호스트 복사 필요(§5) |
 | 고아 업로드(참조하는 강의가 없는 파일) | `DATA_DIR/trash/` | 7일 보관 후 삭제 | 휴지통(§4) |
+| AI 처리 중간 결과(하네스 산출물: 변환한 오디오, 전사 조각 등) | `DATA_DIR/blobs/sha256/<2자리>/<sha256>` | **없음** | 다시 만들 수 있다. 녹음이나 오디오를 지우면 바로 지운다. 어떤 `artifact` 행도 참조하지 않는 블롭과 `blobs/tmp/`의 파일은 24시간 뒤 유지보수가 지운다(휴지통을 거치지 않음) |
 | 오너 강의 아카이브 (`_요약.md`, `_원본` 오디오) | `LECTERN_LECTURES_DIR` (`/home/eunhhu/work/lectures`) | **없음** | 오프호스트 복사 필요 |
 | 시크릿 | `/etc/lectern/lectern.env` | **없음** | 비밀번호 관리자에 따로 보관 |
 
@@ -100,6 +101,7 @@ cd /home/eunhhu/work/lectern/data && /home/eunhhu/.bun/bin/bun -e "import { Data
 - **백업 이후에 바꾼 비밀번호와 API 토큰이 되돌아간다.** 유출 때문에 바꾼 것이었다면 [secret-rotation.md](secret-rotation.md)의 해당 절차를 다시 한다.
 - 백업 이후에 만든 강의의 오디오 파일은 `uploads/`에 남아 있지만 DB 행이 없다. 다음 유지보수(1시간 이내)가 이 파일들을 고아로 보고 휴지통으로 옮기고, 7일 뒤 지운다. 살려야 하면 §4.3대로 7일 안에 다시 올린다.
 - 사용자는 다시 로그인해야 할 수 있다(세션도 백업 시점으로 돌아간다).
+- 하네스 산출물(`DATA_DIR/blobs`)은 복원하지 않는다. 백업 시점의 `artifact` 행이 가리키는 블롭이 이미 지워졌으면 그 단계는 캐시 없이 다시 실행된다(AI 비용이 든다). 백업 이후에 만든 블롭은 참조가 없어져 24시간 뒤 유지보수가 지운다.
 - 복원 사실과 잃은 구간(백업 시각 ~ 복원 시각)을 [incident-response.md](incident-response.md)의 사고 기록에 남긴다.
 
 ## 4. 휴지통에서 파일 살리기

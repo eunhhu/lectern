@@ -11,6 +11,7 @@ import {
   Workspace,
 } from "../entities.ts";
 import { UploadId, WorkspaceId } from "../primitives.ts";
+import * as A from "./ask.ts";
 import { HEADER, IdempotencyKey, PageQuery, VersionETag, WorkspaceScopedPageQuery } from "./common.ts";
 import { EventId, ServerEvent } from "./events.ts";
 import * as R from "./resources.ts";
@@ -547,6 +548,77 @@ export const ROUTES: RouteDef[] = [
     tag: "search",
     query: R.SearchQuery,
     responses: { 200: json(R.SearchHitPage, "Hits, best first.") },
+    errors: [400, 403],
+  },
+
+  // ask (docs/adr/0009-ask-rag.md) ---------------------------------------------
+  {
+    method: "post",
+    path: "/ask/threads",
+    operationId: "createAskThread",
+    summary: "Start an ask thread over a recording, a folder or the workspace",
+    tag: "ask",
+    body: { schema: A.CreateAskThreadRequest },
+    responses: { 201: json(A.AskThread, "The new, empty thread.") },
+    errors: [400, 403, 404],
+  },
+  {
+    method: "get",
+    path: "/ask/threads",
+    operationId: "listAskThreads",
+    summary: "The caller's ask threads",
+    tag: "ask",
+    query: A.ListAskThreadsQuery,
+    responses: { 200: json(A.AskThreadPage, "Threads, most recently updated first.") },
+    errors: [400, 403],
+  },
+  {
+    method: "get",
+    path: "/ask/threads/{thread_id}",
+    operationId: "getAskThread",
+    summary: "A thread with all its turns",
+    tag: "ask",
+    params: A.AskThreadParams,
+    responses: { 200: json(A.AskThreadDetail, "The thread.") },
+    errors: [403, 404],
+  },
+  {
+    method: "delete",
+    path: "/ask/threads/{thread_id}",
+    operationId: "deleteAskThread",
+    summary: "Delete a thread and its turns",
+    tag: "ask",
+    params: A.AskThreadParams,
+    responses: { 204: noContent },
+    errors: [403, 404],
+  },
+  {
+    method: "post",
+    path: "/ask/threads/{thread_id}/turns",
+    operationId: "askQuestion",
+    summary: "Ask a question; the answer streams back as server-sent events",
+    tag: "ask",
+    params: A.AskThreadParams,
+    headers: idempotent,
+    body: { schema: A.AskQuestionRequest },
+    responses: {
+      200: {
+        description:
+          "An SSE stream read with fetch() (EventSource cannot POST). Each `data:` line is one AskStreamEvent and `event:` is its `type`. Not resumable: after a disconnect, read the turn from GET /ask/threads/{thread_id}.",
+        contentType: "text/event-stream",
+        schema: A.AskStreamEvent,
+      },
+    },
+    errors: [400, 403, 404, 409, 429],
+  },
+  {
+    method: "get",
+    path: "/ask/usage",
+    operationId: "getAskUsage",
+    summary: "This month's ask spending and limits",
+    tag: "ask",
+    query: WorkspaceQuery,
+    responses: { 200: json(A.AskUsage, "Usage for the current month.") },
     errors: [400, 403],
   },
 

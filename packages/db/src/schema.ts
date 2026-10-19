@@ -7,7 +7,7 @@
 // Every table carries `workspace_id` (nullable until P2 creates workspaces and backfills
 // it from `owner_id`), per docs/v2/ARCHITECTURE.md §5.1.
 
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { blob, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /** One unit of background work (a distillation, a compaction, later a harness pipeline). */
 export const job = sqliteTable(
@@ -139,3 +139,158 @@ export const systemState = sqliteTable("system_state", {
   value: text("value").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+// ---------------------------------------------------------------------------
+// Search index and "ask" (docs/adr/0009-ask-rag.md, ARCHITECTURE §12)
+//
+// These tables are derived from published transcripts and documents and can be rebuilt
+// from them at any time. The FTS5 table `search_chunk_fts` is a contentless virtual table
+// keyed by `search_chunk.seq`; drizzle cannot declare virtual tables, so it is created by
+// a hand-written migration. Unlike the queue tables, `workspace_id` is required here.
+// ---------------------------------------------------------------------------
+
+/** One retrievable passage: a transcript window, a document block, or a PDF page. */
+export const searchChunk = sqliteTable(
+  "search_chunk",
+  {
+    /** rowid alias, never reused (AUTOINCREMENT): the FTS row of this chunk has the same rowid. */
+    seq: integer("seq").primaryKey({ autoIncrement: true }),
+    /** Stable id derived from recording, locator and content: unchanged text keeps its id. */
+    id: text("id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    kind: text("kind", { enum: ["transcript", "document", "pdf_page"] }).notNull(),
+    /** Position key unique within the recording, e.g. `t:12-20`, `d:<block_id>`, `p:<asset_id>:3`. */
+    locator: text("locator").notNull(),
+    /** Reading order within the recording (documents first, then transcript, then PDF). */
+    ordinal: integer("ordinal").notNull(),
+    /** Section and block heading path, for display and the prompt header. */
+    heading: text("heading"),
+    /** Original text as shown to the model and the user (never the bigram form). */
+    text: text("text").notNull(),
+    contentSha256: text("content_sha256").notNull(),
+    /** Estimated model tokens of `text`, for context budgeting. */
+    tokens: integer("tokens").notNull(),
+    chunkerVersion: integer("chunker_version").notNull(),
+    // transcript windows: segment range and original-audio time
+    startIdx: integer("start_idx"),
+    endIdx: integer("end_idx"),
+    startMs: integer("start_ms"),
+    endMs: integer("end_ms"),
+    /** JSON [[idx, start_ms, end_ms, char_start, char_end], ...] for narrowing citations to segments. */
+    spansJson: text("spans_json"),
+    // document blocks (block_id is null for legacy Markdown documents)
+    documentId: text("document_id"),
+    documentVersion: integer("document_version"),
+    blockId: text("block_id"),
+    /** JSON SourceRef[] of the block, so a document citation can jump to the audio. */
+    sourcesJson: text("sources_json"),
+    // PDF pages
+    assetId: text("asset_id"),
+    page: integer("page"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_search_chunk_id").on(t.id),
+    uniqueIndex("idx_search_chunk_locator").on(t.recordingId, t.kind, t.locator),
+    index("idx_search_chunk_workspace").on(t.workspaceId, t.recordingId),
+    index("idx_search_chunk_content").on(t.workspaceId, t.contentSha256),
+  ]
+);
+
+/**
+ * Embedding of a chunk text, keyed by content hash so unchanged text is never embedded
+ * twice. Scoped by workspace like every harness memo (one tenant never reads another's).
+ * `vector` holds int8 codes of the L2-normalized vector; value = code / scale.
+ */
+export const searchEmbedding = sqliteTable(
+  "search_embedding",
+  {
+    workspaceId: text("workspace_id").notNull(),
+    contentSha256: text("content_sha256").notNull(),
+    model: text("model").notNull(),
+    dim: integer("dim").notNull(),
+    vector: blob("vector", { mode: "buffer" }).notNull(),
+    scale: real("scale").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.model, t.dim, t.contentSha256] })]
+);
+
+/** Bumped on every change to a workspace's chunks or embeddings; in-memory vector caches compare it. */
+export const searchIndexState = sqliteTable("search_index_state", {
+  workspaceId: text("workspace_id").primaryKey(),
+  generation: integer("generation").notNull().default(0),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** A conversation with the notes. Private to the user who started it. */
+export const askThread = sqliteTable(
+  "ask_thread",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id").notNull(),
+    scopeKind: text("scope_kind", { enum: ["recording", "folder", "workspace"] }).notNull(),
+    /** The domain AskScope as JSON. */
+    scopeJson: text("scope_json").notNull(),
+    /** Set for recording scope, so the thread is deleted with the recording. */
+    recordingId: text("recording_id"),
+    folderId: text("folder_id"),
+    title: text("title").notNull(),
+    turnCount: integer("turn_count").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    index("idx_ask_thread_user").on(t.workspaceId, t.userId, t.updatedAt),
+    index("idx_ask_thread_recording").on(t.recordingId),
+  ]
+);
+
+/** One question and its answer, with the evidence and cost behind it. */
+export const askTurn = sqliteTable(
+  "ask_turn",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    userId: text("user_id").notNull(),
+    idx: integer("idx").notNull(),
+    question: text("question").notNull(),
+    /** Answer text with `[c1]` citation markers; null until it completes. */
+    answer: text("answer"),
+    /** JSON AskCitation[] as verified when the turn completed. */
+    citationsJson: text("citations_json").notNull().default("[]"),
+    status: text("status", { enum: ["running", "completed", "failed"] }).notNull(),
+    outcome: text("outcome"),
+    /** `full_note` (the whole note fit the budget) or `retrieval`. */
+    mode: text("mode"),
+    /** JSON of the passages given to the model (chunk ids, ranks, scores) for eval and debugging. */
+    evidenceJson: text("evidence_json"),
+    /** sha256 over the passages' chunk ids and content hashes. */
+    evidenceHash: text("evidence_hash"),
+    /** Answer cache key (question, scope, history, evidence, model, prompt). */
+    cacheKey: text("cache_key"),
+    cached: integer("cached", { mode: "boolean" }).notNull().default(false),
+    provider: text("provider"),
+    model: text("model"),
+    llmCalls: integer("llm_calls").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    cachedTokens: integer("cached_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    /** Model and embedding cost of this turn; summed per month for the workspace quota. */
+    costMicrousd: integer("cost_microusd").notNull().default(0),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    idempotencyKey: text("idempotency_key"),
+    createdAt: integer("created_at").notNull(),
+    completedAt: integer("completed_at"),
+  },
+  (t) => [
+    uniqueIndex("idx_ask_turn_thread").on(t.threadId, t.idx),
+    uniqueIndex("idx_ask_turn_idempotency").on(t.threadId, t.idempotencyKey),
+    index("idx_ask_turn_usage").on(t.workspaceId, t.createdAt),
+    index("idx_ask_turn_cache").on(t.workspaceId, t.cacheKey),
+  ]
+);

@@ -4,6 +4,7 @@
 // are benign (concurrent trash moves fail harmlessly and every step is idempotent).
 
 import { config } from "@lectern/config";
+import { runAskUpkeep } from "./ask/index-job.ts";
 import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
@@ -40,7 +41,16 @@ export function startMaintenanceSchedule(): () => void {
   const run = () => {
     runMaintenanceNow()
       .then((r) => {
-        if (r.errors.length || r.orphanFiles.count || r.backup || r.retention.count || r.failedRetention.count) {
+        const harness = r.harnessCleanup;
+        const harnessChanged = harness ? Object.values(harness).some((n) => n > 0) : false;
+        if (
+          r.errors.length ||
+          r.orphanFiles.count ||
+          r.backup ||
+          r.retention.count ||
+          r.failedRetention.count ||
+          harnessChanged
+        ) {
           logger.info("maintenance", {
             expired_sessions: r.expiredSessions,
             expired_codes: r.expiredCodes,
@@ -52,11 +62,24 @@ export function startMaintenanceSchedule(): () => void {
             failed_retention: r.failedRetention.count,
             backup: r.backup?.file ?? null,
             pruned_snapshots: r.prunedSnapshots?.count ?? 0,
+            harness_stage_runs: harness?.stageRuns ?? 0,
+            harness_artifacts: harness?.artifacts ?? 0,
+            harness_blobs: harness?.blobs ?? 0,
+            harness_tmp_files: harness?.tmpFiles ?? 0,
+            detached_ai_calls: harness?.detachedAiCalls ?? 0,
             errors: r.errors.length,
           });
         }
       })
       .catch((err) => logger.error("maintenance failed", { err }));
+    try {
+      const ask = runAskUpkeep();
+      if (ask.queued || ask.removed || ask.staleTurns) {
+        logger.info("ask upkeep", { index_jobs_queued: ask.queued, index_orphans_removed: ask.removed, stale_turns: ask.staleTurns });
+      }
+    } catch (err) {
+      logger.error("ask upkeep failed", { err });
+    }
   };
   const first = setTimeout(run, 2 * 60_000);
   first.unref?.();

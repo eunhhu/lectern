@@ -16,6 +16,8 @@ apps/
   server/            Bun HTTP 서버 (운영 진입점: apps/server/src/index.ts, systemd가 직접 실행)
     src/index.ts     레거시 라우터: 인증, 업로드, SSE, 관리자 API, CD 웹훅, /api/health
     src/http.ts      Hono 진입점: request id, 오류 응답, /privacy·/terms. 새 v2 라우트는 여기에 모듈별로 붙인다
+    src/api/v2/      /api/v2 리소스별 라우터 (P0: 읽기는 픽스처, 쓰기는 501. 상태 표는 README.md)
+    src/auth.ts      세션 쿠키·API 토큰 인증 (v1 라우터와 v2가 같이 쓴다)
     src/db.ts        bun:sqlite 스키마·쿼리, 오너 부트스트랩
     src/ui.ts        웹 앱·공유 페이지·관리자 콘솔 HTML (P2에 apps/web으로 대체)
     src/queue.ts     SQLite 영속 작업 큐 (lease, 재개)
@@ -31,6 +33,7 @@ packages/
   config/            환경 변수 zod 스키마 = 설정의 단일 진실 공급원
   db/                Drizzle 스키마와 SQL 마이그레이션 (packages/db/migrations)
   core/              현행 AI 경로 (Gemini 호출, Markdown 렌더링, 오디오 전처리)
+  ask/               검색 색인, 하이브리드 검색, 물어보기(RAG) (ADR-0009)
   (domain/ harness/ media/ design-tokens/ ui/ 는 v2에서 추가된다)
 deploy/systemd/      운영 유닛 템플릿과 EnvironmentFile 예시
 docs/

@@ -12,5 +12,6 @@ export * from "./api/common.ts";
 export * from "./api/uploads.ts";
 export * from "./api/events.ts";
 export * from "./api/resources.ts";
+export * from "./api/ask.ts";
 export * from "./api/routes.ts";
 export { buildOpenApiDocument, componentSchemas, serializeOpenApi, SESSION_COOKIE } from "./openapi.ts";

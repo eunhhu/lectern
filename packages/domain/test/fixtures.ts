@@ -549,6 +549,81 @@ export const SERVER_EVENTS = [
   { ...envelope, type: "calendar.suggested", payload: { event_candidate_ids: [ID.event] } },
 ] satisfies In<typeof D.ServerEvent>[];
 
+// Ask (ADR-0009)
+export const askThreadId = "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a30";
+export const askTurnId = "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a31";
+
+export const askThread = {
+  id: askThreadId,
+  workspace_id: ID.workspace,
+  user_id: ID.user,
+  scope: { kind: "recording", recording_id: ID.recording },
+  title: "ECB가 왜 위험해?",
+  turn_count: 1,
+  created_at: T0,
+  updated_at: T1,
+} satisfies In<typeof D.AskThread>;
+
+export const askTranscriptCitation = {
+  kind: "transcript",
+  label: "c1",
+  chunk_id: "chk_3f9a0b1c2d3e4f5a",
+  recording_id: ID.recording,
+  recording_title: recording.title,
+  snippet: "ECB는 같은 평문 블록을 같은 암호문으로 바꿔요.",
+  support: "supported",
+  available: true,
+  start_idx: 13,
+  end_idx: 14,
+  start_ms: 843_000,
+  end_ms: 871_500,
+} satisfies In<typeof D.AskCitation>;
+
+export const askDocumentCitation = {
+  kind: "document",
+  label: "c2",
+  chunk_id: "chk_9e8d7c6b5a4f3e2d",
+  recording_id: ID.recording,
+  recording_title: recording.title,
+  snippet: "CBC 복호화 그림은 시험에 나온다.",
+  support: "weak",
+  available: true,
+  document_id: ID.document,
+  document_version: 2,
+  block_id: "b5",
+  section_title: "주제별 상세",
+  start_ms: 843_000,
+  sources: [transcriptRef],
+} satisfies In<typeof D.AskCitation>;
+
+export const askTurn = {
+  id: askTurnId,
+  thread_id: askThreadId,
+  workspace_id: ID.workspace,
+  idx: 0,
+  question: "ECB가 왜 위험해?",
+  answer: "같은 평문 블록이 같은 암호문이 되어 패턴이 드러나기 때문입니다 [c1]. 시험에도 나온다고 했습니다 [c2].",
+  citations: [askTranscriptCitation, askDocumentCitation],
+  status: "completed",
+  outcome: "answered",
+  mode: "full_note",
+  cached: false,
+  cost_microusd: 2_400,
+  error: null,
+  created_at: T0,
+  completed_at: T0,
+} satisfies In<typeof D.AskTurn>;
+
+export const askStreamEvents = [
+  { type: "turn.started", thread_id: askThreadId, turn_id: askTurnId, idx: 0, created_at: T0 },
+  { type: "retrieval", mode: "retrieval", passage_count: 8, recording_count: 3 },
+  { type: "tool", name: "search_notes", state: "started" },
+  { type: "answer.delta", text: "같은 평문 블록이 " },
+  { type: "citation", citation: { ...askTranscriptCitation, support: null } },
+  { type: "turn.completed", turn: askTurn },
+  { type: "error", error: { code: "budget_exceeded", message: "질문 한 번에 쓸 수 있는 비용을 넘었습니다." } },
+] satisfies In<typeof D.AskStreamEvent>[];
+
 export interface Case {
   schema: z.ZodType;
   valid: unknown[];
@@ -692,6 +767,69 @@ export const API_CASES: Record<string, Case> = {
   ActionItem: { schema: D.ActionItem, valid: [actionItem], invalid: [{ ...actionItem, text: "" }] },
   UpdateActionItemRequest: { schema: D.UpdateActionItemRequest, valid: [{ status: "done" }, { due_at: null, owner_name: null }], invalid: [{ status: "finished" }] },
   Job: { schema: D.Job, valid: [job, maintenanceJob], invalid: [{ ...job, kind: "transcode" }] },
+  AskThread: {
+    schema: D.AskThread,
+    valid: [askThread, { ...askThread, scope: { kind: "folder", folder_id: ID.folder, include_subfolders: true } }, { ...askThread, scope: { kind: "workspace" } }],
+    invalid: [{ ...askThread, scope: { kind: "folder", folder_id: ID.folder } }, { ...askThread, title: "" }],
+  },
+  AskThreadPage: { schema: D.AskThreadPage, valid: [page([askThread]), page([])], invalid: [page([{ ...askThread, scope: { kind: "recording" } }])] },
+  AskThreadDetail: {
+    schema: D.AskThreadDetail,
+    valid: [
+      { thread: askThread, turns: [askTurn] },
+      {
+        thread: askThread,
+        turns: [
+          {
+            ...askTurn,
+            answer: null,
+            citations: [],
+            status: "failed",
+            outcome: null,
+            mode: null,
+            cost_microusd: 0,
+            error: { code: "quota_exceeded", message: "이번 달 물어보기 한도를 다 썼습니다." },
+            completed_at: T0,
+          },
+          { ...askTurn, idx: 1, citations: [{ ...askTranscriptCitation, available: false, snippet: "" }], cached: true, cost_microusd: 0 },
+          { ...askTurn, idx: 2, answer: "노트에서 관련 내용을 찾지 못했습니다.", citations: [], outcome: "no_answer" },
+          {
+            ...askTurn,
+            idx: 3,
+            citations: [{ kind: "pdf_page", label: "c1", chunk_id: "chk_1", recording_id: ID.recording, recording_title: "x", snippet: "", support: null, available: true, asset_id: ID.pdf, page: 3 }],
+          },
+        ],
+      },
+    ],
+    invalid: [
+      { thread: askThread, turns: [{ ...askTurn, citations: [{ ...askTranscriptCitation, label: "1" }] }] },
+      { thread: askThread, turns: [{ ...askTurn, outcome: "maybe" }] },
+      { thread: askThread, turns: [{ ...askTurn, citations: [{ ...askDocumentCitation, document_version: 0 }] }] },
+    ],
+  },
+  CreateAskThreadRequest: {
+    schema: D.CreateAskThreadRequest,
+    valid: [{ workspace_id: ID.workspace, scope: { kind: "workspace" } }, { workspace_id: ID.workspace, scope: { kind: "recording", recording_id: ID.recording } }],
+    invalid: [{ workspace_id: ID.workspace, scope: { kind: "tag" } }, { workspace_id: ID.workspace }],
+  },
+  AskQuestionRequest: {
+    schema: D.AskQuestionRequest,
+    valid: [{ question: "시험 범위가 어디까지야?" }],
+    invalid: [{ question: "" }, { question: "가".repeat(D.ASK_QUESTION_MAX_CHARS + 1) }],
+  },
+  AskUsage: {
+    schema: D.AskUsage,
+    valid: [
+      { workspace_id: ID.workspace, period: "2026-10", turn_count: 12, spent_microusd: 31_000, limit_microusd: 2_000_000, per_turn_cap_microusd: 20_000 },
+      { workspace_id: ID.workspace, period: "2026-10", turn_count: 0, spent_microusd: 0, limit_microusd: null, per_turn_cap_microusd: 20_000 },
+    ],
+    invalid: [{ workspace_id: ID.workspace, period: "2026-13", turn_count: 0, spent_microusd: 0, limit_microusd: null, per_turn_cap_microusd: 0 }],
+  },
+  AskStreamEvent: {
+    schema: D.AskStreamEvent,
+    valid: askStreamEvents,
+    invalid: [{ type: "answer.delta" }, { type: "retrieval", mode: "everything", passage_count: 1, recording_count: 1 }, { type: "tool", name: "", state: "started" }],
+  },
   SearchHitPage: {
     schema: D.SearchHitPage,
     valid: [

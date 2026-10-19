@@ -1,0 +1,18 @@
+{
+  "name": "@lectern/harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./pricing.json": "./pricing.json"
+  },
+  "dependencies": {
+    "@lectern/ask": "workspace:*",
+    "@lectern/core": "workspace:*",
+    "@lectern/db": "workspace:*",
+    "@lectern/domain": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

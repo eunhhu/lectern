@@ -19,6 +19,7 @@ const checks: Array<[path: string, expectedStatus: number]> = [
   ["/admin", 200],
   ["/s/preflight-missing-token", 404],
   ["/api/lectures", 401],
+  ["/api/v2/me", 401],
   ...[...PAGE_SCRIPTS.keys()].map((name): [string, number] => [`/assets/${name}`, 200]),
 ];
 
