@@ -3,7 +3,9 @@
 // as HTML, and links are http(s) only).
 
 import { describe, expect, test } from "bun:test";
+import type { SearchHit } from "../src/api/types.ts";
 import { inlineText, parseClock, parseInline, parseLegacyMarkdown } from "../src/lib/legacy-markdown.ts";
+import { hitText, hitTime } from "../src/lib/search-hits.ts";
 
 describe("legacy Markdown", () => {
   test("headings, paragraphs, nested lists, quotes, code, tables and rules", () => {
@@ -76,5 +78,26 @@ describe("legacy Markdown", () => {
 
   test("an unterminated fence keeps the rest as code instead of looping", () => {
     expect(parseLegacyMarkdown("```\nline 1\nline 2")).toEqual([{ t: "code", lang: "", v: "line 1\nline 2" }]);
+  });
+});
+
+describe("search hits in the palette", () => {
+  test("a legacy note's hit reads as text and opens at the mark before the match", () => {
+    const hit = {
+      kind: "document" as const,
+      recording_id: "r1",
+      recording_title: "정보보호 7주차",
+      document_id: "d1",
+      block_id: "md-1",
+      snippet: [
+        { text: "…# 운영 모드\n[00:03] ECB 모드는 위험하다.\n[00:09] ", highlight: false },
+        { text: "CBC", highlight: true },
+        { text: " 모드는 **초기화 벡터**가 필요하다.", highlight: false },
+      ],
+    } as unknown as SearchHit;
+    expect(hitText(hit)).toBe("…운영 모드 ECB 모드는 위험하다. CBC 모드는 초기화 벡터가 필요하다.");
+    expect(hitTime(hit)).toBe(9_000);
+    const noMark = { ...hit, snippet: [{ text: "[00:03] 앞줄\n", highlight: false }, { text: "CBC", highlight: true }] } as unknown as SearchHit;
+    expect(hitTime(noMark)).toBeUndefined();
   });
 });
