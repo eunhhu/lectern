@@ -406,13 +406,9 @@ export function deployStatus() {
 }
 
 const SHA_RE = /^[0-9a-f]{40}$/;
-// Files whose change means `bun install` has to run again.
-const DEPENDENCY_FILES = [
-  "bun.lock",
-  "package.json",
-  "apps/server/package.json",
-  "packages/core/package.json",
-];
+// Files whose change means `bun install` has to run again (every workspace's manifest;
+// git pathspec `*` also matches across directories).
+const DEPENDENCY_FILES = ["bun.lock", "package.json", "apps/*/package.json", "packages/*/package.json"];
 
 export type DeployOutcome =
   | {

@@ -99,6 +99,7 @@ import { emitRetentionOutcome, runMaintenanceNow, startMaintenanceSchedule } fro
 import { liveWorkers, publishApiRelease } from "./coordination.ts";
 import { makePrivate } from "./fsperm.ts";
 import { createHttpApp } from "./http.ts";
+import { promoteStagedWebBuild } from "./web-build.ts";
 import { WEB_SHELL_DIST_DIR } from "./web-shell.ts";
 import { logger } from "./log.ts";
 import { AUDIO_MIME_BY_EXT, resolveUploadAudioExt, serveAudioWithRange } from "./media-files.ts";
@@ -2479,6 +2480,13 @@ async function routeRequest(req: Request): Promise<Response> {
 if (import.meta.main) {
   const logRequests = config().logRequests;
   const shutdownGraceMs = config().shutdownGraceMs;
+
+  // The deploy preflight built this release's web app into apps/web/dist.next.
+  try {
+    promoteStagedWebBuild(BOOT_GIT_SHA);
+  } catch (err) {
+    logger.error("could not promote the staged web build", { err });
+  }
 
   const server = Bun.serve({
     port: PORT,

@@ -87,7 +87,7 @@ jobs:
           fi
           CHANGED=$(git diff --name-only "${BEFORE}" "${GITHUB_SHA}")
           echo "${CHANGED}"
-          if echo "${CHANGED}" | grep -Eq '^(apps/server/|packages/|package\.json$|bun\.lock$|bunfig\.toml$|tsconfig\.json$)'; then
+          if echo "${CHANGED}" | grep -Eq '^(apps/server/|apps/web/|apps/worker/|packages/|package\.json$|bun\.lock$|bunfig\.toml$|tsconfig\.json$)'; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
             echo "deploy=false" >> "$GITHUB_OUTPUT"
