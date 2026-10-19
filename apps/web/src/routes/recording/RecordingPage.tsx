@@ -1,29 +1,37 @@
-// Recording detail (ARCHITECTURE §7): transcript ⇄ document ⇄ PDF/questions in three
-// columns, with the audio player fixed at the bottom. Below 1280 px the columns become
-// tabs. DOM order matches the visual order (WCAG 1.3.2).
+// Recording detail (ARCHITECTURE §7): the organised document is the main reading column;
+// one side panel beside it holds the transcript (open by default), the files (PDFs,
+// events, to-dos) or 물어보기, opened from the header and closed to read the document
+// full width. The audio player stays at the bottom. Below 1280 px the document and the
+// panels become tabs. DOM order matches the visual order (WCAG 1.3.2).
 
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Menu, MenuItem, MenuTrigger, Popover, Tab, TabList, TabPanel, Tabs } from "react-aria-components";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Menu, MenuItem, MenuTrigger, Popover, Tab, TabList, TabPanel, Tabs, ToggleButton } from "react-aria-components";
 import { useApi, useDocument, useFolders, useJobProgress, useRecording, useTags, useTranscript } from "../../api/queries.ts";
 import { ApiClientError } from "../../api/client.ts";
 import type { RecordingDetail } from "../../api/types.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
+import { setPreferences, usePreferences, type RecordingPanel } from "../../app/preferences.ts";
 import { DOMAIN_LABEL, STATUS, stageLabel } from "../../app/labels.ts";
 import { formatDateTime, formatDuration } from "../../lib/format.ts";
 import { createAudioElementClock, SimulatedClock, type MediaClock } from "../../lib/media-clock.ts";
-import { Icon } from "../../ui/Icon.tsx";
-import { Badge, Button, Dot, EmptyState, ErrorBox, Progress, Spinner, uiStyles } from "../../ui/controls.tsx";
+import { Icon, type IconName } from "../../ui/Icon.tsx";
+import { Badge, Button, Dot, EmptyState, ErrorBox, Progress, Segmented, Spinner, uiStyles } from "../../ui/controls.tsx";
 import { BulkDialogs, type BulkAction } from "../library/BulkDialogs.tsx";
 import { folderPath } from "../library/folders.ts";
 import { AudioPlayer } from "./AudioPlayer.tsx";
 import { DocumentPane } from "./DocumentPane.tsx";
-import { PlaybackProvider } from "./playback.tsx";
+import { PlaybackProvider, type SidePanel } from "./playback.tsx";
 import { SidePane } from "./SidePane.tsx";
 import { TranscriptPane } from "./TranscriptPane.tsx";
 import s from "./recording.module.css";
 
 const WIDE = "(min-width: 1280px)";
+
+const PANEL_TOGGLES: { id: SidePanel; label: string; icon: IconName }[] = [
+  { id: "transcript", label: "전사", icon: "quote" },
+  { id: "files", label: "자료", icon: "pdf" },
+];
 
 function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
@@ -85,6 +93,15 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const [action, setAction] = useState<BulkAction>(null);
   const wide = useMediaQuery(WIDE);
   const now = useMemo(() => new Date(), []);
+  const prefs = usePreferences();
+  const panel = prefs.recordingPanel;
+  const setPanel = (next: RecordingPanel) => setPreferences({ recordingPanel: next });
+  const [narrowTab, setNarrowTab] = useState<"document" | SidePanel>("document");
+  // A source chip opens the transcript, a PDF chip the files panel.
+  const requestPanel = useCallback((next: SidePanel) => {
+    setPreferences({ recordingPanel: next });
+    setNarrowTab(next);
+  }, []);
 
   // One clock per recording view: the audio element when the API serves bytes, the
   // silent simulated clock for fixtures.
@@ -144,6 +161,16 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
             </Menu>
           </Popover>
         </MenuTrigger>
+        {hasTranscript && wide && (
+          // Toggle buttons, not radios: pressing the open panel closes it.
+          <div role="group" aria-label="옆 패널" className={s.panelToggles}>
+            {PANEL_TOGGLES.map((p) => (
+              <ToggleButton key={p.id} className={s.panelToggle} isSelected={panel === p.id} onChange={(on) => setPanel(on ? p.id : "none")}>
+                <Icon name={p.icon} size={16} /> {p.label}
+              </ToggleButton>
+            ))}
+          </div>
+        )}
       </div>
       <p className={s.meta}>
         <Badge>{DOMAIN_LABEL[rec.domain]}</Badge>
@@ -219,18 +246,19 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   }
 
   const t = transcript.data;
+  const panelHead = (id: string, title: string, extra?: ReactNode) => (
+    <div className={s.panelHead}>
+      <h2 id={id} className={s.panelTitle}>
+        {title}
+      </h2>
+      {extra}
+      {wide && <Button size="sm" variant="ghost" icon="close" iconOnly aria-label={`${title} 패널 닫기`} onPress={() => setPanel("none")} />}
+    </div>
+  );
   const panes = {
-    transcript: (
-      <section className={s.pane} aria-labelledby="pane-transcript">
-        <h2 id="pane-transcript" className={s.paneTitle}>
-          전사 <span className={s.paneCount}>구간 {t.segments.length.toLocaleString("ko-KR")}개</span>
-        </h2>
-        <TranscriptPane headingId="pane-transcript" />
-      </section>
-    ),
     document: (
-      <section className={`${s.pane} ${s.docPane}`} aria-labelledby="pane-document">
-        <h2 id="pane-document" className={s.paneTitle}>
+      <section className={s.docPane} aria-labelledby="pane-document">
+        <h2 id="pane-document" className="visually-hidden">
           문서
         </h2>
         <div className={s.docScroll}>
@@ -244,18 +272,36 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
         </div>
       </section>
     ),
-    side: (
-      <section className={s.pane} aria-labelledby="pane-side">
-        <h2 id="pane-side" className={s.paneTitle}>
-          자료
-        </h2>
+    transcript: (
+      <section className={s.panel} aria-labelledby="pane-transcript">
+        {panelHead(
+          "pane-transcript",
+          "전사",
+          <Segmented
+            label="전사 표시"
+            size="sm"
+            value={prefs.transcriptMode}
+            onChange={(mode) => setPreferences({ transcriptMode: mode })}
+            options={[
+              { id: "reading", label: "읽기 모드" },
+              { id: "verbatim", label: "원문" },
+            ]}
+          />,
+        )}
+        <TranscriptPane headingId="pane-transcript" mode={prefs.transcriptMode} />
+      </section>
+    ),
+    files: (
+      <section className={s.panel} aria-labelledby="pane-files">
+        {panelHead("pane-files", "자료")}
         <SidePane recordingId={rec.id} assets={detail.assets} ready={rec.status === "ready" || rec.status === "partial"} />
       </section>
     ),
   };
+  const sidePanel = panel === "none" ? null : panel === "files" ? panes.files : panes.transcript;
 
   return (
-    <PlaybackProvider clock={clock} segments={t.segments} gaps={t.gaps} speakers={t.speakers}>
+    <PlaybackProvider clock={clock} segments={t.segments} gaps={t.gaps} speakers={t.speakers} onRequestPanel={requestPanel}>
       <div className={s.page}>
         {header}
         {rec.status === "partial" && (
@@ -265,32 +311,31 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
           </p>
         )}
         {wide ? (
-          <div className={s.columns}>
-            {panes.transcript}
+          <div className={s.columns} data-panel={sidePanel ? panel : undefined}>
             {panes.document}
-            {panes.side}
+            {sidePanel}
           </div>
         ) : (
-          <Tabs className={s.narrowTabs} defaultSelectedKey="document">
+          <Tabs className={s.narrowTabs} selectedKey={narrowTab} onSelectionChange={(k) => setNarrowTab(String(k) as typeof narrowTab)}>
             <TabList className={s.tabList} aria-label="녹음 보기">
-              <Tab id="transcript" className={s.tab}>
-                전사
-              </Tab>
               <Tab id="document" className={s.tab}>
                 문서
               </Tab>
-              <Tab id="side" className={s.tab}>
+              <Tab id="transcript" className={s.tab}>
+                전사
+              </Tab>
+              <Tab id="files" className={s.tab}>
                 자료
               </Tab>
             </TabList>
-            <TabPanel id="transcript" className={s.narrowPanel}>
-              {panes.transcript}
-            </TabPanel>
             <TabPanel id="document" className={s.narrowPanel}>
               {panes.document}
             </TabPanel>
-            <TabPanel id="side" className={s.narrowPanel}>
-              {panes.side}
+            <TabPanel id="transcript" className={s.narrowPanel}>
+              {panes.transcript}
+            </TabPanel>
+            <TabPanel id="files" className={s.narrowPanel}>
+              {panes.files}
             </TabPanel>
           </Tabs>
         )}

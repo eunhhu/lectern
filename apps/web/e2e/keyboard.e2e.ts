@@ -46,7 +46,10 @@ test("keyboard only: upload audio and a PDF, wait for processing, open the docum
   await expect(page.locator('[aria-current="true"]')).toHaveCount(1);
   await expect(page.locator("[data-highlight]").first()).toBeVisible();
 
-  // The attached PDF is listed with the recording.
+  // The attached PDF is listed in the files panel, opened from the header.
+  await tabTo(page, "자료");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "자료", pressed: true })).toBeVisible();
   await expect(page.getByText("운영체제_09_교착상태.pdf")).toBeVisible();
   await axe(page, "올린 녹음 상세");
 });
@@ -120,23 +123,25 @@ test("library: dragging a row onto a folder moves it", async ({ page }) => {
   await expect(grid.getByRole("row", { name: /녹음 테스트/ })).toHaveCount(0);
 });
 
-test("transcript: thousands of segments are virtualized and keyboard navigable; playback follows", async ({ page }) => {
+test("transcript: thousands of segments read as virtualized paragraphs, keyboard navigable; playback follows", async ({ page }) => {
   await page.goto("/app/recordings/rec_os07");
   const list = page.getByRole("list", { name: /전사/ });
   await expect(list.getByRole("listitem").first()).toBeVisible();
   const setsize = Number(await list.getByRole("listitem").first().getAttribute("aria-setsize"));
-  expect(setsize).toBeGreaterThanOrEqual(3000);
-  expect(await list.getByRole("listitem").count()).toBeLessThan(80);
+  expect(setsize).toBeGreaterThanOrEqual(300);
+  expect(await list.getByRole("listitem").count()).toBeLessThan(40);
 
-  // Enter on a segment seeks there and marks it as current.
+  // Enter on a paragraph's time seeks there and marks the playing sentence as current.
   await list.getByRole("button").first().focus();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
+  const time = await page.evaluate(() => document.activeElement?.textContent ?? "");
   await page.keyboard.press("Enter");
   const current = page.locator('[aria-current="true"]');
   await expect(current).toHaveCount(1);
-  const seekedTo = await current.locator("span").first().textContent();
-  await expect(page.getByRole("slider", { name: "재생 위치" })).toHaveAttribute("aria-valuetext", new RegExp(`^${seekedTo!.split(":").map(Number)[1]}초`));
+  const [min, sec] = time.split(":").map(Number);
+  const spoken = [min ? `${min}분` : "", sec || !min ? `${sec}초` : ""].filter(Boolean).join(" ");
+  await expect(page.getByRole("slider", { name: "재생 위치" })).toHaveAttribute("aria-valuetext", new RegExp(`^${spoken} /`));
 
   // End jumps to the last segment even though it was never rendered before.
   await page.keyboard.press("End");

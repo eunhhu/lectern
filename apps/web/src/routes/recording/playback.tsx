@@ -1,6 +1,7 @@
 // Shared playback state of one recording view: the media clock, whether the transcript
 // follows playback, the range a source chip asked to highlight, and the PDF page a chip
-// pointed at. Current time is NOT state here: the transcript and the player read
+// pointed at. Jumping to a range opens the transcript panel and a PDF chip opens the
+// files panel (`onRequestPanel`). Current time is NOT state here: the transcript and the player read
 // `clock.currentTime` in their own requestAnimationFrame loops.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -10,6 +11,8 @@ import { formatSpokenTime } from "../../lib/format.ts";
 import type { MediaClock } from "../../lib/media-clock.ts";
 import { resolveSourceRange } from "../../lib/segments.ts";
 import { announce } from "../../ui/toast.tsx";
+
+export type SidePanel = "transcript" | "files" | "ask";
 
 export interface ScrollRequest {
   index: number;
@@ -42,12 +45,14 @@ export function PlaybackProvider({
   segments,
   gaps,
   speakers,
+  onRequestPanel,
   children,
 }: {
   clock: MediaClock;
   segments: TranscriptSegment[];
   gaps: TranscriptGap[];
   speakers: Speaker[];
+  onRequestPanel: (panel: SidePanel) => void;
   children: ReactNode;
 }) {
   const [follow, setFollow] = useState(true);
@@ -81,19 +86,24 @@ export function PlaybackProvider({
       }
       clock.seek(range.start_ms);
       setFollow(true);
+      onRequestPanel("transcript");
       setHighlight({ first: range.first, last: range.last });
       setScrollRequest({ index: range.first, align: "start", token: ++token.current });
       clearTimeout(timer.current);
       timer.current = setTimeout(() => setHighlight(null), 1500);
       announce(`${formatSpokenTime(range.start_ms)} 구간으로 이동했습니다.`);
     },
-    [clock, segments],
+    [clock, segments, onRequestPanel],
   );
 
-  const showPdfPage = useCallback((assetId: string, page: number) => {
-    setPdfTarget({ assetId, page, token: ++token.current });
-    announce(`PDF ${page}쪽을 표시합니다.`);
-  }, []);
+  const showPdfPage = useCallback(
+    (assetId: string, page: number) => {
+      onRequestPanel("files");
+      setPdfTarget({ assetId, page, token: ++token.current });
+      announce(`PDF ${page}쪽을 표시합니다.`);
+    },
+    [onRequestPanel],
+  );
 
   const value = useMemo<PlaybackValue>(
     () => ({ clock, segments, gaps, speakerNames, follow, setFollow, highlight, scrollRequest, seekToSegment, jumpToRange, pdfTarget, showPdfPage }),

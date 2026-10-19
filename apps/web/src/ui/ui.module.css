@@ -709,3 +709,52 @@
   height: 48px;
   font-size: var(--font-size-lg);
 }
+
+/* Segmented control (DESIGN.md §3.8) */
+.segmented {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-active);
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  height: calc(var(--size-control-md) - 4px);
+  padding: 0 var(--space-12);
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  font: inherit;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+
+.segmentedSm .segment {
+  height: calc(var(--size-control-sm) - 4px);
+  padding: 0 var(--space-8);
+  font-size: var(--font-size-sm);
+}
+
+.segment[data-hovered] {
+  color: var(--color-text-primary);
+}
+
+.segment[data-selected] {
+  background: var(--color-bg-control-selected);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  box-shadow: var(--shadow-sm);
+}
+
+.segment[data-focus-visible] {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 1px;
+}

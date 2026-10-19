@@ -1,9 +1,11 @@
-// The structured document (DESIGN.md §3.12) with source chips (§3.13). A transcript chip
-// seeks the audio, highlights the cited segments and scrolls the transcript to them; a
-// PDF chip shows that page in the side pane. Hovering or focusing a chip previews the
-// quoted transcript in a non-modal popover. Blocks without sources say so instead of
-// hiding it ("출처 확인 필요").
+// The structured document (DESIGN.md §3.12) with sources (§3.13) as small numbered marks
+// that keep the prose readable, numbered through the whole document like footnotes. A
+// transcript mark seeks the audio, highlights the cited segments and opens the transcript
+// there; a PDF mark (p.4) opens that page in the files panel. Hovering or focusing a mark
+// previews the time, speaker and quote in a non-modal popover. Blocks without sources say
+// so instead of hiding it ("출처 확인 필요").
 
+import { createContext, useContext, useMemo } from "react";
 import { Button as AriaButton, Popover, PreviewTrigger } from "react-aria-components";
 import type { AssetDto, DocumentBlock, DocumentWithVersion, SourceRef } from "../../api/types.ts";
 import { formatTimestamp } from "../../lib/format.ts";
@@ -22,30 +24,50 @@ const CALLOUT: Record<string, { label: string; tone: "danger" | "severe" | "atte
 };
 const GAP_LABEL: Record<string, string> = { break: "쉬는 시간", tail: "녹음 끝", missing_transcript: "전사하지 못한 구간" };
 
+/** Footnote-style numbers for the transcript sources, in reading order. */
+const SourceNumbers = createContext<Map<SourceRef, number>>(new Map());
+
+function numberSources(body: DocumentWithVersion["version"]["body"]): Map<SourceRef, number> {
+  const numbers = new Map<SourceRef, number>();
+  const add = (refs: SourceRef[]) => {
+    for (const ref of refs) if (ref.kind === "transcript") numbers.set(ref, numbers.size + 1);
+  };
+  for (const section of body?.sections ?? []) {
+    for (const block of section.blocks) {
+      if (block.type === "list") block.items.forEach((item) => add(item.sources));
+      else if ("sources" in block && Array.isArray(block.sources)) add(block.sources as SourceRef[]);
+    }
+  }
+  return numbers;
+}
+
 export function DocumentPane({ doc, pdfs, headingId }: { doc: DocumentWithVersion; pdfs: AssetDto[]; headingId: string }) {
   const body = doc.version.body;
+  const numbers = useMemo(() => numberSources(body), [body]);
   return (
-    <article className={s.document} aria-labelledby={headingId}>
-      <div className={s.docMeta}>
-        <Badge>{TEMPLATE_NAME[doc.document.template_id] ?? doc.document.template_id}</Badge>
-        {doc.document.user_edited ? <Badge tone="accent">직접 수정</Badge> : <Badge>AI 생성</Badge>}
-        <span className={s.docVersion}>버전 {doc.version.version}</span>
-      </div>
-      {!body ? (
-        <pre className={s.legacy}>{doc.version.rendered_md}</pre>
-      ) : (
-        body.sections.map((section) => (
-          <section key={section.key} className={s.docSection} aria-labelledby={`sec-${section.key}`}>
-            <h2 id={`sec-${section.key}`} className={s.docH2}>
-              {section.title}
-            </h2>
-            {section.blocks.map((block) => (
-              <Block key={block.id} block={block} pdfs={pdfs} />
-            ))}
-          </section>
-        ))
-      )}
-    </article>
+    <SourceNumbers.Provider value={numbers}>
+      <article className={s.document} aria-labelledby={headingId}>
+        <div className={s.docMeta}>
+          <Badge>{TEMPLATE_NAME[doc.document.template_id] ?? doc.document.template_id}</Badge>
+          {doc.document.user_edited ? <Badge tone="accent">직접 수정</Badge> : <Badge>AI 생성</Badge>}
+          <span className={s.docVersion}>버전 {doc.version.version}</span>
+        </div>
+        {!body ? (
+          <pre className={s.legacy}>{doc.version.rendered_md}</pre>
+        ) : (
+          body.sections.map((section) => (
+            <section key={section.key} className={s.docSection} aria-labelledby={`sec-${section.key}`}>
+              <h2 id={`sec-${section.key}`} className={s.docH2}>
+                {section.title}
+              </h2>
+              {section.blocks.map((block) => (
+                <Block key={block.id} block={block} pdfs={pdfs} />
+              ))}
+            </section>
+          ))
+        )}
+      </article>
+    </SourceNumbers.Provider>
   );
 }
 
@@ -147,6 +169,7 @@ function QuoteBlock({ text, speaker, sources, pdfs }: { text: string; speaker: s
 }
 
 function Chips({ sources, pdfs }: { sources: SourceRef[]; pdfs: AssetDto[] }) {
+  const numbers = useContext(SourceNumbers);
   if (sources.length === 0) {
     return (
       <span className={s.chipWarn}>
@@ -156,10 +179,10 @@ function Chips({ sources, pdfs }: { sources: SourceRef[]; pdfs: AssetDto[] }) {
     );
   }
   return (
-    <span className={s.chips}>
+    <span className={s.marks}>
       {sources.map((ref, i) =>
         ref.kind === "transcript" ? (
-          <TranscriptChip key={i} source={ref} />
+          <TranscriptChip key={i} source={ref} n={numbers.get(ref) ?? i + 1} />
         ) : ref.kind === "pdf_page" ? (
           <PdfChip key={i} assetId={ref.asset_id} page={ref.page} pdfs={pdfs} />
         ) : null,
@@ -168,12 +191,12 @@ function Chips({ sources, pdfs }: { sources: SourceRef[]; pdfs: AssetDto[] }) {
   );
 }
 
-function TranscriptChip({ source }: { source: { start_idx: number; end_idx: number } }) {
+function TranscriptChip({ source, n }: { source: { start_idx: number; end_idx: number }; n: number }) {
   const { segments, speakerNames, jumpToRange } = usePlayback();
   const range = resolveSourceRange(segments, source);
   if (!range) {
     return (
-      <span className={s.chip} data-state="missing">
+      <span className={s.mark} data-state="missing">
         원본 없음
       </span>
     );
@@ -186,8 +209,8 @@ function TranscriptChip({ source }: { source: { start_idx: number; end_idx: numb
     .join(" ");
   return (
     <PreviewTrigger delay={500}>
-      <AriaButton className={s.chip} aria-label={`출처 ${ts}${speaker ? `, ${speaker}` : ""}`} onPress={() => jumpToRange(source)}>
-        {ts}
+      <AriaButton className={s.mark} aria-label={`출처 ${n}, ${ts}${speaker ? `, ${speaker}` : ""}`} onPress={() => jumpToRange(source)}>
+        {n}
       </AriaButton>
       <Popover className={`${uiStyles.popover} ${s.preview}`} placement="top">
         <p className={s.previewMeta}>
@@ -206,7 +229,7 @@ function PdfChip({ assetId, page, pdfs }: { assetId: string; page: number; pdfs:
   const pdf = pdfs.find((p) => p.id === assetId);
   const name = typeof pdf?.meta.original_name === "string" ? pdf.meta.original_name : "PDF";
   return (
-    <AriaButton className={s.chip} aria-label={`출처 p.${page}, ${name} ${page}쪽`} onPress={() => showPdfPage(assetId, page)}>
+    <AriaButton className={s.mark} aria-label={`출처 p.${page}, ${name} ${page}쪽`} onPress={() => showPdfPage(assetId, page)}>
       p.{page}
     </AriaButton>
   );

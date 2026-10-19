@@ -21,6 +21,8 @@ import {
   Switch as AriaSwitch,
   type SwitchProps,
   Text,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "react-aria-components";
 import { Icon, type IconName } from "./Icon.tsx";
 import s from "./ui.module.css";
@@ -258,6 +260,42 @@ export function SwitchField({ children, ...props }: Omit<SwitchProps, "className
       </span>
       {children}
     </AriaSwitch>
+  );
+}
+
+/** Segmented control (DESIGN.md §3.8): one choice out of a few, always one selected. */
+export function Segmented<K extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  size = "md",
+}: {
+  label: string;
+  value: K;
+  onChange: (value: K) => void;
+  options: { id: K; label: string; icon?: IconName }[];
+  size?: "sm" | "md";
+}) {
+  return (
+    <ToggleButtonGroup
+      aria-label={label}
+      selectionMode="single"
+      disallowEmptySelection
+      selectedKeys={[value]}
+      onSelectionChange={(keys) => {
+        const [key] = [...keys];
+        if (key !== undefined) onChange(String(key) as K);
+      }}
+      className={cx(s.segmented, size === "sm" && s.segmentedSm)}
+    >
+      {options.map((o) => (
+        <ToggleButton key={o.id} id={o.id} className={s.segment}>
+          {o.icon && <Icon name={o.icon} size={16} />}
+          {o.label}
+        </ToggleButton>
+      ))}
+    </ToggleButtonGroup>
   );
 }
 

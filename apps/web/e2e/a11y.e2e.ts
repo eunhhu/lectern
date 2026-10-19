@@ -35,6 +35,10 @@ test("the team workspace meeting view has no axe violations", async ({ page, axe
   await page.addInitScript(() => localStorage.setItem("lectern.web.workspace", "ws_team"));
   await page.goto("/app/recordings/rec_tw42");
   await expect(page.getByRole("heading", { name: "결정 사항" })).toBeVisible();
+  // 원문 transcript, then the files panel with its events and to-dos.
+  await page.getByRole("radio", { name: "원문" }).click();
+  await axe(page, "회의 상세 (원문 전사)");
+  await page.getByRole("button", { name: "자료" }).click();
   await page.getByRole("tab", { name: "일정·할 일" }).click();
   await expect(page.getByRole("tabpanel").getByText("QA 체크리스트 정리")).toBeVisible();
   await axe(page, "회의 상세");

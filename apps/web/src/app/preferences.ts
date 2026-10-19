@@ -1,18 +1,25 @@
 // Per-viewer preferences kept in localStorage (a convenience only: the app works when
 // storage is blocked). Theme follows the system unless the viewer picks one; single-key
-// shortcuts can be turned off (WCAG 2.1.4).
+// shortcuts can be turned off (WCAG 2.1.4). The recording view remembers which side panel
+// was open and whether the transcript shows 읽기 모드 or 원문.
 
 import { useSyncExternalStore } from "react";
 
 export type ThemeChoice = "system" | "light" | "dark";
+export type RecordingPanel = "transcript" | "files" | "ask" | "none";
+export type TranscriptMode = "reading" | "verbatim";
 
 export interface Preferences {
   theme: ThemeChoice;
   singleKeyShortcuts: boolean;
+  recordingPanel: RecordingPanel;
+  transcriptMode: TranscriptMode;
 }
 
+const PANELS: RecordingPanel[] = ["transcript", "files", "ask", "none"];
+
 const KEY = "lectern.web.preferences";
-const DEFAULTS: Preferences = { theme: "system", singleKeyShortcuts: true };
+const DEFAULTS: Preferences = { theme: "system", singleKeyShortcuts: true, recordingPanel: "transcript", transcriptMode: "reading" };
 
 function read(): Preferences {
   try {
@@ -22,6 +29,8 @@ function read(): Preferences {
     return {
       theme: parsed.theme === "light" || parsed.theme === "dark" ? parsed.theme : "system",
       singleKeyShortcuts: parsed.singleKeyShortcuts !== false,
+      recordingPanel: PANELS.includes(parsed.recordingPanel as RecordingPanel) ? (parsed.recordingPanel as RecordingPanel) : DEFAULTS.recordingPanel,
+      transcriptMode: parsed.transcriptMode === "verbatim" ? "verbatim" : "reading",
     };
   } catch {
     return DEFAULTS;
