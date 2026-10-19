@@ -11,6 +11,7 @@
     "@lectern/config": "workspace:*",
     "@lectern/db": "workspace:*",
     "@lectern/domain": "workspace:*",
-    "@lectern/harness": "workspace:*"
+    "@lectern/harness": "workspace:*",
+    "@lectern/media": "workspace:*"
   }
 }

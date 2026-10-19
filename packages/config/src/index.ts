@@ -111,6 +111,11 @@ const ENV = {
     description:
       "legacy: the distill job calls packages/core directly; harness: the same Gemini call runs as one stage on packages/harness (stage_run, artifact and ai_call cost rows, resume without a second Gemini call)",
   },
+  LECTERN_TRANSCRIPT_ENGINE: {
+    schema: z.enum(["off", "shadow", "on"]).default("off"),
+    description:
+      "v2 transcript pipeline (packages/harness: ingest → … → speakers, AI_HARNESS §11 step 3). off: not run. shadow: after a distill on the server key succeeds, a `transcribe` job transcribes the recording again (Gemini, about $0.2 per hour of audio) and keeps the transcript as a harness artifact nobody sees. on: will publish the transcript once the transcript tables exist; until then it runs as shadow",
+  },
   LECTERN_ASK: {
     schema: bool(false),
     description:
@@ -199,6 +204,8 @@ export interface Config {
   gemini: { model: string; allowedModels: string[]; timeoutMs: number };
   /** Which code runs distill jobs (AI_HARNESS §11 step 1). */
   distillEngine: "legacy" | "harness";
+  /** The v2 transcript pipeline (AI_HARNESS §11 step 3); off by default because it costs a second Gemini pass. */
+  transcriptEngine: "off" | "shadow" | "on";
   /** 물어보기 (ADR-0009): off by default because indexing and answers cost money. */
   ask: { enabled: boolean; monthlyLimitMicrousd: number };
   /** Operator-specific values for /privacy and /terms (null = not set yet). */
@@ -266,6 +273,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       timeoutMs: p.LECTERN_GEMINI_TIMEOUT_MS,
     },
     distillEngine: p.LECTERN_DISTILL_ENGINE,
+    transcriptEngine: p.LECTERN_TRANSCRIPT_ENGINE,
     ask: {
       enabled: p.LECTERN_ASK,
       monthlyLimitMicrousd: p.LECTERN_ASK_MONTHLY_LIMIT_MICROUSD,

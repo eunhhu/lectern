@@ -11,6 +11,7 @@ describe("@lectern/config", () => {
     expect(c.repoDir).toBeNull();
     expect(c.workerMode).toBe("embedded");
     expect(c.distillEngine).toBe("legacy");
+    expect(c.transcriptEngine).toBe("off");
     expect(c.ask).toEqual({ enabled: false, monthlyLimitMicrousd: 2_000_000 });
     expect(c.gemini.model).toBe("gemini-3.8-flash");
     expect(c.logRequests).toBe(true);
@@ -25,6 +26,7 @@ describe("@lectern/config", () => {
       LECTERN_LOG_REQUESTS: "0",
       LECTERN_WORKER_MODE: "external",
       LECTERN_DISTILL_ENGINE: "harness",
+      LECTERN_TRANSCRIPT_ENGINE: "shadow",
       LECTERN_ASK: "1",
       LECTERN_ASK_MONTHLY_LIMIT_MICROUSD: "500000",
       LECTERN_OWNER_ALIASES: "Sunwoo, admin ,",
@@ -37,6 +39,7 @@ describe("@lectern/config", () => {
     expect(c.logRequests).toBe(false);
     expect(c.workerMode).toBe("external");
     expect(c.distillEngine).toBe("harness");
+    expect(c.transcriptEngine).toBe("shadow");
     expect(c.ask).toEqual({ enabled: true, monthlyLimitMicrousd: 500_000 });
     expect(c.owner.aliases).toEqual(["sunwoo", "admin"]);
     expect(c.gemini.allowedModels).toEqual(["gemini-x", "gemini-y"]);
@@ -46,7 +49,12 @@ describe("@lectern/config", () => {
   test("every invalid variable is reported at once, without echoing secrets", () => {
     let err: unknown;
     try {
-      loadConfig({ PORT: "99999", LECTERN_WORKER_MODE: "sometimes", LECTERN_BASE_URL: "not a url" });
+      loadConfig({
+        PORT: "99999",
+        LECTERN_WORKER_MODE: "sometimes",
+        LECTERN_BASE_URL: "not a url",
+        LECTERN_TRANSCRIPT_ENGINE: "yes",
+      });
     } catch (e) {
       err = e;
     }
@@ -55,6 +63,7 @@ describe("@lectern/config", () => {
     expect(issues).toContain("PORT");
     expect(issues).toContain("LECTERN_WORKER_MODE");
     expect(issues).toContain("LECTERN_BASE_URL");
+    expect(issues).toContain("LECTERN_TRANSCRIPT_ENGINE");
     const raw = loadConfig({ GEMINI_API_KEY: "AIza-secret-value" }).raw;
     expect(JSON.stringify(raw)).not.toContain("AIza-secret-value");
   });

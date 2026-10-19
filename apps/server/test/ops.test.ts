@@ -24,6 +24,7 @@ import {
   JobWorker,
   enqueueJob,
   ensureEmbeddedWorker,
+  isLectureBusy,
   reclaimExpiredLeases,
   registerJobHandler,
   snapshotJobs,
@@ -521,6 +522,32 @@ describe("job queue", () => {
     releases.get(id)!();
     await waitForJob(jobId, 5_000);
     expect((db.query(`SELECT sealed_secret FROM job WHERE id = ?`).get(jobId) as any).sealed_secret).toBeNull();
+  });
+
+  test("a follow-up runs once the job's row is finished, so a job it queues does not find it busy", async () => {
+    const ownerId = ensureBootstrapOwner().id;
+    const id = makeDoneLecture(null);
+    const sawBusy: boolean[] = [];
+    registerJobHandler(
+      "test-follow",
+      async (job) => ({
+        ok: true,
+        followUp: () => void enqueueJob({ kind: "test-followed", ownerId, subjectId: job.subjectId }),
+      }),
+      { concurrency: 1 }
+    );
+    registerJobHandler(
+      "test-followed",
+      async (job) => {
+        sawBusy.push(isLectureBusy(job.subjectId!, "test-follow"));
+        return { ok: true };
+      },
+      { concurrency: 1 }
+    );
+    const { jobId } = enqueueJob({ kind: "test-follow", ownerId, subjectId: id });
+    expect((await waitForJob(jobId, 5_000)).state).toBe("succeeded");
+    await waitFor(() => sawBusy.length === 1);
+    expect(sawBusy).toEqual([false]);
   });
 
   test("expired leases are reclaimed, and jobs interrupted too often fail via onLost", () => {

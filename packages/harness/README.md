@@ -91,14 +91,17 @@ const result = await runTranscriptPipeline(run, { audioPath, language: "ko" }, {
 - 가장 큰 불확실성은 thinking 토큰이다. 평가 실행의 원장(`ai_call.output_tokens`에 thinking이 포함됨)으로 실제 값을 잰다.
 - 줄일 수단: thinking 수준, 응답 스키마 축소(`end` 생략 등), `gemini-3.5-flash-lite`(같은 가정으로 약 $0.10~0.13), 급하지 않은 재처리는 배치 API(50%).
 
-### 서버 연결 (아직 하지 않음)
+### 서버 연결 (`shadow`까지)
 
-1. **기능 플래그**: `packages/config`에 `LECTERN_TRANSCRIPT_ENGINE`(예: `off` | `shadow` | `on`)을 추가한다. `shadow`는 기존 distill과 함께 돌려 전사만 저장하고 사용자에게는 보이지 않게 한다.
-2. **작업**: `job.kind = "process"`(v2) 핸들러에서 `harness.job({ jobId, scope, workspaceId, signal })`를 만들고 `runTranscriptPipeline`을 부른다. lease 회수 후 같은 `jobId`로 다시 부르면 이어서 돈다. `onEvent`·`onStage`를 SSE 진행 이벤트로 바꾼다.
-3. **workDir**: `DATA_DIR/work`처럼 같은 디스크의 디렉터리를 준다(각 단계가 끝나면 자기 하위 디렉터리를 지운다). 블롭은 `HARNESS_BLOB_DIR`. 1시간 녹음에 FLAC 작업본·발화 오디오 각 약 60~110MB와 청크 약 15MB가 블롭으로 남고, 작업 행 정리(30일)와 유지보수 정리 규칙을 따른다.
-4. **발행**: `result.transcript`를 한 트랜잭션으로 `transcript_segment`(idx, 원본 ms, `source_chunk`), `speaker`(label, confidence), 공백 구간(gap) 행으로 쓴다. 이 테이블들은 아직 `packages/db`에 없다(P2 백엔드). `chunkFailures`가 있으면 부분 결과로 표시한다.
-5. **동시성**: 공급자 요청 상한은 `concurrency`(기본 3), ffmpeg 단계는 워커의 ffmpeg 세마포어 안에서 돌린다.
-6. **ffmpeg 5.1 이상**이 필요하다(`packages/media/README.md`). CI 러너에는 ffmpeg가 없어 통합 테스트는 건너뛴다. 순수 테스트(merge, speakers, 검사, 어댑터, 지표)는 항상 돈다.
+`apps/server/src/transcript-job.ts`가 `transcribe` 작업으로 이 파이프라인을 돌린다. 켜고 끄는 절차는 [host-setup.md §10](../../docs/runbooks/host-setup.md#10-전사-시험-처리-켜기와-끄기-lectern_transcript_engine).
+
+1. **기능 플래그** `LECTERN_TRANSCRIPT_ENGINE`(`off` | `shadow` | `on`, 기본 `off`). 작업이 돌 때마다 읽으므로 큐에 있던 작업도 `off`면 아무것도 하지 않고 끝난다.
+2. **작업**: 서버 키로 한 distill이 노트를 발행하면(`job-handlers.ts` `afterDistillPublished`) `transcribe` 작업(subject = 강의 id, 동시성 1, 녹음 길이에 비례한 `budget_microusd`)을 큐에 넣는다. 사용자가 자기 키로 올린 녹음, 서버 키 사용이 제한된 계정, 환경 변수에 키가 없거나 ffmpeg·ffprobe가 없으면 넣지 않는다. 핸들러는 `harness.job({ jobId, scope: workspaceId, workspaceId, signal })`(workspaceId = `personalWorkspaceId(owner)`), `GeminiTranscriptionProvider({ apiKey: () => readSecret("GEMINI_API_KEY") })`, `workDir = DATA_DIR/work`로 `runTranscriptPipeline`을 부른다. lease를 회수당한 작업은 같은 jobId로 다시 불려 이어서 돈다(`apps/server/test/transcript-job.test.ts`가 워커 SIGKILL → 회수 → 재개로 확인).
+3. **취소**: 단계를 시작하거나 재시도할 때마다 강의와 오디오 파일이 그대로인지 보고, 지워졌으면 `signal`로 멈추고 그 작업의 산출물을 지운다.
+4. **압축**: 전사가 원본 오디오를 읽으므로 자동 압축은 전사 작업이 끝난 뒤(`JobOutcome.followUp`, 작업 행이 끝난 다음)에 큐에 넣는다. 압축 작업은 `transcribe`가 도는 동안 거부한다.
+5. **shadow 저장**: 전사는 `speakers` 단계 산출물(블롭)로 남고 강의 행·SSE는 건드리지 않는다. `job.result`에는 본문 없이 개수와 참조만 둔다(`transcript_artifact`, segments, speakers, gaps, failed_chunks, spent_microusd). 진행은 로그(`transcript stage`)로만 본다. 산출물은 녹음·오디오 삭제 때, 아니면 작업이 끝나고 30일 뒤 유지보수가 지운다. 1시간 녹음마다 블롭 약 225MB.
+6. **`on`(아직 shadow와 같다)**: `result.transcript`를 한 트랜잭션으로 `transcript_segment`(idx, 원본 ms, `source_chunk`), `speaker`(label, confidence), `transcript_gap` 행으로 쓴다. 필요한 것: P2 백엔드의 세 테이블(`packages/db` 0003), 강의 id → `recording.id`(`recording.lecture_id`), 세그먼트보다 먼저 만드는 `speaker.id`(`transcript_segment.speaker_id`), `chunkFailures`가 있으면 부분 결과 표시, P2 `api/v2/events.ts`의 `job.progress`(지금은 v1 강의 진행을 `legacy_distill`로 보냄)에 전사 단계를 싣는 방법. `on`에서는 사용자에게 보이는 결과이므로 사용자 키 작업도 그 키로 돌릴지 다시 정한다.
+7. **ffmpeg 5.1 이상**이 필요하다(`packages/media/README.md`). CI 러너에는 ffmpeg가 없어 통합 테스트는 건너뛴다. 순수 테스트(merge, speakers, 검사, 어댑터, 지표)와 서버 연결의 조건 테스트는 항상 돈다.
 
 ### 알려진 한계
 
