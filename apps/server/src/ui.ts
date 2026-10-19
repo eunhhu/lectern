@@ -1708,6 +1708,20 @@ export function renderAppHtml(): string {
     let currentUser = null;
     let authMode = 'login';
     let sseSource = null;
+    let sseUserId = null;
+    let sseNeedsResync = false;
+    let sseReconnectTimer = null;
+    let sseRetryDelay = 2000;
+    let pollFailures = 0;
+    let editorLectureId = null;
+    let editorDirty = false;
+    let editorBase = null;
+    let editorConflictWarned = false;
+    const PENDING_LOGOUT_KEY = 'lectern_pending_logout';
+
+    // Same-origin requests (fetch, EventSource, <audio>, downloads) authenticate with the
+    // HttpOnly lectern_session cookie, so the session token is never kept in JS-readable storage.
+    try { localStorage.removeItem('lectern_token'); } catch {}
 
     function upsertLectureSummaryInState(summary) {
       if (!summary || !summary.id) return;
@@ -1729,6 +1743,7 @@ export function renderAppHtml(): string {
       renderLectureList();
       if (currentLecture && rmSet.has(currentLecture.id)) {
         currentLecture = null;
+        closeEditor();
         if (lectures.length > 0) {
           selectLecture(lectures[0].id, false);
         } else {
@@ -1740,22 +1755,34 @@ export function renderAppHtml(): string {
       }
     }
 
-    function connectRealtimeSSE() {
+    function disconnectRealtimeSSE() {
+      clearTimeout(sseReconnectTimer);
+      sseReconnectTimer = null;
       if (sseSource) {
         try { sseSource.close(); } catch {}
         sseSource = null;
       }
-      const tok = localStorage.getItem('lectern_token') || '';
-      const url = '/api/events' + (tok ? '?token=' + encodeURIComponent(tok) : '');
-      const es = new EventSource(url);
+      sseUserId = null;
+    }
+
+    function connectRealtimeSSE() {
+      disconnectRealtimeSSE();
+      const es = new EventSource('/api/events');
       sseSource = es;
+      sseUserId = currentUser ? currentUser.id : null;
 
       const badge = document.getElementById('sse-status-pill');
       es.addEventListener('connected', () => {
+        sseRetryDelay = 2000;
         if (badge) {
           badge.textContent = '실시간 동기화';
           badge.style.color = 'var(--elysium-status-success-text)';
           badge.style.background = 'var(--elysium-status-success-surface)';
+        }
+        // Events broadcast while the stream was down are not replayed, so catch up on reconnect.
+        if (sseNeedsResync) {
+          sseNeedsResync = false;
+          fetchLectures().catch(err => console.error('Lecture resync after SSE reconnect failed:', err));
         }
       });
 
@@ -1809,8 +1836,21 @@ export function renderAppHtml(): string {
       });
 
       es.onerror = () => {
+        if (sseSource !== es) return;
+        sseNeedsResync = true;
         if (badge) {
           badge.textContent = '재연결 중...';
+          badge.style.color = 'var(--elysium-status-warning-text)';
+          badge.style.background = 'var(--elysium-status-warning-surface)';
+        }
+        // The browser retries on its own unless the stream was closed for good (e.g. an HTTP error).
+        if (es.readyState === EventSource.CLOSED) {
+          sseSource = null;
+          clearTimeout(sseReconnectTimer);
+          sseReconnectTimer = setTimeout(() => {
+            if (currentUser) connectRealtimeSSE();
+          }, sseRetryDelay);
+          sseRetryDelay = Math.min(sseRetryDelay * 2, 60000);
         }
       };
     }
@@ -1841,10 +1881,7 @@ export function renderAppHtml(): string {
     }
 
     function authHeaders(extra) {
-      const h = Object.assign({}, extra || {});
-      const tok = localStorage.getItem('lectern_token');
-      if (tok) h['X-Lectern-Token'] = tok;
-      return h;
+      return Object.assign({}, extra || {});
     }
 
     function switchAuthMode(mode) {
@@ -1957,9 +1994,7 @@ export function renderAppHtml(): string {
         errEl.style.display = 'block';
         return;
       }
-      if (data.token) {
-        localStorage.setItem('lectern_token', data.token);
-      }
+      try { localStorage.removeItem(PENDING_LOGOUT_KEY); } catch {}
       applyAuthenticatedUser(data.user);
       await fetchLectures();
     }
@@ -1991,9 +2026,12 @@ export function renderAppHtml(): string {
       if (tokEl && user.apiToken) tokEl.textContent = user.apiToken;
       const curlEl = document.getElementById('my-curl-snippet');
       if (curlEl && user.apiToken) {
-        curlEl.textContent = 'curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\\n  -H "X-Lectern-Token: ' + user.apiToken + '" \\\n  -H "X-Course: 정보보호개론" \\\n  -F "audio=@20261014_lecture.m4a"';
+        curlEl.textContent = 'curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\\\\\n  -H "X-Lectern-Token: ' + user.apiToken + '" \\\\\\n  -H "X-Course: 정보보호개론" \\\\\\n  -F "audio=@20261014_lecture.m4a"';
       }
-      connectRealtimeSSE();
+      if (!sseSource || sseUserId !== user.id) {
+        connectRealtimeSSE();
+      }
+      renderLocalVaultList();
     }
 
     async function saveProfileDisplayName() {
@@ -2084,24 +2122,62 @@ export function renderAppHtml(): string {
     }
 
     async function logoutAccount() {
-      if (sseSource) {
-        try { sseSource.close(); } catch {}
-        sseSource = null;
-      }
-      await fetch('/api/auth/logout', { method: 'POST', headers: authHeaders() });
-      localStorage.removeItem('lectern_token');
+      disconnectRealtimeSSE();
+      try { localStorage.removeItem('lectern_token'); } catch {}
+      let serverLoggedOut = false;
+      try {
+        const res = await fetch('/api/auth/logout', { method: 'POST', headers: authHeaders() });
+        serverLoggedOut = res.ok;
+      } catch {}
+      // The HttpOnly session cookie can only be cleared by the server, so if this request
+      // failed (e.g. offline) remember to finish the logout before the next auto-login.
+      try {
+        if (serverLoggedOut) localStorage.removeItem(PENDING_LOGOUT_KEY);
+        else localStorage.setItem(PENDING_LOGOUT_KEY, '1');
+      } catch {}
       currentUser = null;
       lectures = [];
       currentLecture = null;
+      clearTimeout(window.__pollTimer);
+      closeEditor();
+      const audioEl = document.getElementById('lecture-audio');
+      if (audioEl) {
+        try { audioEl.pause(); } catch {}
+        audioEl.removeAttribute('src');
+      }
+      document.getElementById('audio-bar').classList.remove('visible');
       document.getElementById('lecture-list').innerHTML = '';
       document.getElementById('md-article').innerHTML = '';
+      document.getElementById('toc-list').innerHTML = '';
       document.getElementById('auth-gate').classList.remove('hidden');
+      await renderLocalVaultList();
+      if (!serverLoggedOut) {
+        showToast('서버에 연결하지 못해 로그아웃을 완료하지 못했습니다. 다음 접속 시 자동으로 로그아웃됩니다.');
+      }
     }
 
     async function bootstrapAuth() {
-      const res = await fetch('/api/auth/me', { headers: authHeaders() });
+      const gate = document.getElementById('auth-gate');
+      let pendingLogout = false;
+      try { pendingLogout = localStorage.getItem(PENDING_LOGOUT_KEY) === '1'; } catch {}
+      if (pendingLogout) {
+        try {
+          const out = await fetch('/api/auth/logout', { method: 'POST', headers: authHeaders() });
+          if (out.ok) localStorage.removeItem(PENDING_LOGOUT_KEY);
+        } catch {}
+        gate.classList.remove('hidden');
+        return;
+      }
+      let res;
+      try {
+        res = await fetch('/api/auth/me', { headers: authHeaders() });
+      } catch (err) {
+        console.error('Auth bootstrap failed:', err);
+        gate.classList.remove('hidden');
+        return;
+      }
       if (!res.ok) {
-        document.getElementById('auth-gate').classList.remove('hidden');
+        gate.classList.remove('hidden');
         return;
       }
       const data = await res.json();
@@ -2146,16 +2222,28 @@ export function renderAppHtml(): string {
         const isAct = c === activeCourse;
         const cls = isAct ? 'pill active' : 'pill';
         const check = isAct ? '<span aria-hidden="true">✓</span>' : '';
-        return '<button class="' + cls + '" aria-pressed="' + isAct + '" onclick="setCourseFilter(\\'' + c.replace(/'/g, "\\\\'") + '\\')">' + check + '<span>' + escapeClientHtml(label) + '</span></button>';
+        return '<button type="button" class="' + cls + '" aria-pressed="' + isAct + '" data-course="' + escapeClientHtml(c) + '">' + check + '<span>' + escapeClientHtml(label) + '</span></button>';
       }).join('');
 
       const quickWrap = document.getElementById('quick-course-chips');
       if (quickWrap) {
         quickWrap.innerHTML = courses.map(c =>
-          '<button type="button" class="pill" style="height:36px;padding:0 14px;" onclick="document.getElementById(\\'rec-course\\').value=\\'' + c.replace(/'/g, "\\\\'") + '\\'">' + escapeClientHtml(c) + '</button>'
+          '<button type="button" class="pill" style="height:36px;padding:0 14px;" data-course="' + escapeClientHtml(c) + '">' + escapeClientHtml(c) + '</button>'
         ).join('');
       }
     }
+
+    document.getElementById('course-pills').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-course]');
+      if (!btn) return;
+      setCourseFilter(btn.dataset.course);
+    });
+
+    document.getElementById('quick-course-chips').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-course]');
+      if (!btn) return;
+      document.getElementById('rec-course').value = btn.dataset.course;
+    });
 
     function setCourseFilter(c) {
       activeCourse = c;
@@ -2207,7 +2295,7 @@ export function renderAppHtml(): string {
           : item.status === 'error'
           ? '<div style="font:600 13px/20px var(--elysium-font-sans);color:var(--elysium-status-danger-text);margin-top:4px;">분석 실패 · 원본 재분석 가능</div>'
           : '';
-        return '<div class="lecture-card ' + (isAct ? 'active' : '') + '" onclick="selectLecture(\\'' + item.id + '\\', true)">' +
+        return '<div class="lecture-card ' + (isAct ? 'active' : '') + '" data-lecture-id="' + escapeClientHtml(item.id) + '">' +
           '<div class="card-top">' +
             '<span class="card-course">' + escapeClientHtml(item.course) + '</span>' +
             '<span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' + durBadge + visBadge + uuidBadge + '</span>' +
@@ -2223,13 +2311,33 @@ export function renderAppHtml(): string {
     }
 
     function escapeClientHtml(s) {
-      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
-    async function selectLecture(id, closeMobileList) {
+    document.getElementById('lecture-list').addEventListener('click', (e) => {
+      const card = e.target.closest('.lecture-card[data-lecture-id]');
+      if (!card) return;
+      selectLecture(card.dataset.lectureId, true, { userInitiated: true });
+    });
+
+    // Background refreshes (SSE, polling, search, post-upload) never discard unsaved editor
+    // content; only a user-initiated switch to another lecture may, after confirmation.
+    async function selectLecture(id, closeMobileList, opts) {
+      const options = opts || {};
+      if (hasUnsavedEdits() && editorLectureId !== id) {
+        if (!options.userInitiated) return;
+        if (!confirm('저장하지 않은 노트 편집 내용이 있습니다. 변경사항을 버리고 다른 강의로 이동할까요?')) return;
+        closeEditor();
+      }
       const res = await fetch('/api/lectures/' + encodeURIComponent(id), { headers: authHeaders() });
       if (!res.ok) return;
       const data = await res.json();
+      if (hasUnsavedEdits() && editorLectureId !== id) return;
       currentLecture = data.lecture;
       renderLectureList();
 
@@ -2257,8 +2365,7 @@ export function renderAppHtml(): string {
       const audioEl = document.getElementById('lecture-audio');
       if (currentLecture.has_audio) {
         audioBar.classList.add('visible');
-        const tok = localStorage.getItem('lectern_token') || '';
-        const targetSrc = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/audio' + (tok ? '?token=' + encodeURIComponent(tok) : '');
+        const targetSrc = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/audio';
         if (!audioEl.src.endsWith(targetSrc)) {
           audioEl.src = targetSrc;
         }
@@ -2278,7 +2385,7 @@ export function renderAppHtml(): string {
             '<div style="font:400 14px/22px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:16px;word-break:break-all;">' + escapeClientHtml(currentLecture.error_message || '알 수 없는 오류') + '</div>' +
             '<div style="font:400 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:24px;">서버 디스크에 원본 음성 파일이 안전하게 보존되어 있습니다. 아래 버튼으로 즉시 재분석하거나 원본 음성을 다운로드할 수 있습니다.</div>' +
             '<div style="display:flex;gap:12px;flex-wrap:wrap;">' +
-              '<button class="btn btn-primary" onclick="retryLectureDistillation(\\'' + currentLecture.id + '\\')">보존된 원본 오디오로 재분석</button>' +
+              '<button class="btn btn-primary" onclick="retryLectureDistillation()">보존된 원본 오디오로 재분석</button>' +
               '<button class="btn" onclick="downloadCurrentRawAudio()">원본 오디오 다운로드</button>' +
               '<button class="btn btn-danger" onclick="deleteCurrentLecture()">기록 삭제</button>' +
             '</div>' +
@@ -2289,10 +2396,19 @@ export function renderAppHtml(): string {
 
       const tocList = document.getElementById('toc-list');
       tocList.innerHTML = (data.rendered?.toc || []).map(t =>
-        '<a class="toc-link lvl-' + t.level + '" href="#' + t.id + '">' + escapeClientHtml(t.text) + '</a>'
+        '<a class="toc-link lvl-' + escapeClientHtml(t.level) + '" href="#' + escapeClientHtml(t.id) + '">' + escapeClientHtml(t.text) + '</a>'
       ).join('');
 
-      toggleEditor(false);
+      if (isEditorOpen() && editorLectureId === currentLecture.id) {
+        if (!editorDirty) {
+          fillEditorFields(currentLecture);
+        } else if (editorBase && editorBase.markdown !== currentLecture.markdown && !editorConflictWarned) {
+          editorConflictWarned = true;
+          showToast('다른 곳에서 이 노트가 변경되었습니다. 저장하면 현재 편집 내용으로 덮어씁니다.');
+        }
+      } else {
+        closeEditor();
+      }
       if (closeMobileList && window.innerWidth <= 1024) {
         switchMobileTab('reader');
       }
@@ -2300,16 +2416,20 @@ export function renderAppHtml(): string {
 
     function ensureFallbackPolling() {
       clearTimeout(window.__pollTimer);
+      if (!currentUser) return;
       const hasProcessing = lectures.some(l => l.status === 'processing') || (currentLecture && currentLecture.status === 'processing');
       if (!hasProcessing) return;
+      const delay = Math.min(2400 * Math.pow(2, pollFailures), 30000);
       window.__pollTimer = setTimeout(async () => {
-        const prevProcIds = new Set(lectures.filter(l => l.status === 'processing').map(l => l.id));
-        const params = new URLSearchParams();
-        if (activeCourse !== 'ALL') params.set('course', activeCourse);
-        if (searchQuery) params.set('q', searchQuery);
-        const res = await fetch('/api/lectures?' + params.toString(), { headers: authHeaders() });
-        if (res.ok) {
+        try {
+          const prevProcIds = new Set(lectures.filter(l => l.status === 'processing').map(l => l.id));
+          const params = new URLSearchParams();
+          if (activeCourse !== 'ALL') params.set('course', activeCourse);
+          if (searchQuery) params.set('q', searchQuery);
+          const res = await fetch('/api/lectures?' + params.toString(), { headers: authHeaders() });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
           const data = await res.json();
+          pollFailures = 0;
           lectures = data.lectures || [];
           renderLectureList();
           if (currentLecture) {
@@ -2318,8 +2438,13 @@ export function renderAppHtml(): string {
               await selectLecture(currentLecture.id, false);
             }
           }
+        } catch (err) {
+          pollFailures = Math.min(pollFailures + 1, 4);
+          console.error('Fallback polling failed:', err);
+        } finally {
+          ensureFallbackPolling();
         }
-      }, 2400);
+      }, delay);
     }
 
     function updateVisibilityButtonsUI() {
@@ -2483,43 +2608,93 @@ export function renderAppHtml(): string {
       if (audioEl) audioEl.playbackRate = parseFloat(val) || 1.0;
     }
 
+    function isEditorOpen() {
+      return document.getElementById('editor-pane').classList.contains('visible');
+    }
+
+    function hasUnsavedEdits() {
+      return isEditorOpen() && editorDirty;
+    }
+
+    function fillEditorFields(lec) {
+      editorBase = { title: lec.title || '', course: lec.course || '', markdown: lec.markdown || '' };
+      document.getElementById('edit-title').value = editorBase.title;
+      document.getElementById('edit-course').value = editorBase.course;
+      document.getElementById('edit-markdown').value = editorBase.markdown;
+      editorDirty = false;
+      editorConflictWarned = false;
+    }
+
+    function closeEditor() {
+      document.getElementById('editor-pane').classList.remove('visible');
+      document.getElementById('md-article').style.display = 'block';
+      editorLectureId = null;
+      editorDirty = false;
+      editorBase = null;
+      editorConflictWarned = false;
+    }
+
+    ['edit-title', 'edit-course', 'edit-markdown'].forEach(fieldId => {
+      document.getElementById(fieldId).addEventListener('input', () => {
+        if (isEditorOpen()) editorDirty = true;
+      });
+    });
+
+    window.addEventListener('beforeunload', (e) => {
+      if (hasUnsavedEdits()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+
     function toggleEditor(force) {
       if (!currentLecture) return;
-      const ed = document.getElementById('editor-pane');
-      const art = document.getElementById('md-article');
-      const show = typeof force === 'boolean' ? force : !ed.classList.contains('visible');
+      const show = typeof force === 'boolean' ? force : !isEditorOpen();
       if (show) {
-        document.getElementById('edit-title').value = currentLecture.title;
-        document.getElementById('edit-course').value = currentLecture.course;
-        document.getElementById('edit-markdown').value = currentLecture.markdown;
-        ed.classList.add('visible');
-        art.style.display = 'none';
+        if (!isEditorOpen() || editorLectureId !== currentLecture.id) {
+          fillEditorFields(currentLecture);
+        }
+        editorLectureId = currentLecture.id;
+        document.getElementById('editor-pane').classList.add('visible');
+        document.getElementById('md-article').style.display = 'none';
       } else {
-        ed.classList.remove('visible');
-        art.style.display = 'block';
+        if (hasUnsavedEdits() && !confirm('저장하지 않은 변경사항을 버릴까요?')) return;
+        closeEditor();
       }
     }
 
     async function saveMarkdownEdit() {
       if (!currentLecture) return;
+      const lectureId = editorLectureId || currentLecture.id;
       const title = document.getElementById('edit-title').value.trim();
       const course = document.getElementById('edit-course').value.trim();
       const markdown = document.getElementById('edit-markdown').value;
-      const res = await fetch('/api/lectures/' + encodeURIComponent(currentLecture.id), {
-        method: 'PUT',
-        headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ title, course, markdown })
-      });
-      if (res.ok) {
-        showToast('강의 노트가 저장되었습니다.');
-        await fetchLectures(currentLecture.id);
+      let res;
+      try {
+        res = await fetch('/api/lectures/' + encodeURIComponent(lectureId), {
+          method: 'PUT',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ title, course, markdown })
+        });
+      } catch {
+        showToast('네트워크 오류로 저장하지 못했습니다. 편집 내용은 그대로 남아 있습니다.');
+        return;
       }
+      if (!res.ok) {
+        let errMsg = '';
+        try { errMsg = (await res.json()).error || ''; } catch {}
+        showToast((errMsg || '저장에 실패했습니다.') + ' 편집 내용은 그대로 남아 있습니다.');
+        return;
+      }
+      // Saved: close the editor so the refetch below renders the persisted note.
+      closeEditor();
+      showToast('강의 노트가 저장되었습니다.');
+      await fetchLectures(lectureId);
     }
 
     function downloadCurrentMarkdown() {
       if (!currentLecture) return;
-      const tok = localStorage.getItem('lectern_token') || '';
-      window.location.href = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/markdown' + (tok ? '?token=' + encodeURIComponent(tok) : '');
+      window.location.href = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/markdown';
     }
 
     function downloadCurrentRawAudio() {
@@ -2527,9 +2702,8 @@ export function renderAppHtml(): string {
         showToast('원본 오디오 파일이 없습니다.');
         return;
       }
-      const tok = localStorage.getItem('lectern_token') || '';
       const a = document.createElement('a');
-      a.href = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/audio' + (tok ? '?token=' + encodeURIComponent(tok) : '');
+      a.href = '/api/lectures/' + encodeURIComponent(currentLecture.id) + '/audio';
       a.download = (currentLecture.course || 'lecture') + '_' + (currentLecture.date_label || 'audio') + '.m4a';
       document.body.appendChild(a);
       a.click();
@@ -2597,20 +2771,36 @@ export function renderAppHtml(): string {
 
     // Live Web Microphone Recorder with IndexedDB Local Vault, Auto-Checkpoint & Offline Upload Retry
     let mediaRecorder = null;
-    let recChunks = [];
+    let recStarting = false;
     let recStartTime = 0;
     let recTimerInterval = null;
     let audioCtx = null;
     let analyser = null;
     let animFrame = null;
     let wakeLock = null;
+    let releaseRecordingTabLock = null;
     let vaultDbPromise = null;
+    let retryAllRunning = false;
+    const inFlightUploads = new Set();
+
+    function newLocalId(prefix) {
+      return (window.crypto && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : (prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10));
+    }
 
     function openVaultDb() {
       if (vaultDbPromise) return vaultDbPromise;
       vaultDbPromise = new Promise((resolve) => {
         if (!('indexedDB' in window)) return resolve(null);
-        const req = indexedDB.open('lectern_audio_vault_v1', 1);
+        let req;
+        try {
+          req = indexedDB.open('lectern_audio_vault_v1', 1);
+        } catch {
+          return resolve(null);
+        }
+        // A stalled open must not hold up the upload that waits on the backup.
+        setTimeout(() => resolve(null), 5000);
         req.onupgradeneeded = (e) => {
           const idb = e.target.result;
           if (!idb.objectStoreNames.contains('checkpoints')) {
@@ -2620,86 +2810,109 @@ export function renderAppHtml(): string {
             idb.createObjectStore('pending_uploads', { keyPath: 'localId' });
           }
         };
-        req.onsuccess = () => resolve(req.result);
+        req.onsuccess = () => {
+          const idb = req.result;
+          idb.onclose = () => { vaultDbPromise = null; };
+          resolve(idb);
+        };
         req.onerror = () => resolve(null);
+      }).then((idb) => {
+        if (!idb) vaultDbPromise = null;
+        return idb;
       });
       return vaultDbPromise;
     }
 
-    async function saveRecordingCheckpoint(course, mimeType, chunks) {
+    // Runs one vault transaction. Resolves { ok, result } once it commits, or { ok: false } on
+    // error/abort (quota exhaustion aborts the transaction), so callers never hang or throw.
+    async function runVaultTx(storeName, mode, fn) {
       const idb = await openVaultDb();
-      if (!idb || !chunks.length) return;
+      if (!idb) return { ok: false };
+      return new Promise((resolve) => {
+        try {
+          const tx = idb.transaction(storeName, mode);
+          const req = fn(tx.objectStore(storeName));
+          tx.oncomplete = () => resolve({ ok: true, result: req ? req.result : undefined });
+          tx.onerror = () => resolve({ ok: false });
+          tx.onabort = () => resolve({ ok: false });
+        } catch {
+          resolve({ ok: false });
+        }
+      });
+    }
+
+    async function saveRecordingCheckpoint(course, mimeType, chunks, ownerId, startedAt) {
+      if (!chunks.length) return;
       try {
         const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
-        const tx = idb.transaction('checkpoints', 'readwrite');
-        tx.objectStore('checkpoints').put({
+        await runVaultTx('checkpoints', 'readwrite', store => store.put({
           id: 'active_session',
           course: course || '대학교 전공 강의',
           mimeType: blob.type,
-          startedAt: recStartTime || Date.now(),
+          ownerId: ownerId || null,
+          startedAt: startedAt || Date.now(),
           updatedAt: Date.now(),
           blob
-        });
+        }));
       } catch {}
     }
 
     async function clearRecordingCheckpoint() {
-      const idb = await openVaultDb();
-      if (!idb) return;
-      try {
-        const tx = idb.transaction('checkpoints', 'readwrite');
-        tx.objectStore('checkpoints').delete('active_session');
-      } catch {}
+      await runVaultTx('checkpoints', 'readwrite', store => store.delete('active_session'));
     }
 
+    // Resolves true only when the entry is durably committed to IndexedDB.
     async function savePendingUploadToVault(entry) {
-      const idb = await openVaultDb();
-      if (!idb) return;
-      await new Promise((resolve) => {
-        const tx = idb.transaction('pending_uploads', 'readwrite');
-        tx.objectStore('pending_uploads').put(entry);
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => resolve(false);
-      });
-      await renderLocalVaultList();
+      const r = await runVaultTx('pending_uploads', 'readwrite', store => store.put(entry));
+      try { await renderLocalVaultList(); } catch {}
+      return r.ok;
     }
 
     async function removePendingUploadFromVault(localId) {
-      const idb = await openVaultDb();
-      if (!idb) return;
-      await new Promise((resolve) => {
-        const tx = idb.transaction('pending_uploads', 'readwrite');
-        tx.objectStore('pending_uploads').delete(localId);
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => resolve(false);
-      });
-      await renderLocalVaultList();
+      const r = await runVaultTx('pending_uploads', 'readwrite', store => store.delete(localId));
+      try { await renderLocalVaultList(); } catch {}
+      return r.ok;
+    }
+
+    async function getPendingUploadFromVault(localId) {
+      const r = await runVaultTx('pending_uploads', 'readonly', store => store.get(localId));
+      return r.ok ? (r.result || null) : null;
     }
 
     async function listPendingUploadsFromVault() {
-      const idb = await openVaultDb();
-      if (!idb) return [];
-      return new Promise((resolve) => {
-        const tx = idb.transaction('pending_uploads', 'readonly');
-        const req = tx.objectStore('pending_uploads').getAll();
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => resolve([]);
-      });
+      const r = await runVaultTx('pending_uploads', 'readonly', store => store.getAll());
+      return r.ok ? (r.result || []) : [];
+    }
+
+    // Vault items are tagged with the recording user's id. Items saved before tagging existed
+    // (no ownerId) stay visible but are never uploaded automatically.
+    function isVaultItemVisible(item) {
+      return Boolean(currentUser) && (!item.ownerId || item.ownerId === currentUser.id);
+    }
+
+    async function listMyPendingUploads() {
+      const items = await listPendingUploadsFromVault();
+      return items.filter(isVaultItemVisible);
+    }
+
+    async function isAnotherTabRecording() {
+      if (!(navigator.locks && navigator.locks.query)) return false;
+      try {
+        const state = await navigator.locks.query();
+        return (state.held || []).some(l => l.name === 'lectern-recording');
+      } catch {
+        return false;
+      }
     }
 
     async function recoverInterruptedCheckpointOnLoad() {
-      const idb = await openVaultDb();
-      if (!idb) return;
-      const cp = await new Promise((resolve) => {
-        const tx = idb.transaction('checkpoints', 'readonly');
-        const req = tx.objectStore('checkpoints').get('active_session');
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => resolve(null);
-      });
+      // An open tab that is still recording keeps updating this checkpoint; leave it alone.
+      if (await isAnotherTabRecording()) return;
+      const cp = (await runVaultTx('checkpoints', 'readonly', store => store.get('active_session'))).result;
       if (cp && cp.blob && cp.blob.size > 1024) {
         const ext = (cp.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
         const localId = 'rec_' + (cp.startedAt || Date.now());
-        await savePendingUploadToVault({
+        const saved = await savePendingUploadToVault({
           localId,
           fileName: (cp.course || '강의') + '_' + new Date(cp.startedAt || Date.now()).toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.' + ext,
           course: cp.course || '대학교 전공 강의',
@@ -2707,11 +2920,14 @@ export function renderAppHtml(): string {
           size: cp.blob.size,
           createdAt: cp.updatedAt || Date.now(),
           sourceClient: 'web-mic-recovered',
+          ownerId: cp.ownerId || null,
           lastError: '이전 녹음 중 브라우저 종료로부터 자동 복구됨',
           blob: cp.blob
         });
-        await clearRecordingCheckpoint();
-        showToast('이전에 비정상 종료된 녹음 원본을 로컬 금고에서 복구했습니다!');
+        if (saved) {
+          await clearRecordingCheckpoint();
+          showToast('이전에 비정상 종료된 녹음 원본을 로컬 금고에서 복구했습니다!');
+        }
       }
       await renderLocalVaultList();
     }
@@ -2730,73 +2946,202 @@ export function renderAppHtml(): string {
     }
 
     async function renderLocalVaultList() {
-      const items = await listPendingUploadsFromVault();
       const box = document.getElementById('local-vault-box');
       const listEl = document.getElementById('local-vault-list');
       const titleEl = document.getElementById('local-vault-title');
       if (!box || !listEl) return;
+      const items = await listMyPendingUploads();
       if (!items.length) {
         box.style.display = 'none';
+        listEl.innerHTML = '';
         return;
       }
       box.style.display = 'block';
-      titleEl.textContent = '미전송 로컬 녹음 보관함 (' + items.length + '건 안전 보관 중)';
+      titleEl.textContent = '미전송 로컬 녹음 보관함 (' + items.length + '건 보관 중)';
       listEl.innerHTML = items.map(item => {
         const mb = ((item.size || 0) / 1048576).toFixed(1);
+        const ownerNote = item.ownerId ? '' : ' · 계정 미지정 (이전 버전에서 저장됨)';
+        const idAttr = ' data-local-id="' + escapeClientHtml(item.localId) + '"';
         return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-default);border:1px solid var(--elysium-border-subtle);">' +
           '<div style="min-width:0;flex:1;">' +
             '<div style="font:600 14px/20px var(--elysium-font-sans);color:var(--elysium-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">[' + escapeClientHtml(item.course) + '] ' + escapeClientHtml(item.fileName) + ' (' + mb + ' MB)</div>' +
-            '<div style="font:400 13px/20px var(--elysium-font-sans);color:var(--elysium-status-danger-text);">' + escapeClientHtml(item.lastError || '업로드 대기 중') + '</div>' +
+            '<div style="font:400 13px/20px var(--elysium-font-sans);color:var(--elysium-status-danger-text);">' + escapeClientHtml((item.lastError || '업로드 대기 중') + ownerNote) + '</div>' +
           '</div>' +
           '<div style="display:flex;gap:8px;flex-shrink:0;">' +
-            '<button class="btn btn-primary" style="height:32px;padding:0 12px;font-size:13px;" onclick="retrySingleVaultUpload(\\'' + item.localId + '\\')">재업로드</button>' +
-            '<button class="btn" style="height:32px;padding:0 12px;font-size:13px;" onclick="downloadVaultItem(\\'' + item.localId + '\\')">원본 저장</button>' +
-            '<button class="btn btn-danger" style="height:32px;padding:0 12px;font-size:13px;" onclick="removePendingUploadFromVault(\\'' + item.localId + '\\')">삭제</button>' +
+            '<button type="button" class="btn btn-primary" style="height:32px;padding:0 12px;font-size:13px;" data-vault-action="retry"' + idAttr + '>재업로드</button>' +
+            '<button type="button" class="btn" style="height:32px;padding:0 12px;font-size:13px;" data-vault-action="download"' + idAttr + '>원본 저장</button>' +
+            '<button type="button" class="btn btn-danger" style="height:32px;padding:0 12px;font-size:13px;" data-vault-action="delete"' + idAttr + '>삭제</button>' +
           '</div>' +
         '</div>';
       }).join('');
     }
 
+    document.getElementById('local-vault-list').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-vault-action]');
+      if (!btn) return;
+      const localId = btn.dataset.localId;
+      if (btn.dataset.vaultAction === 'retry') retrySingleVaultUpload(localId, false);
+      else if (btn.dataset.vaultAction === 'download') downloadVaultItem(localId);
+      else if (btn.dataset.vaultAction === 'delete') deleteVaultItem(localId);
+    });
+
     async function downloadVaultItem(localId) {
-      const items = await listPendingUploadsFromVault();
-      const target = items.find(i => i.localId === localId);
-      if (target && target.blob) {
+      const target = await getPendingUploadFromVault(localId);
+      if (target && target.blob && isVaultItemVisible(target)) {
         triggerLocalBlobDownload(target.blob, target.fileName || (localId + '.m4a'));
       }
     }
 
-    async function retrySingleVaultUpload(localId) {
-      const items = await listPendingUploadsFromVault();
-      const target = items.find(i => i.localId === localId);
-      if (!target || !target.blob) return;
-      const file = new File([target.blob], target.fileName, { type: target.mimeType || 'audio/mp4' });
-      await uploadAndDistillFile(file, target.sourceClient || 'web-vault-retry', target.localId, target.course);
+    async function deleteVaultItem(localId) {
+      const target = await getPendingUploadFromVault(localId);
+      if (!target || !isVaultItemVisible(target)) return;
+      if (!confirm('[' + (target.fileName || localId) + '] 로컬 보관 녹음을 삭제할까요? 서버에 업로드되지 않은 원본은 복구할 수 없습니다.')) return;
+      await removePendingUploadFromVault(localId);
     }
 
-    async function retryAllPendingLocalUploads() {
-      const items = await listPendingUploadsFromVault();
-      for (const item of items) {
-        await retrySingleVaultUpload(item.localId);
+    async function retrySingleVaultUpload(localId, auto) {
+      if (!currentUser) return 'skipped';
+      const target = await getPendingUploadFromVault(localId);
+      if (!target || !target.blob || !isVaultItemVisible(target)) return 'skipped';
+      if (!target.ownerId) {
+        if (auto) return 'skipped';
+        if (!confirm('이 녹음에는 계정 정보가 없습니다 (이전 버전에서 저장됨). 현재 계정(' + currentUser.displayName + ')으로 업로드할까요?')) return 'skipped';
+        target.ownerId = currentUser.id;
+        await savePendingUploadToVault(target);
+      }
+      const file = new File([target.blob], target.fileName || (localId + '.m4a'), { type: target.mimeType || 'audio/mp4' });
+      const result = await uploadAndDistillFile(file, target.sourceClient || 'web-vault-retry', target.localId, target.course, {
+        ownerId: target.ownerId,
+        requireVaultEntry: true
+      });
+      if (result === 'busy' && !auto) showToast('이 녹음은 이미 업로드 중입니다.');
+      return result;
+    }
+
+    async function retryAllPendingLocalUploads(auto) {
+      if (!currentUser) return;
+      if (retryAllRunning) {
+        if (!auto) showToast('이미 재업로드를 진행 중입니다.');
+        return;
+      }
+      retryAllRunning = true;
+      try {
+        const userId = currentUser.id;
+        const items = await listMyPendingUploads();
+        const owned = items.filter(item => item.ownerId === userId);
+        for (const item of owned) {
+          if (!currentUser || currentUser.id !== userId) break;
+          await retrySingleVaultUpload(item.localId, true);
+        }
+        const unowned = items.length - owned.length;
+        if (unowned > 0 && !auto) {
+          showToast('계정 정보가 없는 녹음 ' + unowned + '건은 각 항목의 재업로드 버튼으로 올려주세요.');
+        }
+      } finally {
+        retryAllRunning = false;
       }
     }
 
-    window.addEventListener('online', () => {
+    window.addEventListener('online', async () => {
+      if (!currentUser) {
+        try { await bootstrapAuth(); } catch {}
+      }
+      if (!currentUser) return;
       showToast('네트워크 연결 복구됨: 미전송 로컬 녹음 자동 업로드를 확인합니다.');
-      retryAllPendingLocalUploads();
+      retryAllPendingLocalUploads(true);
     });
 
+    async function acquireWakeLock() {
+      if (!('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+      if (wakeLock && !wakeLock.released) return;
+      try {
+        const lock = await navigator.wakeLock.request('screen');
+        wakeLock = lock;
+        lock.addEventListener('release', () => {
+          if (wakeLock === lock) wakeLock = null;
+        });
+      } catch {}
+    }
+
+    function releaseWakeLock() {
+      const lock = wakeLock;
+      wakeLock = null;
+      if (lock) {
+        try { lock.release().catch(() => {}); } catch {}
+      }
+    }
+
+    function isRecordingActive() {
+      return Boolean(mediaRecorder && mediaRecorder.state !== 'inactive');
+    }
+
+    // The browser drops screen wake locks whenever the page is hidden; take it back on return.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible' || !isRecordingActive()) return;
+      acquireWakeLock().then(() => {
+        if (!isRecordingActive()) releaseWakeLock();
+      });
+    });
+
+    // Best-effort marker for other tabs; never waits, and is released even if the
+    // recording ends before the lock callback runs.
+    function holdRecordingTabLock() {
+      if (!(navigator.locks && navigator.locks.request)) return;
+      let release;
+      const held = new Promise((resolve) => { release = resolve; });
+      releaseRecordingTabLock = release;
+      navigator.locks.request('lectern-recording', { ifAvailable: true }, (lock) => (lock ? held : undefined)).catch(() => {});
+    }
+
+    function dropRecordingTabLock() {
+      if (releaseRecordingTabLock) {
+        releaseRecordingTabLock();
+        releaseRecordingTabLock = null;
+      }
+    }
+
+    function releaseRecordingResources(stream) {
+      cancelAnimationFrame(animFrame);
+      animFrame = null;
+      clearInterval(recTimerInterval);
+      recTimerInterval = null;
+      if (stream) {
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
+      }
+      if (audioCtx) {
+        const ctx = audioCtx;
+        audioCtx = null;
+        analyser = null;
+        try { ctx.close().catch(() => {}); } catch {}
+      }
+      releaseWakeLock();
+    }
+
+    function resetRecorderControls() {
+      const startBtn = document.getElementById('btn-rec-start');
+      startBtn.textContent = '마이크 녹음 시작';
+      startBtn.classList.remove('btn-danger');
+      const pauseBtn = document.getElementById('btn-rec-pause');
+      pauseBtn.style.display = 'none';
+      pauseBtn.textContent = '일시정지';
+    }
+
     async function toggleMicRecording() {
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      if (recStarting) return;
+      if (isRecordingActive()) {
         mediaRecorder.stop();
         return;
       }
+      const startBtn = document.getElementById('btn-rec-start');
+      recStarting = true;
+      startBtn.disabled = true;
+      let stream = null;
+      let recorder = null;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
         });
-        if ('wakeLock' in navigator) {
-          try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
-        }
+        await acquireWakeLock();
 
         const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
           ? 'audio/mp4'
@@ -2804,66 +3149,44 @@ export function renderAppHtml(): string {
           ? 'audio/webm;codecs=opus'
           : '';
 
-        mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-        recChunks = [];
-        recStartTime = Date.now();
+        recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+        // Each recording owns its chunk buffer, so a stale recorder can never mix into a new one.
+        const chunks = [];
+        const recStream = stream;
+        const recOwnerId = currentUser ? currentUser.id : null;
+        const recStartedAt = Date.now();
         const recCourseAtStart = document.getElementById('rec-course').value.trim() || '대학교 전공 강의';
 
-        mediaRecorder.ondataavailable = (ev) => {
+        recorder.ondataavailable = (ev) => {
           if (ev.data && ev.data.size > 0) {
-            recChunks.push(ev.data);
-            if (recChunks.length % 3 === 0) {
-              saveRecordingCheckpoint(recCourseAtStart, mediaRecorder.mimeType, recChunks);
+            chunks.push(ev.data);
+            if (chunks.length % 3 === 0) {
+              saveRecordingCheckpoint(recCourseAtStart, recorder.mimeType, chunks, recOwnerId, recStartedAt);
             }
           }
         };
-        mediaRecorder.onstop = async () => {
-          cancelAnimationFrame(animFrame);
-          clearInterval(recTimerInterval);
-          stream.getTracks().forEach(t => t.stop());
-          if (wakeLock) { try { await wakeLock.release(); } catch {} wakeLock = null; }
-
-          document.getElementById('btn-rec-start').textContent = '마이크 녹음 시작';
-          document.getElementById('btn-rec-start').classList.remove('btn-danger');
-          document.getElementById('btn-rec-pause').style.display = 'none';
-
-          const courseNow = document.getElementById('rec-course').value.trim() || recCourseAtStart;
-          const ext = (mediaRecorder.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
-          const recUuid = (window.crypto && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : ('rec_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10));
-          const kstDate = new Date(Date.now() + 9 * 3600 * 1000);
-          const stamp = kstDate.toISOString().slice(0, 19).replace(/[:T]/g, '-');
-          const safeCourse = courseNow.replace(/[\\\\/:*?"<>|\\s]+/g, '_');
-          const fileName = safeCourse + '_' + stamp + '_' + recUuid.slice(0, 8) + '.' + ext;
-          const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-          const localId = recUuid;
-
-          await savePendingUploadToVault({
-            localId,
-            fileName,
-            course: courseNow,
-            mimeType: blob.type,
-            size: blob.size,
-            createdAt: Date.now(),
-            sourceClient: 'web-mic',
-            lastError: '업로드 진행 중...',
-            blob
-          });
-          await clearRecordingCheckpoint();
-
-          const autoSaveChk = document.getElementById('chk-local-save');
-          if (!autoSaveChk || autoSaveChk.checked) {
-            triggerLocalBlobDownload(blob, fileName);
+        recorder.onerror = (ev) => {
+          console.error('MediaRecorder error:', ev.error || ev);
+          showToast('녹음 장치 오류로 녹음이 중단되었습니다. 지금까지 녹음된 내용을 저장합니다.');
+        };
+        recorder.onstop = async () => {
+          releaseRecordingResources(recStream);
+          resetRecorderControls();
+          try {
+            await finalizeRecording(recorder, chunks, recCourseAtStart, recOwnerId);
+          } catch (err) {
+            console.error('Finalizing recording failed:', err);
+          } finally {
+            dropRecordingTabLock();
           }
-
-          const file = new File([blob], fileName, { type: blob.type });
-          await uploadAndDistillFile(file, 'web-mic', localId, courseNow);
         };
 
-        mediaRecorder.start(1000);
-        document.getElementById('btn-rec-start').textContent = '녹음 종료 및 노트 요약 시작';
-        document.getElementById('btn-rec-start').classList.add('btn-danger');
+        recorder.start(1000);
+        mediaRecorder = recorder;
+        recStartTime = recStartedAt;
+        holdRecordingTabLock();
+        startBtn.textContent = '녹음 종료 및 노트 요약 시작';
+        startBtn.classList.add('btn-danger');
         document.getElementById('btn-rec-pause').style.display = 'inline-flex';
 
         recTimerInterval = setInterval(() => {
@@ -2873,14 +3196,78 @@ export function renderAppHtml(): string {
           document.getElementById('rec-timer').textContent = m + ':' + s;
         }, 500);
 
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const src = audioCtx.createMediaStreamSource(stream);
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 128;
-        src.connect(analyser);
-        drawWaveform();
+        // The level meter is cosmetic; a failure here must not abort a running recording.
+        try {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          const src = audioCtx.createMediaStreamSource(stream);
+          analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 128;
+          src.connect(analyser);
+          drawWaveform();
+        } catch (err) {
+          console.error('Waveform setup failed:', err);
+        }
       } catch (err) {
-        alert('마이크 권한을 확인해주세요: ' + err.message);
+        if (!recorder || recorder.state === 'inactive') {
+          releaseRecordingResources(stream);
+          resetRecorderControls();
+        }
+        alert('마이크 권한을 확인해주세요: ' + ((err && err.message) || err));
+      } finally {
+        recStarting = false;
+        startBtn.disabled = false;
+      }
+    }
+
+    async function finalizeRecording(recorder, chunks, recCourseAtStart, recOwnerId) {
+      const courseNow = document.getElementById('rec-course').value.trim() || recCourseAtStart;
+      const blobType = recorder.mimeType || 'audio/webm';
+      const ext = blobType.includes('mp4') ? 'm4a' : 'webm';
+      const recUuid = newLocalId('rec');
+      const kstDate = new Date(Date.now() + 9 * 3600 * 1000);
+      const stamp = kstDate.toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const safeCourse = courseNow.replace(/[\\\\/:*?"<>|\\s]+/g, '_');
+      const fileName = safeCourse + '_' + stamp + '_' + recUuid.slice(0, 8) + '.' + ext;
+      const blob = new Blob(chunks, { type: blobType });
+      const localId = recUuid;
+      if (!blob.size) {
+        await clearRecordingCheckpoint();
+        showToast('녹음된 오디오가 없어 업로드하지 않았습니다.');
+        return;
+      }
+
+      // The local download, the vault backup and the upload are independent: none of them
+      // waits on another one succeeding.
+      const autoSaveChk = document.getElementById('chk-local-save');
+      const downloaded = !autoSaveChk || autoSaveChk.checked;
+      if (downloaded) {
+        triggerLocalBlobDownload(blob, fileName);
+      }
+
+      const backedUp = await savePendingUploadToVault({
+        localId,
+        fileName,
+        course: courseNow,
+        mimeType: blob.type,
+        size: blob.size,
+        createdAt: Date.now(),
+        sourceClient: 'web-mic',
+        ownerId: recOwnerId,
+        lastError: '업로드 진행 중...',
+        blob
+      });
+      if (backedUp) {
+        await clearRecordingCheckpoint();
+      }
+
+      const file = new File([blob], fileName, { type: blob.type });
+      const result = await uploadAndDistillFile(file, 'web-mic', localId, courseNow, {
+        ownerId: recOwnerId,
+        inMemoryOnly: true,
+        downloaded
+      });
+      if (result === 'uploaded' && !backedUp) {
+        await clearRecordingCheckpoint();
       }
     }
 
@@ -2899,12 +3286,14 @@ export function renderAppHtml(): string {
     function drawWaveform() {
       const canvas = document.getElementById('rec-canvas');
       const ctx = canvas.getContext('2d');
-      const bufLen = analyser.frequencyBinCount;
+      const meter = analyser;
+      const bufLen = meter.frequencyBinCount;
       const data = new Uint8Array(bufLen);
 
       function render() {
+        if (analyser !== meter) return;
         animFrame = requestAnimationFrame(render);
-        analyser.getByteFrequencyData(data);
+        meter.getByteFrequencyData(data);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const barW = (canvas.width / bufLen) * 1.6;
         let x = 0;
@@ -2935,77 +3324,77 @@ export function renderAppHtml(): string {
       await uploadAndDistillFile(files[0], 'web-upload');
     }
 
-    async function uploadAndDistillFile(file, sourceClient, existingLocalId, overrideCourse) {
-      const course = overrideCourse || document.getElementById('rec-course').value.trim() || '대학교 전공 강의';
-      const localId = existingLocalId || (
-        (window.crypto && crypto.randomUUID)
-          ? crypto.randomUUID()
-          : ('upl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10))
-      );
-
-      if (!existingLocalId) {
-        await savePendingUploadToVault({
-          localId,
-          fileName: file.name,
-          course,
-          mimeType: file.type || 'audio/mp4',
-          size: file.size,
-          createdAt: Date.now(),
-          sourceClient: sourceClient || 'web-upload',
-          lastError: '업로드 진행 중...',
-          blob: file
-        });
+    // Same-tab Set plus a cross-tab Web Lock, so the online event, "전체 재업로드" and other tabs
+    // never POST the same vault item at once. Resolves false if another upload already holds it.
+    async function withUploadLock(localId, fn) {
+      if (inFlightUploads.has(localId)) return false;
+      inFlightUploads.add(localId);
+      try {
+        if (navigator.locks && navigator.locks.request) {
+          return await navigator.locks.request('lectern-upload:' + localId, { ifAvailable: true }, async (lock) => {
+            if (!lock) return false;
+            await fn();
+            return true;
+          });
+        }
+        await fn();
+        return true;
+      } finally {
+        inFlightUploads.delete(localId);
       }
+    }
 
-      const statusEl = document.getElementById('ingest-status');
-      statusEl.style.display = 'block';
-
+    // POSTs the file, retrying only network errors, 5xx, 408 and 429. Never throws.
+    async function postIngestWithRetry(file, course, sourceClient, localId, statusEl) {
       const maxAttempts = 3;
       let lastErrorMsg = '네트워크 연결 오류';
-
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          statusEl.textContent =
-            (attempt > 1 ? '[재시도 ' + attempt + '/' + maxAttempts + '] ' : '') +
-            '오디오 업로드 중 (' + (file.size / 1048576).toFixed(1) + ' MB)...';
+        if (attempt > 1) {
+          await new Promise(r => setTimeout(r, 2000 * (attempt - 1)));
+        }
+        statusEl.textContent =
+          (attempt > 1 ? '[재시도 ' + attempt + '/' + maxAttempts + '] ' : '') +
+          '오디오 업로드 중 (' + (file.size / 1048576).toFixed(1) + ' MB)...';
 
+        let res;
+        try {
           const form = new FormData();
           form.append('audio', file);
           form.append('course', course);
           form.append('source', sourceClient);
           form.append('idempotency_key', localId);
-
-          const headers = authHeaders({ 'X-Idempotency-Key': localId });
-
-          const res = await fetch('/api/lectures/ingest', {
+          res = await fetch('/api/lectures/ingest', {
             method: 'POST',
-            headers,
+            headers: authHeaders({ 'X-Idempotency-Key': localId }),
             body: form
           });
-          const data = await res.json();
-          if (!res.ok) {
-            lastErrorMsg = data.error || ('HTTP ' + res.status);
-            if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
-              break;
-            }
-            throw new Error(lastErrorMsg);
-          }
-
-          await removePendingUploadFromVault(localId);
-          statusEl.style.display = 'none';
-          closeModal('recorder-modal');
-          showToast('오디오 업로드 완료 · 실시간 증류가 시작되었습니다.');
-          await fetchLectures(data.lecture.id);
-          return;
         } catch (err) {
-          lastErrorMsg = err.message || '네트워크 장애';
-          if (attempt < maxAttempts) {
-            await new Promise(r => setTimeout(r, 2000 * attempt));
-          }
+          lastErrorMsg = (err && err.message) || '네트워크 장애';
+          continue;
+        }
+
+        // Error pages from proxies (413, 502, ...) are HTML, so parse the body defensively
+        // and only after the status has been checked.
+        let data = null;
+        try { data = JSON.parse(await res.text()); } catch {}
+        if (res.ok) {
+          return { ok: true, data };
+        }
+        lastErrorMsg = (data && data.error) || ('HTTP ' + res.status);
+        const retryable = res.status >= 500 || res.status === 408 || res.status === 429;
+        if (!retryable) {
+          return { ok: false, permanent: true, message: lastErrorMsg };
         }
       }
+      return { ok: false, permanent: false, message: lastErrorMsg };
+    }
 
-      await savePendingUploadToVault({
+    // Returns 'uploaded' | 'failed' | 'busy' | 'skipped'. Never throws.
+    async function uploadAndDistillFile(file, sourceClient, existingLocalId, overrideCourse, opts) {
+      const options = opts || {};
+      const course = overrideCourse || document.getElementById('rec-course').value.trim() || '대학교 전공 강의';
+      const localId = existingLocalId || newLocalId('upl');
+      const entryBase = {
         localId,
         fileName: file.name,
         course,
@@ -3013,12 +3402,65 @@ export function renderAppHtml(): string {
         size: file.size,
         createdAt: Date.now(),
         sourceClient: sourceClient || 'web-upload',
-        lastError: '업로드 실패 (' + lastErrorMsg + ') · 로컬 금고에 안전 보관됨',
+        ownerId: options.ownerId || (currentUser && currentUser.id) || null,
         blob: file
+      };
+
+      if (!existingLocalId) {
+        await savePendingUploadToVault(Object.assign({}, entryBase, { lastError: '업로드 진행 중...' }));
+      }
+
+      const statusEl = document.getElementById('ingest-status');
+      let outcome = null;
+      const acquired = await withUploadLock(localId, async () => {
+        // Another tab may have finished this item while we waited for the lock.
+        if (options.requireVaultEntry && !(await getPendingUploadFromVault(localId))) return;
+        statusEl.style.display = 'block';
+        outcome = await postIngestWithRetry(file, course, sourceClient, localId, statusEl);
       });
-      statusEl.textContent =
-        '업로드 중 네트워크 장애가 발생했지만 원본 오디오가 브라우저 로컬 금고에 안전하게 보관되었습니다. 네트워크 복구 시 자동 재업로드되거나 위 보관함에서 즉시 재시도/다운로드할 수 있습니다.';
-      showToast('업로드 지연: 원본 오디오가 로컬 보관함에 안전하게 보호되었습니다.');
+      if (!acquired) return 'busy';
+      if (!outcome) return 'skipped';
+
+      if (outcome.ok) {
+        await removePendingUploadFromVault(localId);
+        statusEl.style.display = 'none';
+        closeModal('recorder-modal');
+        showToast('오디오 업로드 완료 · 실시간 증류가 시작되었습니다.');
+        try {
+          await fetchLectures(outcome.data && outcome.data.lecture ? outcome.data.lecture.id : undefined);
+        } catch (err) {
+          console.error('Refreshing lectures after upload failed:', err);
+        }
+        return 'uploaded';
+      }
+
+      const failLabel = outcome.permanent
+        ? '서버가 업로드를 거부했습니다 (' + outcome.message + ')'
+        : '업로드 실패 (' + outcome.message + ')';
+      const existing = await getPendingUploadFromVault(localId);
+      const resaved = await savePendingUploadToVault(Object.assign({}, existing || entryBase, {
+        lastError: failLabel + ' · 로컬 금고에 보관됨'
+      }));
+      if (resaved || existing) {
+        statusEl.textContent = outcome.permanent
+          ? failLabel + '. 원본 오디오는 브라우저 로컬 금고에 보관되어 있으니 위 보관함에서 다시 시도하거나 다운로드할 수 있습니다.'
+          : '업로드 중 네트워크 장애가 발생했지만 원본 오디오가 브라우저 로컬 금고에 보관되었습니다. 네트워크 복구 시 자동 재업로드되거나 위 보관함에서 즉시 재시도/다운로드할 수 있습니다.';
+        showToast(outcome.permanent ? '업로드 실패: 원본은 로컬 보관함에 남아 있습니다.' : '업로드 지연: 원본 오디오가 로컬 보관함에 보관되었습니다.');
+        return 'failed';
+      }
+
+      // No vault copy (IndexedDB unavailable, full or failing): the file is the only copy left.
+      if (options.inMemoryOnly) {
+        if (!options.downloaded) {
+          triggerLocalBlobDownload(file, file.name);
+        }
+        statusEl.textContent = failLabel + '. 브라우저 로컬 금고에 저장할 수 없어 녹음 원본을 기기에 다운로드했습니다 (' + file.name + '). 이 파일을 아래 업로드 영역에 직접 올려주세요.';
+        showToast('업로드 실패: 녹음 원본을 기기에 다운로드했습니다.');
+      } else {
+        statusEl.textContent = failLabel + '. 브라우저 로컬 금고를 사용할 수 없어 보관하지 못했습니다. 원본 파일을 다시 선택해 업로드해 주세요.';
+        showToast('업로드 실패: 원본 파일을 다시 선택해 주세요.');
+      }
+      return 'failed';
     }
 
     const savedAutoSave = localStorage.getItem('lectern_autosave_local');
@@ -3644,11 +4086,10 @@ export function renderAdminPageHtml(): string {
       localStorage.setItem('lectern_theme', next);
     }
 
+    // Authenticated by the HttpOnly lectern_session cookie (same-origin).
+    try { localStorage.removeItem('lectern_token'); } catch {}
     function authHeaders(extra) {
-      const h = Object.assign({}, extra || {});
-      const tok = localStorage.getItem('lectern_token');
-      if (tok) h['X-Lectern-Token'] = tok;
-      return h;
+      return Object.assign({}, extra || {});
     }
 
     function showToast(msg) {
@@ -3660,7 +4101,12 @@ export function renderAdminPageHtml(): string {
     }
 
     function esc(s) {
-      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     async function loadOverview() {
@@ -3730,7 +4176,7 @@ export function renderAdminPageHtml(): string {
           u.can_use_server_key ? '<span class="badge neutral">자동분석</span>' : '<span class="badge warn">분석제한</span>'
         ].join(' ');
         const approveBtn = u.status === 'pending'
-          ? '<button class="btn btn-primary btn-sm" style="margin-right:6px;" onclick="quickApproveUser(\\'' + u.id + '\\')">승인</button>'
+          ? '<button class="btn btn-primary btn-sm" style="margin-right:6px;" data-action="approve-user" data-user-id="' + esc(u.id) + '">승인</button>'
           : '';
         return '<tr>' +
           '<td><div style="font-weight:600;">' + esc(u.display_name) + '</div><div style="font-size:12.5px;color:var(--elysium-text-secondary);font-family:var(--elysium-font-mono);">' + esc(u.email) + '</div></td>' +
@@ -3740,7 +4186,7 @@ export function renderAdminPageHtml(): string {
           '<td>' + u.lecture_count + '건 <span style="color:var(--elysium-text-tertiary);font-size:12.5px;">(공개 ' + u.public_count + ' / 오류 ' + u.error_count + ')</span></td>' +
           '<td style="font-family:var(--elysium-font-mono);font-size:13px;">' + usedMb + ' MB / ' + quotaLabel + '</td>' +
           '<td><div style="font-size:12.5px;color:var(--elysium-text-secondary);">' + esc(lastLogin) + '</div><div style="font-size:12.5px;color:var(--elysium-text-brand);">' + esc(u.memo || '—') + '</div></td>' +
-          '<td style="white-space:nowrap;">' + approveBtn + '<button class="btn btn-sm" onclick="openEditUserModal(\\'' + u.id + '\\')">권한·비번·메모</button></td>' +
+          '<td style="white-space:nowrap;">' + approveBtn + '<button class="btn btn-sm" data-action="edit-user" data-user-id="' + esc(u.id) + '">권한·비번·메모</button></td>' +
         '</tr>';
       }).join('');
     }
@@ -3758,7 +4204,7 @@ export function renderAdminPageHtml(): string {
           ? '<span class="badge warn">분석중</span>'
           : '<span class="badge danger">오류</span>';
         const retryBtn = l.status === 'error'
-          ? '<button class="btn btn-primary btn-sm" onclick="adminRetryLecture(\\'' + l.id + '\\')">재분석</button> '
+          ? '<button class="btn btn-primary btn-sm" data-action="retry-lecture" data-lecture-id="' + esc(l.id) + '">재분석</button> '
           : '';
         return '<tr>' +
           '<td><div style="font-weight:600;font-size:13px;">' + esc(l.owner_name || '—') + '</div><div style="font-size:12px;color:var(--elysium-text-secondary);">' + esc(l.owner_email || '') + '</div></td>' +
@@ -3934,6 +4380,19 @@ export function renderAdminPageHtml(): string {
     function closeAdminModal(id) {
       document.getElementById(id).classList.remove('open');
     }
+
+    document.getElementById('crm-users-tbody').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action][data-user-id]');
+      if (!btn) return;
+      if (btn.dataset.action === 'approve-user') quickApproveUser(btn.dataset.userId);
+      else if (btn.dataset.action === 'edit-user') openEditUserModal(btn.dataset.userId);
+    });
+
+    document.getElementById('admin-lectures-tbody').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action="retry-lecture"]');
+      if (!btn) return;
+      adminRetryLecture(btn.dataset.lectureId);
+    });
 
     loadOverview();
   </script>
