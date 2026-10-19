@@ -24,8 +24,14 @@ const manifest = await renderChunks(speech.path, plan, "chunks/"); // chunks.jso
 // merge에서 정확히 한 번: 청크 상대 시간 + 청크 시작 → 원본 시간
 const startMs = toOriginalMs(chunk.start_ms + seg.start_ms, map.time_map);
 const endMs = toOriginalMs(chunk.start_ms + seg.end_ms, map.time_map, "end");
+// 잘린 시간 범위 → 원본 시간 조각들(잘린 지점을 걸치면 둘로 나뉜다): 누락 구간, 걸친 세그먼트 처리
+toOriginalRanges({ start_ms: 290_000, end_ms: 310_000 }, map.time_map);
 map.cuts.map(formatGapMarker); // ["[쉬는 시간: 50:12~1:02:40]", "[종료 후: 1:12:15~1:20:00]"]
 ```
+
+- 하네스 단계(`packages/harness/src/transcript/stages.ts`)는 청크 파일을 블롭에 넣고 매니페스트의 `path`를 sha256으로 바꿔 저장한다. 공급자는 `RenderedChunk`(계획 + `path`, `bytes`, `mime`)를 받는다.
+- 메모 키용 버전 상수: `NORMALIZE_VERSION`, `SPEECH_MAP_VERSION`, `CHUNK_PLAN_VERSION`. 규칙이나 필터가 바뀌면 올린다.
+- `detectSilences`의 옵션을 `undefined`로 넘기면 기본값을 쓴다(호출자가 자기 선택 옵션을 그대로 넘겨도 된다).
 
 ## 판정 규칙 (`DEFAULT_SPEECH_MAP_RULES`, `SPEECH_MAP_VERSION = 1`)
 
