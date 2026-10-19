@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import type { LectureSummaryDto } from "./admin-api.ts";
 import { db } from "./db.ts";
+import { logger } from "./log.ts";
 
 /** Identifies this process in `job_event.origin`. */
 export const PROCESS_ORIGIN = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
@@ -39,13 +40,13 @@ export function emitLectureEvent(ownerId: string, payload: LectureEventPayload):
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(ownerId, payload.id ?? null, payload.type, JSON.stringify(payload), PROCESS_ORIGIN, Date.now());
   } catch (err) {
-    console.error("Could not record lecture event:", err);
+    logger.error("could not record lecture event", { err });
   }
   for (const listener of listeners) {
     try {
       listener(ownerId, payload);
     } catch (err) {
-      console.error("Lecture event listener failed:", err);
+      logger.error("lecture event listener failed", { err });
     }
   }
 }
@@ -73,7 +74,7 @@ export function tailForeignLectureEvents(
         try {
           deliver(row.owner_id, JSON.parse(row.payload));
         } catch (err) {
-          console.error("Could not deliver lecture event:", err);
+          logger.error("could not deliver lecture event", { err });
         }
       }
       if (rows.length === 0) {
@@ -87,7 +88,7 @@ export function tailForeignLectureEvents(
         }
       }
     } catch (err) {
-      console.error("Lecture event tail failed:", err);
+      logger.error("lecture event tail failed", { err });
     }
   }, options.pollMs ?? 500);
   timer.unref?.();

@@ -6,6 +6,7 @@
 import { config } from "@lectern/config";
 import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
+import { logger } from "./log.ts";
 import { runMaintenance } from "./ops.ts";
 import { isLectureBusy } from "./queue.ts";
 import type { RetentionOutcome } from "./storage.ts";
@@ -40,12 +41,21 @@ export function startMaintenanceSchedule(): () => void {
     runMaintenanceNow()
       .then((r) => {
         if (r.errors.length || r.orphanFiles.count || r.backup || r.retention.count || r.failedRetention.count) {
-          console.log(
-            `Maintenance: sessions -${r.expiredSessions}, codes -${r.expiredCodes}, audit -${r.prunedAuditLogs}, events -${r.prunedJobEvents ?? 0}, jobs -${r.prunedJobs ?? 0}, orphans→trash ${r.orphanFiles.count}, retention ${r.retention.count}/${r.failedRetention.count}, backup ${r.backup?.file ?? "-"}, errors ${r.errors.length}`
-          );
+          logger.info("maintenance", {
+            expired_sessions: r.expiredSessions,
+            expired_codes: r.expiredCodes,
+            pruned_audit_logs: r.prunedAuditLogs,
+            pruned_job_events: r.prunedJobEvents ?? 0,
+            pruned_jobs: r.prunedJobs ?? 0,
+            orphans_trashed: r.orphanFiles.count,
+            retention: r.retention.count,
+            failed_retention: r.failedRetention.count,
+            backup: r.backup?.file ?? null,
+            errors: r.errors.length,
+          });
         }
       })
-      .catch((err) => console.error("Maintenance failed:", err));
+      .catch((err) => logger.error("maintenance failed", { err }));
   };
   const first = setTimeout(run, 2 * 60_000);
   first.unref?.();

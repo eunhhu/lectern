@@ -18,6 +18,7 @@ import {
 } from "../../../packages/core/src/index.ts";
 import { config, readSecret } from "@lectern/config";
 import { runMigrations } from "@lectern/db";
+import { logger } from "./log.ts";
 
 export const USER_ROLES = ["owner", "admin", "member", "viewer"] as const;
 export const USER_STATUSES = ["active", "pending", "suspended"] as const;
@@ -313,7 +314,7 @@ try {
 } catch (err) {
   // Every step above is idempotent, so a failure here is a real schema problem: say so
   // instead of booting silently against a half-migrated database.
-  console.error("Database migration failed:", err);
+  logger.error("database migration failed", { err });
 }
 
 // v2 schema: versioned Drizzle migrations (packages/db). A failure throws and aborts the
@@ -322,9 +323,7 @@ try {
 {
   const migration = runMigrations(db, { backupDir: join(DATA_DIR, "backups") });
   if (migration.applied.length) {
-    console.log(
-      `Applied migrations: ${migration.applied.join(", ")}${migration.backup ? ` (backup: ${migration.backup})` : ""}`
-    );
+    logger.info("applied migrations", { applied: migration.applied, backup: migration.backup });
   }
 }
 
@@ -951,8 +950,9 @@ export function ensureBootstrapOwner(): UserRecord {
     // password and signs in after a password reset (or a restart with the variable set and
     // LECTERN_FORCE_RESET_OWNER_PASSWORD=1).
     if (!configuredPassword) {
-      console.warn(
-        `Owner account ${ownerEmail} created with a random password: set LECTERN_OWNER_PASSWORD (with LECTERN_FORCE_RESET_OWNER_PASSWORD=1) or use the password reset flow.`
+      logger.warn(
+        "owner account created with a random password: set LECTERN_OWNER_PASSWORD (with LECTERN_FORCE_RESET_OWNER_PASSWORD=1) or use the password reset flow",
+        { email: ownerEmail }
       );
     }
     owner = createUser({

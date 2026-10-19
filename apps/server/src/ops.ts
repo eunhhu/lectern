@@ -19,6 +19,7 @@ import type { MaintenanceResultDto } from "./admin-api.ts";
 import { pruneLectureEvents } from "./events.ts";
 import { pruneFinishedJobs } from "./queue.ts";
 import { DATA_DIR, db, getSystemSettings } from "./db.ts";
+import { logger } from "./log.ts";
 import {
   applyRetentionPolicies,
   moveToTrash,
@@ -281,7 +282,7 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
     return true;
   });
 
-  if (errors.length) console.error("Maintenance finished with errors:", errors);
+  if (errors.length) logger.error("maintenance finished with errors", { errors });
   return {
     startedAt: nowIso,
     finishedAt: new Date().toISOString(),

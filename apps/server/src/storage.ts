@@ -20,6 +20,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { config } from "@lectern/config";
 import { probeAudioDuration } from "../../../packages/core/src/index.ts";
 import type { AdminSettingsDto, AdminStorageDto } from "./admin-api.ts";
+import { logger } from "./log.ts";
 import {
   DATA_DIR,
   db,
@@ -62,7 +63,7 @@ export function isFfmpegAvailable(): boolean {
       ffmpegAvailable = false;
     }
     if (!ffmpegAvailable) {
-      console.warn("ffmpeg not found on PATH: audio compaction is disabled.");
+      logger.warn("ffmpeg not found on PATH: audio compaction is disabled");
     }
   }
   return ffmpegAvailable;
@@ -303,7 +304,7 @@ export function moveToTrash(files: FileEntry[]): number {
       utimesSync(dest, now, now);
       moved++;
     } catch (err) {
-      console.error(`Could not move ${file.name} to trash:`, err);
+      logger.error("could not move file to trash", { file: file.name, err });
     }
   }
   return moved;

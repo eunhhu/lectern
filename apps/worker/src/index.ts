@@ -10,11 +10,12 @@ import { readApiRelease, removeWorkerHeartbeat, writeWorkerHeartbeat } from "../
 import { startMaintenanceSchedule } from "../../server/src/maintenance.ts";
 import { resolveGitSha } from "../../server/src/ops.ts";
 import { JobWorker } from "../../server/src/queue.ts";
+import { logger } from "../../server/src/log.ts";
 import { isFfmpegAvailable } from "../../server/src/storage.ts";
 
 if (config().workerMode !== "external") {
-  console.error(
-    "lectern-worker only runs with LECTERN_WORKER_MODE=external; in embedded mode the API process runs jobs itself."
+  logger.error(
+    "lectern-worker only runs with LECTERN_WORKER_MODE=external; in embedded mode the API process runs jobs itself"
   );
   process.exit(2);
 }
@@ -30,7 +31,7 @@ const beat = () => {
   try {
     writeWorkerHeartbeat(worker.id, { pid: process.pid, sha, active: worker.activeCount });
   } catch (err) {
-    console.error("Worker heartbeat failed:", err);
+    logger.error("worker heartbeat failed", { err });
   }
 };
 beat();
@@ -52,10 +53,10 @@ let shuttingDown = false;
 async function shutdown(reason: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`lectern-worker shutting down (${reason})...`);
+  logger.info("lectern-worker shutting down", { reason });
   stopMaintenance();
   const drained = await worker.drain(config().shutdownGraceMs);
-  if (!drained) console.warn("Jobs still running at shutdown were handed back to the queue.");
+  if (!drained) logger.warn("jobs still running at shutdown were handed back to the queue");
   try {
     removeWorkerHeartbeat(worker.id);
     db.exec(`PRAGMA wal_checkpoint(TRUNCATE)`);
@@ -68,4 +69,4 @@ async function shutdown(reason: string): Promise<void> {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
-console.log(`lectern-worker ${worker.id} started (sha ${sha.slice(0, 7)})`);
+logger.info("lectern-worker started", { worker_id: worker.id, sha: sha.slice(0, 7) });

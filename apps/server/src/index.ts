@@ -98,6 +98,8 @@ import { emitLectureEvent, onLectureEvent, tailForeignLectureEvents, type Lectur
 import { toLectureSummaryDto } from "./dto.ts";
 import { emitRetentionOutcome, runMaintenanceNow, startMaintenanceSchedule } from "./maintenance.ts";
 import { liveWorkers, publishApiRelease } from "./coordination.ts";
+import { createHttpApp } from "./http.ts";
+import { logger } from "./log.ts";
 
 export { isRetryableDistillError, toLectureSummaryDto };
 import {
@@ -152,7 +154,7 @@ export async function syncLocalLecturesIfStale(now = Date.now()): Promise<boolea
   if (now - lastLocalSyncAt < LOCAL_SYNC_MIN_INTERVAL_MS) return false;
   lastLocalSyncAt = now;
   localSyncInFlight = syncLocalLecturesDir(bootstrapOwner.id)
-    .catch((err) => console.error("Local lecture sync failed:", err))
+    .catch((err) => logger.error("local lecture sync failed", { err }))
     .finally(() => {
       localSyncInFlight = null;
     });
@@ -335,8 +337,8 @@ export function getClientIp(req: Request): string | null {
   }
   if (!warnedMissingForwardedFor) {
     warnedMissingForwardedFor = true;
-    console.warn(
-      "No X-Forwarded-For on an auth request: per-IP rate limits are inactive until the proxy sets it."
+    logger.warn(
+      "no X-Forwarded-For on an auth request: per-IP rate limits are inactive until the proxy sets it"
     );
   }
   return null;
@@ -960,12 +962,14 @@ function buildOpsDto(): AdminOpsDto {
   };
 }
 
+const httpApp = createHttpApp(routeRequest);
+
 export async function handleRequest(req: Request): Promise<Response> {
   let res: Response;
   try {
-    res = applySecurityHeaders(await routeRequest(req));
+    res = applySecurityHeaders(await httpApp.fetch(req));
   } catch (err) {
-    console.error("Unhandled request error:", err);
+    logger.error("unhandled request error", { err });
     res = applySecurityHeaders(
       jsonResponse({ error: "서버 내부 오류가 발생했습니다." }, 500)
     );
@@ -1286,7 +1290,7 @@ async function routeRequest(req: Request): Promise<Response> {
           if (resetUser) {
             const code = createEmailVerificationCode(email, "reset", 10);
             sendResendVerificationEmail(email, code, "reset").catch((err) =>
-              console.error("Password reset email failed:", err)
+              logger.error("password reset email failed", { err })
             );
             recordAuditLog({
               actorId: "anonymous",
@@ -2627,8 +2631,13 @@ if (import.meta.main) {
         const url = new URL(req.url);
         // Health probes run every few seconds during deploys; only log them when unhealthy.
         if (url.pathname !== "/api/health" || res.status !== 200) {
-          const ms = Math.round(performance.now() - started);
-          console.log(`${res.status} ${req.method} ${redactUrlForLog(url)} ${ms}ms`);
+          logger.info("request", {
+            status: res.status,
+            method: req.method,
+            path: redactUrlForLog(url),
+            ms: Math.round(performance.now() - started),
+            request_id: res.headers.get("X-Request-Id"),
+          });
         }
       }
       return res;
@@ -2644,7 +2653,7 @@ if (import.meta.main) {
     ensureEmbeddedWorker();
     startMaintenanceSchedule();
   } else if (liveWorkers().length === 0) {
-    console.warn("LECTERN_WORKER_MODE=external but no lectern-worker heartbeat yet: jobs wait until one starts.");
+    logger.warn("LECTERN_WORKER_MODE=external but no lectern-worker heartbeat yet: jobs wait until one starts");
   }
   tailForeignLectureEvents(deliverToSse);
 
@@ -2655,11 +2664,11 @@ if (import.meta.main) {
   const shutdown = async (reason: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`Shutting down (${reason})...`);
+    logger.info("shutting down", { reason });
     const worker = embeddedWorker();
     const drained = worker ? await worker.drain(shutdownGraceMs) : true;
     if (!drained) {
-      console.warn("Jobs still running at shutdown were handed back to the queue.");
+      logger.warn("jobs still running at shutdown were handed back to the queue");
     }
     closeAllSseStreams();
     await Promise.race([server.stop(), new Promise((r) => setTimeout(r, 5000))]);
@@ -2674,7 +2683,9 @@ if (import.meta.main) {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
-  console.log(
-    `🚀 Lectern Bun Server listening on http://127.0.0.1:${server.port} (sha ${BOOT_GIT_SHA.slice(0, 7)})`
-  );
+  logger.info("server listening", {
+    url: `http://127.0.0.1:${server.port}`,
+    sha: BOOT_GIT_SHA.slice(0, 7),
+    worker_mode: config().workerMode,
+  });
 }
