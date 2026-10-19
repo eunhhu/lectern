@@ -83,27 +83,45 @@ test("library, recording, 물어보기 and sign-out over the real API", async ({
 
   // A processed recording: document, transcript, and the player on the real audio clock.
   const ready = list.body.items.find((r) => r.status === "ready")!;
+  const detail = await api<{ assets: { id: string; kind: string }[] }>(page, `/api/v2/recordings/${ready.id}`);
+  const audio = detail.body.assets.find((a) => a.kind.startsWith("audio"));
+  let bridged = false;
+  if (audio) {
+    const probe = await page.request.get(`/api/v2/assets/${audio.id}/content`, { headers: { Range: "bytes=0-1" } });
+    if (probe.status() !== 206) {
+      // The asset route is not served yet (501): test-only, answer it with a seeded
+      // lecture's audio from the v1 route, which honours Range the same way, so the
+      // browser's real <audio> element, its Range requests and the clock still run.
+      expect([501, 404]).toContain(probe.status());
+      const v1 = await api<{ lectures: { id: string }[] }>(page, "/api/lectures");
+      const lecture = v1.body.lectures[0]!;
+      await page.route(`**/api/v2/assets/${audio.id}/content`, async (route) => {
+        const response = await route.fetch({ url: new URL(`/api/lectures/${lecture.id}/audio`, page.url()).href });
+        await route.fulfill({ response });
+      });
+      bridged = true;
+    }
+  }
+  const ranges: string[] = [];
+  page.on("request", (req) => {
+    if (req.url().includes("/content") && req.headers().range) ranges.push(req.headers().range!);
+  });
   await grid.getByText(ready.title, { exact: true }).first().click();
   await expect(page.getByRole("heading", { level: 1, name: ready.title })).toBeVisible();
   await expect(page.getByRole("heading", { name: "전사", level: 2 })).toBeVisible();
-  const detail = await api<{ assets: { id: string; kind: string }[] }>(page, `/api/v2/recordings/${ready.id}`);
-  const audio = detail.body.assets.find((a) => a.kind.startsWith("audio"));
   if (audio) {
-    const probe = await page.request.get(`/api/v2/assets/${audio.id}/content`, { headers: { Range: "bytes=0-1" } });
-    if (probe.status() === 206) {
-      // The asset endpoint serves Range requests: playback moves the transcript.
-      const play = page.getByRole("button", { name: "재생", exact: true });
-      await expect(play).toBeEnabled();
-      await play.click();
-      await expect(page.getByRole("button", { name: "일시정지", exact: true })).toBeVisible();
-      await expect.poll(() => page.locator('input[aria-label="재생 위치"]').inputValue(), { timeout: 10_000 }).not.toBe("0");
-      await page.getByRole("button", { name: "일시정지", exact: true }).click();
-    } else {
-      // Not served yet (501 while the blob store is missing): say so, keep the transcript usable.
-      expect([501, 404]).toContain(probe.status());
-      await expect(page.getByText("오디오 준비 중")).toBeVisible();
-      await expect(page.getByRole("button", { name: "재생", exact: true })).toBeDisabled();
-    }
+    const play = page.getByRole("button", { name: "재생", exact: true });
+    await expect(play).toBeEnabled();
+    await expect(page.getByText("오디오 준비 중")).toHaveCount(0);
+    await play.click();
+    await expect(page.getByRole("button", { name: "일시정지", exact: true })).toBeVisible();
+    // The player position and the transcript's current segment follow the audio element.
+    const position = page.getByRole("slider", { name: "재생 위치" });
+    await expect.poll(async () => Number(await position.inputValue()), { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+    await expect(page.locator('[aria-current="true"]').first()).toBeVisible();
+    await page.getByRole("button", { name: "일시정지", exact: true }).click();
+    expect(ranges.length, "the browser fetched the audio with Range requests").toBeGreaterThan(0);
+    test.info().annotations.push({ type: "audio", description: bridged ? "asset route 501: played the seeded v1 audio through a test route" : "asset route served Range" });
   }
   await axe(page, "녹음 상세 (서버)");
   await shot(page, "03-recording");
@@ -152,6 +170,20 @@ test("library, recording, 물어보기 and sign-out over the real API", async ({
   expect((await page.request.get("/api/auth/me")).status()).toBe(401);
   await page.goto("/app/ask");
   await expect(page).toHaveURL(/\/app\/login\?next=/);
+});
+
+test("the player says 오디오 준비 중 when the asset bytes are not served", async ({ page }) => {
+  await signIn(page);
+  await expect(page.getByRole("heading", { level: 1, name: "홈" })).toBeVisible();
+  await page.route("**/api/v2/assets/*/content", (route) =>
+    route.fulfill({ status: 501, contentType: "application/json", body: JSON.stringify({ error: { code: "not_implemented", message: "아직 제공하지 않는 API입니다." } }) }),
+  );
+  const me = await api<{ personal_workspace_id: string }>(page, "/api/v2/me");
+  const list = await api<Page_<RecordingItem>>(page, `/api/v2/recordings?workspace_id=${me.body.personal_workspace_id}&limit=200`);
+  const ready = list.body.items.find((r) => r.status === "ready")!;
+  await page.goto(`/app/recordings/${ready.id}`);
+  await expect(page.getByText("오디오 준비 중")).toBeVisible();
+  await expect(page.getByRole("button", { name: "재생", exact: true })).toBeDisabled();
 });
 
 test("물어보기 is 준비 중 rather than broken when a request is refused", async ({ page }) => {
