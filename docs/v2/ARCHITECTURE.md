@@ -201,6 +201,15 @@ erDiagram
   - 녹음 id는 강의 id 그대로다.
   - 레거시 문서 id는 `doc_<lecture id>`이고 버전은 1이다.
   - 과목 폴더 id는 `fld_<sha256(owner, course) 앞 32자>`다.
+- **구현(P2, 2026-10-19)**: `packages/db` 마이그레이션 `0003_v2_entities`가 표를 만든다. 데이터 이전은 sha256 id 때문에 SQL이 아니라 코드다(`packages/db/src/legacy.ts`).
+  - 이전 시점: 부팅할 때마다 `backfillLegacy()`가 아직 녹음이 없는 강의를 옮긴다. 첫 P2 배포가 사실상의 이전이고, 이후에는 할 일이 없다.
+  - 기본값 1번 그대로다. 전사를 만들어 내지 않고, 재처리는 `POST /recordings/{id}/reprocess`(`dry_run`으로 추정 비용을 먼저 본다)로 사용자가 고른다.
+  - 공유 토큰은 share link가 된다(공개 여부는 `revoked_at`). `md_source_path`는 `document.md_source_path`, v1 `source_client`는 `recording.source_client`로 간다.
+  - 처리 파이프라인은 아직 v1이다. 그래서 `lectures`가 처리 상태를 계속 쓰고 v2 행은 그 투영으로 유지된다. db.ts의 강의 쓰기 뒤에 `projectLecture()`를 부르고, `lectures` 트리거가 그 밖의 쓰기를 잡는다.
+  - 반대로 v2 쓰기는 강의에 같이 쓴다. 제목, 폴더 → 과목 이름, legacy 문서 → Markdown이 그렇다. 폴더가 없는 녹음의 v1 과목은 `미분류`다.
+  - P1 브리지 편집 충돌: 이전 시점에 하네스는 v2 문서 JSON을 따로 남기지 않았다(산출물 블롭과 `lectures.markdown`뿐). 그래서 보존할 것은 Markdown 한 벌이고, 그것이 `legacy-markdown` 버전 1이다. 하네스가 v2 문서를 직접 쓰기 시작하면 그 문서는 별도 `document`로 생기고 legacy 문서와 섞이지 않는다.
+  - v1 어댑터: `GET /api/lectures`는 v2 녹음·폴더 행을 거쳐 읽는다. `/api/ingest/shortcut`과 `/api/lectures/ingest`는 v2 업로드와 같은 함수로 녹음을 만든다. v1 응답 형태는 `apps/server/test/v1-contract.test.ts`가 고정한다.
+  - 무손실 확인: `verifyLegacy()`가 강의마다 필드 체크섬과 건수를 비교한다. 운영 백업 사본에는 `apps/server/scripts/rehearse-v2-migration.ts`를, 배포 전에는 사전 점검(preflight)을 쓴다. 절차는 [deploy-and-rollback.md §5.5](../runbooks/deploy-and-rollback.md#55-v2-이전-리허설과-롤백)에 있다.
 
 ## 6. API v2
 
@@ -366,6 +375,8 @@ erDiagram
   - 예상 비용은 `gemini-3.5-flash-lite` 기준 질문당 약 $0.0018이다(ADR-0009 §8).
 
 ### 12.4 v1 브리지(P2 전까지)
+
+> P2(2026-10-19)부터 범위 검사는 v2 녹음·폴더 행을 쓴다(`ask/legacy.ts` `recordingRows`·`folderRows`). 아래 "워크스페이스 id"의 픽스처 별칭은 지웠다. 색인은 여전히 개인 워크스페이스의 강의 Markdown에서 만든다.
 
 v2 테이블이 생기기 전에도 물어보기를 실제 노트에 쓸 수 있도록, 각 사용자의 v1 강의를 노트로 본다(`apps/server/src/ask/legacy.ts`). `LECTERN_ASK=1`일 때만 켜진다.
 
