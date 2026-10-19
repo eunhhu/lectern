@@ -54,6 +54,13 @@
         "drizzle-kit": "0.31.11",
       },
     },
+    "packages/domain": {
+      "name": "@lectern/domain",
+      "version": "0.1.0",
+      "dependencies": {
+        "zod": "4.6.7",
+      },
+    },
   },
   "packages": {
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
@@ -119,6 +126,8 @@
     "@lectern/core": ["@lectern/core@workspace:packages/core"],
 
     "@lectern/db": ["@lectern/db@workspace:packages/db"],
+
+    "@lectern/domain": ["@lectern/domain@workspace:packages/domain"],
 
     "@lectern/server": ["@lectern/server@workspace:apps/server"],
 

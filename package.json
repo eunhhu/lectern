@@ -12,6 +12,7 @@
     "dev": "bun --watch apps/server/src/index.ts",
     "start": "bun apps/server/src/index.ts",
     "cli": "bun packages/core/src/cli.ts",
+    "domain:openapi": "bun packages/domain/scripts/openapi.ts",
     "test": "bun test",
     "typecheck": "bun x tsc --noEmit",
     "config:docs": "bun packages/config/scripts/write-env-docs.ts"
