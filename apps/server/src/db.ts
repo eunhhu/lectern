@@ -1370,25 +1370,37 @@ export function searchAuditLogs(filter: {
   return { logs: hasMore ? rows.slice(0, filter.limit) : rows, hasMore, counts };
 }
 
+/**
+ * The v1 lecture list (`GET /api/lectures`, the v1 batch tools), read through the v2 rows
+ * since P2: the user's recordings in their personal workspace, titled and filed as v2 has
+ * them (the folder's name is the course), with the lecture's processing state and audio.
+ * Lecture writes that bypassed this file are projected first.
+ */
 export function listLecturesForUser(
   ownerId: string,
   courseFilter?: string,
   search?: string
 ): LectureRecord[] {
-  let sql = `SELECT * FROM lectures WHERE owner_id = ?`;
-  const params: any[] = [ownerId];
+  syncPendingLectures();
+  const course = `CASE WHEN f.id IS NULL THEN l.course ELSE f.name END`;
+  let sql = `SELECT l.*, r.title AS title, ${course} AS course
+    FROM recording r
+    JOIN lectures l ON l.id = r.lecture_id
+    LEFT JOIN folder f ON f.id = r.folder_id
+    WHERE r.workspace_id = ? AND r.created_by = ?`;
+  const params: any[] = [personalWorkspaceId(ownerId), ownerId];
 
   if (courseFilter && courseFilter !== "ALL") {
-    sql += ` AND course = ?`;
+    sql += ` AND ${course} = ?`;
     params.push(courseFilter);
   }
   if (search && search.trim()) {
-    sql += ` AND (title LIKE ? OR course LIKE ? OR markdown LIKE ?)`;
+    sql += ` AND (r.title LIKE ? OR ${course} LIKE ? OR l.markdown LIKE ?)`;
     const q = `%${search.trim()}%`;
     params.push(q, q, q);
   }
 
-  sql += ` ORDER BY date_label DESC, created_at DESC`;
+  sql += ` ORDER BY l.date_label DESC, l.created_at DESC`;
   return db.query(sql).all(...params) as LectureRecord[];
 }
 

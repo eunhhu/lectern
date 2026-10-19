@@ -1,10 +1,9 @@
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, unlinkSync, writeSync } from "node:fs";
 import { extname, join } from "node:path";
-import { lectureAudioAssetId, lectureRecordingId, personalWorkspaceId, uuidv7 } from "@lectern/db";
+import { lectureRecordingId, personalWorkspaceId, uuidv7 } from "@lectern/db";
 import { HEADER, partCount, type CreateUploadRequest, type UploadFile } from "@lectern/domain";
 import { DEFAULT_GEMINI_MODEL } from "../../../../../packages/core/src/index.ts";
 import {
-  createPendingLecture,
   DATA_DIR,
   db,
   generateId,
@@ -22,9 +21,10 @@ import { logger } from "../../log.ts";
 import { AUDIO_EXT_BY_MIME, AUDIO_MIME_BY_EXT } from "../../media-files.ts";
 import { isLectureBusy } from "../../queue.ts";
 import { loadRecording, requireWorkspace } from "./access.ts";
+import { createRecordingForAudio } from "./ingest.ts";
 import { apiError, defineRouter, notFound, ok, type V2Request } from "./common.ts";
 import { recordingDto, uploadSessionDto, type QueueJobRow, type RecordingRow, type UploadRow } from "./rows.ts";
-import { courseForFolder, getFolderRow, getRecordingRow, sha256OfFile, toJob, transact } from "./store.ts";
+import { getFolderRow, getRecordingRow, sha256OfFile, toJob, transact } from "./store.ts";
 
 // Resumable chunked uploads (ARCHITECTURE §6 "업로드"): POST /uploads plans the parts,
 // PUT /uploads/{id}/parts/{n} streams each part to disk (never buffered whole in memory,
@@ -117,21 +117,6 @@ function uploadDenied(req: V2Request, user: UserRecord): Response | null {
 
 function requestKey(body: CreateUploadRequest): string {
   return JSON.stringify([body.workspace_id, body.recording_id ?? null, body.recorded_at ?? null, body.recording ?? null, body.files]);
-}
-
-/** Media `creation_time` from ffprobe, or null (no ffprobe, no tag). */
-async function mediaCreationTime(path: string): Promise<number | null> {
-  try {
-    const proc = Bun.spawn(["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path], { stdout: "pipe", stderr: "ignore" });
-    const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-    if (code !== 0) return null;
-    const created = (JSON.parse(out) as { format?: { tags?: Record<string, string> } }).format?.tags?.creation_time;
-    const t = created ? Date.parse(created) : Number.NaN;
-    // Devices without a clock report the epoch; ignore anything implausible.
-    return Number.isFinite(t) && t > Date.parse("2000-01-01T00:00:00Z") && t < Date.now() + 86_400_000 ? t : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Joins a file's parts into `target`; returns its digest. */
@@ -361,46 +346,27 @@ export const uploadsRouter = defineRouter({
         result = { recording_id: recordingId, job_id: jobId, deduplicated: true };
       } else {
         const lectureId = generateId("lec");
-        const recordedAt = upload.recorded_at ?? (await mediaCreationTime(audio!.path));
-        const recordedSource = upload.recorded_at ? "client" : recordedAt ? "media" : "upload";
-        const course = courseForFolder(hints.folder_id ?? null);
-        transact(() => {
-          createPendingLecture({
-            id: lectureId,
-            ownerId: user.id,
-            title: hints.title ?? "",
-            course,
-            audioPath: audio!.path,
-            audioMime: AUDIO_MIME_BY_EXT[extname(audio!.path)] ?? "application/octet-stream",
-            audioSize: audio!.file.bytes,
-            audioSha256: audio!.sha256,
-            modelRequested: DEFAULT_GEMINI_MODEL,
-            sourceClient: upload.source_client ?? "web-v2",
-          });
-          const recordingId = lectureRecordingId(lectureId);
-          db.query(
-            `UPDATE recording SET folder_id = COALESCE(?, folder_id), domain = ?, template_id = ?, language = ?,
-               recorded_at = COALESCE(?, recorded_at), recorded_at_source = ? WHERE id = ?`
-          ).run(
-            hints.folder_id ?? null,
-            hints.domain ?? "lecture",
-            hints.template_id ?? null,
-            hints.language ?? null,
-            recordedAt,
-            recordedSource,
-            recordingId
-          );
-          // The digest is known: no background hashing for this file.
-          db.query(`UPDATE asset SET sha256 = ? WHERE id = ?`).run(audio!.sha256, lectureAudioAssetId(lectureId));
-          const recording = getRecordingRow(recordingId)!;
-          for (const tagId of hints.tag_ids ?? []) {
-            db.query(
-              `INSERT OR IGNORE INTO recording_tag (workspace_id, recording_id, tag_id, source, confidence, created_at)
-               SELECT ?, ?, id, 'user', NULL, ? FROM tag WHERE id = ? AND workspace_id = ?`
-            ).run(recording.workspace_id, recording.id, now, tagId, recording.workspace_id);
-          }
-          insertDocumentAssets(recording, stored.filter((s) => s !== audio), now);
+        await createRecordingForAudio({
+          lectureId,
+          ownerId: user.id,
+          audioPath: audio!.path,
+          audioMime: AUDIO_MIME_BY_EXT[extname(audio!.path)] ?? "application/octet-stream",
+          audioSize: audio!.file.bytes,
+          dedupeKey: audio!.sha256,
+          sha256: audio!.sha256,
+          title: hints.title ?? "",
+          folderId: hints.folder_id ?? null,
+          model: DEFAULT_GEMINI_MODEL,
+          sourceClient: upload.source_client ?? "web-v2",
+          recordedAt: upload.recorded_at,
+          domain: hints.domain,
+          templateId: hints.template_id ?? null,
+          language: hints.language ?? null,
+          tagIds: hints.tag_ids,
         });
+        const extra = stored.filter((s) => s !== audio);
+        if (extra.length) transact(() => insertDocumentAssets(getRecordingRow(lectureRecordingId(lectureId))!, extra, now));
+        const course = getLectureById(lectureId)!.course;
         const lecture = getLectureById(lectureId)!;
         announce.push(() => emitLectureEvent(user.id, { type: "created", id: lectureId, lecture: toLectureSummaryDto(lecture) }));
         const { jobId } = enqueueDistillation(lectureId, user.id, {

@@ -29,9 +29,14 @@ interface Res {
   res: Response;
 }
 
-async function api(method: string, path: string, user: UserRecord, init: { body?: unknown; headers?: Record<string, string>; raw?: BodyInit } = {}): Promise<Res> {
+async function api(
+  method: string,
+  path: string,
+  user: UserRecord,
+  init: { body?: unknown; headers?: Record<string, string>; raw?: Uint8Array } = {}
+): Promise<Res> {
   const headers: Record<string, string> = { "X-Lectern-Token": user.api_token, ...init.headers };
-  let body: BodyInit | undefined = init.raw;
+  let body: BodyInit | undefined = init.raw ? new Blob([init.raw as Uint8Array<ArrayBuffer>]) : undefined;
   if (init.body !== undefined) {
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(init.body);

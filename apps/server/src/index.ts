@@ -19,7 +19,6 @@ import {
   cleanupLecturesForUser,
   completeLectureRecord,
   createEmailVerificationCode,
-  createPendingLecture,
   createSession,
   createUser,
   deleteAllUserSessions,
@@ -103,6 +102,7 @@ import { createHttpApp } from "./http.ts";
 import { WEB_SHELL_DIST_DIR } from "./web-shell.ts";
 import { logger } from "./log.ts";
 import { AUDIO_MIME_BY_EXT, resolveUploadAudioExt, serveAudioWithRange } from "./media-files.ts";
+import { createRecordingForAudio } from "./api/v2/ingest.ts";
 
 export { isRetryableDistillError, toLectureSummaryDto };
 import {
@@ -572,7 +572,10 @@ interface IncomingAudio {
   ext: string;
   audioMime: string;
   audioSize: number;
+  /** The v1 dedupe key: the client's idempotency key, else the file digest. */
   audioSha256: string;
+  /** The file digest when it was computed (no idempotency key), for the v2 asset. */
+  fileSha256: string | null;
   course: string;
   title: string;
   model: string;
@@ -633,7 +636,8 @@ async function readIncomingAudio(
     }
   }
 
-  const sha256 = idempotencyKey || (await sha256OfBlob(data));
+  const fileSha256 = idempotencyKey ? null : await sha256OfBlob(data);
+  const sha256 = idempotencyKey || fileSha256!;
 
   return {
     data,
@@ -641,6 +645,7 @@ async function readIncomingAudio(
     audioMime: AUDIO_MIME_BY_EXT[ext],
     audioSize: data.size,
     audioSha256: sha256,
+    fileSha256,
     course,
     title: title || "",
     model,
@@ -2217,7 +2222,8 @@ async function routeRequest(req: Request): Promise<Response> {
           String(body.title || rec.title),
           String(body.course || rec.course),
           String(body.markdown ?? rec.markdown),
-          typeof body.is_public === "boolean" ? body.is_public : undefined
+          typeof body.is_public === "boolean" ? body.is_public : undefined,
+          user?.id ?? null
         );
         if (updated) {
           broadcastLectureEvent(rec.owner_id, {
@@ -2297,16 +2303,17 @@ async function routeRequest(req: Request): Promise<Response> {
 
         const audioPath = await storeIncomingAudio(incoming);
         const id = generateId("lec");
-        const pending = createPendingLecture({
-          id,
+        const pending = await createRecordingForAudio({
+          lectureId: id,
           ownerId: user.id,
           title: incoming.title,
           course: incoming.course,
           audioPath,
           audioMime: incoming.audioMime,
           audioSize: incoming.audioSize,
-          audioSha256: incoming.audioSha256,
-          modelRequested: incoming.model,
+          dedupeKey: incoming.audioSha256,
+          sha256: incoming.fileSha256,
+          model: incoming.model,
           sourceClient: incoming.sourceClient,
         });
 
@@ -2387,16 +2394,17 @@ async function routeRequest(req: Request): Promise<Response> {
 
         const audioPath = await storeIncomingAudio(incoming);
         const id = generateId("lec");
-        const pending = createPendingLecture({
-          id,
+        const pending = await createRecordingForAudio({
+          lectureId: id,
           ownerId: user.id,
           title: incoming.title,
           course: incoming.course,
           audioPath,
           audioMime: incoming.audioMime,
           audioSize: incoming.audioSize,
-          audioSha256: incoming.audioSha256,
-          modelRequested: incoming.model,
+          dedupeKey: incoming.audioSha256,
+          sha256: incoming.fileSha256,
+          model: incoming.model,
           sourceClient: incoming.sourceClient || "shortcut",
         });
 
