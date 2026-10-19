@@ -17,6 +17,8 @@
 - 유지보수가 1시간마다 돈다(`LECTERN_MAINTENANCE_INTERVAL_MIN=60`, 부팅 2분 뒤 첫 실행).
 - 마지막 백업이 24시간(`LECTERN_BACKUP_INTERVAL_HOURS`)보다 오래됐으면 `VACUUM INTO`로 새 백업을 쓴다. 서버가 계속 요청을 받는 중에도 일관된 스냅샷이 만들어진다.
 - 최신 7개(`LECTERN_BACKUP_KEEP`)만 남기고 나머지는 지운다. 이 정리는 `lectern-YYYYMMDD-HHMMSS.sqlite` 이름만 대상으로 한다.
+- 마이그레이션 직전 사본 `pre-migrate-YYYYMMDD-HHMMSS.sqlite`는 개수(최신 3개)로만 정리된다. 마이그레이션이 드물면 오래 남는다.
+- **보관 기간 약속**: [개인정보처리방침](../../apps/server/static/legal/privacy.html#retention)은 삭제된 데이터가 백업 사본에 최대 7일 남는다고 약속한다. 그래서 자동 정리 대상이 아닌 `pre-migrate-*`, `manual-*` 사본은 운영자가 **7일이 지나면 지운다**(§6 1번). 오프호스트 사본도 같다(§5).
 - **백업은 DB와 같은 디스크에 있다.** 디스크가 죽으면 함께 잃는다. 오프호스트 복사(§5)를 해야 재해 복구가 된다.
 
 ## 2. 수동 백업
@@ -29,7 +31,7 @@
 
 ### 2.2 호스트에서 (순환 대상이 아닌 이름으로)
 
-`sqlite3` CLI가 없을 수 있으니 Bun으로 뜬다. `manual-` 접두사는 자동 정리 대상이 아니므로 직접 지워야 한다.
+`sqlite3` CLI가 없을 수 있으니 Bun으로 뜬다. `manual-` 접두사는 자동 정리 대상이 아니므로, 쓸 일이 끝나면(늦어도 7일 뒤) 직접 지운다.
 
 ```bash
 cd /home/eunhhu/work/lectern/data && STAMP=$(date -u +%Y%m%d-%H%M%S) && \
@@ -169,12 +171,19 @@ rsync -av <pi>:/home/eunhhu/work/lectern/data/uploads/ ~/lectern-offhost/uploads
 
 검증: 받아 온 최신 백업에 [§3.1](#31-백업-파일-점검) 점검을 돌린다(경로만 로컬 경로로 바꾼다).
 
-## 6. 정기 점검 (월 1회)
+## 6. 정기 점검 (주 1회)
 
-1. 관리자 콘솔 운영 보기에서 백업 개수(7)와 최신 백업 시각(24시간 이내)을 확인한다.
-2. 최신 백업에 §3.1 점검을 돌린다.
-3. 오프호스트 복사가 최근 7일 안에 됐는지 확인한다.
-4. 분기 1회는 오프호스트 사본으로 로컬에서 실제 복원 리허설을 한다.
+1. 7일이 지난 `pre-migrate-*`, `manual-*` 사본을 지운다(개인정보처리방침의 7일 약속). 먼저 목록을 보고, 장애 조사에 필요한 사본이면 조사가 끝날 때까지 남긴 뒤 지운다.
+   ```bash
+   find /home/eunhhu/work/lectern/data/backups -maxdepth 1 \( -name 'pre-migrate-*.sqlite' -o -name 'manual-*.sqlite' \) -mtime +7 -print
+   ```
+   ```bash
+   find /home/eunhhu/work/lectern/data/backups -maxdepth 1 \( -name 'pre-migrate-*.sqlite' -o -name 'manual-*.sqlite' \) -mtime +7 -delete
+   ```
+2. 관리자 콘솔 운영 보기에서 백업 개수(7)와 최신 백업 시각(24시간 이내)을 확인한다.
+3. 최신 백업에 §3.1 점검을 돌린다.
+4. 오프호스트 복사가 최근 7일 안에 됐는지 확인하고, 오프호스트 `backups/`에서 7일이 지난 사본을 지운다.
+5. 분기 1회는 오프호스트 사본으로 로컬에서 실제 복원 리허설을 한다.
    ```bash
    mkdir -p /tmp/lectern-restore-drill/{data,lectures,home} && cp ~/lectern-offhost/backups/<최신>.sqlite /tmp/lectern-restore-drill/data/lectern.sqlite
    ```
