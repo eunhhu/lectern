@@ -294,3 +294,402 @@ export const askTurn = sqliteTable(
     index("idx_ask_turn_cache").on(t.workspaceId, t.cacheKey),
   ]
 );
+
+// ---------------------------------------------------------------------------
+// v2 entities (ARCHITECTURE §5.2, packages/domain entities.ts)
+//
+// One table per domain entity, with the domain's column names; `*_json` columns hold the
+// fields the domain shows parsed (`settings_json` -> `settings`). Every row carries a
+// required `workspace_id` except `workspace` itself. Times are integer ms like the rest of
+// this schema; the API converts them to ISO-8601 UTC.
+//
+// v1 lectures are carried over (ARCHITECTURE §5.3) and kept in step with their lecture
+// row while the v1 pipeline still writes `lectures` (apps/server/src/db.ts, legacy.ts in
+// this package). `recording.lecture_id` links the two.
+// ---------------------------------------------------------------------------
+
+export const workspace = sqliteTable(
+  "workspace",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    kind: text("kind", { enum: ["personal", "team"] }).notNull(),
+    plan: text("plan").notNull().default("free"),
+    settingsJson: text("settings_json").notNull().default("{}"),
+    /** The user a personal workspace belongs to; null for team workspaces. */
+    personalUserId: text("personal_user_id"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("idx_workspace_personal").on(t.personalUserId)]
+);
+
+export const membership = sqliteTable(
+  "membership",
+  {
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id").notNull(),
+    role: text("role", { enum: ["owner", "admin", "member", "viewer"] }).notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.userId] }), index("idx_membership_user").on(t.userId)]
+);
+
+export const folder = sqliteTable(
+  "folder",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    parentId: text("parent_id"),
+    name: text("name").notNull(),
+    sortKey: text("sort_key").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("idx_folder_parent").on(t.workspaceId, t.parentId)]
+);
+
+export const tag = sqliteTable(
+  "tag",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    name: text("name").notNull(),
+    color: text("color").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("idx_tag_workspace").on(t.workspaceId)]
+);
+
+export const recording = sqliteTable(
+  "recording",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    folderId: text("folder_id"),
+    title: text("title").notNull(),
+    domain: text("domain").notNull().default("lecture"),
+    templateId: text("template_id"),
+    language: text("language"),
+    recordedAt: integer("recorded_at").notNull(),
+    recordedAtSource: text("recorded_at_source", { enum: ["client", "media", "upload"] }).notNull(),
+    durationMs: integer("duration_ms"),
+    status: text("status").notNull(),
+    createdBy: text("created_by").notNull(),
+    visibility: text("visibility", { enum: ["private", "workspace"] }).notNull().default("private"),
+    /** The v1 lecture this recording mirrors (equal to `id` for every migrated lecture). */
+    lectureId: text("lecture_id"),
+    /** Client that uploaded it (v1 `source_client`, `X-Client`). */
+    sourceClient: text("source_client"),
+    /** Why processing failed, shown to the user (domain RecordingDetail.failure). */
+    failureCode: text("failure_code"),
+    failureMessage: text("failure_message"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    index("idx_recording_workspace").on(t.workspaceId, t.recordedAt),
+    index("idx_recording_folder").on(t.workspaceId, t.folderId),
+    uniqueIndex("idx_recording_lecture").on(t.lectureId),
+  ]
+);
+
+export const recordingTag = sqliteTable(
+  "recording_tag",
+  {
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    tagId: text("tag_id").notNull(),
+    source: text("source", { enum: ["user", "ai"] }).notNull(),
+    confidence: real("confidence"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.recordingId, t.tagId] }), index("idx_recording_tag_tag").on(t.tagId)]
+);
+
+export const asset = sqliteTable(
+  "asset",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    kind: text("kind").notNull(),
+    partIndex: integer("part_index").notNull().default(0),
+    /**
+     * Where the bytes are: `lecture:<id>` for the audio of a v1 lecture (the file at
+     * `lectures.audio_path`, which compaction may swap), `file:<path>` for an uploaded file.
+     */
+    blobKey: text("blob_key").notNull(),
+    /** Null until computed for migrated audio whose v1 `audio_sha256` was a client key. */
+    sha256: text("sha256"),
+    bytes: integer("bytes").notNull(),
+    mime: text("mime").notNull(),
+    durationMs: integer("duration_ms"),
+    pageCount: integer("page_count"),
+    metaJson: text("meta_json").notNull().default("{}"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("idx_asset_recording").on(t.recordingId, t.kind, t.partIndex)]
+);
+
+export const transcriptSegment = sqliteTable(
+  "transcript_segment",
+  {
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    idx: integer("idx").notNull(),
+    startMs: integer("start_ms").notNull(),
+    endMs: integer("end_ms").notNull(),
+    speakerId: text("speaker_id"),
+    text: text("text").notNull(),
+    confidence: real("confidence"),
+    sourceChunk: integer("source_chunk"),
+    lang: text("lang"),
+  },
+  (t) => [primaryKey({ columns: [t.recordingId, t.idx] })]
+);
+
+/** Stretches of original audio without transcript (domain TranscriptGap). */
+export const transcriptGap = sqliteTable(
+  "transcript_gap",
+  {
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    kind: text("kind").notNull(),
+    startMs: integer("start_ms").notNull(),
+    endMs: integer("end_ms").notNull(),
+  },
+  (t) => [index("idx_transcript_gap_recording").on(t.recordingId, t.startMs)]
+);
+
+export const speaker = sqliteTable(
+  "speaker",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    label: text("label").notNull(),
+    displayName: text("display_name"),
+    confidence: real("confidence"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("idx_speaker_recording").on(t.recordingId)]
+);
+
+export const document = sqliteTable(
+  "document",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    templateId: text("template_id").notNull(),
+    templateVersion: integer("template_version").notNull(),
+    currentVersion: integer("current_version").notNull(),
+    userEdited: integer("user_edited", { mode: "boolean" }).notNull().default(false),
+    /** The lecture archive Markdown file this document is mirrored to (v1 `md_source_path`). */
+    mdSourcePath: text("md_source_path"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("idx_document_recording").on(t.recordingId)]
+);
+
+export const documentVersion = sqliteTable(
+  "document_version",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    documentId: text("document_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    version: integer("version").notNull(),
+    baseVersion: integer("base_version"),
+    templateId: text("template_id").notNull(),
+    templateVersion: integer("template_version").notNull(),
+    /** Null only for `legacy-markdown` versions, which have Markdown alone. */
+    bodyJson: text("body_json"),
+    renderedMd: text("rendered_md").notNull(),
+    createdBy: text("created_by", { enum: ["ai", "user"] }).notNull(),
+    authorId: text("author_id"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("idx_document_version").on(t.documentId, t.version), index("idx_document_version_recording").on(t.recordingId)]
+);
+
+export const question = sqliteTable(
+  "question",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    kind: text("kind").notNull(),
+    prompt: text("prompt").notNull(),
+    answer: text("answer"),
+    sourcesJson: text("sources_json").notNull().default("[]"),
+    difficulty: text("difficulty"),
+    flagsJson: text("flags_json").notNull().default("[]"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("idx_question_recording").on(t.recordingId)]
+);
+
+export const eventCandidate = sqliteTable(
+  "event_candidate",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    startAt: integer("start_at").notNull(),
+    endAt: integer("end_at"),
+    allDay: integer("all_day", { mode: "boolean" }).notNull().default(false),
+    tz: text("tz").notNull(),
+    rawExpression: text("raw_expression").notNull(),
+    resolutionJson: text("resolution_json").notNull(),
+    confidence: real("confidence").notNull(),
+    evidenceJson: text("evidence_json").notNull(),
+    flagsJson: text("flags_json").notNull().default("[]"),
+    status: text("status").notNull().default("suggested"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("idx_event_candidate_workspace").on(t.workspaceId, t.status, t.startAt), index("idx_event_candidate_recording").on(t.recordingId)]
+);
+
+export const actionItem = sqliteTable(
+  "action_item",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    text: text("text").notNull(),
+    ownerName: text("owner_name"),
+    dueAt: integer("due_at"),
+    dueRaw: text("due_raw"),
+    status: text("status").notNull().default("open"),
+    evidenceJson: text("evidence_json").notNull(),
+    flagsJson: text("flags_json").notNull().default("[]"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("idx_action_item_workspace").on(t.workspaceId, t.status, t.dueAt), index("idx_action_item_recording").on(t.recordingId)]
+);
+
+export const shareLink = sqliteTable(
+  "share_link",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    targetType: text("target_type", { enum: ["recording", "document"] }).notNull(),
+    targetId: text("target_id").notNull(),
+    /** sha256 of the link token; a v1 lecture's link token is its `share_token`. */
+    tokenHash: text("token_hash").notNull(),
+    scopeJson: text("scope_json").notNull(),
+    expiresAt: integer("expires_at"),
+    passwordHash: text("password_hash"),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at").notNull(),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => [uniqueIndex("idx_share_link_token").on(t.tokenHash), index("idx_share_link_target").on(t.workspaceId, t.targetId)]
+);
+
+export const integration = sqliteTable(
+  "integration",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id").notNull(),
+    provider: text("provider").notNull(),
+    scopesJson: text("scopes_json").notNull().default("[]"),
+    tokenEnc: text("token_enc").notNull(),
+    calendarId: text("calendar_id"),
+    status: text("status").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("idx_integration_workspace").on(t.workspaceId)]
+);
+
+export const usageLedger = sqliteTable(
+  "usage_ledger",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    period: text("period").notNull(),
+    audioMs: integer("audio_ms").notNull().default(0),
+    aiCostMicrousd: integer("ai_cost_microusd").notNull().default(0),
+    storageBytes: integer("storage_bytes").notNull().default(0),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("idx_usage_ledger_period").on(t.workspaceId, t.period)]
+);
+
+/** A saved library filter ("스마트 보기"). Private to the user who saved it. */
+export const savedView = sqliteTable(
+  "saved_view",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    queryJson: text("query_json").notNull(),
+    sortKey: text("sort_key").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("idx_saved_view_user").on(t.workspaceId, t.userId)]
+);
+
+/** A resumable chunked upload (domain UploadSession, ARCHITECTURE §6). */
+export const upload = sqliteTable(
+  "upload",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id").notNull(),
+    /** Target recording: set at create (adding files) or on complete. */
+    recordingId: text("recording_id"),
+    status: text("status", { enum: ["open", "completed", "aborted", "expired"] }).notNull(),
+    recordedAt: integer("recorded_at"),
+    partSize: integer("part_size").notNull(),
+    /** domain UploadFile[] (the part plan). */
+    filesJson: text("files_json").notNull(),
+    /** domain NewRecordingFields, or null. */
+    recordingJson: text("recording_json"),
+    sourceClient: text("source_client"),
+    idempotencyKey: text("idempotency_key"),
+    /** CompleteUploadResponse fields kept so a repeated complete answers the same. */
+    resultJson: text("result_json"),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    completedAt: integer("completed_at"),
+  },
+  (t) => [uniqueIndex("idx_upload_idempotency").on(t.userId, t.idempotencyKey), index("idx_upload_expires").on(t.status, t.expiresAt)]
+);
+
+export const uploadPart = sqliteTable(
+  "upload_part",
+  {
+    uploadId: text("upload_id").notNull(),
+    part: integer("part").notNull(),
+    bytes: integer("bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.uploadId, t.part] })]
+);
+
+/**
+ * Lectures whose v2 rows may be stale: filled by triggers on `lectures` (created by
+ * apps/server/src/db.ts, which owns that table) for writes that bypass db.ts, and drained
+ * by the projection (legacy.ts).
+ */
+export const lectureSyncPending = sqliteTable("lecture_sync_pending", {
+  lectureId: text("lecture_id").primaryKey(),
+  markedAt: integer("marked_at").notNull(),
+});
