@@ -5,19 +5,22 @@
 // the production database.
 
 import type { Database } from "bun:sqlite";
-import { AssetDto, Document, DocumentVersion, Folder, Membership, Recording, ShareLinkDto, Tag, Workspace } from "@lectern/domain";
+import { personalWorkspaceId } from "@lectern/db";
+import { AssetDto, Document, DocumentVersion, Folder, Me, Membership, Recording, ShareLinkDto, Tag, Workspace } from "@lectern/domain";
 import type { z } from "zod";
 import {
   assetDto,
   documentDto,
   documentVersionDto,
   folderDto,
+  meDto,
   membershipDto,
   recordingDto,
   shareLinkDto,
   tagDto,
   workspaceDto,
   type AssetRow,
+  type UserRow,
 } from "./rows.ts";
 
 /** A digest stand-in for assets still waiting for theirs (the shape is what is checked). */
@@ -53,6 +56,8 @@ export function checkV2Rows(sqlite: Database): RowCheckReport {
   };
 
   const byId = (row: { id: string }) => row.id;
+  // /me is the web app's first call: an old account row it cannot show locks that user out.
+  check("users", `SELECT * FROM users`, Me, (u: UserRow) => meDto(u, personalWorkspaceId(u.id)), byId);
   check("workspace", `SELECT * FROM workspace`, Workspace, workspaceDto, byId);
   check("membership", `SELECT * FROM membership`, Membership, membershipDto, (m: { workspace_id: string; user_id: string }) => `${m.workspace_id}/${m.user_id}`);
   check("folder", `SELECT * FROM folder`, Folder, folderDto, byId);

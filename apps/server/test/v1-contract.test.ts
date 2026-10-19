@@ -9,6 +9,7 @@ import {
   createUser,
   DATA_DIR,
   db,
+  deleteUserAndData,
   generateId,
   getLectureById,
   type UserRecord,
@@ -338,5 +339,25 @@ describe("v1 adapter over the v2 tables", () => {
     const report = verifyLegacy(db);
     expect(report.mismatches).toEqual([]);
     expect(report.ok).toBe(true);
+  });
+
+  test("clearing the notes from v1 keeps lectures and v2 rows in agreement", async () => {
+    const id = seedLecture(user, "지울 노트");
+    db.query(`UPDATE lectures SET md_source_path = ? WHERE id = ?`).run(`/archive/${id}_요약.md`, id);
+    const cleared = await call("PUT", `/api/lectures/${id}`, { user, json: { title: "빈 노트", course: "지울 노트", markdown: "" } });
+    expect(cleared.status).toBe(200);
+    expect(verifyLegacy(db).mismatches).toEqual([]);
+    expect(verifyLegacy(db).ok).toBe(true);
+  });
+
+  test("account deletion removes every lecture, even one whose v2 rows went missing", () => {
+    const leaving = makeUser();
+    const kept = seedLecture(leaving, "탈퇴");
+    const orphaned = seedLecture(leaving, "탈퇴");
+    db.query(`DELETE FROM recording WHERE id = ?`).run(orphaned); // a projection that never happened
+    expect(deleteUserAndData(leaving.id)).toBe(true);
+    expect(getLectureById(kept)).toBeNull();
+    expect(getLectureById(orphaned)).toBeNull();
+    expect(db.query(`SELECT COUNT(*) AS n FROM workspace WHERE id = ?`).get(personalWorkspaceId(leaving.id))).toEqual({ n: 0 });
   });
 });

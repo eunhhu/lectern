@@ -901,7 +901,9 @@ export function updateUserByAdmin(
 export function deleteUserAndData(targetUserId: string): boolean {
   const cur = getUserById(targetUserId);
   if (!cur) return false;
-  const lectures = listLecturesForUser(targetUserId);
+  // Straight from lectures, not through the v2 list: account deletion must not depend on
+  // the projection being up to date (privacy policy: an account takes its notes with it).
+  const lectures = listOwnedLectures(targetUserId);
   for (const lec of lectures) {
     deleteLectureById(lec.id);
   }
@@ -1404,6 +1406,11 @@ export function listLecturesForUser(
   return db.query(sql).all(...params) as LectureRecord[];
 }
 
+/** Every lecture row the user owns, as stored (for deletion and the v1 batch tools). */
+export function listOwnedLectures(ownerId: string): LectureRecord[] {
+  return db.query(`SELECT * FROM lectures WHERE owner_id = ? ORDER BY date_label DESC, created_at DESC`).all(ownerId) as LectureRecord[];
+}
+
 export function getLectureById(id: string): LectureRecord | null {
   return db.query(`SELECT * FROM lectures WHERE id = ?`).get(id) as LectureRecord | null;
 }
@@ -1816,7 +1823,7 @@ export function cleanupLecturesForUser(
     isPublic?: boolean;
   }
 ): { affectedIds: string[]; reclaimedBytes: number } {
-  const all = listLecturesForUser(ownerId);
+  const all = listOwnedLectures(ownerId);
   const affectedIds: string[] = [];
   let reclaimedBytes = 0;
 

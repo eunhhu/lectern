@@ -1,28 +1,14 @@
 import { ensurePersonalWorkspace, personalWorkspaceId, sha256Hex } from "@lectern/db";
-import { extractAuthToken, isAdminUser } from "../../auth.ts";
+import { extractAuthToken } from "../../auth.ts";
 import { db, getUserById, updateUserProfile, type UserRecord } from "../../db.ts";
 import { roleIn } from "./access.ts";
 import { defineRouter, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
-import { iso } from "./rows.ts";
-
-/** The caller's v1 operator role, so /me agrees with what /admin/* lets them do. */
-function systemRoleOf(user: UserRecord | null) {
-  if (isAdminUser(user)) return user!.role === "owner" ? "owner" : "admin";
-  return user?.role === "viewer" ? "viewer" : "member";
-}
+import { iso, meDto } from "./rows.ts";
 
 function meOf(user: UserRecord) {
   // Safety net for accounts created by code paths that bypass createUser().
   if (!roleIn(user.id, personalWorkspaceId(user.id))) ensurePersonalWorkspace(db, user.id, Date.parse(user.created_at) || Date.now());
-  const name = (user.display_name || "").trim() || user.email.split("@")[0] || user.email;
-  return {
-    id: user.id,
-    email: user.email,
-    display_name: name.slice(0, 100),
-    timezone: user.timezone || "Asia/Seoul",
-    system_role: systemRoleOf(user),
-    personal_workspace_id: personalWorkspaceId(user.id),
-  };
+  return meDto(user, personalWorkspaceId(user.id));
 }
 
 /** A login session's public id: never the session token itself. */

@@ -283,6 +283,12 @@ function moveRecordingWorkspace(sqlite: Database, recordingId: string, workspace
   sqlite.query(`UPDATE recording SET workspace_id = ?, folder_id = NULL WHERE id = ?`).run(workspaceId, recordingId);
 }
 
+/** The new owner made the recording, as far as v2 is concerned (verifyLegacy compares it). */
+function setRecordingOwner(sqlite: Database, recordingId: string, ownerId: string): void {
+  sqlite.query(`UPDATE recording SET created_by = ? WHERE id = ?`).run(ownerId, recordingId);
+  sqlite.query(`UPDATE share_link SET created_by = ? WHERE target_id = ?`).run(ownerId, recordingId);
+}
+
 /** Brings the v2 rows of one lecture in line with its lecture row (see the header). */
 export function projectLecture(sqlite: Database, lectureId: string, options: ProjectOptions = {}): ProjectResult {
   return sqlite.transaction(() => projectLectureTx(sqlite, lectureId, options)).immediate();
@@ -316,8 +322,9 @@ function projectLectureTx(sqlite: Database, lectureId: string, options: ProjectO
   const failureMessage = l.status === "error" ? l.error_message || "노트 생성에 실패했습니다." : null;
   let changed = false;
 
-  if (rec && rec.workspace_id !== workspaceId) {
-    moveRecordingWorkspace(sqlite, rec.id, workspaceId);
+  if (rec && (rec.workspace_id !== workspaceId || rec.created_by !== l.owner_id)) {
+    if (rec.workspace_id !== workspaceId) moveRecordingWorkspace(sqlite, rec.id, workspaceId);
+    setRecordingOwner(sqlite, rec.id, l.owner_id);
     rec = sqlite.query(`SELECT * FROM recording WHERE id = ?`).get(rec.id) as RecordingRow;
     changed = true;
   }
@@ -721,7 +728,9 @@ export function verifyLegacy(sqlite: Database): LegacyVerifyReport {
       share_token: link && r && link.target_id === r.id ? link.token_hash : "-",
       public: link ? (link.revoked_at === null ? "1" : "0") : "-",
       created_at: r ? String(r.created_at) : "-",
-      archive: doc ? (doc.md_source_path ?? "-") : "-",
+      // A legacy document whose current version is empty (a v1 edit cleared the notes)
+      // stands for "no notes", like an empty lectures.markdown.
+      archive: doc && doc.rendered_md !== "" ? (doc.md_source_path ?? "-") : "-",
     };
     v1Lines.push([l.id, ...FIELDS.map((f) => v1[f])].join("\t"));
     v2Lines.push([l.id, ...FIELDS.map((f) => v2[f])].join("\t"));
@@ -744,7 +753,11 @@ export function verifyLegacy(sqlite: Database): LegacyVerifyReport {
     lectures: { v1: lectures.length, v2: n(`SELECT COUNT(*) AS n FROM recording WHERE lecture_id IS NOT NULL`) },
     documents: {
       v1: n(`SELECT COUNT(*) AS n FROM lectures WHERE owner_id != '' AND markdown != ''`),
-      v2: n(`SELECT COUNT(*) AS n FROM document d JOIN recording r ON r.id = d.recording_id WHERE r.lecture_id IS NOT NULL AND d.template_id = '${LEGACY_TEMPLATE_ID}'`),
+      v2: n(
+        `SELECT COUNT(*) AS n FROM document d JOIN recording r ON r.id = d.recording_id
+         JOIN document_version v ON v.document_id = d.id AND v.version = d.current_version
+         WHERE r.lecture_id IS NOT NULL AND d.template_id = '${LEGACY_TEMPLATE_ID}' AND v.rendered_md != ''`
+      ),
     },
     audio: {
       v1: n(`SELECT COUNT(*) AS n FROM lectures WHERE owner_id != '' AND audio_path IS NOT NULL`),

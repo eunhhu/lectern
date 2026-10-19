@@ -213,6 +213,13 @@ describe("lectures -> v2 migration", () => {
       { version: 2, created_by: "ai" },
     ]);
 
+    // A lecture handed to another account moves to that account's workspace.
+    addUser(sqlite, "usr_new");
+    sqlite.query(`UPDATE lectures SET owner_id = 'usr_new' WHERE id = ?`).run(id);
+    drainLectureSync(sqlite);
+    expect(one(sqlite, `SELECT workspace_id, created_by FROM recording WHERE id = ?`, id)).toEqual({ workspace_id: "wsp_usr_new", created_by: "usr_new" });
+    expect(verifyLegacy(sqlite).ok).toBe(true);
+
     sqlite.query(`DELETE FROM lectures WHERE id = ?`).run(id);
     drainLectureSync(sqlite);
     for (const table of ["recording", "asset", "document", "document_version", "share_link"]) {

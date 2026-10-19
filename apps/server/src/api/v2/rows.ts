@@ -15,6 +15,35 @@ export function parseJson<T>(json: string | null | undefined, fallback: T): T {
   }
 }
 
+/** The columns of a v1 `users` row that /me shows (`timezone` is missing before P2 boots). */
+export interface UserRow {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  is_admin: number;
+  timezone?: string | null;
+}
+
+/** v1 operator role -> domain SystemRole, so /me agrees with what /admin/* lets the user do. */
+export function systemRoleOf(user: Pick<UserRow, "role" | "is_admin">): "owner" | "admin" | "member" | "viewer" {
+  if (user.role === "owner") return "owner";
+  if (user.role === "admin" || user.is_admin === 1) return "admin";
+  return user.role === "viewer" ? "viewer" : "member";
+}
+
+export function meDto(user: UserRow, personalWorkspaceId: string) {
+  const name = (user.display_name || "").trim() || user.email.split("@")[0] || user.email;
+  return {
+    id: user.id,
+    email: user.email,
+    display_name: name.slice(0, 100),
+    timezone: user.timezone || "Asia/Seoul",
+    system_role: systemRoleOf(user),
+    personal_workspace_id: personalWorkspaceId,
+  };
+}
+
 export interface WorkspaceRow {
   id: string;
   name: string;
