@@ -4366,10 +4366,10 @@ const ADMIN_PAGE_SCRIPT = `
       ov: null, ovErr: null, ovAt: 0,
       ops: null, opsErr: null,
       st: null, stErr: null, stAt: 0,
-      lec: { items: [], total: 0, status: '', q: '', owner: '', loading: false, loaded: false, fallback: false, err: null },
+      lec: { items: [], total: 0, counts: null, status: '', q: '', owner: '', loading: false, loaded: false, fallback: false, err: null },
       lecExtra: {},
       mem: { role: '', status: '', q: '' },
-      aud: { prefix: '', q: '' },
+      aud: { prefix: '', q: '', items: [], next: null, counts: null, total: 0, loading: false, loaded: false, fallback: false },
       selKey: '',
       peek: null
     };
@@ -4494,20 +4494,53 @@ const ADMIN_PAGE_SCRIPT = `
         L.fallback = false;
         L.err = null;
         L.items = reset ? r.data.lectures : L.items.concat(r.data.lectures);
-        L.total = Number(r.data.total) || L.items.length;
+        L.total = Number(r.data.total) || 0;
+        L.counts = r.data.counts ? obj(r.data.counts) : null;
       } else {
         L.fallback = true;
         L.err = r.status === 404 ? 'unavailable' : (r.error || 'error');
         L.items = fallbackLectures();
         L.total = L.items.length;
+        L.counts = null;
       }
       renderCounts();
       if (S.view === 'lectures') renderBody();
     }
+    var audSeq = 0;
+    async function loadAudit(reset) {
+      var A = S.aud;
+      var seq = ++audSeq;
+      A.loading = true;
+      if (reset && S.view === 'audit' && !A.items.length) renderBody();
+      var qs = 'q=' + encodeURIComponent(A.q.trim()) + '&action=' + encodeURIComponent(A.prefix) + '&limit=50' +
+        (!reset && A.next ? '&cursor=' + encodeURIComponent(A.next) : '');
+      var r = await api('GET', '/api/admin/audit?' + qs);
+      if (seq !== audSeq) return;
+      A.loading = false;
+      A.loaded = true;
+      if (r.ok && r.data && Array.isArray(r.data.logs)) {
+        A.fallback = false;
+        A.items = reset ? r.data.logs : A.items.concat(r.data.logs);
+        A.next = r.data.nextCursor || null;
+        A.counts = obj(r.data.counts);
+        A.total = Number(r.data.total) || 0;
+      } else {
+        // Older server or transient failure: filter the recent entries from the overview.
+        A.fallback = true;
+        A.items = [];
+        A.next = null;
+        A.counts = null;
+        if (!S.ov) await loadOverview();
+      }
+      if (S.view === 'audit') { renderSubbar(); renderBody(); $('h-count').textContent = headerCount(); }
+    }
+    function auditById(id) {
+      return S.aud.items.filter(function (x) { return x.id === id; })[0] ||
+        auditLogs().filter(function (x) { return x.id === id; })[0] || null;
+    }
     async function ensureLectureDetail(id) {
       var l = findLecture(id);
-      if (l && l.status && l.owner_email !== undefined && l.error_message !== undefined) return;
-      var r = await api('GET', '/api/lectures/' + encodeURIComponent(id));
+      var r = await api('GET', '/api/admin/lectures/' + encodeURIComponent(id));
       if (!r.ok || !r.data || !r.data.lecture) {
         if (!l && S.peek && S.peek.kind === 'lecture' && S.peek.id === id) {
           S.peek.missing = r.status === 404 ? '강의를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.' : (r.error || '강의 정보를 불러오지 못했습니다.');
@@ -4515,16 +4548,8 @@ const ADMIN_PAGE_SCRIPT = `
         }
         return;
       }
-      var x = r.data.lecture;
-      var owner = userById(x.owner_id);
-      S.lecExtra[id] = {
-        id: x.id, title: x.title, course: x.course, date_label: x.date_label, status: x.status, stage: x.stage,
-        stage_message: x.stage_message, progress: x.progress, excerpt: x.excerpt, duration_sec: x.duration_sec,
-        audio_size: x.audio_size, model_used: x.model_used, has_audio: x.has_audio, is_public: x.is_public,
-        created_at: x.created_at, updated_at: x.updated_at, owner_id: x.owner_id,
-        owner_email: owner ? owner.email : (l && l.owner_email) || '', error_message: x.error_message || null,
-        source_client: x.source_client || ''
-      };
+      // The admin detail DTO: list fields plus peek-only ones, never the note itself.
+      S.lecExtra[id] = r.data.lecture;
       if (S.peek && S.peek.kind === 'lecture' && S.peek.id === id) renderPeek();
     }
     function refreshAll() {
@@ -4587,7 +4612,10 @@ const ADMIN_PAGE_SCRIPT = `
       }
       if (S.view === 'lectures' && S.lec.loaded) return num(S.lec.total);
       if (S.view === 'jobs' && S.ops) { var J = obj(S.ops.jobs); return num(arr(J.running).length + arr(J.queued).length); }
-      if (S.view === 'audit' && S.ov) return num(filteredAudit().length);
+      if (S.view === 'audit') {
+        if (S.aud.loaded && !S.aud.fallback) return num(S.aud.total);
+        if (S.ov) return num(filteredAudit().length);
+      }
       return '';
     }
     function searchBox(placeholder, value) {
@@ -4628,7 +4656,8 @@ const ADMIN_PAGE_SCRIPT = `
         var L = S.lec;
         [['', '전체', ''], ['processing', '처리 중', 'processing'], ['error', '오류', 'error'], ['done', '완료', 'done']].forEach(function (t) {
           var on = L.status === t[0];
-          h += chip('lstatus', t[0], (t[2] ? statusIcon(t[2], 50) : '') + t[1], on, on && L.loaded ? L.total : null);
+          var n = L.counts && !L.fallback ? L.counts[t[0] || 'all'] : (on && L.loaded ? L.total : null);
+          h += chip('lstatus', t[0], (t[2] ? statusIcon(t[2], 50) : '') + t[1], on, n);
         });
         if (L.owner) {
           var o = userById(L.owner);
@@ -4636,9 +4665,10 @@ const ADMIN_PAGE_SCRIPT = `
         }
       } else if (S.view === 'audit') {
         var logs = auditLogs();
-        h += chip('prefix', '', '전체', !S.aud.prefix, logs.length);
+        var ac = S.aud.counts && !S.aud.fallback ? S.aud.counts : null;
+        h += chip('prefix', '', '전체', !S.aud.prefix, ac ? ac.all : logs.length);
         AUDIT_PREFIXES.forEach(function (p) {
-          var n = logs.filter(function (a) { return String(a.action || '').indexOf(p + '.') === 0; }).length;
+          var n = ac ? ac[p] : logs.filter(function (a) { return String(a.action || '').indexOf(p + '.') === 0; }).length;
           h += chip('prefix', p, '<span class="act ' + p + '">' + p + '</span>', S.aud.prefix === p, n);
         });
       }
@@ -5003,11 +5033,25 @@ const ADMIN_PAGE_SCRIPT = `
       });
     }
     RENDER.audit = function () {
-      if (!S.ov) return S.ovErr ? unavailHtml('감사 로그', 'reload-overview') : loadingHtml();
-      var list = filteredAudit();
-      if (!auditLogs().length) return emptyHtml('audit', '기록된 감사 로그가 없습니다.');
-      if (!list.length) return emptyHtml('search', '조건에 맞는 기록이 없습니다.');
-      return list.map(auditRow).join('') + '<div class="row-note">최근 ' + num(auditLogs().length) + '건까지 표시합니다.</div>';
+      var A = S.aud;
+      if (!A.loaded) return loadingHtml();
+      if (A.fallback) {
+        if (!S.ov) return S.ovErr ? unavailHtml('감사 로그', 'reload-audit') : loadingHtml();
+        var list = filteredAudit();
+        var note = '<div class="row-note">' + ic('alert', 12) + '전체 기록을 불러올 수 없어 최근 ' + num(auditLogs().length) + '건 안에서만 보여 줍니다.<span class="sp"></span><button class="btn btn-ghost btn-sm" type="button" data-action="reload-audit">다시 시도</button></div>';
+        if (!auditLogs().length) return note + emptyHtml('audit', '기록된 감사 로그가 없습니다.');
+        if (!list.length) return note + emptyHtml('search', '조건에 맞는 기록이 없습니다.');
+        return note + list.map(auditRow).join('');
+      }
+      if (!A.items.length) return emptyHtml(A.q || A.prefix ? 'search' : 'audit', A.q || A.prefix ? '조건에 맞는 기록이 없습니다.' : '기록된 감사 로그가 없습니다.');
+      var h = A.items.map(auditRow).join('');
+      if (A.next) {
+        h += '<div class="more"><button class="btn" type="button" data-action="aud-more"' + (A.loading ? ' disabled' : '') + '>' +
+          (A.loading ? '불러오는 중…' : '더 보기 (' + num(Math.max(0, A.total - A.items.length)) + '건 남음)') + '</button></div>';
+      } else if (A.items.length > 20) {
+        h += '<div class="row-note">모든 기록을 표시했습니다.</div>';
+      }
+      return h;
     };
 
     // Settings
@@ -5244,7 +5288,7 @@ const ADMIN_PAGE_SCRIPT = `
         var l = findLecture(p.id);
         html = l ? lecturePeek(l) : peekHead('강의', '') + '<div class="peek-b">' + (p.missing ? emptyHtml('lectures', esc(p.missing)) : loadingHtml()) + '</div>';
       } else if (p.kind === 'audit') {
-        var a = auditLogs().filter(function (x) { return x.id === p.id; })[0];
+        var a = auditById(p.id);
         html = a ? auditPeek(a) : peekHead('감사 로그', '') + '<div class="peek-b">' + emptyHtml('audit', '기록을 찾을 수 없습니다.') + '</div>';
       } else {
         html = '';
@@ -5354,8 +5398,13 @@ const ADMIN_PAGE_SCRIPT = `
         prop('길이', esc(fmtDur(l.duration_sec))) +
         prop('오디오', audio) +
         (l.compacted && orig > cur ? prop('압축 전', '<span class="mono">' + fmtBytes(orig) + '</span><span class="c-green small">−' + fmtBytes(orig - cur) + ' (' + Math.round((orig - cur) / orig * 100) + '%)</span>') : '') +
+        (l.audio_compact_state === 'skipped' ? prop('압축', '<span class="faint">이미 충분히 작아 원본 유지</span>') : '') +
+        (l.compacted && l.audio_compacted_at ? prop('압축 시각', timeEl(l.audio_compacted_at)) : '') +
+        (hasAudio && l.audio_in_uploads === false ? prop('보관 위치', '<span class="faint">강의 아카이브 (압축·보존 정책 제외)</span>') : '') +
         (l.source_client ? prop('업로드 경로', '<span class="mono">' + esc(l.source_client) + '</span>') : '') +
-        (l.model_used ? prop('모델', '<span class="mono">' + esc(l.model_used) + '</span>') : '') +
+        (l.model_used ? prop('모델', '<span class="mono">' + esc(l.model_used) + '</span>' +
+          (l.model_requested && l.model_requested !== l.model_used ? '<span class="faint small">요청 ' + esc(l.model_requested) + '</span>' : '')) : '') +
+        (typeof l.markdown_chars === 'number' ? prop('노트', l.markdown_chars ? num(l.markdown_chars) + '자' + (l.archived ? '<span class="badge">아카이브 저장</span>' : '') : '<span class="faint">없음</span>') : '') +
         (l.is_public !== undefined ? prop('공개', l.is_public ? '<span class="c-accent">공개 링크 활성</span>' : '비공개') : '') +
         prop('생성', timeEl(l.created_at)) +
         (l.updated_at ? prop('수정', timeEl(l.updated_at)) : '') +
@@ -5364,7 +5413,7 @@ const ADMIN_PAGE_SCRIPT = `
       if (l.excerpt && l.status === 'done') h += '<div class="sec-title">요약</div><p class="excerpt">' + esc(l.excerpt) + '</p>';
       h += '</div>';
       var canRetry = hasAudio && (l.status === 'error' || (l.status === 'processing' && !busy));
-      var canCompact = hasAudio && l.status === 'done' && !l.compacted && !busy;
+      var canCompact = hasAudio && l.status === 'done' && !l.compacted && l.audio_compact_state !== 'skipped' && l.audio_in_uploads !== false && !busy;
       h += '<div class="peek-f">' +
         (hasAudio ? '<button class="btn btn-ghost danger-text btn-sm" type="button" data-action="lec-del-audio" data-id="' + esc(l.id) + '">' + ic('trash', 13) + '오디오 삭제</button>' : '') +
         '<button class="btn btn-ghost danger-text btn-sm" type="button" data-action="lec-delete" data-id="' + esc(l.id) + '">' + ic('trash', 13) + '강의 삭제</button>' +
@@ -5670,7 +5719,7 @@ const ADMIN_PAGE_SCRIPT = `
     function setChip(group, value) {
       if (group === 'role') S.mem.role = S.mem.role === value ? '' : value;
       else if (group === 'status') S.mem.status = S.mem.status === value ? '' : value;
-      else if (group === 'prefix') S.aud.prefix = value;
+      else if (group === 'prefix') { S.aud.prefix = value; if (!S.aud.fallback) loadAudit(true); }
       else if (group === 'lstatus') { S.lec.status = value; loadLectures(true); }
       else if (group === 'owner') { S.lec.owner = ''; loadLectures(true); }
       S.selKey = '';
@@ -5709,12 +5758,14 @@ const ADMIN_PAGE_SCRIPT = `
       'reload-ops': loadOps,
       'reload-storage': loadStorage,
       'reload-lectures': function () { return loadLectures(true); },
+      'reload-audit': function () { return loadAudit(true); },
+      'aud-more': function () { return loadAudit(false); },
       'settings-save': saveSettings,
       'settings-reset': function () { renderBody(true); },
       'dlg-ok': function () { closeDialog(true); },
       'dlg-cancel': function () { closeDialog(false); }
     };
-    var ASYNC_BUSY = { 'approve-user': 1, 'lec-retry': 1, 'lec-compact': 1, 'compact-all': 1, gc: 1, retention: 1, 'lec-more': 1 };
+    var ASYNC_BUSY = { 'approve-user': 1, 'lec-retry': 1, 'lec-compact': 1, 'compact-all': 1, gc: 1, retention: 1, 'lec-more': 1, 'aud-more': 1, 'reload-audit': 1 };
 
     // MARK: - Routing
     function go(view, opts) {
@@ -5742,7 +5793,8 @@ const ADMIN_PAGE_SCRIPT = `
     }
     function enterView(v, opts) {
       if (v === 'overview') { loadOps(); if (!S.st || Date.now() - S.stAt > 60000) loadStorage(); if (Date.now() - S.ovAt > 15000) loadOverview(); }
-      else if (v === 'members' || v === 'audit') { if (Date.now() - S.ovAt > 15000) loadOverview(); }
+      else if (v === 'members') { if (Date.now() - S.ovAt > 15000) loadOverview(); }
+      else if (v === 'audit') { loadAudit(true); if (Date.now() - S.ovAt > 15000) loadOverview(); }
       else if (v === 'lectures') loadLectures(true);
       else if (v === 'jobs') loadOps();
       else if (v === 'storage') { loadStorage(); loadOps(); }
@@ -6020,7 +6072,11 @@ const ADMIN_PAGE_SCRIPT = `
         var v = t.value;
         S.selKey = '';
         if (S.view === 'members') { S.mem.q = v; renderBody(); $('h-count').textContent = headerCount(); }
-        else if (S.view === 'audit') { S.aud.q = v; renderBody(); $('h-count').textContent = headerCount(); }
+        else if (S.view === 'audit') {
+          S.aud.q = v;
+          if (S.aud.fallback) { renderBody(); $('h-count').textContent = headerCount(); }
+          else { clearTimeout(qTimer); qTimer = setTimeout(function () { loadAudit(true); }, 250); }
+        }
         else if (S.view === 'lectures') {
           S.lec.q = v;
           clearTimeout(qTimer);

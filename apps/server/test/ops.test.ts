@@ -534,3 +534,114 @@ describe("storage accounting", () => {
     expect(recipe.instructions.join("\n")).not.toContain("${");
   });
 });
+
+describe("admin audit log API", () => {
+  test("pages newest-first with a cursor, filters by action prefix and text, and counts per chip", async () => {
+    const token = ownerToken();
+    const tag = uniq("auditpage");
+    const base = Date.now() - 3600_000;
+    // 7 storage + 3 ops entries carrying a unique tag; two share a timestamp to exercise ties.
+    for (let i = 0; i < 10; i++) {
+      recordAuditLog({
+        actorId: "t",
+        actorEmail: `${tag}@ops.test`,
+        action: i < 7 ? "storage.test" : "ops.test",
+        targetId: `${tag}-${i}`,
+        detail: `${tag} entry ${i}`,
+      });
+    }
+    const rows = db
+      .query(`SELECT id FROM audit_logs WHERE actor_email = ? ORDER BY rowid`)
+      .all(`${tag}@ops.test`) as Array<{ id: string }>;
+    rows.forEach((r, i) => {
+      const at = new Date(base + (i === 4 ? 3 : i) * 1000).toISOString(); // rows 3 and 4 tie
+      db.query(`UPDATE audit_logs SET created_at = ? WHERE id = ?`).run(at, r.id);
+    });
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const res = await api(
+        `/api/admin/audit?q=${encodeURIComponent(tag)}&action=storage&limit=3${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        token
+      );
+      expect(res.status).toBe(200);
+      const body: any = await res.json();
+      expect(body.total).toBe(7);
+      expect(body.counts.all).toBe(10);
+      expect(body.counts.storage).toBe(7);
+      expect(body.counts.ops).toBe(3);
+      expect(body.counts.auth).toBe(0);
+      for (const log of body.logs) {
+        expect(log.action).toBe("storage.test");
+        seen.push(log.id);
+      }
+      cursor = body.nextCursor;
+      pages++;
+    } while (cursor && pages < 10);
+    expect(pages).toBe(3);
+    expect(new Set(seen).size).toBe(7); // no duplicates or gaps across the tie
+    const createdAt = seen.map(
+      (id) => (db.query(`SELECT created_at FROM audit_logs WHERE id = ?`).get(id) as any).created_at
+    );
+    expect([...createdAt].sort().reverse()).toEqual(createdAt);
+
+    // LIKE wildcards in the search are literal.
+    const wild: any = await (await api(`/api/admin/audit?q=${encodeURIComponent("%")}`, token)).json();
+    expect(wild.logs.some((l: any) => l.actor_email === `${tag}@ops.test`)).toBe(false);
+  });
+
+  test("rejects unknown action prefixes and malformed cursors, and is admin-only", async () => {
+    const token = ownerToken();
+    expect((await api("/api/admin/audit?action=evil", token)).status).toBe(400);
+    expect((await api("/api/admin/audit?cursor=nonsense", token)).status).toBe(400);
+    const member = memberToken();
+    expect((await api("/api/admin/audit", member.token)).status).toBe(403);
+    expect((await handleRequest(new Request("http://localhost/api/admin/audit"))).status).toBe(401);
+    deleteUserAndData(member.userId);
+  });
+});
+
+describe("admin lecture detail and status counts", () => {
+  test("detail carries peek fields but never the note, and 404s for unknown ids", async () => {
+    const token = ownerToken();
+    const audioPath = join(UPLOADS_DIR, `${generateId("aud")}.m4a`);
+    writeFileSync(audioPath, "x".repeat(1024));
+    const id = makeDoneLecture(audioPath);
+    const res = await api(`/api/admin/lectures/${id}`, token);
+    expect(res.status).toBe(200);
+    const { lecture }: any = await res.json();
+    expect(lecture.id).toBe(id);
+    expect(lecture.owner_email).toBeTruthy();
+    expect(lecture.audio_in_uploads).toBe(true);
+    expect(lecture.markdown_chars).toBeGreaterThan(10);
+    expect(lecture.model_requested).toBe("gemini-flash-latest");
+    expect(lecture.job_state).toBeNull();
+    expect(lecture.markdown).toBeUndefined();
+    expect(lecture.rendered).toBeUndefined();
+    expect((await api(`/api/admin/lectures/${generateId("lec")}`, token)).status).toBe(404);
+    const member = memberToken();
+    expect((await api(`/api/admin/lectures/${id}`, member.token)).status).toBe(403);
+    deleteUserAndData(member.userId);
+  });
+
+  test("list counts cover every status for the search, independent of the status filter", async () => {
+    const token = ownerToken();
+    const member = memberToken();
+    const done = [makeDoneLecture(null, { ownerId: member.userId }), makeDoneLecture(null, { ownerId: member.userId })];
+    const failed = makeDoneLecture(null, { ownerId: member.userId });
+    failLectureRecord(failed, "boom");
+    const q = `owner=${member.userId}`;
+    const all: any = await (await api(`/api/admin/lectures?${q}`, token)).json();
+    const errOnly: any = await (await api(`/api/admin/lectures?${q}&status=error`, token)).json();
+    for (const body of [all, errOnly]) {
+      expect(body.counts).toEqual({ all: 3, processing: 0, error: 1, done: 2 });
+    }
+    expect(all.total).toBe(3);
+    expect(errOnly.total).toBe(1);
+    expect(errOnly.lectures.map((l: any) => l.id)).toEqual([failed]);
+    expect(done.every((id) => all.lectures.some((l: any) => l.id === id))).toBe(true);
+    deleteUserAndData(member.userId);
+  });
+});

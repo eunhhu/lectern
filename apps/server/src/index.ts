@@ -8,8 +8,11 @@ import {
 } from "../../../packages/core/src/index.ts";
 import {
   DATA_DIR,
+  AUDIT_ACTION_PREFIXES,
   db,
+  searchAuditLogs,
   searchLecturesForAdmin,
+  type AuditActionPrefix,
   type LectureRecord,
   type UserRecord,
   cleanupLecturesForUser,
@@ -65,6 +68,8 @@ import {
   renderSharePageHtml,
 } from "./ui.ts";
 import type {
+  AdminAuditListDto,
+  AdminLectureDetailDto,
   AdminLectureDto,
   AdminLectureListDto,
   AdminOpsDto,
@@ -91,6 +96,7 @@ import {
   compactLectureAudio,
   estimateCompactedBytes,
   isFfmpegAvailable,
+  isUnderUploads,
   listCompactionCandidates,
   moveToTrash,
   scanOrphanUploads,
@@ -1051,6 +1057,38 @@ function serveAudioWithRange(req: Request, filePath: string): Response {
   });
 }
 
+function toAdminLectureDto(
+  l: LectureRecord & { owner_email: string; owner_name: string }
+): AdminLectureDto {
+  const job = getLectureJob(l.id);
+  return {
+    ...toLectureSummaryDto(l),
+    owner_id: l.owner_id,
+    owner_email: l.owner_email,
+    owner_name: l.owner_name,
+    audio_ext: l.audio_path ? extname(l.audio_path).toLowerCase() : "",
+    compacted: l.audio_compact_state === "compacted",
+    audio_original_size:
+      l.audio_compact_state === "compacted" && l.audio_original_size
+        ? l.audio_original_size
+        : l.audio_size,
+    error_message: l.error_message,
+    source_client: l.source_client,
+    job_state: job?.state ?? null,
+    job_kind: job?.kind ?? null,
+  };
+}
+
+/** `created_at|id` of the last row seen; undefined means malformed, null means none. */
+function parseAuditCursor(raw: string | null): { createdAt: string; id: string } | null | undefined {
+  if (!raw) return null;
+  const sep = raw.indexOf("|");
+  if (sep <= 0 || sep === raw.length - 1) return undefined;
+  const createdAt = raw.slice(0, sep);
+  if (Number.isNaN(Date.parse(createdAt))) return undefined;
+  return { createdAt, id: raw.slice(sep + 1) };
+}
+
 function toJobDto(job: JobInfo): JobDto {
   const lecture = getLectureById(job.lectureId);
   const owner = lecture ? getUserById(lecture.owner_id) : null;
@@ -1912,33 +1950,64 @@ async function routeRequest(req: Request): Promise<Response> {
       if (req.method === "GET" && path === "/api/admin/lectures") {
         const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 50));
         const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
-        const { total, rows } = searchLecturesForAdmin({
+        const { total, counts, rows } = searchLecturesForAdmin({
           status: url.searchParams.get("status") || undefined,
           q: url.searchParams.get("q") || undefined,
           ownerId: url.searchParams.get("owner") || undefined,
           limit,
           offset,
         });
-        const lectures: AdminLectureDto[] = rows.map((l) => {
-          const job = getLectureJob(l.id);
-          return {
-            ...toLectureSummaryDto(l),
-            owner_id: l.owner_id,
-            owner_email: l.owner_email,
-            owner_name: l.owner_name,
-            audio_ext: l.audio_path ? extname(l.audio_path).toLowerCase() : "",
-            compacted: l.audio_compact_state === "compacted",
-            audio_original_size:
-              l.audio_compact_state === "compacted" && l.audio_original_size
-                ? l.audio_original_size
-                : l.audio_size,
-            error_message: l.error_message,
-            source_client: l.source_client,
-            job_state: job?.state ?? null,
-            job_kind: job?.kind ?? null,
-          };
+        const lectures = rows.map(toAdminLectureDto);
+        const body: AdminLectureListDto = { ok: true, total, counts, limit, offset, lectures };
+        return jsonResponse(body);
+      }
+
+      const adminLectureMatch = path.match(/^\/api\/admin\/lectures\/([^/]+)$/);
+      if (req.method === "GET" && adminLectureMatch) {
+        const lec = getLectureById(decodeURIComponent(adminLectureMatch[1]));
+        if (!lec) return jsonResponse({ error: "강의를 찾을 수 없습니다." }, 404);
+        const owner = getUserById(lec.owner_id);
+        const lecture: AdminLectureDetailDto = {
+          ...toAdminLectureDto({
+            ...lec,
+            owner_email: owner?.email || "",
+            owner_name: owner?.display_name || "",
+          }),
+          model_requested: lec.model_requested,
+          audio_mime: lec.audio_mime,
+          audio_compact_state: lec.audio_compact_state ?? null,
+          audio_compacted_at: lec.audio_compacted_at ?? null,
+          markdown_chars: (lec.markdown || "").length,
+          archived: Boolean(lec.md_source_path),
+          audio_in_uploads: isUnderUploads(lec.audio_path),
+        };
+        return jsonResponse({ ok: true, lecture });
+      }
+
+      if (req.method === "GET" && path === "/api/admin/audit") {
+        const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 50));
+        const action = url.searchParams.get("action") || "";
+        if (action && !(AUDIT_ACTION_PREFIXES as readonly string[]).includes(action)) {
+          return jsonResponse({ error: "알 수 없는 작업 분류입니다." }, 400);
+        }
+        const before = parseAuditCursor(url.searchParams.get("cursor"));
+        if (before === undefined) {
+          return jsonResponse({ error: "잘못된 페이지 커서입니다." }, 400);
+        }
+        const { logs, hasMore, counts } = searchAuditLogs({
+          q: url.searchParams.get("q") || undefined,
+          prefix: (action || undefined) as AuditActionPrefix | undefined,
+          before,
+          limit,
         });
-        const body: AdminLectureListDto = { ok: true, total, limit, offset, lectures };
+        const last = logs[logs.length - 1];
+        const body: AdminAuditListDto = {
+          ok: true,
+          logs,
+          nextCursor: hasMore && last ? `${last.created_at}|${last.id}` : null,
+          total: action ? counts[action as AuditActionPrefix] : counts.all,
+          counts,
+        };
         return jsonResponse(body);
       }
 

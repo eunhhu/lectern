@@ -1146,43 +1146,125 @@ export function listAllLecturesForAdmin(limit = 100): Array<
   >;
 }
 
-/** Filterable, paginated lecture list across all accounts for the admin console. */
+/** `%q%` for a `LIKE ? ESCAPE '\'` clause, with the user's own wildcards made literal. */
+function likeContains(q: string): string {
+  return `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+export type LectureStatusCounts = { all: number; processing: number; error: number; done: number };
+
+/**
+ * Filterable, paginated lecture list across all accounts for the admin console. `counts`
+ * covers the search/owner filter regardless of `status`, so every status tab can show one.
+ */
 export function searchLecturesForAdmin(filter: {
   status?: string;
   q?: string;
   ownerId?: string;
   limit: number;
   offset: number;
-}): { total: number; rows: Array<LectureRecord & { owner_email: string; owner_name: string }> } {
+}): {
+  total: number;
+  counts: LectureStatusCounts;
+  rows: Array<LectureRecord & { owner_email: string; owner_name: string }>;
+} {
   const where: string[] = [];
   const params: string[] = [];
-  if (filter.status && ["processing", "done", "error"].includes(filter.status)) {
-    where.push(`l.status = ?`);
-    params.push(filter.status);
-  }
   if (filter.ownerId) {
     where.push(`l.owner_id = ?`);
     params.push(filter.ownerId);
   }
   if (filter.q && filter.q.trim()) {
-    const like = `%${filter.q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const like = likeContains(filter.q.trim());
     where.push(
       `(l.title LIKE ? ESCAPE '\\' OR l.course LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\' OR l.id = ?)`
     );
     params.push(like, like, like, filter.q.trim());
   }
+  const baseFrom = `FROM lectures l LEFT JOIN users u ON u.id = l.owner_id`;
+  const baseWhere = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const c = db
+    .query(
+      `SELECT COUNT(*) AS all_count,
+         COALESCE(SUM(CASE WHEN l.status = 'processing' THEN 1 ELSE 0 END), 0) AS processing,
+         COALESCE(SUM(CASE WHEN l.status = 'error' THEN 1 ELSE 0 END), 0) AS error,
+         COALESCE(SUM(CASE WHEN l.status = 'done' THEN 1 ELSE 0 END), 0) AS done
+       ${baseFrom} ${baseWhere}`
+    )
+    .get(...params) as { all_count: number; processing: number; error: number; done: number };
+  const counts: LectureStatusCounts = {
+    all: c.all_count,
+    processing: c.processing,
+    error: c.error,
+    done: c.done,
+  };
+
+  const status =
+    filter.status && ["processing", "done", "error"].includes(filter.status)
+      ? (filter.status as "processing" | "done" | "error")
+      : null;
+  if (status) {
+    where.push(`l.status = ?`);
+    params.push(status);
+  }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const from = `FROM lectures l LEFT JOIN users u ON u.id = l.owner_id ${whereSql}`;
-  const total = (db.query(`SELECT COUNT(*) AS n ${from}`).get(...params) as { n: number }).n;
   const rows = db
     .query(
       `SELECT l.*, COALESCE(u.email, '') AS owner_email, COALESCE(u.display_name, '') AS owner_name
-       ${from} ORDER BY l.created_at DESC LIMIT ? OFFSET ?`
+       ${baseFrom} ${whereSql} ORDER BY l.created_at DESC LIMIT ? OFFSET ?`
     )
     .all(...params, filter.limit, filter.offset) as Array<
     LectureRecord & { owner_email: string; owner_name: string }
   >;
-  return { total, rows };
+  return { total: status ? counts[status] : counts.all, counts, rows };
+}
+
+export const AUDIT_ACTION_PREFIXES = ["auth", "account", "admin", "storage", "ops"] as const;
+export type AuditActionPrefix = (typeof AUDIT_ACTION_PREFIXES)[number];
+export type AuditCounts = Record<"all" | AuditActionPrefix, number>;
+
+/**
+ * Audit history for the admin console, newest first, with keyset pagination: pass the
+ * last row's (created_at, id) as `before` to get the next page. `counts` covers the text
+ * search regardless of `prefix`, so every action filter chip can show one.
+ */
+export function searchAuditLogs(filter: {
+  q?: string;
+  prefix?: AuditActionPrefix;
+  before?: { createdAt: string; id: string } | null;
+  limit: number;
+}): { logs: AuditLogRecord[]; hasMore: boolean; counts: AuditCounts } {
+  const where: string[] = [];
+  const params: string[] = [];
+  if (filter.q && filter.q.trim()) {
+    const like = likeContains(filter.q.trim());
+    where.push(
+      `(actor_email LIKE ? ESCAPE '\\' OR action LIKE ? ESCAPE '\\' OR detail LIKE ? ESCAPE '\\' OR target_id LIKE ? ESCAPE '\\')`
+    );
+    params.push(like, like, like, like);
+  }
+  const textWhere = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const prefixSums = AUDIT_ACTION_PREFIXES.map(
+    (p) => `COALESCE(SUM(CASE WHEN action LIKE '${p}.%' THEN 1 ELSE 0 END), 0) AS ${p}`
+  ).join(", ");
+  const counts = db
+    .query(`SELECT COUNT(*) AS "all", ${prefixSums} FROM audit_logs ${textWhere}`)
+    .get(...params) as AuditCounts;
+
+  if (filter.prefix) {
+    where.push(`action LIKE ?`);
+    params.push(`${filter.prefix}.%`);
+  }
+  if (filter.before) {
+    where.push(`(created_at < ? OR (created_at = ? AND id < ?))`);
+    params.push(filter.before.createdAt, filter.before.createdAt, filter.before.id);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const rows = db
+    .query(`SELECT * FROM audit_logs ${whereSql} ORDER BY created_at DESC, id DESC LIMIT ?`)
+    .all(...params, filter.limit + 1) as AuditLogRecord[];
+  const hasMore = rows.length > filter.limit;
+  return { logs: hasMore ? rows.slice(0, filter.limit) : rows, hasMore, counts };
 }
 
 export function listLecturesForUser(

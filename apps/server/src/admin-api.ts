@@ -21,12 +21,23 @@
 //   GET    /api/admin/ops                    → AdminOpsDto
 //   GET    /api/admin/storage                → AdminStorageDto
 //   GET    /api/admin/lectures?status=&q=&owner=&limit=&offset=  → AdminLectureListDto
+//   GET    /api/admin/lectures/:id           → { ok: true, lecture: AdminLectureDetailDto } | 404
+//   GET    /api/admin/audit?q=&action=&cursor=&limit=          → AdminAuditListDto
 //   POST   /api/admin/storage/compact        body CompactRequest   → CompactResponse
 //   POST   /api/admin/storage/gc             body { dryRun?: boolean } → GcResponse
 //   POST   /api/admin/storage/retention      body { dryRun?: boolean } → RetentionResponse
 //   POST   /api/admin/maintenance/run        → { ok: true, result: MaintenanceResultDto }
 
-import type { LectureRecord, SystemSettings } from "./db.ts";
+import type {
+  AuditActionPrefix,
+  AuditCounts,
+  AuditLogRecord,
+  LectureRecord,
+  LectureStatusCounts,
+  SystemSettings,
+} from "./db.ts";
+
+export type { AuditActionPrefix, AuditLogRecord };
 
 /** Lecture list row as returned by /api/lectures and embedded in SSE events. */
 export interface LectureSummaryDto {
@@ -283,8 +294,41 @@ export interface AdminLectureDto extends LectureSummaryDto {
 
 export interface AdminLectureListDto {
   ok: true;
+  /** Rows matching every filter, including status. */
   total: number;
+  /** Per-status totals for the q/owner filter, ignoring status (one per status tab). */
+  counts: LectureStatusCounts;
   limit: number;
   offset: number;
   lectures: AdminLectureDto[];
+}
+
+/** One lecture for the admin peek panel: everything but the note itself. */
+export interface AdminLectureDetailDto extends AdminLectureDto {
+  model_requested: string;
+  audio_mime: string | null;
+  audio_compact_state: "compacted" | "skipped" | null;
+  audio_compacted_at: string | null;
+  /** Length of the note Markdown in characters (the note is not sent). */
+  markdown_chars: number;
+  /** The note is also written to the lecture archive (LECTURES_ROOT). */
+  archived: boolean;
+  /** The audio lives in DATA_DIR/uploads, so compaction and retention apply to it. */
+  audio_in_uploads: boolean;
+}
+
+// MARK: - Audit (GET /api/admin/audit)
+
+/**
+ * `action` is one of AUDIT_ACTION_PREFIXES ("auth" | "account" | "admin" | "storage" | "ops").
+ * Pages are newest first; pass `nextCursor` back as `cursor` for the next page.
+ */
+export interface AdminAuditListDto {
+  ok: true;
+  logs: AuditLogRecord[];
+  nextCursor: string | null;
+  /** Rows matching q and action. */
+  total: number;
+  /** Totals for q per action prefix, plus `all` (one per filter chip). */
+  counts: AuditCounts;
 }
