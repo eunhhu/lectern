@@ -147,9 +147,17 @@ describe("vector index", () => {
       maxCachedWorkspaces: 2,
       fullScanMax: 0,
       rescoreCandidates: 10,
+      memoryCodesMax: 50_000,
+    }).search(access(), q!, 5);
+    const bitsOnly = new SqliteVectorIndex(db, embedder.model, embedder.dim, {
+      maxCachedWorkspaces: 2,
+      fullScanMax: 20_000,
+      rescoreCandidates: 10,
+      memoryCodesMax: 0,
     }).search(access(), q!, 5);
     expect(exact.length).toBeGreaterThan(0);
     expect(binary[0]!.seq).toBe(exact[0]!.seq);
+    expect(bitsOnly[0]).toEqual(binary[0]!);
     expect(exact.every((h) => h.recordingId !== REC.otherWorkspace)).toBe(true);
   });
 

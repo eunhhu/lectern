@@ -6,6 +6,9 @@
 // - up to FULL_SCAN_MAX vectors in scope: exact int8 dot products;
 // - above that: Hamming distance on sign bits (96 bytes per 768-dim vector) picks
 //   RESCORE_CANDIDATES, which are rescored exactly from their int8 codes.
+// A workspace with more than memoryCodesMax vectors keeps only the sign bits in memory
+// (38 MB for 400k vectors instead of 307 MB of int8) and reads the candidates' int8
+// codes from SQLite for rescoring.
 // Measured on an M3 (×4 for a Pi 5, stated in the ADR): 400k × 768 takes 420 ms exact
 // and 23 ms with the binary prefilter. No SQLite extension is needed, so tests on macOS
 // (whose system SQLite cannot load extensions) run the same code as the Pi. The
@@ -80,12 +83,15 @@ export const VECTOR_SEARCH = {
   fullScanMax: 20_000,
   /** Candidates kept by the binary prefilter for exact rescoring. */
   rescoreCandidates: 400,
+  /** Above this many vectors in a workspace, int8 codes stay on disk (bits only in memory). */
+  memoryCodesMax: 50_000,
 };
 
 interface WorkspaceVectors {
   generation: number;
   seqs: Int32Array;
   recordingIds: string[];
+  /** Empty when the workspace is larger than memoryCodesMax. */
   codes: Int8Array;
   scales: Float32Array;
   bits: Uint32Array;
@@ -145,11 +151,12 @@ export class SqliteVectorIndex implements VectorIndex {
       .all(this.model, this.dim, workspaceId) as Array<{ seq: number; recording_id: string; vector: Uint8Array; scale: number }>;
     const n = rows.length;
     const words = this.dim / 32;
+    const keepCodes = n <= this.options.memoryCodesMax;
     const v: WorkspaceVectors = {
       generation,
       seqs: new Int32Array(n),
       recordingIds: new Array(n),
-      codes: new Int8Array(n * this.dim),
+      codes: new Int8Array(keepCodes ? n * this.dim : 0),
       scales: new Float32Array(n),
       bits: new Uint32Array(n * words),
     };
@@ -158,12 +165,24 @@ export class SqliteVectorIndex implements VectorIndex {
       v.recordingIds[i] = r.recording_id;
       v.scales[i] = r.scale;
       const codes = new Int8Array(r.vector.buffer, r.vector.byteOffset, this.dim);
-      v.codes.set(codes, i * this.dim);
+      if (keepCodes) v.codes.set(codes, i * this.dim);
       for (let d = 0; d < this.dim; d++) if (codes[d]! > 0) v.bits[i * words + (d >> 5)]! |= 1 << (d & 31);
     });
     this.cache.set(workspaceId, v);
     while (this.cache.size > this.options.maxCachedWorkspaces) this.cache.delete(this.cache.keys().next().value!);
     return v;
+  }
+
+  private readCodes(workspaceId: string, seqs: readonly number[]): Map<number, Int8Array> {
+    const rows = this.db
+      .query(
+        `SELECT c.seq, e.vector FROM search_chunk c
+         JOIN search_embedding e ON e.workspace_id = c.workspace_id AND e.content_sha256 = c.content_sha256
+           AND e.model = ? AND e.dim = ?
+         WHERE c.workspace_id = ? AND c.seq IN (SELECT value FROM json_each(?))`,
+      )
+      .all(this.model, this.dim, workspaceId, JSON.stringify(seqs)) as Array<{ seq: number; vector: Uint8Array }>;
+    return new Map(rows.map((r) => [r.seq, new Int8Array(r.vector.buffer, r.vector.byteOffset, this.dim)]));
   }
 
   search(access: AccessScope, query: Float32Array, k: number): VectorHit[] {
@@ -178,15 +197,22 @@ export class SqliteVectorIndex implements VectorIndex {
     for (const x of query) norm += x * x;
     norm = Math.sqrt(norm) || 1;
     const q = query.map((x) => x / norm);
+    const codesInMemory = v.codes.length > 0;
+    let diskCodes = new Map<number, Int8Array>();
     const exact = (i: number) => {
       let s = 0;
-      const o = i * this.dim;
-      for (let d = 0; d < this.dim; d++) s += q[d]! * v.codes[o + d]!;
+      if (codesInMemory) {
+        const o = i * this.dim;
+        for (let d = 0; d < this.dim; d++) s += q[d]! * v.codes[o + d]!;
+      } else {
+        const codes = diskCodes.get(v.seqs[i]!)!;
+        for (let d = 0; d < this.dim; d++) s += q[d]! * codes[d]!;
+      }
       return s / v.scales[i]!;
     };
 
     let candidates = inScope;
-    if (inScope.length > this.options.fullScanMax) {
+    if (inScope.length > this.options.fullScanMax || !codesInMemory) {
       const words = this.dim / 32;
       const qbits = new Uint32Array(words);
       for (let d = 0; d < this.dim; d++) if (q[d]! > 0) qbits[d >> 5]! |= 1 << (d & 31);
@@ -198,6 +224,7 @@ export class SqliteVectorIndex implements VectorIndex {
       }
       candidates = topK(hamming, inScope, this.options.rescoreCandidates);
     }
+    if (!codesInMemory) diskCodes = this.readCodes(access.workspaceId, candidates.map((i) => v.seqs[i]!));
     const scores = new Float32Array(v.seqs.length);
     for (const i of candidates) scores[i] = exact(i);
     return topK(scores, candidates, k).map((i, r) => ({
