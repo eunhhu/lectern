@@ -162,7 +162,7 @@ describe("index.html", () => {
   test("references only same-origin assets, with no inline script or style", () => {
     const html = renderIndexHtml({ styles: ["/app/assets/main-abc.css"], scripts: ["/app/assets/main-abc.js"] });
     expect(html).toContain('<html lang="ko">');
-    expect(html).toContain('<link rel="stylesheet" href="/app/assets/main-abc.css">');
+    expect(html).toContain('<link rel="stylesheet" href="/app/assets/main-abc.css" id="react-aria-pressable-style">');
     expect(html).toContain('<script type="module" src="/app/assets/main-abc.js"></script>');
     expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
     expect(html).not.toContain("<style");

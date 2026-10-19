@@ -1,0 +1,137 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh var(--space-16) var(--space-16);
+  background: var(--color-bg-scrim);
+}
+
+.modal {
+  width: 100%;
+  max-width: 640px;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-raised);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: min(560px, 76vh);
+  outline: none;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  height: 48px;
+  padding: 0 var(--space-16);
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-tertiary);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  font-size: var(--font-size-md);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.none {
+  padding: var(--space-12) var(--space-16) 0;
+  color: var(--color-text-secondary);
+}
+
+.menu {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-8) var(--space-8);
+  outline: none;
+}
+
+.section + .section {
+  margin-top: var(--space-4);
+}
+
+.header {
+  padding: var(--space-8) var(--space-8) var(--space-4);
+  font: var(--typography-label);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: var(--size-row-default);
+  padding: var(--space-4) var(--space-8);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  outline: none;
+}
+
+.item[data-focused] {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.itemText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.itemLabel {
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemDetail {
+  font: var(--typography-caption);
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keys {
+  flex: none;
+}
+
+.footer {
+  display: flex;
+  gap: var(--space-16);
+  padding: var(--space-8) var(--space-16);
+  border-top: 1px solid var(--color-border-subtle);
+  font: var(--typography-caption);
+  color: var(--color-text-tertiary);
+}
+
+.footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}

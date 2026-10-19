@@ -15,6 +15,14 @@ export interface IndexHtmlInput {
 const escapeAttr = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/**
+ * React Aria's usePress injects an inline <style id="react-aria-pressable-style"> (a
+ * touch-action rule), which `style-src 'self'` blocks. It skips the injection when an
+ * element with that id exists, so the app stylesheet link carries the id and global.css
+ * holds the same rule.
+ */
+export const REACT_ARIA_STYLE_ID = "react-aria-pressable-style";
+
 export function renderIndexHtml({ styles, scripts }: IndexHtmlInput): string {
   for (const url of [...styles, ...scripts]) {
     if (!url.startsWith(ASSET_PATH)) throw new Error(`asset outside ${ASSET_PATH}: ${url}`);
@@ -28,7 +36,7 @@ export function renderIndexHtml({ styles, scripts }: IndexHtmlInput): string {
     '<meta name="color-scheme" content="light dark">',
     '<meta name="referrer" content="same-origin">',
     "<title>Lectern</title>",
-    ...styles.map((href) => `<link rel="stylesheet" href="${escapeAttr(href)}">`),
+    ...styles.map((href, i) => `<link rel="stylesheet" href="${escapeAttr(href)}"${i === 0 ? ` id="${REACT_ARIA_STYLE_ID}"` : ""}>`),
     ...scripts.map((src) => `<script type="module" src="${escapeAttr(src)}"></script>`),
     "</head>",
     "<body>",
