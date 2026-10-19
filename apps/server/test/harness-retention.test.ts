@@ -138,6 +138,23 @@ describe("maintenance", () => {
     });
   });
 
+  test("artifacts a still-running job commits after its lecture was deleted go at the next maintenance", async () => {
+    const lec = lectureWithJob();
+    const run = harness.job({ jobId: lec.jobId, scope: "owner:x" });
+    await run.run(derive, { text: "삭제 전" });
+    deleteLectureById(lec.id);
+    expect(artifactCount(lec.jobId)).toBe(0);
+    // The job's next stage was already running and commits afterwards.
+    const late = await run.run(derive, { text: "삭제 후 커밋" });
+    expect(artifactCount(lec.jobId)).toBe(2);
+
+    const result = await runMaintenance({ isBusy: () => false });
+    expect(result.errors).toEqual([]);
+    expect(artifactCount(lec.jobId)).toBe(0);
+    expect(harness.blobs.has(late.output.sha256)).toBe(false);
+    expect(harness.blobs.has(sha256Hex("audio:삭제 후 커밋"))).toBe(false);
+  });
+
   test("a distill job given up after repeated interruptions leaves no artifacts behind", async () => {
     const lec = lectureWithJob();
     // A distill job the worker kept losing; run_after in the future so no live worker leases it.
