@@ -339,7 +339,7 @@ function RecordingList({
         const path = showFolder ? folderPath(folders, rec.folder_id) : null;
         return (
           <GridListItem id={rec.id} textValue={rec.title} className={s.row}>
-            <CheckboxField slot="selection" aria-label={`${rec.title} 선택`} />
+            <CheckboxField slot="selection" />
             <span className={s.rowMain}>
               <span className={s.rowTitle}>{rec.title}</span>
               <span className={s.rowMeta}>

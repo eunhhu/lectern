@@ -6,7 +6,7 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "dev": "bun scripts/dev.ts",
-    "e2e": "playwright test"
+    "e2e": "bun scripts/build.ts && playwright test"
   },
   "dependencies": {
     "@lectern/design-tokens": "workspace:*",

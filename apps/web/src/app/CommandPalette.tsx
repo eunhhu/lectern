@@ -16,8 +16,8 @@ import {
   MenuSection,
   Modal,
   ModalOverlay,
-  SearchField,
   Text,
+  TextField,
 } from "react-aria-components";
 import { useApi, useFolders, useRecordings } from "../api/queries.ts";
 import { bestMatch } from "../lib/hangul.ts";
@@ -193,10 +193,12 @@ function PaletteBody() {
 
   return (
     <Autocomplete inputValue={query} onInputChange={setQuery}>
-      <SearchField className={s.search} aria-label="이동, 명령, 녹음 검색" autoFocus>
+      {/* A TextField, not a SearchField: Esc should close the palette at once instead of
+          first clearing the query. */}
+      <TextField className={s.search} aria-label="이동, 명령, 녹음 검색" autoFocus>
         <Icon name="search" />
         <Input className={s.input} placeholder="이동, 명령, 녹음 검색…" />
-      </SearchField>
+      </TextField>
       {nothing && <p className={s.none}>일치하는 항목이 없습니다.</p>}
       <Menu className={s.menu} aria-label="결과" onAction={(key: Key) => byId.get(String(key))?.run()}>
         {sections.map((sec) => (
