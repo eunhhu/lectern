@@ -345,8 +345,8 @@ export class JobWorker {
 
   constructor(options: { id?: string; leaseTtlMs?: number; pollMs?: number } = {}) {
     this.id = options.id ?? `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
-    this.leaseTtlMs = options.leaseTtlMs ?? 60_000;
-    this.pollMs = options.pollMs ?? 1_000;
+    this.leaseTtlMs = options.leaseTtlMs ?? config().jobLeaseTtlMs;
+    this.pollMs = options.pollMs ?? config().jobPollMs;
   }
 
   start(): void {

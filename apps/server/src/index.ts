@@ -97,6 +97,7 @@ import { enqueueDistillation, isRetryableDistillError, scheduleCompaction } from
 import { emitLectureEvent, onLectureEvent, tailForeignLectureEvents, type LectureEventPayload } from "./events.ts";
 import { toLectureSummaryDto } from "./dto.ts";
 import { emitRetentionOutcome, runMaintenanceNow, startMaintenanceSchedule } from "./maintenance.ts";
+import { liveWorkers, publishApiRelease } from "./coordination.ts";
 
 export { isRetryableDistillError, toLectureSummaryDto };
 import {
@@ -940,6 +941,8 @@ function buildOpsDto(): AdminOpsDto {
       memory: { rssBytes: mem.rss, heapUsedBytes: mem.heapUsed },
       ffmpegAvailable: isFfmpegAvailable(),
       requests: requestStats(),
+      workerMode: config().workerMode,
+      workers: liveWorkers(),
     },
     jobs: {
       concurrency: { distill: jobs.concurrency.distill ?? 0, compact: jobs.concurrency.compact ?? 0 },
@@ -1132,6 +1135,13 @@ async function routeRequest(req: Request): Promise<Response> {
           checks: {
             database: dbOk ? "ok" : "error",
             disk: disk ? (disk.low ? "low" : "ok") : "unknown",
+            // external mode with no worker heartbeat for a minute: jobs are not running.
+            worker:
+              config().workerMode === "embedded"
+                ? "embedded"
+                : dbOk && liveWorkers().length > 0
+                ? "ok"
+                : "missing",
           },
         },
         dbOk ? 200 : 503
@@ -2637,9 +2647,12 @@ if (import.meta.main) {
 
   // Jobs and maintenance run where the worker runs: here in embedded mode (until
   // lectern-worker.service is installed), otherwise in apps/worker.
+  publishApiRelease(BOOT_GIT_SHA); // an external worker restarts itself when this changes
   if (config().workerMode === "embedded") {
     ensureEmbeddedWorker();
     startMaintenanceSchedule();
+  } else if (liveWorkers().length === 0) {
+    console.warn("LECTERN_WORKER_MODE=external but no lectern-worker heartbeat yet: jobs wait until one starts.");
   }
   tailForeignLectureEvents(deliverToSse);
 
