@@ -68,6 +68,7 @@ import {
   renderAppHtml,
   renderSharePageHtml,
 } from "./ui.ts";
+import { config, readSecret } from "@lectern/config";
 import type {
   AdminAuditListDto,
   AdminLectureDetailDto,
@@ -120,9 +121,8 @@ import {
   runMaintenance,
 } from "./ops.ts";
 
-const PORT = Number(process.env.PORT || 18775);
-const PUBLIC_BASE_URL =
-  process.env.LECTERN_BASE_URL || "https://lectern.qucord.com";
+const PORT = config().port;
+const PUBLIC_BASE_URL = config().baseUrl;
 
 const BOOT_GIT_SHA = resolveGitSha();
 
@@ -517,10 +517,7 @@ function applySecurityHeaders(res: Response): Response {
 // The server only listens on 127.0.0.1 behind a reverse proxy, and each trusted proxy
 // appends the address it accepted the connection from to X-Forwarded-For. Entries to the
 // left of those are whatever the client sent and cannot be trusted.
-const TRUSTED_PROXY_HOPS = Math.max(
-  0,
-  Math.floor(Number(process.env.LECTERN_TRUSTED_PROXY_HOPS ?? 1)) || 0
-);
+const TRUSTED_PROXY_HOPS = config().trustedProxyHops;
 
 let warnedMissingForwardedFor = false;
 
@@ -640,12 +637,13 @@ const RESET_CODE_SENT_MESSAGE =
 const INVALID_CODE_MESSAGE = "인증번호가 올바르지 않거나 만료되었습니다.";
 
 // The Resend key comes from the environment, or else from the host's credentials file
-// (overridable so tests never read the real one).
+// (overridable so tests never read the real one). The legacy host path stays the default
+// until the production unit sets LECTERN_RESEND_CREDENTIALS_FILE or RESEND_API_KEY.
 const RESEND_CREDENTIALS_FILE =
-  process.env.LECTERN_RESEND_CREDENTIALS_FILE ?? "/home/eunhhu/.hermes/credentials/accounts.json";
+  config().resend.credentialsFile ?? "/home/eunhhu/.hermes/credentials/accounts.json";
 
 function resolveResendApiKey(): string {
-  const envKey = (process.env.RESEND_API_KEY || "").trim();
+  const envKey = readSecret("RESEND_API_KEY");
   if (envKey) return envKey;
   try {
     if (RESEND_CREDENTIALS_FILE && existsSync(RESEND_CREDENTIALS_FILE)) {
@@ -663,9 +661,7 @@ async function sendResendVerificationEmail(
   purpose: "signup" | "reset"
 ): Promise<{ sent: boolean; id?: string }> {
   const apiKey = resolveResendApiKey();
-  const from = (
-    process.env.RESEND_FROM_EMAIL || "Lectern <noreply@qucord.com>"
-  ).trim();
+  const from = config().resend.fromEmail;
   if (!apiKey) {
     throw new Error("이메일 발송 API 키(RESEND_API_KEY)가 설정되지 않았습니다.");
   }
@@ -1338,7 +1334,7 @@ async function routeRequest(req: Request): Promise<Response> {
 
     // 4b. Continuous Deployment Webhook: POST /api/cd/deploy
     if (req.method === "POST" && path === "/api/cd/deploy") {
-      const configuredSecret = (process.env.LECTERN_DEPLOY_TOKEN || "").trim();
+      const configuredSecret = readSecret("LECTERN_DEPLOY_TOKEN") ?? "";
       const providedSecret = (
         req.headers.get("x-lectern-deploy-token") || ""
       ).trim();
@@ -1392,12 +1388,9 @@ async function routeRequest(req: Request): Promise<Response> {
         const body: any = await req.json();
         let rawId = String(body.email || body.username || "").trim().toLowerCase();
         const password = String(body.password || "");
-        const ownerAliases = (process.env.LECTERN_OWNER_ALIASES || "")
-          .split(",")
-          .map((s) => s.trim().toLowerCase())
-          .filter(Boolean);
-        if (ownerAliases.includes(rawId) && process.env.LECTERN_OWNER_EMAIL) {
-          rawId = process.env.LECTERN_OWNER_EMAIL.trim().toLowerCase();
+        const { aliases: ownerAliases, email: ownerEmail } = config().owner;
+        if (ownerEmail && ownerAliases.includes(rawId)) {
+          rawId = ownerEmail;
         }
         const emailWait = firstRateLimitWait([[authRateLimits.loginEmail, rawId]]);
         if (emailWait) return tooManyRequestsResponse(emailWait);
@@ -2814,9 +2807,8 @@ async function routeRequest(req: Request): Promise<Response> {
 }
 
 if (import.meta.main) {
-  const logRequests = process.env.LECTERN_LOG_REQUESTS !== "0";
-  const shutdownGraceMs =
-    Math.max(0, Number(process.env.LECTERN_SHUTDOWN_GRACE_SEC ?? 20) || 0) * 1000;
+  const logRequests = config().logRequests;
+  const shutdownGraceMs = config().shutdownGraceMs;
 
   const server = Bun.serve({
     port: PORT,

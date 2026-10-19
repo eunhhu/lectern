@@ -1,0 +1,12 @@
+{
+  "name": "@lectern/worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@lectern/config": "workspace:*",
+    "@lectern/db": "workspace:*",
+    "@lectern/server": "workspace:*"
+  }
+}

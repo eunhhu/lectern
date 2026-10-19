@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { REPO_ROOT, config } from "@lectern/config";
 import type { MaintenanceResultDto } from "./admin-api.ts";
 import { DATA_DIR, db, getSystemSettings } from "./db.ts";
 import {
@@ -25,31 +26,24 @@ import {
   type RetentionOutcome,
 } from "./storage.ts";
 
-function envInt(name: string, fallback: number, min: number, max: number): number {
-  const n = Math.floor(Number(process.env[name] ?? fallback));
-  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
-}
-
 export const BOOT_AT = new Date();
-export const MAINTENANCE_INTERVAL_MIN = envInt("LECTERN_MAINTENANCE_INTERVAL_MIN", 60, 5, 24 * 60);
-const BACKUP_KEEP = envInt("LECTERN_BACKUP_KEEP", 7, 1, 365);
-const BACKUP_INTERVAL_HOURS = envInt("LECTERN_BACKUP_INTERVAL_HOURS", 24, 1, 24 * 30);
+export const MAINTENANCE_INTERVAL_MIN = config().maintenanceIntervalMin;
+const BACKUP_KEEP = config().backupKeep;
+const BACKUP_INTERVAL_HOURS = config().backupIntervalHours;
 export const BACKUP_DIR = resolve(DATA_DIR, "backups");
 const DB_PATH = resolve(DATA_DIR, "lectern.sqlite");
 const BACKUP_NAME_RE = /^lectern-\d{8}-\d{6}\.sqlite$/;
 
 /** The checkout this server runs from (its HEAD is the reported gitSha). */
-const RUNNING_REPO_DIR = resolve(process.env.LECTERN_REPO_DIR || join(import.meta.dir, "../../.."));
+const RUNNING_REPO_DIR = config().repoDir ?? REPO_ROOT;
 
 // The checkout the CD webhook hard-resets to origin/main. It is never inferred from the
 // running code, so a deploy call against a developer's server cannot reset their working
-// tree: set LECTERN_REPO_DIR, or the legacy production path is used when it exists.
+// tree: set LECTERN_REPO_DIR. Until the production unit sets it, the legacy host path is
+// used when it exists (remove once deploy/systemd/lectern.env is installed on the host).
 const LEGACY_DEPLOY_DIR = "/home/eunhhu/work/lectern";
-export const DEPLOY_REPO_DIR: string | null = process.env.LECTERN_REPO_DIR
-  ? resolve(process.env.LECTERN_REPO_DIR)
-  : existsSync(LEGACY_DEPLOY_DIR)
-  ? LEGACY_DEPLOY_DIR
-  : null;
+export const DEPLOY_REPO_DIR: string | null =
+  config().repoDir ?? (existsSync(LEGACY_DEPLOY_DIR) ? LEGACY_DEPLOY_DIR : null);
 
 // MARK: - Request counters
 

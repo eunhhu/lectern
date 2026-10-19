@@ -5,6 +5,8 @@
 // re-queued from the database (status = 'processing') and compaction candidates are
 // re-derived from lecture rows, so nothing durable depends on this module.
 
+import { config } from "@lectern/config";
+
 export type JobKind = "distill" | "compact";
 
 export interface JobOutcome {
@@ -40,14 +42,9 @@ interface JobEntry extends JobInfo {
   settle: (outcome: JobOutcome) => void;
 }
 
-function envInt(name: string, fallback: number, min: number, max: number): number {
-  const n = Math.floor(Number(process.env[name] ?? fallback));
-  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
-}
-
 export const JOB_CONCURRENCY: Record<JobKind, number> = {
-  distill: envInt("LECTERN_MAX_CONCURRENT_JOBS", 2, 1, 16),
-  compact: envInt("LECTERN_MAX_CONCURRENT_COMPACT", 1, 1, 8),
+  distill: config().maxConcurrentJobs,
+  compact: config().maxConcurrentCompact,
 };
 
 const RECENT_LIMIT = 200;

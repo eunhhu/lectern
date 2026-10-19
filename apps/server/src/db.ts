@@ -16,6 +16,7 @@ import {
   extractExcerpt,
   probeAudioDuration,
 } from "../../../packages/core/src/index.ts";
+import { config, readSecret } from "@lectern/config";
 
 export const USER_ROLES = ["owner", "admin", "member", "viewer"] as const;
 export const USER_STATUSES = ["active", "pending", "suspended"] as const;
@@ -150,16 +151,10 @@ export interface LectureRecord {
   updated_at: string;
 }
 
-const DEFAULT_BASE = existsSync("/home/eunhhu/work")
-  ? "/home/eunhhu/work/lectern"
-  : process.cwd();
-// Absolute, so stored audio paths and the uploads/ prefix checks in storage.ts agree.
-const DATA_DIR = resolve(process.env.LECTERN_DATA_DIR || join(DEFAULT_BASE, "data"));
-const LECTURES_ROOT =
-  process.env.LECTERN_LECTURES_DIR ||
-  (existsSync("/home/eunhhu/work/lectures")
-    ? "/home/eunhhu/work/lectures"
-    : join(DEFAULT_BASE, "lectures"));
+// Both are absolute (see @lectern/config), so stored audio paths and the uploads/ prefix
+// checks in storage.ts agree. Production sets them explicitly in the systemd unit.
+const DATA_DIR = config().dataDir;
+const LECTURES_ROOT = config().lecturesDir;
 
 mkdirSync(DATA_DIR, { recursive: true });
 mkdirSync(join(DATA_DIR, "uploads"), { recursive: true });
@@ -921,9 +916,7 @@ export function verifyEmailVerificationCode(
 }
 
 export function ensureBootstrapOwner(): UserRecord {
-  const explicitEmail = (process.env.LECTERN_OWNER_EMAIL || "")
-    .trim()
-    .toLowerCase();
+  const explicitEmail = config().owner.email || "";
   if (!explicitEmail) {
     const existingOwner = db
       .query(
@@ -935,19 +928,24 @@ export function ensureBootstrapOwner(): UserRecord {
     }
   }
   const ownerEmail = explicitEmail || "owner@lectern.local";
-  const ownerDisplayName = (
-    process.env.LECTERN_OWNER_NAME || "Workspace Owner"
-  ).trim();
-  const ownerPassword =
-    process.env.LECTERN_OWNER_PASSWORD || "lectern-local-dev-only";
-  const ownerApiToken = process.env.LECTERN_OWNER_API_TOKEN || undefined;
+  const ownerDisplayName = config().owner.name || "Workspace Owner";
+  const configuredPassword = readSecret("LECTERN_OWNER_PASSWORD");
+  const ownerApiToken = readSecret("LECTERN_OWNER_API_TOKEN");
 
   let owner = getUserByEmail(ownerEmail);
   if (!owner) {
+    // Never a well-known default: without LECTERN_OWNER_PASSWORD the owner gets a random
+    // password and signs in after a password reset (or a restart with the variable set and
+    // LECTERN_FORCE_RESET_OWNER_PASSWORD=1).
+    if (!configuredPassword) {
+      console.warn(
+        `Owner account ${ownerEmail} created with a random password: set LECTERN_OWNER_PASSWORD (with LECTERN_FORCE_RESET_OWNER_PASSWORD=1) or use the password reset flow.`
+      );
+    }
     owner = createUser({
       email: ownerEmail,
       displayName: ownerDisplayName,
-      password: ownerPassword,
+      password: configuredPassword ?? randomBytes(24).toString("base64url"),
       isAdmin: true,
       role: "owner",
       status: "active",
@@ -961,8 +959,8 @@ export function ensureBootstrapOwner(): UserRecord {
       ).run(owner.id);
       owner = getUserById(owner.id)!;
     }
-    if (process.env.LECTERN_FORCE_RESET_OWNER_PASSWORD === "1") {
-      updateUserPassword(owner.id, ownerPassword);
+    if (config().owner.forceResetPassword && configuredPassword) {
+      updateUserPassword(owner.id, configuredPassword);
       owner = getUserById(owner.id)!;
     }
   }
