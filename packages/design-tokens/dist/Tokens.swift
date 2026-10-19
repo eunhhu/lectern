@@ -119,25 +119,25 @@ public enum LecternTokens {
     }
 
     public enum Size {
-        /// 작은 버튼, 칩, 툴바 아이콘 버튼. WCAG 2.5.8 최소 표적 크기.
-        public static let controlSm: CGFloat = 24
+        /// 작은 버튼, 칩, 툴바 아이콘 버튼. WCAG 2.5.8 최소 표적 크기(24px)보다 크다.
+        public static let controlSm: CGFloat = 28
         /// 기본 버튼, 검색 입력.
-        public static let controlMd: CGFloat = 28
+        public static let controlMd: CGFloat = 34
         /// 입력 필드, 터치 우선 화면의 기본 컨트롤.
-        public static let controlLg: CGFloat = 32
+        public static let controlLg: CGFloat = 40
         /// 조밀한 목록 행.
-        public static let rowCompact: CGFloat = 32
+        public static let rowCompact: CGFloat = 38
         /// 기본 목록 행.
-        public static let rowDefault: CGFloat = 36
+        public static let rowDefault: CGFloat = 44
         /// 터치 화면 목록 행(Apple HIG 44pt).
-        public static let rowComfortable: CGFloat = 44
-        public static let iconSm: CGFloat = 14
-        public static let iconMd: CGFloat = 16
-        public static let iconLg: CGFloat = 20
+        public static let rowComfortable: CGFloat = 52
+        public static let iconSm: CGFloat = 16
+        public static let iconMd: CGFloat = 18
+        public static let iconLg: CGFloat = 22
         /// 상세 패널 너비.
-        public static let peekWidth: CGFloat = 448
+        public static let peekWidth: CGFloat = 480
         /// 사이드바 너비.
-        public static let sidebarWidth: CGFloat = 232
+        public static let sidebarWidth: CGFloat = 264
     }
 
     public enum Radius {
@@ -148,7 +148,7 @@ public enum LecternTokens {
         /// 카드, 패널, 토스트.
         public static let md: CGFloat = 8
         /// 다이얼로그, 명령 팔레트.
-        public static let lg: CGFloat = 10
+        public static let lg: CGFloat = 12
         /// 원형(아바타, 상태 점, 스위치).
         public static let full: CGFloat = 9999
     }
@@ -159,21 +159,21 @@ public enum LecternTokens {
         /// ID, 로그, 코드, 타임스탬프.
         public static let familyMono: [String] = ["SF Mono", "ui-monospace", "JetBrains Mono", "D2Coding", "Menlo", "Consolas", "monospace"]
         /// 배지, 키캡, 캡션.
-        public static let sizeXs: CGFloat = 11
+        public static let sizeXs: CGFloat = 12
         /// 메타 정보, 보조 열, 레이블.
-        public static let sizeSm: CGFloat = 12
+        public static let sizeSm: CGFloat = 13
         /// UI 본문과 컨트롤.
-        public static let sizeBase: CGFloat = 13
+        public static let sizeBase: CGFloat = 15
         /// 섹션 제목, 다이얼로그 제목, 팔레트 입력.
-        public static let sizeMd: CGFloat = 14
+        public static let sizeMd: CGFloat = 16
         /// 상세 패널 제목.
-        public static let sizeLg: CGFloat = 16
+        public static let sizeLg: CGFloat = 18
         /// 문서 본문(긴 글 읽기).
-        public static let sizeReading: CGFloat = 15
+        public static let sizeReading: CGFloat = 17
         /// 페이지 제목.
-        public static let sizeXl: CGFloat = 20
+        public static let sizeXl: CGFloat = 24
         /// 핵심 수치(KPI).
-        public static let sizeXxl: CGFloat = 24
+        public static let sizeXxl: CGFloat = 28
         public static let weightRegular: SwiftUI.Font.Weight = .regular
         public static let weightMedium: SwiftUI.Font.Weight = .medium
         public static let weightSemibold: SwiftUI.Font.Weight = .semibold
@@ -192,21 +192,21 @@ public enum LecternTokens {
 
     public enum TextStyles {
         /// 메타 정보, 힌트.
-        public static let caption = LecternTextStyle(size: 12, weight: .regular, lineHeight: 1.45, tracking: -0.07, monospaced: false)
+        public static let caption = LecternTextStyle(size: 13, weight: .regular, lineHeight: 1.45, tracking: -0.08, monospaced: false)
         /// UI 기본 글자.
-        public static let body = LecternTextStyle(size: 13, weight: .regular, lineHeight: 1.45, tracking: -0.08, monospaced: false)
+        public static let body = LecternTextStyle(size: 15, weight: .regular, lineHeight: 1.45, tracking: -0.09, monospaced: false)
         /// 필드 레이블, 그룹 머리글.
-        public static let label = LecternTextStyle(size: 12, weight: .medium, lineHeight: 1.45, tracking: -0.07, monospaced: false)
+        public static let label = LecternTextStyle(size: 13, weight: .medium, lineHeight: 1.45, tracking: -0.08, monospaced: false)
         /// 섹션·다이얼로그 제목.
-        public static let title = LecternTextStyle(size: 14, weight: .semibold, lineHeight: 1.35, tracking: -0.15, monospaced: false)
+        public static let title = LecternTextStyle(size: 16, weight: .semibold, lineHeight: 1.35, tracking: -0.17, monospaced: false)
         /// 상세 패널 제목.
-        public static let heading = LecternTextStyle(size: 16, weight: .semibold, lineHeight: 1.35, tracking: -0.24, monospaced: false)
+        public static let heading = LecternTextStyle(size: 18, weight: .semibold, lineHeight: 1.35, tracking: -0.27, monospaced: false)
         /// 핵심 수치.
-        public static let display = LecternTextStyle(size: 24, weight: .semibold, lineHeight: 1.25, tracking: -0.48, monospaced: false)
+        public static let display = LecternTextStyle(size: 28, weight: .semibold, lineHeight: 1.25, tracking: -0.56, monospaced: false)
         /// 문서 본문.
-        public static let reading = LecternTextStyle(size: 15, weight: .regular, lineHeight: 1.7, tracking: 0, monospaced: false)
+        public static let reading = LecternTextStyle(size: 17, weight: .regular, lineHeight: 1.7, tracking: 0, monospaced: false)
         /// ID, 로그, 타임스탬프.
-        public static let mono = LecternTextStyle(size: 12, weight: .regular, lineHeight: 1.45, tracking: 0, monospaced: true)
+        public static let mono = LecternTextStyle(size: 13, weight: .regular, lineHeight: 1.45, tracking: 0, monospaced: true)
     }
 
     public enum Shadows {

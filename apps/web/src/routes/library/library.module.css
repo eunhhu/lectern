@@ -1,0 +1,544 @@
+.layout {
+  display: grid;
+  grid-template-columns: 272px minmax(0, 1fr);
+  min-height: 100%;
+}
+
+/* --- Left pane: views, folders, tags ------------------------------------- */
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-24);
+  padding: var(--space-20) var(--space-12);
+  border-right: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-canvas);
+}
+
+.filterGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.filterHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--size-control-sm);
+  padding-right: var(--space-2);
+}
+
+.filterHeading {
+  padding: 0 var(--space-8) var(--space-4);
+  font: var(--typography-label);
+  letter-spacing: var(--typography-label-letter-spacing);
+  color: var(--color-text-tertiary);
+}
+
+.filterHead .filterHeading {
+  padding-bottom: 0;
+}
+
+.filterLink {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-8);
+  height: var(--size-row-compact);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+
+.filterLink:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.filterLink[aria-current="page"],
+.filterLink[data-status="active"] {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.tree {
+  outline: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.treeItem {
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  outline: none;
+  cursor: pointer;
+}
+
+.treeItem[data-hovered] {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.treeItem[data-selected] {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.treeItem[data-focus-visible] {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: -2px;
+}
+
+.treeItem[data-drop-target] {
+  background: var(--color-bg-selected);
+  outline: 2px solid var(--color-accent-solid);
+  outline-offset: -2px;
+}
+
+.treeItem[data-dragging] {
+  opacity: 0.5;
+}
+
+.treeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  height: var(--size-row-compact);
+  padding: 0 var(--space-4) 0 var(--space-6);
+}
+
+.treeRow[data-depth="1"] {
+  padding-left: var(--space-24);
+}
+
+.treeRow[data-depth="2"] {
+  padding-left: var(--space-40);
+}
+
+.treeRow[data-depth="3"] {
+  padding-left: 56px;
+}
+
+.chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.chevronSpacer {
+  width: 18px;
+  flex: none;
+}
+
+.treeLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navCount {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Row menus (folder tree, tags): visible on hover, focus or while open. */
+.rowMenu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-control-sm);
+  height: var(--size-control-sm);
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.rowMenu[data-hovered],
+.rowMenu[data-pressed] {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.treeItem[data-hovered] .rowMenu,
+.treeItem[data-focused] .rowMenu,
+.treeItem[data-selected] .rowMenu,
+.tagItem:hover .rowMenu,
+.tagItem:focus-within .rowMenu,
+.rowMenu[data-focus-visible],
+.rowMenu[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.treeItem[data-hovered] .navCount,
+.treeItem[data-focused] .navCount {
+  display: none;
+}
+
+.rowMenuSpacer {
+  width: var(--size-control-sm);
+  flex: none;
+}
+
+.menuKey {
+  margin-left: auto;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.tagItems {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tagItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.tagItem .filterLink {
+  flex: 1;
+}
+
+.tagItem:hover .navCount,
+.tagItem:focus-within .navCount {
+  display: none;
+}
+
+.tagDot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--color-text-tertiary);
+}
+
+.tagDot[data-color="red"] {
+  background: var(--color-status-danger-ui);
+}
+
+.tagDot[data-color="orange"] {
+  background: var(--color-status-severe-ui);
+}
+
+.tagDot[data-color="yellow"] {
+  background: var(--color-status-attention-ui);
+}
+
+.tagDot[data-color="green"] {
+  background: var(--color-status-success-ui);
+}
+
+.tagDot[data-color="blue"] {
+  background: var(--color-status-info-ui);
+}
+
+.tagDot[data-color="indigo"] {
+  background: var(--color-accent-solid);
+}
+
+/* --- Right pane: list ------------------------------------------------------ */
+
+.listPane {
+  min-width: 0;
+  padding: var(--space-24) var(--space-32) var(--space-48);
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.count {
+  font: var(--typography-caption);
+  color: var(--color-text-tertiary);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  height: var(--size-control-md);
+  padding: 0 var(--space-12);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-input);
+  color: var(--color-text-tertiary);
+}
+
+.search[data-focus-within] {
+  border-color: var(--color-accent-solid);
+}
+
+.searchInput {
+  width: 15em;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+/* The list header: 전체 선택 + count, or the bulk actions while selecting. */
+.listBar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--size-row-compact);
+  padding: var(--space-4) var(--space-8) var(--space-4) var(--space-16);
+  border-bottom: 1px solid var(--color-border-default);
+  background: var(--color-bg-panel);
+}
+
+.listBar[data-selecting] {
+  background: var(--color-bg-selected);
+  border-bottom-color: var(--color-accent-border);
+}
+
+.selectAll {
+  display: inline-flex;
+  width: 20px;
+}
+
+.listCount {
+  font: var(--typography-label);
+  color: var(--color-text-tertiary);
+}
+
+.bulkActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.bulkCount {
+  margin-right: var(--space-8);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  min-height: 60px;
+  padding: var(--space-8) var(--space-8) var(--space-8) var(--space-16);
+  border-bottom: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  outline: none;
+}
+
+.row[data-hovered] {
+  background: var(--color-bg-hover);
+}
+
+.row[data-selected] {
+  background: var(--color-bg-selected);
+}
+
+.row[data-focus-visible] {
+  background: var(--color-bg-active);
+}
+
+.row[data-focus-visible]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-border-focus);
+}
+
+.row[data-dragging] {
+  opacity: 0.5;
+}
+
+/* Checkbox and menu show on hover, keyboard focus, selection, or while selecting. */
+.rowCheck {
+  display: inline-flex;
+  width: 20px;
+  flex: none;
+  opacity: 0;
+}
+
+.rowMenuButton {
+  opacity: 0;
+}
+
+.row[data-hovered] .rowCheck,
+.row[data-focus-visible] .rowCheck,
+.row[data-selected] .rowCheck,
+.list[data-selecting] .rowCheck,
+.row[data-hovered] .rowMenuButton,
+.row[data-focus-visible] .rowMenuButton,
+.row[data-selected] .rowMenuButton,
+.rowMenuButton[data-focus-visible],
+.rowMenuButton[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.rowMain {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowTitle {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  font: var(--typography-caption);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.rowTags {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  flex: none;
+}
+
+.rowTag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.rowTagMore {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.rowStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.dialogStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+
+.fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.newTag {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-8);
+  margin-top: var(--space-12);
+}
+
+.newTag > :first-child {
+  flex: 1;
+}
+
+@media (pointer: coarse) {
+  .rowCheck,
+  .rowMenuButton,
+  .rowMenu {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1100px) {
+  .rowTags {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .filters {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .listPane {
+    padding: var(--space-16);
+  }
+}
+
+@media (max-width: 600px) {
+  .searchInput {
+    width: 100%;
+  }
+}

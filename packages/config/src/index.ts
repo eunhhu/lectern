@@ -61,6 +61,10 @@ const ENV = {
     schema: int(0, 10, 1),
     description: "Reverse proxies in front of the server (X-Forwarded-For hops to trust)",
   },
+  LECTERN_WEB_SHELL: {
+    schema: bool(false),
+    description: "1: serve the new web app (apps/web/dist, built with `bun run web:build`) at /app",
+  },
   LECTERN_LOG_REQUESTS: { schema: bool(true), description: "Write one log line per request" },
   LECTERN_LOG_FORMAT: {
     schema: z.enum(["json", "pretty"]).default("json"),
@@ -157,6 +161,8 @@ export interface Config {
   /** Explicit deploy checkout; null means "use the legacy production path if present". */
   repoDir: string | null;
   workerMode: "embedded" | "external";
+  /** Serve apps/web/dist at /app (off by default until the web app replaces ui.ts). */
+  webShell: boolean;
   trustedProxyHops: number;
   logRequests: boolean;
   logFormat: "json" | "pretty";
@@ -218,6 +224,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     lecturesDir: resolve(p.LECTERN_LECTURES_DIR ?? join(REPO_ROOT, "lectures")),
     repoDir: p.LECTERN_REPO_DIR ? resolve(p.LECTERN_REPO_DIR) : null,
     workerMode: p.LECTERN_WORKER_MODE,
+    webShell: p.LECTERN_WEB_SHELL,
     trustedProxyHops: p.LECTERN_TRUSTED_PROXY_HOPS,
     logRequests: p.LECTERN_LOG_REQUESTS,
     logFormat: p.LECTERN_LOG_FORMAT,

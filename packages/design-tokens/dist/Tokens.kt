@@ -250,25 +250,25 @@ object LecternTokens {
     }
 
     object Size {
-        /** 작은 버튼, 칩, 툴바 아이콘 버튼. WCAG 2.5.8 최소 표적 크기. */
-        val controlSm = 24.dp
+        /** 작은 버튼, 칩, 툴바 아이콘 버튼. WCAG 2.5.8 최소 표적 크기(24px)보다 크다. */
+        val controlSm = 28.dp
         /** 기본 버튼, 검색 입력. */
-        val controlMd = 28.dp
+        val controlMd = 34.dp
         /** 입력 필드, 터치 우선 화면의 기본 컨트롤. */
-        val controlLg = 32.dp
+        val controlLg = 40.dp
         /** 조밀한 목록 행. */
-        val rowCompact = 32.dp
+        val rowCompact = 38.dp
         /** 기본 목록 행. */
-        val rowDefault = 36.dp
+        val rowDefault = 44.dp
         /** 터치 화면 목록 행(Apple HIG 44pt). */
-        val rowComfortable = 44.dp
-        val iconSm = 14.dp
-        val iconMd = 16.dp
-        val iconLg = 20.dp
+        val rowComfortable = 52.dp
+        val iconSm = 16.dp
+        val iconMd = 18.dp
+        val iconLg = 22.dp
         /** 상세 패널 너비. */
-        val peekWidth = 448.dp
+        val peekWidth = 480.dp
         /** 사이드바 너비. */
-        val sidebarWidth = 232.dp
+        val sidebarWidth = 264.dp
     }
 
     object Radius {
@@ -279,7 +279,7 @@ object LecternTokens {
         /** 카드, 패널, 토스트. */
         val md = 8.dp
         /** 다이얼로그, 명령 팔레트. */
-        val lg = 10.dp
+        val lg = 12.dp
         /** 원형(아바타, 상태 점, 스위치). */
         val full = 9999.dp
     }
@@ -290,21 +290,21 @@ object LecternTokens {
         /** ID, 로그, 코드, 타임스탬프. */
         val familyMono: List<String> = listOf("SF Mono", "ui-monospace", "JetBrains Mono", "D2Coding", "Menlo", "Consolas", "monospace")
         /** 배지, 키캡, 캡션. */
-        val sizeXs = 11.sp
+        val sizeXs = 12.sp
         /** 메타 정보, 보조 열, 레이블. */
-        val sizeSm = 12.sp
+        val sizeSm = 13.sp
         /** UI 본문과 컨트롤. */
-        val sizeBase = 13.sp
+        val sizeBase = 15.sp
         /** 섹션 제목, 다이얼로그 제목, 팔레트 입력. */
-        val sizeMd = 14.sp
+        val sizeMd = 16.sp
         /** 상세 패널 제목. */
-        val sizeLg = 16.sp
+        val sizeLg = 18.sp
         /** 문서 본문(긴 글 읽기). */
-        val sizeReading = 15.sp
+        val sizeReading = 17.sp
         /** 페이지 제목. */
-        val sizeXl = 20.sp
+        val sizeXl = 24.sp
         /** 핵심 수치(KPI). */
-        val sizeXxl = 24.sp
+        val sizeXxl = 28.sp
         val weightRegular = FontWeight(400)
         val weightMedium = FontWeight(500)
         val weightSemibold = FontWeight(600)
@@ -323,21 +323,21 @@ object LecternTokens {
 
     object TextStyles {
         /** 메타 정보, 힌트. */
-        val caption = TextStyle(fontFamily = FontFamily.Default, fontSize = 12.sp, fontWeight = FontWeight(400), lineHeight = 1.45.em, letterSpacing = (-0.07).sp)
+        val caption = TextStyle(fontFamily = FontFamily.Default, fontSize = 13.sp, fontWeight = FontWeight(400), lineHeight = 1.45.em, letterSpacing = (-0.08).sp)
         /** UI 기본 글자. */
-        val body = TextStyle(fontFamily = FontFamily.Default, fontSize = 13.sp, fontWeight = FontWeight(400), lineHeight = 1.45.em, letterSpacing = (-0.08).sp)
+        val body = TextStyle(fontFamily = FontFamily.Default, fontSize = 15.sp, fontWeight = FontWeight(400), lineHeight = 1.45.em, letterSpacing = (-0.09).sp)
         /** 필드 레이블, 그룹 머리글. */
-        val label = TextStyle(fontFamily = FontFamily.Default, fontSize = 12.sp, fontWeight = FontWeight(500), lineHeight = 1.45.em, letterSpacing = (-0.07).sp)
+        val label = TextStyle(fontFamily = FontFamily.Default, fontSize = 13.sp, fontWeight = FontWeight(500), lineHeight = 1.45.em, letterSpacing = (-0.08).sp)
         /** 섹션·다이얼로그 제목. */
-        val title = TextStyle(fontFamily = FontFamily.Default, fontSize = 14.sp, fontWeight = FontWeight(600), lineHeight = 1.35.em, letterSpacing = (-0.15).sp)
+        val title = TextStyle(fontFamily = FontFamily.Default, fontSize = 16.sp, fontWeight = FontWeight(600), lineHeight = 1.35.em, letterSpacing = (-0.17).sp)
         /** 상세 패널 제목. */
-        val heading = TextStyle(fontFamily = FontFamily.Default, fontSize = 16.sp, fontWeight = FontWeight(600), lineHeight = 1.35.em, letterSpacing = (-0.24).sp)
+        val heading = TextStyle(fontFamily = FontFamily.Default, fontSize = 18.sp, fontWeight = FontWeight(600), lineHeight = 1.35.em, letterSpacing = (-0.27).sp)
         /** 핵심 수치. */
-        val display = TextStyle(fontFamily = FontFamily.Default, fontSize = 24.sp, fontWeight = FontWeight(600), lineHeight = 1.25.em, letterSpacing = (-0.48).sp)
+        val display = TextStyle(fontFamily = FontFamily.Default, fontSize = 28.sp, fontWeight = FontWeight(600), lineHeight = 1.25.em, letterSpacing = (-0.56).sp)
         /** 문서 본문. */
-        val reading = TextStyle(fontFamily = FontFamily.Default, fontSize = 15.sp, fontWeight = FontWeight(400), lineHeight = 1.7.em, letterSpacing = 0.sp)
+        val reading = TextStyle(fontFamily = FontFamily.Default, fontSize = 17.sp, fontWeight = FontWeight(400), lineHeight = 1.7.em, letterSpacing = 0.sp)
         /** ID, 로그, 타임스탬프. */
-        val mono = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight(400), lineHeight = 1.45.em, letterSpacing = 0.sp)
+        val mono = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, fontWeight = FontWeight(400), lineHeight = 1.45.em, letterSpacing = 0.sp)
     }
 
     object Motion {

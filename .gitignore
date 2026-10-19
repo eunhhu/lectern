@@ -15,3 +15,7 @@ apps/android/.gradle/
 apps/android/app/build/
 apps/windows/bin/
 apps/windows/obj/
+
+# apps/web Playwright output
+apps/web/test-results/
+apps/web/playwright-report/

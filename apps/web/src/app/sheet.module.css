@@ -1,0 +1,29 @@
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.group {
+  margin-bottom: var(--space-4);
+  font: var(--typography-label);
+  color: var(--color-text-tertiary);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  min-height: var(--size-row-compact);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.label {
+  color: var(--color-text-primary);
+}

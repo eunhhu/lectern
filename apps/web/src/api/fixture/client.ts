@@ -1,0 +1,813 @@
+// ApiClient backed by the in-memory fixture data set. It behaves like the /api/v2
+// contract where the shell depends on it: cursor pages, domain error codes, a resumable
+// upload with a part plan, workspace roles (members cannot delete others' recordings),
+// and an event stream that replays the current job progress on subscribe. Changes live
+// in memory only and are gone after a reload.
+
+import type {
+  AskMessage,
+  AskRequest,
+  AskScope,
+  AskThread,
+  AssetDto,
+  AssetId,
+  CompleteUploadResponse,
+  CreateUploadRequest,
+  DocumentBlock,
+  EventCandidate,
+  FolderId,
+  JobId,
+  Recording,
+  RecordingDetail,
+  RecordingId,
+  SearchHit,
+  ServerEvent,
+  TagId,
+  Transcript,
+  UpdateEventCandidateRequest,
+  UpdateRecordingRequest,
+  CreateFolderRequest,
+  CreateTagRequest,
+  Folder,
+  Tag,
+  UpdateFolderRequest,
+  UpdateMeRequest,
+  UpdateTagRequest,
+  ActionItem,
+  UpdateActionItemRequest,
+  UploadId,
+  UploadPartReceipt,
+  UploadSession,
+  WorkspaceId,
+} from "../types.ts";
+import { buildFixtureData, processRecording, TEMPLATE_FOR, type FixtureData, type JobProgress } from "../../fixtures/index.ts";
+import { UPLOADED_GENERIC_DOC } from "../../fixtures/documents.ts";
+import { UPLOADED_GENERIC } from "../../fixtures/scripts.ts";
+import { parseFileName } from "../../lib/pairing.ts";
+import { ApiClientError, type ApiClient } from "../client.ts";
+import { composeAnswer, scopeLabel, streamChunks, suggestionsFor, type ComposedAnswer } from "./ask.ts";
+import type { ListRecordingsParams, ListSuggestionsParams, SearchParams } from "../types.ts";
+
+export interface FixtureClientOptions {
+  now?: Date;
+  /** Simulated network latency in ms (0 in unit tests). */
+  latencyMs?: number;
+  /** Length of one simulated processing run for uploads, in ms. */
+  processingMs?: number;
+}
+
+const PART_SIZE = 8 * 1024 * 1024;
+const MAX_PAGE = 200;
+
+const notFound = (what: string) => new ApiClientError(404, "not_found", `${what}을 찾을 수 없습니다.`);
+
+function page<T>(items: T[], cursor: string | undefined, limit: unknown) {
+  const size = Math.min(Math.max(Number(limit ?? 50) || 50, 1), MAX_PAGE);
+  const start = cursor ? Number(cursor) : 0;
+  if (!Number.isInteger(start) || start < 0) throw new ApiClientError(400, "bad_request", "잘못된 페이지 커서입니다.");
+  const slice = items.slice(start, start + size);
+  const next = start + size < items.length ? String(start + size) : null;
+  return { items: structuredClone(slice), next_cursor: next };
+}
+
+/** Waits `ms` (a microtask when 0), rejecting with an AbortError if `signal` aborts. */
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException("답을 멈췄습니다.", "AbortError"));
+    if (signal?.aborted) return abort();
+    if (ms <= 0) {
+      queueMicrotask(() => (signal?.aborted ? abort() : resolve()));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      abort();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+// 물어보기 history the preview opens with: synthetic questions answered by the same
+// composer, so their citations resolve like live answers.
+const ASK_SEEDS: { id: string; ws: WorkspaceId; scope: AskScope; questions: string[]; hoursAgo: number }[] = [
+  { id: "ask_seed_os07", ws: "ws_personal" as WorkspaceId, scope: { kind: "recording", recording_id: "rec_os07" }, questions: ["SJF가 최적이면서도 그대로 쓰기 어려운 이유는?", "라운드 로빈에서 타임 퀀텀이 너무 크면 어떻게 돼?"], hoursAgo: 3 },
+  { id: "ask_seed_deadlines", ws: "ws_personal" as WorkspaceId, scope: { kind: "workspace" }, questions: ["다가오는 마감과 시험을 정리해 줘"], hoursAgo: 26 },
+  { id: "ask_seed_os", ws: "ws_personal" as WorkspaceId, scope: { kind: "folder", folder_id: "fld_os" }, questions: ["운영체제 수업 핵심만 요약해 줘"], hoursAgo: 50 },
+  { id: "ask_seed_decisions", ws: "ws_team" as WorkspaceId, scope: { kind: "workspace" }, questions: ["최근 회의에서 결정된 사항은?"], hoursAgo: 5 },
+  { id: "ask_seed_tasks", ws: "ws_team" as WorkspaceId, scope: { kind: "folder", folder_id: "fld_weekly" }, questions: ["누가 무엇을 맡았어?"], hoursAgo: 30 },
+];
+
+async function sha256Hex(blob: Blob): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function blockText(block: DocumentBlock): string {
+  switch (block.type) {
+    case "list":
+      return block.items.map((i) => i.text).join(" ");
+    case "term":
+      return `${block.term} ${block.definition}`;
+    case "formula":
+      return block.explanation ?? "";
+    case "gap":
+      return "";
+    default:
+      return block.text;
+  }
+}
+
+function snippet(text: string, q: string) {
+  const at = text.toLowerCase().indexOf(q.toLowerCase());
+  if (at < 0) return [{ text: text.slice(0, 80), highlight: false }];
+  const from = Math.max(0, at - 24);
+  return [
+    { text: (from > 0 ? "…" : "") + text.slice(from, at), highlight: false },
+    { text: text.slice(at, at + q.length), highlight: true },
+    { text: text.slice(at + q.length, at + q.length + 40), highlight: false },
+  ].filter((p) => p.text);
+}
+
+export function createFixtureClient(options: FixtureClientOptions = {}): ApiClient & { readonly data: FixtureData } {
+  const data = buildFixtureData(options.now ?? new Date());
+  const latency = options.latencyMs ?? 60;
+  const processingMs = options.processingMs ?? 5000;
+  const uploads = new Map<string, { session: UploadSession; body: CreateUploadRequest; parts: Map<number, number> }>();
+  const listeners = new Map<WorkspaceId, Set<(e: ServerEvent) => void>>();
+  let eventSeq = 0;
+  let idSeq = 0;
+  let ticker: ReturnType<typeof setInterval> | undefined;
+
+  const wait = <T>(fn: () => T): Promise<T> =>
+    new Promise((resolve, reject) => {
+      const run = () => {
+        try {
+          resolve(fn());
+        } catch (err) {
+          reject(err);
+        }
+      };
+      if (latency <= 0) queueMicrotask(run);
+      else setTimeout(run, latency * (0.6 + Math.random() * 0.8));
+    });
+
+  const nowIso = () => new Date().toISOString();
+  const newId = (prefix: string) => `${prefix}_${Date.now().toString(36)}${(++idSeq).toString(36)}`;
+
+  const emit = (workspaceId: WorkspaceId, recordingId: RecordingId | null, event: Omit<ServerEvent, "id" | "workspace_id" | "recording_id" | "created_at">) => {
+    const full = {
+      id: `evt_${++eventSeq}`,
+      workspace_id: workspaceId,
+      recording_id: recordingId,
+      created_at: nowIso(),
+      ...event,
+    } as ServerEvent;
+    for (const listener of listeners.get(workspaceId) ?? []) listener(structuredClone(full));
+  };
+
+  const progressEvent = (jobId: JobId, p: JobProgress) => {
+    const job = data.jobs.find((j) => j.id === jobId);
+    if (!job?.workspace_id) return;
+    emit(job.workspace_id, job.recording_id, {
+      type: "job.progress",
+      payload: { job_id: jobId, stage: p.stage, state: "running", progress: p.progress, chunk_index: p.chunk_index, chunk_count: p.chunk_count },
+    } as Omit<ServerEvent, "id" | "workspace_id" | "recording_id" | "created_at">);
+  };
+
+  const recording = (id: string) => {
+    const rec = data.recordings.find((r) => r.id === id);
+    if (!rec) throw notFound("녹음");
+    return rec;
+  };
+  const role = (ws: WorkspaceId) => data.workspaces.find((w) => w.workspace.id === ws)?.role ?? "viewer";
+  const tagIdsOf = (id: string) => data.recordingTags.filter((t) => t.recording_id === id).map((t) => t.tag_id);
+
+  const folderName = (raw: string) => {
+    const name = raw.trim();
+    if (!name || name.length > 200) throw new ApiClientError(400, "validation_failed", "폴더 이름은 1자 이상 200자 이하로 입력하세요.");
+    return name;
+  };
+  const tagName = (raw: string) => {
+    const name = raw.trim();
+    if (!name || name.length > 64) throw new ApiClientError(400, "validation_failed", "태그 이름은 1자 이상 64자 이하로 입력하세요.");
+    return name;
+  };
+  const assertUniqueFolderName = (ws: string, parent: string | null, name: string, except: string | null) => {
+    const clash = data.folders.some((f) => f.workspace_id === ws && f.parent_id === parent && f.id !== except && f.name === name);
+    if (clash) throw new ApiClientError(409, "conflict", "같은 위치에 이름이 같은 폴더가 있습니다. 다른 이름을 쓰세요.");
+  };
+  const assertUniqueTagName = (ws: string, name: string, except: string | null) => {
+    const clash = data.tags.some((t) => t.workspace_id === ws && t.id !== except && t.name.toLowerCase() === name.toLowerCase());
+    if (clash) throw new ApiClientError(409, "conflict", "이름이 같은 태그가 있습니다. 다른 이름을 쓰세요.");
+  };
+  const nextSortKey = (ws: string, parent: string | null) => {
+    const keys = data.folders.filter((f) => f.workspace_id === ws && f.parent_id === parent).map((f) => f.sort_key).sort();
+    const last = keys.at(-1);
+    return last ? `${last}m` : "m";
+  };
+  const descendantsOf = (id: string) => {
+    const ids = new Set([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const f of data.folders) {
+        if (f.parent_id && ids.has(f.parent_id) && !ids.has(f.id)) {
+          ids.add(f.id);
+          grew = true;
+        }
+      }
+    }
+    return ids;
+  };
+
+  // 물어보기: store one question and its answer in a (new or existing) thread.
+  const askThread = (workspaceId: string, threadId: string | null | undefined, scope: AskScope, question: string, at: string): AskThread => {
+    if (threadId) {
+      const thread = data.askThreads.find((x) => x.id === threadId && x.workspace_id === workspaceId);
+      if (!thread) throw notFound("대화");
+      return thread;
+    }
+    const thread: AskThread = {
+      id: newId("ask"),
+      workspace_id: workspaceId,
+      title: question.length > 40 ? `${question.slice(0, 40)}…` : question,
+      scope,
+      scope_label: scopeLabel(data, scope),
+      message_count: 0,
+      created_at: at,
+      updated_at: at,
+    };
+    data.askThreads.push(thread);
+    return thread;
+  };
+  const saveTurn = (thread: AskThread, question: string, answer: ComposedAnswer, at: string) => {
+    const q: AskMessage = { id: newId("msg"), thread_id: thread.id, role: "user", text: question, citations: [], status: "complete", searched: 0, created_at: at };
+    const a: AskMessage = { id: newId("msg"), thread_id: thread.id, role: "assistant", text: answer.text, citations: answer.citations, status: answer.status, searched: answer.searched, created_at: at };
+    data.askMessages.push(q, a);
+    Object.assign(thread, { message_count: thread.message_count + 2, updated_at: at });
+    return { q, a };
+  };
+  const assertAskScope = (req: AskRequest) => {
+    if (!data.workspaces.some((w) => w.workspace.id === req.workspace_id)) throw notFound("워크스페이스");
+    if (req.scope.kind === "recording" && recording(req.scope.recording_id).workspace_id !== req.workspace_id) throw notFound("녹음");
+    if (req.scope.kind === "folder") {
+      const folderId = req.scope.folder_id;
+      if (!data.folders.some((f) => f.id === folderId && f.workspace_id === req.workspace_id)) throw notFound("폴더");
+    }
+  };
+  for (const seed of ASK_SEEDS) {
+    const at = new Date(data.now.getTime() - seed.hoursAgo * 3_600_000).toISOString();
+    const thread = askThread(seed.ws, null, seed.scope, seed.questions[0]!, at);
+    thread.id = seed.id;
+    for (const question of seed.questions) saveTurn(thread, question, composeAnswer(data, { workspace_id: seed.ws, scope: seed.scope, question }), at);
+  }
+
+  // Slowly advance the long-running fixture jobs while someone is listening, so the
+  // inbox shows live progress. They hold at 95% and never finish.
+  const startTicker = () => {
+    if (ticker) return;
+    ticker = setInterval(() => {
+      for (const [jobId, p] of data.progress) {
+        const job = data.jobs.find((j) => j.id === jobId);
+        if (!job || job.state !== "running" || jobId.startsWith("job_up")) continue;
+        if (p.progress >= 0.95) continue;
+        p.progress = Math.min(0.95, Math.round((p.progress + 0.01) * 100) / 100);
+        if (p.chunk_count && p.chunk_index !== null) p.chunk_index = Math.min(p.chunk_count - 1, Math.floor(p.progress * p.chunk_count));
+        progressEvent(jobId, p);
+      }
+    }, 3000);
+  };
+
+  function simulateProcessing(rec: Recording, jobId: JobId, pdfAssetId: AssetId | null) {
+    const job = data.jobs.find((j) => j.id === jobId)!;
+    const steps: [JobProgress["stage"], number][] = [
+      ["ingest", 0.05],
+      ["normalize", 0.12],
+      ["transcribe", 0.3],
+      ["transcribe", 0.55],
+      ["merge", 0.62],
+      ["structure", 0.75],
+      ["structure", 0.86],
+      ["verify", 0.94],
+      ["publish", 0.99],
+    ];
+    let i = 0;
+    const tick = () => {
+      if (!data.recordings.includes(rec)) return; // deleted meanwhile
+      if (i === 0) {
+        job.state = "running";
+        rec.status = "processing";
+        emit(rec.workspace_id, rec.id, { type: "recording.updated", payload: { recording: structuredClone(rec) } } as never);
+      }
+      if (i < steps.length) {
+        const [stage, progress] = steps[i++]!;
+        const p = { stage, progress, chunk_index: null, chunk_count: null };
+        data.progress.set(jobId, p);
+        progressEvent(jobId, p);
+        setTimeout(tick, processingMs / (steps.length + 1));
+        return;
+      }
+      const parts = processRecording(rec, UPLOADED_GENERIC, UPLOADED_GENERIC_DOC, rec.duration_ms ?? 60_000, nowIso(), pdfAssetId);
+      data.transcripts.set(rec.id, { segments: parts.segments, gaps: parts.gaps });
+      data.speakers.push(...parts.speakers);
+      data.documents.push(parts.document);
+      data.versions.push(parts.version);
+      rec.status = "ready";
+      rec.updated_at = nowIso();
+      job.state = "succeeded";
+      job.updated_at = nowIso();
+      data.progress.delete(jobId);
+      emit(rec.workspace_id, rec.id, { type: "transcript.ready", payload: { segment_count: parts.segments.length } } as never);
+      emit(rec.workspace_id, rec.id, { type: "document.updated", payload: { document_id: parts.document.id, version: 1 } } as never);
+      emit(rec.workspace_id, rec.id, { type: "job.updated", payload: { job: structuredClone(job) } } as never);
+      emit(rec.workspace_id, rec.id, { type: "recording.updated", payload: { recording: structuredClone(rec) } } as never);
+    };
+    setTimeout(tick, processingMs / (steps.length + 1));
+  }
+
+  const client: ApiClient & { readonly data: FixtureData } = {
+    mode: "fixture",
+    data,
+
+    getMe: () => wait(() => structuredClone(data.me)),
+
+    updateMe: (body: UpdateMeRequest) =>
+      wait(() => {
+        if (body.display_name !== undefined) {
+          const name = body.display_name.trim();
+          if (!name || name.length > 100) throw new ApiClientError(400, "validation_failed", "이름은 1자 이상 100자 이하로 입력하세요.");
+          data.me.display_name = name;
+          for (const m of data.members) if (m.user_id === data.me.id) m.display_name = name;
+        }
+        if (body.timezone !== undefined) data.me.timezone = body.timezone;
+        return structuredClone(data.me);
+      }),
+
+    listDevices: () => wait(() => page(data.devices, undefined, MAX_PAGE)),
+
+    revokeDevice: (id) =>
+      wait(() => {
+        const device = data.devices.find((d) => d.id === id);
+        if (!device) throw notFound("기기");
+        if (device.current) throw new ApiClientError(409, "conflict", "지금 쓰는 기기는 여기서 로그아웃할 수 없습니다.");
+        data.devices = data.devices.filter((d) => d.id !== id);
+      }),
+
+    listWorkspaces: () => wait(() => page(data.workspaces, undefined, MAX_PAGE)),
+
+    listMembers: (ws) => wait(() => page(data.members.filter((m) => m.workspace_id === ws), undefined, MAX_PAGE)),
+
+    listFolders: (ws) =>
+      wait(() => page([...data.folders.filter((f) => f.workspace_id === ws)].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1)), undefined, MAX_PAGE)),
+
+    createFolder: (body: CreateFolderRequest) =>
+      wait((): Folder => {
+        const ws = body.workspace_id;
+        if (role(ws) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        const name = folderName(body.name);
+        const parent = body.parent_id ?? null;
+        if (parent && !data.folders.some((f) => f.id === parent && f.workspace_id === ws)) throw notFound("상위 폴더");
+        assertUniqueFolderName(ws, parent, name, null);
+        const stamp = nowIso();
+        const folder: Folder = {
+          id: newId("fld") as FolderId,
+          workspace_id: ws,
+          parent_id: parent,
+          name,
+          sort_key: body.sort_key ?? nextSortKey(ws, parent),
+          created_at: stamp,
+          updated_at: stamp,
+        };
+        data.folders.push(folder);
+        return structuredClone(folder);
+      }),
+
+    updateFolder: (id, body: UpdateFolderRequest) =>
+      wait((): Folder => {
+        const folder = data.folders.find((f) => f.id === id);
+        if (!folder) throw notFound("폴더");
+        if (role(folder.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        const parent = body.parent_id === undefined ? folder.parent_id : body.parent_id;
+        if (parent) {
+          if (!data.folders.some((f) => f.id === parent && f.workspace_id === folder.workspace_id)) throw notFound("상위 폴더");
+          if (descendantsOf(folder.id).has(parent)) throw new ApiClientError(409, "conflict", "폴더를 자기 자신이나 그 안의 폴더로 옮길 수 없습니다.");
+        }
+        const name = body.name === undefined ? folder.name : folderName(body.name);
+        if (body.name !== undefined || body.parent_id !== undefined) assertUniqueFolderName(folder.workspace_id, parent, name, folder.id);
+        folder.name = name;
+        if (body.parent_id !== undefined) {
+          folder.parent_id = parent;
+          if (body.sort_key === undefined) folder.sort_key = nextSortKey(folder.workspace_id, parent);
+        }
+        if (body.sort_key !== undefined) folder.sort_key = body.sort_key;
+        folder.updated_at = nowIso();
+        return structuredClone(folder);
+      }),
+
+    deleteFolder: (id) =>
+      wait(() => {
+        const folder = data.folders.find((f) => f.id === id);
+        if (!folder) throw notFound("폴더");
+        if (role(folder.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        // packages/domain: "recordings move to the parent". Subfolders move up as well.
+        for (const child of data.folders.filter((f) => f.parent_id === id)) child.parent_id = folder.parent_id;
+        for (const rec of data.recordings.filter((r) => r.folder_id === id)) {
+          rec.folder_id = folder.parent_id;
+          rec.updated_at = nowIso();
+          emit(rec.workspace_id, rec.id, { type: "recording.updated", payload: { recording: structuredClone(rec) } } as never);
+        }
+        data.folders = data.folders.filter((f) => f.id !== id);
+      }),
+
+    listTags: (ws) => wait(() => page(data.tags.filter((t) => t.workspace_id === ws), undefined, MAX_PAGE)),
+
+    createTag: (body: CreateTagRequest) =>
+      wait((): Tag => {
+        if (role(body.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        const name = tagName(body.name);
+        assertUniqueTagName(body.workspace_id, name, null);
+        const stamp = nowIso();
+        const tag: Tag = { id: newId("tag") as TagId, workspace_id: body.workspace_id, name, color: body.color, created_at: stamp, updated_at: stamp };
+        data.tags.push(tag);
+        return structuredClone(tag);
+      }),
+
+    updateTag: (id, body: UpdateTagRequest) =>
+      wait((): Tag => {
+        const tag = data.tags.find((t) => t.id === id);
+        if (!tag) throw notFound("태그");
+        if (body.name !== undefined) {
+          const name = tagName(body.name);
+          assertUniqueTagName(tag.workspace_id, name, tag.id);
+          tag.name = name;
+        }
+        if (body.color !== undefined) tag.color = body.color;
+        tag.updated_at = nowIso();
+        return structuredClone(tag);
+      }),
+
+    deleteTag: (id) =>
+      wait(() => {
+        const tag = data.tags.find((t) => t.id === id);
+        if (!tag) throw notFound("태그");
+        data.recordingTags = data.recordingTags.filter((rt) => rt.tag_id !== id);
+        data.tags = data.tags.filter((t) => t.id !== id);
+      }),
+
+    listRecordings: (q: ListRecordingsParams) =>
+      wait(() => {
+        const items = data.recordings
+          .filter((r) => r.workspace_id === q.workspace_id)
+          .filter((r) => !q.folder_id || r.folder_id === q.folder_id)
+          .filter((r) => !q.tag_id || tagIdsOf(r.id).includes(q.tag_id as TagId))
+          .filter((r) => !q.domain || r.domain === q.domain)
+          .filter((r) => !q.status || r.status === q.status)
+          .sort((a, b) => (a.recorded_at < b.recorded_at ? 1 : -1))
+          .map((r) => ({ ...r, tag_ids: tagIdsOf(r.id) }));
+        return page(items, q.cursor, q.limit);
+      }),
+
+    getRecording: (id) =>
+      wait((): RecordingDetail => {
+        const rec = recording(id);
+        return structuredClone({
+          recording: rec,
+          tags: data.recordingTags.filter((t) => t.recording_id === id),
+          assets: data.assets.filter((a) => a.recording_id === id),
+          speakers: data.speakers.filter((s) => s.recording_id === id),
+          documents: data.documents.filter((d) => d.recording_id === id),
+          active_job: data.jobs.find((j) => j.recording_id === id && (j.state === "queued" || j.state === "running")) ?? null,
+        });
+      }),
+
+    updateRecording: (id, body: UpdateRecordingRequest) =>
+      wait(() => {
+        const rec = recording(id);
+        if (role(rec.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        if (body.folder_id) {
+          const folder = data.folders.find((f) => f.id === body.folder_id);
+          if (!folder || folder.workspace_id !== rec.workspace_id) throw notFound("폴더");
+        }
+        if (body.title !== undefined) rec.title = body.title;
+        if (body.folder_id !== undefined) rec.folder_id = body.folder_id as FolderId | null;
+        if (body.domain !== undefined) rec.domain = body.domain;
+        if (body.template_id !== undefined) rec.template_id = body.template_id;
+        if (body.language !== undefined) rec.language = body.language;
+        if (body.visibility !== undefined) rec.visibility = body.visibility;
+        if (body.recorded_at !== undefined) {
+          rec.recorded_at = body.recorded_at;
+          rec.recorded_at_source = "client";
+        }
+        if (body.tag_ids !== undefined) {
+          const wanted = new Set(body.tag_ids);
+          for (const tagId of wanted) {
+            const tag = data.tags.find((t) => t.id === tagId);
+            if (!tag || tag.workspace_id !== rec.workspace_id) throw notFound("태그");
+          }
+          const kept = data.recordingTags.filter((t) => t.recording_id !== id || wanted.has(t.tag_id));
+          const have = new Set(kept.filter((t) => t.recording_id === id).map((t) => t.tag_id));
+          for (const tagId of wanted) {
+            if (!have.has(tagId)) {
+              kept.push({ workspace_id: rec.workspace_id, recording_id: rec.id, tag_id: tagId, source: "user", confidence: null, created_at: nowIso() });
+            }
+          }
+          data.recordingTags = kept;
+        }
+        rec.updated_at = nowIso();
+        emit(rec.workspace_id, rec.id, { type: "recording.updated", payload: { recording: structuredClone(rec) } } as never);
+        return structuredClone(rec);
+      }),
+
+    deleteRecording: (id) =>
+      wait(() => {
+        const rec = recording(id);
+        const r = role(rec.workspace_id);
+        if (r === "viewer" || (r === "member" && rec.created_by !== data.me.id)) {
+          throw new ApiClientError(403, "forbidden", "다른 멤버가 올린 녹음은 워크스페이스 관리자만 삭제할 수 있습니다.");
+        }
+        data.recordings = data.recordings.filter((x) => x.id !== id);
+        data.recordingTags = data.recordingTags.filter((x) => x.recording_id !== id);
+        data.assets = data.assets.filter((x) => x.recording_id !== id);
+        data.documents = data.documents.filter((x) => x.recording_id !== id);
+        data.versions = data.versions.filter((x) => x.recording_id !== id);
+        data.questions = data.questions.filter((x) => x.recording_id !== id);
+        data.events = data.events.filter((x) => x.recording_id !== id);
+        data.actionItems = data.actionItems.filter((x) => x.recording_id !== id);
+        data.transcripts.delete(rec.id);
+        emit(rec.workspace_id, null, { type: "recording.deleted", payload: { recording_id: rec.id } } as never);
+      }),
+
+    getTranscript: (id) =>
+      wait((): Transcript => {
+        recording(id);
+        const t = data.transcripts.get(id as RecordingId);
+        if (!t) throw notFound("전사");
+        return structuredClone({
+          recording_id: id as RecordingId,
+          segments: t.segments,
+          speakers: data.speakers.filter((s) => s.recording_id === id),
+          gaps: t.gaps,
+        });
+      }),
+
+    listQuestions: (id) => wait(() => (recording(id), page(data.questions.filter((q) => q.recording_id === id), undefined, MAX_PAGE))),
+    listRecordingEvents: (id) => wait(() => (recording(id), page(data.events.filter((e) => e.recording_id === id), undefined, MAX_PAGE))),
+    listActionItems: (id) => wait(() => (recording(id), page(data.actionItems.filter((a) => a.recording_id === id), undefined, MAX_PAGE))),
+
+    updateActionItem: (id, body: UpdateActionItemRequest) =>
+      wait((): ActionItem => {
+        const item = data.actionItems.find((a) => a.id === id);
+        if (!item) throw notFound("할 일");
+        Object.assign(item, Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)), { updated_at: nowIso() });
+        return structuredClone(item);
+      }),
+
+    getDocument: (documentId) =>
+      wait(() => {
+        const document = data.documents.find((d) => d.id === documentId);
+        if (!document) throw notFound("문서");
+        const version = data.versions.find((v) => v.document_id === documentId && v.version === document.current_version)!;
+        return structuredClone({ document, version });
+      }),
+
+    listCalendarSuggestions: (q: ListSuggestionsParams) =>
+      wait(() => {
+        const status = q.status ?? "suggested";
+        const items = data.events
+          .filter((e) => e.workspace_id === q.workspace_id && e.status === status)
+          .sort((a, b) => (a.start_at < b.start_at ? -1 : 1));
+        return page(items, q.cursor, q.limit);
+      }),
+
+    updateCalendarSuggestion: (id, body: UpdateEventCandidateRequest) =>
+      wait((): EventCandidate => {
+        const ev = data.events.find((e) => e.id === id);
+        if (!ev) throw notFound("일정 제안");
+        Object.assign(ev, Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)), { updated_at: nowIso() });
+        return structuredClone(ev);
+      }),
+
+    search: (q: SearchParams) =>
+      wait(() => {
+        const needle = q.q.trim().toLowerCase();
+        const hits: SearchHit[] = [];
+        for (const rec of data.recordings.filter((r) => r.workspace_id === q.workspace_id)) {
+          if (q.recording_id && rec.id !== q.recording_id) continue;
+          if (!q.kind || q.kind === "document") {
+            const doc = data.documents.find((d) => d.recording_id === rec.id);
+            const version = doc && data.versions.find((v) => v.document_id === doc.id && v.version === doc.current_version);
+            for (const block of version?.body?.sections.flatMap((s) => s.blocks) ?? []) {
+              const text = blockText(block);
+              if (text.toLowerCase().includes(needle)) {
+                hits.push({ kind: "document", recording_id: rec.id, recording_title: rec.title, snippet: snippet(text, needle), document_id: doc!.id, block_id: block.id });
+              }
+            }
+          }
+          if (!q.kind || q.kind === "transcript") {
+            for (const seg of data.transcripts.get(rec.id)?.segments ?? []) {
+              if (seg.text.toLowerCase().includes(needle)) {
+                hits.push({ kind: "transcript", recording_id: rec.id, recording_title: rec.title, snippet: snippet(seg.text, needle), segment_idx: seg.idx, start_ms: seg.start_ms });
+                if (hits.length >= 200) break;
+              }
+            }
+          }
+        }
+        return page(hits, q.cursor, q.limit ?? 20);
+      }),
+
+    ask: async (body, { signal, onEvent }) => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        throw new ApiClientError(0, "network_error", "네트워크에 연결되어 있지 않아 답을 받지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.");
+      }
+      const question = body.question.trim();
+      if (!question || question.length > 2000) throw new ApiClientError(400, "validation_failed", "질문은 1자 이상 2,000자 이하로 입력하세요.");
+      assertAskScope(body);
+      if (body.thread_id && !data.askThreads.some((x) => x.id === body.thread_id && x.workspace_id === body.workspace_id)) throw notFound("대화");
+      const answer = composeAnswer(data, { ...body, question });
+      // Retrieval, then the answer a few characters at a time.
+      await pause(latency * 6, signal);
+      onEvent({ type: "retrieval", searched: answer.searched, citations: structuredClone(answer.citations) });
+      for (const text of streamChunks(answer.text)) {
+        await pause(latency > 0 ? 22 : 0, signal);
+        onEvent({ type: "delta", text });
+      }
+      const at = nowIso();
+      const thread = askThread(body.workspace_id, body.thread_id, body.scope, question, at);
+      const { q, a } = saveTurn(thread, question, answer, at);
+      onEvent({ type: "done", thread: structuredClone(thread), question: structuredClone(q), answer: structuredClone(a) });
+      return structuredClone(a);
+    },
+
+    listAskThreads: (ws) =>
+      wait(() =>
+        page(
+          data.askThreads.filter((x) => x.workspace_id === ws).sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+          undefined,
+          MAX_PAGE,
+        ),
+      ),
+
+    getAskThread: (id) =>
+      wait(() => {
+        const thread = data.askThreads.find((x) => x.id === id);
+        if (!thread) throw notFound("대화");
+        return structuredClone({ thread, messages: data.askMessages.filter((m) => m.thread_id === id) });
+      }),
+
+    listAskSuggestions: (ws, scope) => wait(() => (assertAskScope({ workspace_id: ws, scope, question: "" }), suggestionsFor(data, ws, scope))),
+
+    createUpload: (body: CreateUploadRequest) =>
+      wait((): UploadSession => {
+        if (!data.workspaces.some((w) => w.workspace.id === body.workspace_id)) throw notFound("워크스페이스");
+        if (!body.recording_id && !body.files.some((f) => f.kind === "audio")) {
+          throw new ApiClientError(400, "validation_failed", "새 녹음에는 오디오 파일이 하나 이상 있어야 합니다.");
+        }
+        let next = 1;
+        const files = body.files.map((f, index) => {
+          const part_count = Math.max(1, Math.ceil(f.bytes / PART_SIZE));
+          const file = { ...f, index, first_part: next, part_count };
+          next += part_count;
+          return file;
+        });
+        const session: UploadSession = {
+          id: newId("up") as UploadId,
+          workspace_id: body.workspace_id,
+          recording_id: (body.recording_id as RecordingId | undefined) ?? null,
+          status: "open",
+          recorded_at: body.recorded_at ?? null,
+          part_size: PART_SIZE,
+          files,
+          received_parts: [],
+          created_at: nowIso(),
+          expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+        };
+        uploads.set(session.id, { session, body, parts: new Map() });
+        return structuredClone(session);
+      }),
+
+    uploadPart: async (uploadId, part, bytes) => {
+      const sha256 = await sha256Hex(bytes);
+      return wait((): UploadPartReceipt => {
+        const upload = uploads.get(uploadId);
+        if (!upload || upload.session.status !== "open") throw notFound("업로드");
+        const total = upload.session.files.reduce((s, f) => s + f.part_count, 0);
+        if (part < 1 || part > total) throw new ApiClientError(400, "bad_request", "파트 번호가 범위를 벗어났습니다.");
+        upload.parts.set(part, bytes.size);
+        upload.session.received_parts = [...upload.parts.keys()].sort((a, b) => a - b);
+        return { part, bytes: Math.max(1, bytes.size), sha256 };
+      });
+    },
+
+    completeUpload: (uploadId) =>
+      wait((): CompleteUploadResponse => {
+        const upload = uploads.get(uploadId);
+        if (!upload) throw notFound("업로드");
+        const { session, body } = upload;
+        const total = session.files.reduce((s, f) => s + f.part_count, 0);
+        if (upload.parts.size !== total) throw new ApiClientError(409, "upload_incomplete", "아직 받지 못한 파트가 있습니다.");
+        const ws = session.workspace_id;
+        const audio = session.files.filter((f) => f.kind === "audio");
+        const audioBytes = audio.reduce((s, f) => s + f.bytes, 0);
+        // No decoding in the browser fixture: estimate length from size (≈128 kbit/s).
+        const durationMs = Math.min(180 * 60_000, Math.max(30_000, Math.round(audioBytes / 16)));
+        const recId = newId("rec") as RecordingId;
+        const domain = body.recording?.domain ?? "lecture";
+        const stamp = nowIso();
+        const rec: Recording = {
+          id: recId,
+          workspace_id: ws,
+          folder_id: (body.recording?.folder_id as FolderId | null | undefined) ?? null,
+          title: body.recording?.title || parseFileName(audio[0]?.filename ?? "새 녹음").title || "새 녹음",
+          domain,
+          template_id: (body.recording?.template_id ?? TEMPLATE_FOR[domain]) as Recording["template_id"],
+          language: "ko",
+          recorded_at: session.recorded_at ?? stamp,
+          recorded_at_source: session.recorded_at ? "client" : "upload",
+          duration_ms: durationMs,
+          status: "queued",
+          created_by: data.me.id,
+          visibility: data.workspaces.find((w) => w.workspace.id === ws)?.workspace.kind === "team" ? "workspace" : "private",
+          created_at: stamp,
+          updated_at: stamp,
+        };
+        let pdfAssetId: AssetId | null = null;
+        let audioIndex = 0;
+        for (const f of session.files) {
+          const asset: AssetDto = {
+            id: newId("as") as AssetId,
+            workspace_id: ws,
+            recording_id: recId,
+            kind: f.kind === "audio" ? "audio" : f.kind,
+            part_index: f.kind === "audio" ? audioIndex++ : 0,
+            sha256: f.sha256 ?? "0".repeat(64),
+            bytes: f.bytes,
+            mime: f.mime,
+            duration_ms: null,
+            page_count: f.kind === "pdf" ? 10 : null,
+            meta: { original_name: f.filename },
+            created_at: stamp,
+          };
+          if (f.kind === "pdf" && !pdfAssetId) pdfAssetId = asset.id;
+          data.assets.push(asset);
+        }
+        for (const tagId of body.recording?.tag_ids ?? []) {
+          data.recordingTags.push({ workspace_id: ws, recording_id: recId, tag_id: tagId, source: "user", confidence: null, created_at: stamp });
+        }
+        const jobId = newId("job_up") as JobId;
+        const job = {
+          id: jobId,
+          workspace_id: ws,
+          recording_id: recId,
+          kind: "process" as const,
+          state: "queued" as const,
+          priority: 0,
+          run_after: stamp,
+          attempts: 0,
+          lease_owner: null,
+          lease_until: null,
+          budget_microusd: 400_000,
+          spent_microusd: 0,
+          idempotency_key: null,
+          error_code: null,
+          created_at: stamp,
+          updated_at: stamp,
+        };
+        data.jobs.push(job);
+        data.progress.set(jobId, { stage: "ingest", progress: 0, chunk_index: null, chunk_count: null });
+        data.recordings.push(rec);
+        session.status = "completed";
+        session.recording_id = recId;
+        emit(ws, recId, { type: "recording.created", payload: { recording: structuredClone(rec) } } as never);
+        simulateProcessing(rec, jobId, pdfAssetId);
+        return structuredClone({ upload: session, recording: rec, job, deduplicated: false });
+      }),
+
+    assetContentUrl: () => null,
+
+    subscribe(workspaceId, onEvent) {
+      const set = listeners.get(workspaceId) ?? new Set();
+      set.add(onEvent);
+      listeners.set(workspaceId, set);
+      // Like a reconnect with Last-Event-ID: replay where every active job stands.
+      queueMicrotask(() => {
+        for (const [jobId, p] of data.progress) {
+          const job = data.jobs.find((j) => j.id === jobId);
+          if (job?.workspace_id === workspaceId && job.state === "running") progressEvent(jobId, p);
+        }
+      });
+      startTicker();
+      return () => {
+        set.delete(onEvent);
+        if ([...listeners.values()].every((s) => s.size === 0)) {
+          clearInterval(ticker);
+          ticker = undefined;
+        }
+      };
+    },
+  };
+  return client;
+}

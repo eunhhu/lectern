@@ -1,6 +1,6 @@
 # Lectern 디자인 시스템
 
-> 버전 v1 (P0, 2026-10-19) · 단일 진실 공급원: [`packages/design-tokens/tokens.json`](packages/design-tokens/tokens.json) · 관련: [docs/v2/ARCHITECTURE.md §7–§8](docs/v2/ARCHITECTURE.md#8-디자인-시스템-designmd-p0-산출물)
+> 버전 v1.1 (P2, 2026-10-19: 크기 단계를 키움, 부록 C) · v1 (P0, 2026-10-19) · 단일 진실 공급원: [`packages/design-tokens/tokens.json`](packages/design-tokens/tokens.json) · 관련: [docs/v2/ARCHITECTURE.md §7–§8](docs/v2/ARCHITECTURE.md#8-디자인-시스템-designmd-p0-산출물)
 
 Lectern은 녹음과 PDF를 구조화된 문서로 바꾸는 도구다. 사용자는 긴 전사와 문서를 오래 읽고, 같은 화면을 매일 연다. 이 문서는 웹(`apps/web`, React 19 + React Aria Components), macOS(SwiftUI), Android(Compose)가 같은 규칙으로 화면을 만들도록 원칙, 토큰, 컴포넌트, 패턴, 접근성, 문구를 정한다.
 
@@ -20,6 +20,7 @@ Lectern은 녹음과 PDF를 구조화된 문서로 바꾸는 도구다. 사용�
 8. [참고 원칙](#8-참고-원칙)
 - [부록 A. 관리자 콘솔 별칭](#부록-a-관리자-콘솔-별칭)
 - [부록 B. 기존 팔레트에서 바뀐 것](#부록-b-기존-팔레트에서-바뀐-것)
+- [부록 C. 크기 단계 변경 (v1.1, P2)](#부록-c-크기-단계-변경-v11-p2)
 
 ---
 
@@ -29,7 +30,7 @@ Lectern은 녹음과 PDF를 구조화된 문서로 바꾸는 도구다. 사용�
 
 한 화면에 많은 정보를 담되, 눈에 띄는 것은 사용자가 지금 판단해야 하는 것뿐이어야 한다.
 
-- **밀도**: UI 본문 13px, 기본 컨트롤 높이 28px, 목록 행 36px. 여백은 4px 그리드에서 고르고, 필요 없는 카드 테두리나 구획을 겹치지 않는다.
+- **밀도**: UI 본문 15px, 기본 컨트롤 높이 34px, 목록 행 44px. 여백은 4px 그리드에서 고르고, 필요 없는 카드 테두리나 구획을 겹치지 않는다.
 - **색은 의미에만 쓴다**: 위계는 중립색 3단계(`text.primary` / `secondary` / `tertiary`)와 굵기로 만든다. 강조색(인디고)은 주요 동작, 선택, 포커스에만 쓰고, 상태색은 상태를 알릴 때만 쓴다. 장식용 그라데이션, 색 배경 카드, 일러스트를 넣지 않는다.
 - **조용한 표면**: 흐름 안의 콘텐츠는 평평하다(그림자 없음, 1px 구분선). 그림자는 떠 있는 층(상세 패널, 다이얼로그, 팔레트, 토스트)에만 쓴다.
 - **움직임은 짧게**: 전환은 100–240ms이고, 상태를 설명할 때만 움직인다. 반복 애니메이션은 진행 표시(스피너, 실시간 점)에만 쓴다.
@@ -125,9 +126,9 @@ canvas (사이드바·페이지)
 ### 2.3 타이포그래피
 
 - **글꼴**: 웹은 `Pretendard Variable`(가변 글꼴, 한글·라틴 균형), 네이티브는 시스템 글꼴(macOS SF Pro + Apple SD Gothic Neo, Android Roboto + Noto Sans CJK)을 쓴다. 모노는 `SF Mono` → `JetBrains Mono` → `D2Coding`(한글 고정폭) 순이며 ID, 로그, 코드, 타임스탬프에만 쓴다.
-- **크기 단계**: 11 / 12 / 13(기본) / 14 / 15(읽기) / 16 / 20 / 24px. 이 밖의 크기를 새로 만들지 않는다.
+- **크기 단계**: 12 / 13 / 15(기본) / 16 / 17(읽기) / 18 / 24 / 28px. 이 밖의 크기를 새로 만들지 않는다. UI 글자는 13px 아래로 내리지 않는다(12px은 배지·키캡뿐).
 - **줄 높이**: UI 1.45, 다이얼로그·설명 1.6, 문서 본문 1.7. 한글 긴 글은 1.6 아래로 내리지 않는다.
-- **자간**: Pretendard는 기본 자간이 넓어 UI 글자에 약간 음수를 준다(본문 −0.08px, 제목 −0.15 ~ −0.48px). 문서 본문과 모노는 0이다.
+- **자간**: Pretendard는 기본 자간이 넓어 UI 글자에 약간 음수를 준다(본문 −0.09px, 제목 −0.17 ~ −0.56px). 문서 본문과 모노는 0이다.
 - **한국어 줄바꿈**: 제목, 버튼, 배지, 표 머리글은 `word-break: keep-all`로 어절 단위로 끊는다. 이메일, URL, ID처럼 긴 토큰은 `overflow-wrap: anywhere`로 넘침을 막는다.
 - **줄 길이**: 문서 본문은 한 줄에 한글 35–45자(약 `max-width: 40em`)를 넘기지 않는다.
 - 굵기는 400(본문), 500(레이블·버튼), 600(제목·값), 700(로고 등 예외)만 쓴다.
@@ -136,13 +137,13 @@ canvas (사이드바·페이지)
 
 - 모든 간격은 **4px 그리드**(`space.4`의 배수)이다. 2px·6px 반 단계는 컴포넌트 내부(아이콘과 글자 사이, 배지 안쪽)에서만 쓴다.
 - 레이아웃 간격: 행 안 요소 사이 8px, 섹션 안쪽 여백 16px, 섹션 사이 24–32px, 페이지 여백 24px(모바일 12–16px).
-- 컨트롤 높이: `size.control.sm` 24px(툴바, 칩) / `md` 28px(기본 버튼) / `lg` 32px(입력 필드, 터치 우선 화면).
-- 목록 행: `compact` 32px / `default` 36px / `comfortable` 44px(터치). 포인터가 거친 기기(`@media (pointer: coarse)`)에서는 `comfortable`과 `control.lg`로 올린다.
-- 아이콘은 16px 격자에 1.4–1.6px 선으로 그린다(`size.icon.sm` 14 / `md` 16 / `lg` 20).
+- 컨트롤 높이: `size.control.sm` 28px(툴바, 칩) / `md` 34px(기본 버튼) / `lg` 40px(입력 필드, 터치 우선 화면).
+- 목록 행: `compact` 38px / `default` 44px / `comfortable` 52px(터치). 포인터가 거친 기기(`@media (pointer: coarse)`)에서는 `comfortable`과 `control.lg`로 올린다.
+- 아이콘은 16px 격자에 1.4–1.6px 선으로 그린다(`size.icon.sm` 16 / `md` 18 / `lg` 22).
 
 ### 2.5 반경
 
-`radius.xs` 4px(배지, 키캡) / `sm` 6px(버튼, 입력, 칩, 목록 항목) / `md` 8px(카드, 패널, 토스트) / `lg` 10px(다이얼로그, 팔레트) / `full`(아바타, 점, 스위치). 바깥 요소의 반경은 안쪽 요소보다 같거나 크게 한다(안쪽 반경 = 바깥 반경 − 안쪽 여백).
+`radius.xs` 4px(배지, 키캡) / `sm` 6px(버튼, 입력, 칩, 목록 항목) / `md` 8px(카드, 패널, 토스트) / `lg` 12px(다이얼로그, 팔레트) / `full`(아바타, 점, 스위치). 바깥 요소의 반경은 안쪽 요소보다 같거나 크게 한다(안쪽 반경 = 바깥 반경 − 안쪽 여백).
 
 ### 2.6 그림자(elevation)
 
@@ -240,17 +241,17 @@ canvas (사이드바·페이지)
 
 | CSS 변수 | 값 | 용도 |
 |---|---|---|
-| `--size-control-sm` | 24px | 작은 버튼, 칩, 툴바 아이콘 버튼. WCAG 2.5.8 최소 표적 크기. |
-| `--size-control-md` | 28px | 기본 버튼, 검색 입력. |
-| `--size-control-lg` | 32px | 입력 필드, 터치 우선 화면의 기본 컨트롤. |
-| `--size-row-compact` | 32px | 조밀한 목록 행. |
-| `--size-row-default` | 36px | 기본 목록 행. |
-| `--size-row-comfortable` | 44px | 터치 화면 목록 행(Apple HIG 44pt). |
-| `--size-icon-sm` | 14px |  |
-| `--size-icon-md` | 16px |  |
-| `--size-icon-lg` | 20px |  |
-| `--size-peek-width` | 448px | 상세 패널 너비. |
-| `--size-sidebar-width` | 232px | 사이드바 너비. |
+| `--size-control-sm` | 28px | 작은 버튼, 칩, 툴바 아이콘 버튼. WCAG 2.5.8 최소 표적 크기(24px)보다 크다. |
+| `--size-control-md` | 34px | 기본 버튼, 검색 입력. |
+| `--size-control-lg` | 40px | 입력 필드, 터치 우선 화면의 기본 컨트롤. |
+| `--size-row-compact` | 38px | 조밀한 목록 행. |
+| `--size-row-default` | 44px | 기본 목록 행. |
+| `--size-row-comfortable` | 52px | 터치 화면 목록 행(Apple HIG 44pt). |
+| `--size-icon-sm` | 16px |  |
+| `--size-icon-md` | 18px |  |
+| `--size-icon-lg` | 22px |  |
+| `--size-peek-width` | 480px | 상세 패널 너비. |
+| `--size-sidebar-width` | 264px | 사이드바 너비. |
 
 #### 반경
 
@@ -259,7 +260,7 @@ canvas (사이드바·페이지)
 | `--radius-xs` | 4px | 배지, 키캡, 막대. |
 | `--radius-sm` | 6px | 버튼, 입력, 칩, 목록 항목. |
 | `--radius-md` | 8px | 카드, 패널, 토스트. |
-| `--radius-lg` | 10px | 다이얼로그, 명령 팔레트. |
+| `--radius-lg` | 12px | 다이얼로그, 명령 팔레트. |
 | `--radius-full` | 9999px | 원형(아바타, 상태 점, 스위치). |
 
 #### 글꼴
@@ -268,14 +269,14 @@ canvas (사이드바·페이지)
 |---|---|---|
 | `--font-family-sans` | Pretendard Variable, Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Segoe UI, Apple SD Gothic Neo, Noto Sans KR, Malgun Gothic, sans-serif | UI와 문서 본문. 웹은 Pretendard Variable, 네이티브는 시스템 글꼴을 쓴다. |
 | `--font-family-mono` | SF Mono, ui-monospace, JetBrains Mono, D2Coding, Menlo, Consolas, monospace | ID, 로그, 코드, 타임스탬프. |
-| `--font-size-xs` | 11px | 배지, 키캡, 캡션. |
-| `--font-size-sm` | 12px | 메타 정보, 보조 열, 레이블. |
-| `--font-size-base` | 13px | UI 본문과 컨트롤. |
-| `--font-size-md` | 14px | 섹션 제목, 다이얼로그 제목, 팔레트 입력. |
-| `--font-size-lg` | 16px | 상세 패널 제목. |
-| `--font-size-reading` | 15px | 문서 본문(긴 글 읽기). |
-| `--font-size-xl` | 20px | 페이지 제목. |
-| `--font-size-xxl` | 24px | 핵심 수치(KPI). |
+| `--font-size-xs` | 12px | 배지, 키캡, 캡션. |
+| `--font-size-sm` | 13px | 메타 정보, 보조 열, 레이블. |
+| `--font-size-base` | 15px | UI 본문과 컨트롤. |
+| `--font-size-md` | 16px | 섹션 제목, 다이얼로그 제목, 팔레트 입력. |
+| `--font-size-lg` | 18px | 상세 패널 제목. |
+| `--font-size-reading` | 17px | 문서 본문(긴 글 읽기). |
+| `--font-size-xl` | 24px | 페이지 제목. |
+| `--font-size-xxl` | 28px | 핵심 수치(KPI). |
 | `--font-weight-regular` | 400 |  |
 | `--font-weight-medium` | 500 |  |
 | `--font-weight-semibold` | 600 |  |
@@ -290,14 +291,14 @@ canvas (사이드바·페이지)
 
 | CSS 변수 | 값 | 용도 |
 |---|---|---|
-| `--typography-caption` | 400 12px/1.45, 자간 -0.07px, Pretendard Variable | 메타 정보, 힌트. |
-| `--typography-body` | 400 13px/1.45, 자간 -0.08px, Pretendard Variable | UI 기본 글자. |
-| `--typography-label` | 500 12px/1.45, 자간 -0.07px, Pretendard Variable | 필드 레이블, 그룹 머리글. |
-| `--typography-title` | 600 14px/1.35, 자간 -0.15px, Pretendard Variable | 섹션·다이얼로그 제목. |
-| `--typography-heading` | 600 16px/1.35, 자간 -0.24px, Pretendard Variable | 상세 패널 제목. |
-| `--typography-display` | 600 24px/1.25, 자간 -0.48px, Pretendard Variable | 핵심 수치. |
-| `--typography-reading` | 400 15px/1.7, 자간 0px, Pretendard Variable | 문서 본문. |
-| `--typography-mono` | 400 12px/1.45, 자간 0px, SF Mono | ID, 로그, 타임스탬프. |
+| `--typography-caption` | 400 13px/1.45, 자간 -0.08px, Pretendard Variable | 메타 정보, 힌트. |
+| `--typography-body` | 400 15px/1.45, 자간 -0.09px, Pretendard Variable | UI 기본 글자. |
+| `--typography-label` | 500 13px/1.45, 자간 -0.08px, Pretendard Variable | 필드 레이블, 그룹 머리글. |
+| `--typography-title` | 600 16px/1.35, 자간 -0.17px, Pretendard Variable | 섹션·다이얼로그 제목. |
+| `--typography-heading` | 600 18px/1.35, 자간 -0.27px, Pretendard Variable | 상세 패널 제목. |
+| `--typography-display` | 600 28px/1.25, 자간 -0.56px, Pretendard Variable | 핵심 수치. |
+| `--typography-reading` | 400 17px/1.7, 자간 0px, Pretendard Variable | 문서 본문. |
+| `--typography-mono` | 400 13px/1.45, 자간 0px, SF Mono | ID, 로그, 타임스탬프. |
 
 #### 그림자(elevation)
 
@@ -352,14 +353,14 @@ canvas (사이드바·페이지)
 | danger | `status.danger.solid` → hover `solid-hover` | `text.on-solid` | 없음 | 파괴적 동작 확인 |
 | danger-text | 투명 → hover `status.danger.subtle` | `status.danger.fg` | `border.default` | 파괴적 동작의 진입점 |
 
-- 크기: sm 24px(글자 12px, 좌우 8px) / md 28px(12.5–13px, 좌우 10px) / lg 32px. 아이콘만 있는 버튼은 정사각형이고 `aria-label`과 툴팁을 갖는다.
+- 크기: sm 28px(글자 13px, 좌우 10px) / md 34px(15px, 좌우 14px) / lg 40px. 아이콘만 있는 버튼은 정사각형이고 `aria-label`과 툴팁을 갖는다.
 - 로딩: 너비를 유지한 채 스피너를 보이고 `aria-busy="true"`, 중복 클릭을 막는다.
 - 레이블은 동사형 명사(“저장”, “다시 시도”)이고 아이콘은 레이블 앞에 둔다. 단축키가 있으면 툴팁에 함께 적는다(“새 멤버 (C)”).
 - React Aria: `Button`.
 
 ### 3.2 입력
 
-- 높이 32px(폼), 28px(검색·툴바). 배경 `bg.input`, 테두리 `border.default`, 반경 `radius.sm`.
+- 높이 40px(폼), 34px(검색·툴바). 배경 `bg.input`, 테두리 `border.default`, 반경 `radius.sm`.
 - 포커스: 테두리 `accent.solid` + 3px `bg.selected` 링. 오류: 테두리 `status.danger.ui`, 아래에 `status.danger.fg` 메시지, `aria-invalid="true"`, `aria-describedby`로 연결.
 - 레이블은 항상 보인다. 자리표시자(`text.tertiary`)는 예시이지 레이블이 아니다.
 - 붙여넣기를 막지 않는다(인증번호, 비밀번호 포함, WCAG 3.3.8). 인증번호는 `autocomplete="one-time-code"`, 이메일은 `type="email"`과 `autocomplete="email"`.
@@ -368,7 +369,7 @@ canvas (사이드바·페이지)
 
 ### 3.3 목록 행
 
-- 높이 `size.row.default` 36px(콘솔은 38px), 좌우 16–18px, 행 사이 `border.subtle`. 첫 열은 아이콘·아바타, 가운데는 제목(굵게)과 보조 정보(`text.secondary`), 오른쪽은 고정폭 열(상태, 수치, 시간).
+- 높이 `size.row.default` 44px(두 줄 행은 56px), 좌우 16–20px, 행 사이 `border.subtle`. 첫 열은 아이콘·아바타, 가운데는 제목(굵게)과 보조 정보(`text.secondary`), 오른쪽은 고정폭 열(상태, 수치, 시간).
 - 상태: hover `bg.hover` / 키보드 선택 `bg.active` + 왼쪽 2px `border.focus` 표시줄 / 상세 패널에 열림 `bg.selected` / 다중 선택 시 체크박스 표시.
 - 키보드: `↑`/`↓`(`J`/`K`) 이동, `Enter` 열기, `X` 또는 `Space` 선택, `Shift`+이동으로 범위 선택, `Esc` 선택 해제.
 - 행 안 동작 버튼은 hover와 포커스 때 보이고, 같은 동작이 상세 패널·팔레트·컨텍스트 메뉴에도 있다(마우스 hover에만 의존하지 않는다).
@@ -377,7 +378,7 @@ canvas (사이드바·페이지)
 
 ### 3.4 상세 패널(peek)
 
-- 오른쪽에 뜨는 너비 448px 패널(`size.peek-width`), `bg.raised`, `shadow.lg`, `radius.md`. 목록을 가리지 않고 옆에서 상세를 보여 준다.
+- 오른쪽에 뜨는 너비 480px 패널(`size.peek-width`), `bg.raised`, `shadow.lg`, `radius.md`. 목록을 가리지 않고 옆에서 상세를 보여 준다.
 - 모달이 아니다. 포커스를 가두지 않고, 열린 상태에서 목록 이동(`J`/`K`)이 패널 내용을 바꾼다. `Esc`로 닫으면 포커스가 원래 행으로 돌아간다.
 - 구조: 머리(이동 경로 + 닫기) → 본문(제목, 속성 표 `dl`, 섹션) → 바닥(동작 버튼, 파괴적 동작은 왼쪽 끝).
 - 900px 이하에서는 전체 화면 시트가 되고 그때는 모달로 동작한다.
@@ -385,14 +386,14 @@ canvas (사이드바·페이지)
 
 ### 3.5 다이얼로그
 
-- 너비 440px(확인), 520px(폼), `radius.lg`, `shadow.lg`, 뒤에 `bg.scrim`.
+- 너비 480px(확인), 560px(폼), `radius.lg`, `shadow.lg`, 뒤에 `bg.scrim`.
 - 포커스를 가두고, 열릴 때 첫 입력 또는 가장 안전한 버튼에 포커스를 둔다. `Esc`와 바깥 클릭으로 닫히되 입력 중인 내용이 있으면 닫기 전에 묻는다. 닫히면 연 요소로 포커스를 돌려준다.
 - 제목은 하려는 일(“멤버 삭제”), 본문은 결과와 되돌릴 수 있는지, 버튼은 오른쪽 정렬로 “취소” 다음에 동작 동사(“영구 삭제”). “확인”만 있는 버튼을 쓰지 않는다.
 - React Aria: `Modal` + `Dialog`, 확인용은 `role="alertdialog"`.
 
 ### 3.6 토스트
 
-- 오른쪽 아래(상세 패널이 열려 있으면 그 왼쪽), 최대 너비 380px, `bg.raised`, `shadow.lg`. 앞에 상태 점(`status.*.ui`).
+- 오른쪽 아래(상세 패널이 열려 있으면 그 왼쪽), 최대 너비 400px, `bg.raised`, `shadow.lg`. 앞에 상태 점(`status.*.ui`).
 - 성공·정보는 `aria-live="polite"`, 오류는 `role="alert"`. 5초 뒤 사라지되 hover나 포커스가 있는 동안에는 멈춘다(WCAG 2.2.1).
 - 토스트에만 있는 동작을 만들지 않는다. “실행 취소” 버튼을 둘 수는 있지만, 같은 결과를 다른 곳에서도 얻을 수 있어야 한다.
 - 문장은 결과를 말한다(“멤버를 추가했습니다.”). 한 번에 최대 3개를 쌓는다.
@@ -400,8 +401,8 @@ canvas (사이드바·페이지)
 
 ### 3.7 명령 팔레트
 
-- `⌘K` / `Ctrl+K`로 연다. 너비 640px, 화면 위에서 12vh, 최대 높이 560px.
-- 구조: 검색 입력(48px) → 그룹(이동, 명령, 최근, 검색 결과) → 바닥에 키 안내(`↑↓` 이동, `↵` 실행, `esc` 닫기).
+- `⌘K` / `Ctrl+K`로 연다. 너비 680px, 화면 위에서 12vh, 최대 높이 600px.
+- 구조: 검색 입력(56px) → 그룹(이동, 명령, 최근, 검색 결과) → 바닥에 키 안내(`↑↓` 이동, `↵` 실행, `esc` 닫기).
 - 검색은 공백·대소문자를 무시하고 **초성 검색**(“ㄱㅇ” → “강의”)과 영문 별칭(`theme`, `dark`)을 지원한다.
 - 항목: 아이콘 + 이름 + (보조 설명) + 오른쪽 단축키. 선택 항목은 `bg.active`.
 - 결과가 없으면 “일치하는 항목이 없습니다.”와 함께 검색어로 전체 검색하는 항목을 남긴다.
@@ -409,29 +410,29 @@ canvas (사이드바·페이지)
 
 ### 3.8 탭
 
-- **세그먼트 탭**(같은 데이터의 보기 전환, 설정 값 선택): 트랙 `bg.active`, 선택 엄지 `bg.control-selected` + `shadow.sm`, 높이 24–28px.
+- **세그먼트 탭**(같은 데이터의 보기 전환, 설정 값 선택): 트랙 `bg.active`, 선택 엄지 `bg.control-selected` + `shadow.sm`, 높이 28–34px.
 - **밑줄 탭**(같은 화면 안의 구역 전환: 전사 / 문서 / PDF): 선택 탭 아래 2px `accent.solid`, 글자 `text.primary`, 나머지 `text.secondary`.
 - 키보드: `←`/`→` 이동. 내용이 가벼우면 이동과 동시에 선택하고(자동), 무거우면 `Enter`/`Space`로 선택한다(수동).
 - React Aria: `Tabs`, 세그먼트는 `ToggleButtonGroup` 또는 `RadioGroup`.
 
 ### 3.9 배지와 아바타
 
-- 배지: 높이 18px, 좌우 6px, 글자 11px/500, `radius.xs`, 테두리 `border.default`. 상태 배지는 글자 `status.*.fg` + 테두리 `status.*.border`, 강조 배지는 `accent.fg` + `accent.border` + 배경 `bg.selected`.
+- 배지: 높이 22px, 좌우 8px, 글자 12px/500, `radius.xs`, 테두리 `border.default`. 상태 배지는 글자 `status.*.fg` + 테두리 `status.*.border`, 강조 배지는 `accent.fg` + `accent.border` + 배경 `bg.selected`.
 - 배지는 누를 수 없다. 누를 수 있으면 칩(필터 칩, 출처 칩)으로 만든다.
-- 아바타: 원형 20px(목록) / 36px(상세), 글자 `text.on-solid`. 배경은 사용자 ID 해시로 고른 색상각 `h`에 대해 `oklch(52% 0.08 h)`이다. 이 식은 모든 색상각에서 sRGB 안에 있고 흰 글자 대비가 5.2:1 이상이다(테스트가 360개 색상각을 모두 검사). 아바타는 `aria-hidden`이고 이름은 옆에 글자로 쓴다.
+- 아바타: 원형 24px(목록) / 40px(상세), 글자 `text.on-solid`. 배경은 사용자 ID 해시로 고른 색상각 `h`에 대해 `oklch(52% 0.08 h)`이다. 이 식은 모든 색상각에서 sRGB 안에 있고 흰 글자 대비가 5.2:1 이상이다(테스트가 360개 색상각을 모두 검사). 아바타는 `aria-hidden`이고 이름은 옆에 글자로 쓴다.
 
 ### 3.10 오디오 플레이어
 
-- 녹음 상세 화면 아래에 고정되는 막대(높이 56px, `bg.raised`, 위쪽 `border.subtle`).
+- 녹음 상세 화면 아래에 고정되는 막대(높이 64px, `bg.raised`, 위쪽 `border.subtle`).
 - 구성: 재생/일시정지 → 10초 뒤로/앞으로 → 진행 막대(슬라이더) → 현재/전체 시간(모노, `tabular-nums`, “12:30 / 1:23:45”) → 속도(0.75–2배) → 음량.
-- 진행 막대: 트랙 `bg.active`, 재생된 부분 `accent.solid`, 손잡이 12px. 슬라이더의 `aria-valuetext`는 “12분 30초 / 1시간 23분 45초”처럼 읽히게 한다.
+- 진행 막대: 트랙 `bg.active`, 재생된 부분 `accent.solid`, 손잡이 14px. 슬라이더의 `aria-valuetext`는 “12분 30초 / 1시간 23분 45초”처럼 읽히게 한다.
 - 키보드(입력 필드 밖에서): `Space` 재생/일시정지, `←`/`→` 5초, `Shift`+`←`/`→` 30초, `[`/`]` 속도. 슬라이더에 포커스가 있으면 화살표가 슬라이더를 움직인다.
 - 자동 재생하지 않는다(WCAG 1.4.2).
 - React Aria: `Slider`, `ToggleButton`.
 
 ### 3.11 전사 구간
 
-- 한 구간 = 타임스탬프(모노 12px, `text.tertiary`) + 화자(12px/500, `text.secondary`) + 본문(`typography.reading` 또는 UI 13–14px).
+- 한 구간 = 타임스탬프(모노 13px, `text.tertiary`) + 화자(13px/500, `text.secondary`) + 본문(`typography.reading` 또는 UI 16px).
 - 현재 재생 중인 구간은 `aria-current="true"`와 함께 왼쪽 2px `accent.solid` 표시줄과 `bg.hover` 배경을 갖는다. 출처 칩에서 이동해 온 구간은 `bg.selected`로 1.5초 강조한다(줄인 모션에서는 애니메이션 없이 배경만).
 - 구간을 클릭하거나 포커스 후 `Enter`를 누르면 그 시점으로 이동한다. 구간 사이는 `↑`/`↓`로 움직인다.
 - 재생 중에는 현재 구간을 따라 자동 스크롤하되, 사용자가 직접 스크롤하면 멈추고 “현재 위치로” 버튼을 띄운다.
@@ -440,7 +441,7 @@ canvas (사이드바·페이지)
 
 ### 3.12 문서 블록
 
-- 블록 종류: 제목(h2–h4), 문단, 목록, 표, 인용, 안내 상자(callout), 질문 카드, 일정 제안. 본문은 `typography.reading`(15px/1.7), 한 줄 35–45자.
+- 블록 종류: 제목(h2–h4), 문단, 목록, 표, 인용, 안내 상자(callout), 질문 카드, 일정 제안. 본문은 `typography.reading`(17px/1.7), 한 줄 35–45자.
 - 각 AI 블록은 끝에 출처 칩 묶음을 단다. 출처가 없으면 `status.attention` 칩 “출처 확인 필요”를 단다.
 - hover·포커스 때 블록 오른쪽에 동작(복사, 편집, 다시 생성)이 나타난다. 사용자가 편집한 블록은 “직접 수정” 배지를 달고, 다시 생성할 때 덮어쓰지 않는다(또는 비교 후 선택).
 - 안내 상자: 배경 `status.*.subtle`, 테두리 `status.*.border`, 아이콘 `status.*.ui`, 글자 `text.primary`.
@@ -448,7 +449,7 @@ canvas (사이드바·페이지)
 
 ### 3.13 출처 칩
 
-- 인라인 칩: 높이 20px, 좌우 6px, `radius.xs`, 글자 모노 11–12px `accent.fg`, 배경 투명 → hover `bg.selected`. 내용은 “12:30”(전사 구간) 또는 “p.4”(PDF 페이지).
+- 인라인 칩: 높이 24px, 좌우 6px, `radius.xs`, 글자 모노 12–13px `accent.fg`, 배경 투명 → hover `bg.selected`. 내용은 “12:30”(전사 구간) 또는 “p.4”(PDF 페이지).
 - 누르면 오디오가 그 시점으로 이동하고 전사의 해당 구간으로 스크롤해 강조한다. PDF 출처는 해당 페이지로 이동한다.
 - hover·포커스 때 원문 인용(구간 본문 앞뒤 1–2문장)을 미리 보여 준다(`Tooltip`이 아니라 포커스 가능한 `Popover`, WCAG 1.4.13: 사라지지 않고, 마우스로 옮겨 갈 수 있고, `Esc`로 닫힌다).
 - 접근 가능한 이름은 “출처: 12분 30초, 화자 1”처럼 완전한 문장으로 쓴다.
@@ -1189,3 +1190,20 @@ canvas (사이드바·페이지)
 | 아바타 | `hsl(h 40% 46%)` + 흰 글자(최저 2.63) | `oklch(52% 0.08 h)`(최저 5.28) | 색상각과 무관하게 같은 밝기 |
 | 모션 | 항상 재생 | `prefers-reduced-motion`에서 전환·등장 애니메이션 끔 | WCAG 2.3.3 권고, 멀미 방지 |
 | 배지·안내 상자 테두리 | 다크 상태색의 rgba를 두 테마에 공통 사용 | 테마별 `status.*.border` | 라이트에서 상태색과 맞춤 |
+
+## 부록 C. 크기 단계 변경 (v1.1, P2)
+
+P2 웹 셸을 실제로 써 본 피드백(“UI가 너무 작다”, 관리자 콘솔 포함)에 따라 색과 대비는 그대로 두고 크기만 한 단계씩 키웠다. 대비 검사 결과(§5.2)는 바뀌지 않는다.
+
+| 토큰 | 이전 | 이후 |
+|---|---|---|
+| `font.size` xs / sm / base / md / lg / reading / xl / xxl | 11 / 12 / 13 / 14 / 16 / 15 / 20 / 24px | 12 / 13 / 15 / 16 / 18 / 17 / 24 / 28px |
+| `size.control` sm / md / lg | 24 / 28 / 32px | 28 / 34 / 40px |
+| `size.row` compact / default / comfortable | 32 / 36 / 44px | 38 / 44 / 52px |
+| `size.icon` sm / md / lg | 14 / 16 / 20px | 16 / 18 / 22px |
+| `size.peek-width` / `size.sidebar-width` | 448 / 232px | 480 / 264px |
+| `radius.lg` | 10px | 12px |
+| `typography.*` 자간 | 본문 −0.08px 등 | 같은 em 비율로 다시 계산(본문 −0.09px) |
+
+- 관리자 콘솔은 크기를 CSS에 px로 직접 적어 두어서 토큰만으로는 커지지 않는다. P5에 React로 옮기기 전까지 콘솔 문서 전체에 같은 비율(`zoom: 1.15`, 13px → 15px)을 적용한다.
+- 네이티브 클라이언트는 아직 `Tokens.swift`/`Tokens.kt`를 쓰지 않는다. 쓰기 시작할 때 이 단계를 따른다.

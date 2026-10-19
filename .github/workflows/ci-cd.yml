@@ -32,6 +32,36 @@ jobs:
       - name: Run Core & Server unit/E2E test suite
         run: bun test
 
+  # The v2 web app (apps/web): pure-logic unit tests, the production build, and
+  # Playwright + axe (WCAG 2.2 AA on the core screens, a keyboard-only upload-to-document
+  # path, and a CSP stricter than production's). Not a deploy gate yet: /app is off in
+  # production (LECTERN_WEB_SHELL=0).
+  web:
+    name: "Web App (Bun build + Playwright/axe)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.3" # same Bun as production
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Unit tests (pairing, segment search, fixtures vs packages/domain)
+        run: bun test apps/web
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: bunx playwright install --with-deps chromium
+      - name: Build and run Playwright + axe
+        run: bun run web:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: web-playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+
   # The server ships as soon as its own tests pass: it does not wait for (or depend on)
   # the slower native client builds below.
   deploy-server:
