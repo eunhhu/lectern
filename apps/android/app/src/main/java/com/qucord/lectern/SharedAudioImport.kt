@@ -4,6 +4,8 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
+import android.text.format.Formatter
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.IntentCompat
@@ -81,6 +83,23 @@ object SharedAudioImport {
         }
         if (uri?.scheme != ContentResolver.SCHEME_CONTENT) return null
         return SharedAudio(uri, intent.type)
+    }
+
+    /** "name · size" for the confirmation dialog, or null if the provider will not say. Shown only, never a path. */
+    fun describe(context: Context, uri: Uri): String? {
+        return try {
+            val columns = arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
+            context.contentResolver.query(uri, columns, null, null, null)?.use { c ->
+                if (!c.moveToFirst()) return null
+                val nameIdx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeIdx = c.getColumnIndex(OpenableColumns.SIZE)
+                val name = if (nameIdx >= 0 && !c.isNull(nameIdx)) c.getString(nameIdx) else null
+                val size = if (sizeIdx >= 0 && !c.isNull(sizeIdx)) Formatter.formatShortFileSize(context, c.getLong(sizeIdx)) else null
+                listOfNotNull(name, size).joinToString(" · ").ifBlank { null }
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     /** Copies [shared] on Dispatchers.IO and queues the upload; the outcome is reported with a Toast. */

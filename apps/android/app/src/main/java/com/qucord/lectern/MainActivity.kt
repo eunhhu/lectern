@@ -46,6 +46,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.os.BundleCompat
 import androidx.work.ExistingWorkPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -62,11 +64,14 @@ class MainActivity : ComponentActivity() {
     /** Bumped for each QUICK_RECORD shortcut launch, including ones delivered to onNewIntent (singleTop). */
     private var quickRecordRequests by mutableIntStateOf(0)
 
+    /** Shared audio waiting for the user to confirm its course. Nothing is copied until they do. */
+    private val pendingShares = mutableStateListOf<SharedAudio>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // The server base is fixed at build time; intent extras are ignored because this activity is exported.
         if (savedInstanceState == null && isQuickRecord(intent)) quickRecordRequests++
-        if (savedInstanceState == null) handleShare(intent)
+        if (savedInstanceState == null) handleShare(intent) else restorePendingShares(savedInstanceState)
 
         setContent {
             MaterialTheme(
@@ -81,8 +86,34 @@ class MainActivity : ComponentActivity() {
                     serverBase = LecternSession.serverBase,
                     quickRecordRequests = quickRecordRequests
                 )
+                // Outside LecternNativeComposeApp so it also shows over the login screen.
+                pendingShares.firstOrNull()?.let { shared ->
+                    key(shared.uri) {
+                        SharedAudioDialog(
+                            shared = shared,
+                            onConfirm = { course ->
+                                pendingShares.remove(shared)
+                                SharedAudioImport.enqueue(this, shared, course)
+                            },
+                            onCancel = { pendingShares.remove(shared) }
+                        )
+                    }
+                }
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        // The sender's URI grant belongs to this activity record, so it outlives rotation and process death.
+        outState.putParcelableArrayList(STATE_SHARE_URIS, ArrayList(pendingShares.map { it.uri }))
+        outState.putStringArrayList(STATE_SHARE_TYPES, ArrayList(pendingShares.map { it.type.orEmpty() }))
+    }
+
+    private fun restorePendingShares(state: Bundle) {
+        val uris = BundleCompat.getParcelableArrayList(state, STATE_SHARE_URIS, Uri::class.java) ?: return
+        val types = state.getStringArrayList(STATE_SHARE_TYPES).orEmpty()
+        uris.forEachIndexed { i, uri -> pendingShares += SharedAudio(uri, types.getOrNull(i)?.ifEmpty { null }) }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -99,7 +130,7 @@ class MainActivity : ComponentActivity() {
     private fun launchedFromHistory(intent: Intent): Boolean =
         (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
 
-    /** Share sheet target: audio shared from another app is copied and queued like a recording. */
+    /** Share sheet target: audio shared from another app is confirmed in [SharedAudioDialog], then queued. */
     private fun handleShare(intent: Intent?) {
         if (intent == null || !SharedAudioImport.isAudioShare(intent) || launchedFromHistory(intent)) return
         val shared = SharedAudioImport.fromIntent(intent)
@@ -107,12 +138,60 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "공유된 오디오 파일을 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
             return
         }
-        SharedAudioImport.enqueue(this, shared, LecternSession.lastCourse(this))
+        if (pendingShares.none { it.uri == shared.uri }) pendingShares += shared
     }
 
     companion object {
         const val ACTION_QUICK_RECORD = "com.qucord.lectern.QUICK_RECORD"
+        private const val STATE_SHARE_URIS = "pending_share_uris"
+        private const val STATE_SHARE_TYPES = "pending_share_types"
     }
+}
+
+/** Lets the user pick the course for a shared file before it is copied and queued. */
+@Composable
+private fun SharedAudioDialog(shared: SharedAudio, onConfirm: (String) -> Unit, onCancel: () -> Unit) {
+    val context = LocalContext.current
+    var course by rememberSaveable { mutableStateOf(LecternSession.lastCourse(context)) }
+    val authToken by LecternSession.tokenFlow(context).collectAsState()
+    val fileLabel by produceState<String?>(null, shared.uri) {
+        value = withContext(Dispatchers.IO) { SharedAudioImport.describe(context, shared.uri) }
+    }
+    AlertDialog(
+        // Back cancels; a stray tap outside should not drop the share.
+        onDismissRequest = onCancel,
+        properties = DialogProperties(dismissOnClickOutside = false),
+        title = { Text("공유된 오디오 업로드") },
+        text = {
+            Column {
+                fileLabel?.let {
+                    Text(it, color = Color(0xFF9EA6B2), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(10.dp))
+                }
+                OutlinedTextField(
+                    value = course,
+                    onValueChange = { course = it },
+                    label = { Text("과목명") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (authToken.isBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "로그인 전에는 업로드 대기열에 보관되며, 로그인한 뒤 재시도할 수 있습니다.",
+                        color = Color(0xFFFBBF24),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(course.trim().ifBlank { LecternSession.DEFAULT_COURSE }) }) { Text("업로드") }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) { Text("취소") }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
