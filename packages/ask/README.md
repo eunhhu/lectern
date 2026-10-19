@@ -21,9 +21,12 @@ Depends on `@lectern/domain`, `zod` and `bun:sqlite` only (`test/package.test.ts
 | `runner.ts` | `prepareAskTurn` (HTTP errors before the stream) and `runAskTurn` (streams `AskStreamEvent`s) |
 | `index-stage.ts` | The harness `index` stage: key parts and a metered run |
 
-## Wiring (not done yet)
+## Wiring
 
-- **Harness**: wrap `runIndexStage` with `defineStage({ name: INDEX_STAGE.name, version: INDEX_STAGE.version, output: IndexStageOutput, key: (i) => indexStageKey(i, embedder), run: (i, ctx) => runIndexStage({ db, embedder, meter: (m, c) => ctx.meter(m, c) }, i) })` and run it after `publish`.
-- **API**: on `POST /ask/threads/{id}/turns`, resolve the scope with `resolveAccessScope` from the v2 `recording`/`folder`/`membership` rows, call `prepareAskTurn` (map `AskRequestError` to the JSON error), then open the SSE response and call `runAskTurn` with an `emit` that writes `event: <type>` / `data: <json>`. Do not abort the run when the client disconnects.
-- **Deletes**: call `deleteRecordingIndex` and `deleteRecordingThreads` when a recording is deleted; `failStaleTurns` at boot.
-- **Providers**: a Gemini `AskModel` (streaming, function calls) and a `gemini-embedding-2` `Embedder` (768 dims, query/document prefixes) next to the harness providers; `onModelCall` → `recordAiCall`.
+Done on branch `claude/ask-wiring` (with the API v2 stubs and the harness merged in):
+
+- **Providers**: `GeminiAskModel` and `GeminiEmbedder` in `packages/harness/src/gemini-ask.ts`; prices in `packages/harness/pricing.json`.
+- **Server**: `apps/server/src/ask/` builds the service from `LECTERN_ASK` (`service.ts`), runs the `index` stage as an `index` job (`index-job.ts`: `defineStage({ ..., memo: "job", run: (i, ctx) => runIndexStage({ db, embedder, meter: (m, c) => ctx.meter(m, c) }, i) })`), reconciles the index and fails stale turns with maintenance, and maps v1 lectures to notes until P2 (`legacy.ts`, ARCHITECTURE §12.4). `apps/server/src/api/v2/ask.ts` serves the routes: `prepareAskTurn` errors become JSON, then `runAskTurn` streams SSE and keeps running if the client leaves.
+- **Deletes**: `db.ts` calls `deleteRecordingIndex` + `deleteRecordingThreads` in `deleteLectureById`, and `deleteWorkspaceAskData` in `deleteUserAndData`.
+
+Still to do in P2: resolve scopes from the v2 `recording`/`folder`/`membership` rows instead of v1 lectures, index v2 transcripts and documents after `publish`, and drop the stub workspace alias.

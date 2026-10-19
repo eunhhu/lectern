@@ -487,8 +487,17 @@ flowchart TD
 - **모델 인터페이스**는 `AskModel.stream`이다.
   - 입력: `system`, `context`(조각), `instruction`(이전 대화+질문), 이전 도구 교환, 도구 목록, 출력 상한
   - 출력: `text`·`tool_call`·`done(usage, finish)` 이벤트
-  - Gemini 어댑터는 `streamGenerateContent`와 함수 호출을 쓴다. Claude 어댑터는 Messages 스트리밍과 tool use를 쓴다. 둘 다 하네스 공급자와 같은 곳에 두고, 사용량을 §5처럼 정규화한다.
-- **임베딩 인터페이스**는 `Embedder.embed(texts, "document" | "query")`다. `gemini-embedding-2`는 작업 유형 대신 텍스트 접두어로 질의와 문서를 구분한다.
+  - Gemini 어댑터(`packages/harness/src/gemini-ask.ts`, `GeminiAskModel`)는 `streamGenerateContent?alt=sse`와 함수 호출을 쓴다.
+    - 함수 호출 라운드의 모델 응답 파트는 다음 요청에 받은 그대로 다시 보낸다. 사고 서명(thought signature)이 그 파트에 붙어 있고, 빠지면 `MISSING_THOUGHT_SIGNATURE`로 끝나기 때문이다.
+    - 키는 URL이 아니라 `x-goog-api-key` 헤더로 보낸다.
+  - Claude 어댑터(D13 평가용)는 Messages 스트리밍과 tool use로 만든다. 사용량은 §5처럼 정규화한다.
+- **임베딩 인터페이스**는 `Embedder.embed(texts, "document" | "query")`다. `GeminiEmbedder`는 `batchEmbedContents`를 768차원으로 부른다.
+  - `gemini-embedding-2`는 작업 유형을 받지 않는다. 텍스트 접두어로 질의(`task: question answering | query: …`)와 문서(`title: none | text: …`)를 구분한다.
+  - 응답에 토큰 수가 없으므로 `ai_call`의 임베딩 토큰은 추정값이다.
+- **연결**(`apps/server/src/ask/`)
+  - `service.ts`가 설정에서 모델·임베더·단가·원장을 만든다. `LECTERN_ASK=0`이면 null이다.
+  - `index-job.ts`가 `index` 단계를 `job.kind = index` 작업으로 돌린다. 메모는 `job`이다. 차분 동기화와 내용 해시 임베딩으로 이미 멱등이라, 작업 사이에서 결과를 재사용하지 않는다.
+  - P2 전에는 v1 강의가 입력이다(ARCHITECTURE §12.4).
 - **비용 기록**: 모델·임베딩 호출마다 `onModelCall`이 불린다. 운영에서는 `recordAiCall`로 `ai_call`에 남긴다(`job_id` null). 턴 합계는 `ask_turn`에 저장하고, 월 한도는 이 합계로 집행한다.
 - **실패**
   - 공급자 오류와 상한 초과는 턴을 `failed`(`unavailable`·`budget_exceeded`)로 끝내고 `error` 이벤트를 보낸다. 그때까지 든 비용은 남긴다.

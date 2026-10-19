@@ -74,6 +74,12 @@
 | `GET /jobs/{job_id}` | `getJob` | 픽스처 | 시스템 작업은 404(관리자 API로만) |
 | `POST /jobs/{job_id}/cancel` | `cancelJob` | 501 | |
 | `GET /search` | `search` | 픽스처 | 부분 문자열 일치, 전사·문서·PDF |
+| `POST /ask/threads` | `createAskThread` | **실제**(`LECTERN_ASK=1`), 꺼지면 501 | v1 강의 위의 물어보기(`ask.ts`, ARCHITECTURE §12.4). 픽스처 개인 워크스페이스 id는 호출자의 `wsp_<user id>` 별칭 |
+| `GET /ask/threads` | `listAskThreads` | 실제 / 501 | 내 스레드만 |
+| `GET /ask/threads/{thread_id}` | `getAskThread` | 실제 / 501 | 지워진 노트 인용은 `available: false` |
+| `DELETE /ask/threads/{thread_id}` | `deleteAskThread` | 실제 / 501 | |
+| `POST /ask/threads/{thread_id}/turns` | `askQuestion` | 실제 / 501 | SSE(15초 heartbeat). 끊겨도 끝까지 만들어 저장. `Idempotency-Key` 재전송은 저장된 답을 다시 보냄. 교차 사이트 쿠키 요청은 403 |
+| `GET /ask/usage` | `getAskUsage` | 실제 / 501 | |
 | `GET /calendar/suggestions` | `listCalendarSuggestions` | 픽스처 | `status` 기본값 `suggested` |
 | `PATCH /calendar/suggestions/{event_candidate_id}` | `updateCalendarSuggestion` | 501 | |
 | `POST /calendar/suggestions/batch` | `batchCalendarSuggestions` | 501 | |

@@ -229,7 +229,34 @@ sudo systemctl disable --now lectern-worker && sudo systemctl restart lectern
 5. GitHub 시크릿 `LECTERN_DEPLOY_TOKEN`이 새 호스트 값과 같은지 확인하고, `gh workflow run ci-cd.yml --ref main`으로 CD를 확인한다.
 6. DNS나 터널이 새 호스트를 가리키게 바꾸고 `https://lectern.qucord.com/api/health`의 `gitSha`를 확인한다.
 
-## 8. 운영 수칙과 현재 구성 메모
+## 8. 물어보기 켜기와 끄기 (`LECTERN_ASK`)
+
+물어보기([ADR-0009](../adr/0009-ask-rag.md), [ARCHITECTURE §12.4](../v2/ARCHITECTURE.md#124-v1-브리지p2-전까지))는 기본으로 꺼져 있다. 켜면 Gemini 비용이 든다.
+
+- **켜기 전**
+  - 처음 백필 비용을 가늠한다. 완료된 강의 Markdown 전체가 한 번 임베딩된다(`gemini-embedding-2`, 1M 토큰당 $0.20, 대략 강의 한 시간 분량에 $0.003).
+    ```bash
+    sqlite3 "$LECTERN_DATA_DIR/lectern.sqlite" "SELECT COUNT(*), SUM(LENGTH(markdown)) FROM lectures WHERE status = 'done'"
+    ```
+    글자 수 × 0.65 ≈ 토큰 수다. 강의 수백 개면 보통 $1 안쪽이다.
+  - `GEMINI_API_KEY`가 유료 계층 키인지 확인한다.
+  - [개인정보처리방침](../../apps/server/static/legal/privacy.html)에 물어보기와 검색 색인 내용이 들어간 버전이 공고됐는지 확인한다(수집 항목이 늘어나는 변경은 30일 전 공고).
+- **켜기**
+  - 환경 파일에 `LECTERN_ASK=1`을 넣는다. 한도를 바꾸려면 `LECTERN_ASK_MONTHLY_LIMIT_MICROUSD`(기본 2000000 = $2/워크스페이스/월)도 넣는다.
+  - API를 재시작하고, 외부 워커를 쓰면 워커도 재시작한다.
+  - 첫 유지보수(부팅 2분 뒤)가 백필 `index` 작업을 큐에 넣는다. 진행은 관리자 작업 목록이나 다음 질의로 본다.
+    ```bash
+    sqlite3 "$LECTERN_DATA_DIR/lectern.sqlite" "SELECT state, COUNT(*) FROM job WHERE kind = 'index' GROUP BY state"
+    ```
+- **비용 확인**
+    ```bash
+    sqlite3 "$LECTERN_DATA_DIR/lectern.sqlite" "SELECT model, COUNT(*), SUM(cost_microusd) FROM ai_call WHERE model IN ('gemini-embedding-2', 'gemini-3.5-flash-lite') GROUP BY model"
+    ```
+- **끄기**
+  - `LECTERN_ASK=0`으로 바꾸고 재시작한다. 라우트는 501로 답하고 새 색인 작업은 생기지 않는다.
+  - 색인과 대화 기록은 남는다. 강의나 계정을 지우면 그 색인과 대화도 지워진다.
+
+## 9. 운영 수칙과 현재 구성 메모
 
 - 운영 체크아웃에서 `git clean -fdx`를 하지 않는다. `DATA_DIR`(`data/`)이 체크아웃 안에 있어 DB, 업로드, 백업, `secret.key`가 모두 지워진다. 장기적으로는 `DATA_DIR`을 체크아웃 밖(예: `/var/lib/lectern`)으로 옮기는 것을 검토한다.
 - 운영 체크아웃의 추적 파일을 손으로 고치지 않는다.
