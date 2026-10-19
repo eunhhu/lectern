@@ -12,7 +12,8 @@
     "start": "bun apps/server/src/index.ts",
     "cli": "bun packages/core/src/cli.ts",
     "test": "bun test",
-    "typecheck": "bun x tsc --noEmit"
+    "typecheck": "bun x tsc --noEmit",
+    "tokens:build": "bun packages/design-tokens/scripts/build.ts"
   },
   "license": "MIT",
   "devDependencies": {

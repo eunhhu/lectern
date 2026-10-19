@@ -23,9 +23,15 @@
         "lectern": "./src/cli.ts",
       },
     },
+    "packages/design-tokens": {
+      "name": "@lectern/design-tokens",
+      "version": "1.0.0",
+    },
   },
   "packages": {
     "@lectern/core": ["@lectern/core@workspace:packages/core"],
+
+    "@lectern/design-tokens": ["@lectern/design-tokens@workspace:packages/design-tokens"],
 
     "@lectern/server": ["@lectern/server@workspace:apps/server"],
 

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { escapeHtml, renderMarkdownToHtml } from "@lectern/core";
+import { tokensCss } from "../../../packages/design-tokens/dist/tokens-css.ts";
 import type { LectureRecord } from "./db.ts";
 
 /**
@@ -3723,6 +3724,47 @@ const APP_PAGE_SCRIPT = `
     bootstrapAuth();
 `;
 
+// The admin console's colours, shadows and fonts come from the design tokens
+// (packages/design-tokens/tokens.json → dist/tokens.css, light/dark by [data-theme]). The
+// short names are the console's own variable names, kept as aliases so its selectors stay
+// as they were; new rules should use the token names directly. See DESIGN.md.
+const ADMIN_THEME_CSS = `${tokensCss}
+    :root {
+      --bg: var(--color-bg-canvas);
+      --panel: var(--color-bg-panel);
+      --raised: var(--color-bg-raised);
+      --raised-2: var(--color-bg-raised-hover);
+      --seg-on: var(--color-bg-control-selected);
+      --border: var(--color-border-subtle);
+      --border-strong: var(--color-border-default);
+      --hover: var(--color-bg-hover);
+      --active: var(--color-bg-active);
+      --text: var(--color-text-primary);
+      --text-2: var(--color-text-secondary);
+      --text-3: var(--color-text-tertiary);
+      --accent: var(--color-accent-solid);
+      --accent-hover: var(--color-accent-solid-hover);
+      --accent-soft: var(--color-bg-selected);
+      --accent-text: var(--color-accent-fg);
+      --green: var(--color-status-success-ui);
+      --yellow: var(--color-status-attention-ui);
+      --orange: var(--color-status-severe-ui);
+      --red: var(--color-status-danger-ui);
+      --blue: var(--color-status-info-ui);
+      --green-text: var(--color-status-success-fg);
+      --yellow-text: var(--color-status-attention-fg);
+      --orange-text: var(--color-status-severe-fg);
+      --red-text: var(--color-status-danger-fg);
+      --blue-text: var(--color-status-info-fg);
+      --red-soft: var(--color-status-danger-subtle);
+      --yellow-soft: var(--color-status-attention-subtle);
+      --input-bg: var(--color-bg-input);
+      --overlay: var(--color-bg-scrim);
+      --shadow: var(--shadow-lg);
+      --font: var(--font-family-sans);
+      --mono: var(--font-family-mono);
+    }`;
+
 export function renderAdminPageHtml(): string {
   // Linear-style operations console. Everything below is one static document: the
   // client script talks to /api/admin/* (contract in admin-api.ts) with the HttpOnly
@@ -3739,69 +3781,7 @@ export function renderAdminPageHtml(): string {
   <link rel="icon" href="data:," />
   <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <style>
-    :root, :root[data-theme="dark"] {
-      --bg: #0f1011;
-      --panel: #141516;
-      --raised: #1a1b1e;
-      --raised-2: #222327;
-      --seg-on: #2a2b30;
-      --border: rgba(255, 255, 255, 0.07);
-      --border-strong: rgba(255, 255, 255, 0.11);
-      --hover: rgba(255, 255, 255, 0.04);
-      --active: rgba(255, 255, 255, 0.07);
-      --text: #f7f8f8;
-      --text-2: #8a8f98;
-      --text-3: #62666d;
-      --accent: #5e6ad2;
-      --accent-hover: #6e79e0;
-      --accent-soft: rgba(94, 106, 210, 0.18);
-      --accent-text: #9aa2f5;
-      --green: #4cb782;
-      --yellow: #f2c94c;
-      --orange: #f2994a;
-      --red: #eb5757;
-      --blue: #4ea7fc;
-      --green-text: #4cb782;
-      --yellow-text: #f2c94c;
-      --orange-text: #f2994a;
-      --red-text: #eb5757;
-      --blue-text: #4ea7fc;
-      --red-soft: rgba(235, 87, 87, 0.09);
-      --yellow-soft: rgba(242, 201, 76, 0.08);
-      --input-bg: rgba(255, 255, 255, 0.025);
-      --overlay: rgba(0, 0, 0, 0.55);
-      --shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
-      --font: "Pretendard Variable", Pretendard, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-      --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-      color-scheme: dark;
-    }
-    :root[data-theme="light"] {
-      --bg: #fbfbfb;
-      --panel: #ffffff;
-      --raised: #ffffff;
-      --raised-2: #f4f4f5;
-      --seg-on: #ffffff;
-      --border: #e8e8ea;
-      --border-strong: #dcdce0;
-      --hover: rgba(0, 0, 0, 0.035);
-      --active: rgba(0, 0, 0, 0.055);
-      --text: #1b1b1f;
-      --text-2: #6b6f76;
-      --text-3: #9b9ea4;
-      --accent-soft: rgba(94, 106, 210, 0.12);
-      --accent-text: #5e6ad2;
-      --green-text: #22865a;
-      --yellow-text: #a37a10;
-      --orange-text: #c2681a;
-      --red-text: #d64545;
-      --blue-text: #2b7fd6;
-      --red-soft: rgba(235, 87, 87, 0.07);
-      --yellow-soft: rgba(242, 201, 76, 0.12);
-      --input-bg: #ffffff;
-      --overlay: rgba(15, 16, 17, 0.22);
-      --shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05);
-      color-scheme: light;
-    }
+${ADMIN_THEME_CSS}
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     html, body { height: 100%; }
@@ -3819,7 +3799,7 @@ export function renderAdminPageHtml(): string {
     button { cursor: pointer; }
     a { color: inherit; text-decoration: none; }
     ::selection { background: var(--accent-soft); }
-    :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    :focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 1px; }
     ::-webkit-scrollbar { width: 10px; height: 10px; }
     ::-webkit-scrollbar-thumb { background: var(--active); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -3859,7 +3839,7 @@ export function renderAdminPageHtml(): string {
     .ws-logo {
       width: 20px; height: 20px; border-radius: 5px; flex: none;
       display: inline-flex; align-items: center; justify-content: center;
-      background: var(--accent); color: #fff; font-weight: 700; font-size: 11px;
+      background: var(--accent); color: var(--color-text-on-solid); font-weight: 700; font-size: 11px;
     }
     .ws-name { font-weight: 600; font-size: 13.5px; letter-spacing: -0.012em; }
     .search-trigger {
@@ -3946,10 +3926,10 @@ export function renderAdminPageHtml(): string {
     }
     .btn:hover { background: var(--raised-2); }
     .btn:disabled { opacity: 0.45; cursor: default; }
-    .btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
+    .btn-primary { background: var(--accent); border-color: transparent; color: var(--color-text-on-solid); }
     .btn-primary:hover { background: var(--accent-hover); }
-    .btn-danger { background: var(--red); border-color: transparent; color: #fff; }
-    .btn-danger:hover { background: #f06565; }
+    .btn-danger { background: var(--color-status-danger-solid); border-color: transparent; color: var(--color-text-on-solid); }
+    .btn-danger:hover { background: var(--color-status-danger-solid-hover); }
     .btn-ghost { background: transparent; border-color: transparent; color: var(--text-2); }
     .btn-ghost:hover { background: var(--hover); color: var(--text); }
     .btn.danger-text { color: var(--red-text); }
@@ -3973,7 +3953,7 @@ export function renderAdminPageHtml(): string {
     }
     .row:hover { background: var(--hover); }
     .row.sel { background: var(--active); }
-    .row.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+    .row.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--color-border-focus); }
     .row.is-open { background: var(--accent-soft); }
     .c-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
     .c-main .t { flex: 0 1 auto; }
@@ -4001,19 +3981,19 @@ export function renderAdminPageHtml(): string {
 
     .av {
       width: 20px; height: 20px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center;
-      color: #fff; font-size: 10px; font-weight: 600; letter-spacing: 0; user-select: none;
+      color: var(--color-text-on-solid); font-size: 10px; font-weight: 600; letter-spacing: 0; user-select: none;
     }
     .av-lg { width: 36px; height: 36px; font-size: 15px; }
     .badge {
       display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px; border-radius: 4px; flex: none;
       border: 1px solid var(--border-strong); color: var(--text-2); font-size: 11px; font-weight: 500; white-space: nowrap; line-height: 1;
     }
-    .badge.owner { color: var(--accent-text); border-color: rgba(94, 106, 210, 0.45); background: var(--accent-soft); }
-    .badge.admin { color: var(--blue-text); border-color: rgba(78, 167, 252, 0.35); }
-    .badge.green { color: var(--green-text); border-color: rgba(76, 183, 130, 0.35); }
-    .badge.red { color: var(--red-text); border-color: rgba(235, 87, 87, 0.35); }
-    .badge.yellow { color: var(--yellow-text); border-color: rgba(242, 201, 76, 0.4); }
-    .badge.blue { color: var(--blue-text); border-color: rgba(78, 167, 252, 0.35); }
+    .badge.owner { color: var(--accent-text); border-color: var(--color-accent-border); background: var(--accent-soft); }
+    .badge.admin { color: var(--blue-text); border-color: var(--color-status-info-border); }
+    .badge.green { color: var(--green-text); border-color: var(--color-status-success-border); }
+    .badge.red { color: var(--red-text); border-color: var(--color-status-danger-border); }
+    .badge.yellow { color: var(--yellow-text); border-color: var(--color-status-attention-border); }
+    .badge.blue { color: var(--blue-text); border-color: var(--color-status-info-border); }
     .sdot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; background: var(--text-3); }
     .sdot.green { background: var(--green); }
     .sdot.yellow { background: var(--yellow); }
@@ -4114,7 +4094,7 @@ export function renderAdminPageHtml(): string {
       background: var(--text-2); transition: transform 0.12s, background 0.12s;
     }
     .switch:checked { background: var(--accent); border-color: transparent; }
-    .switch:checked::after { transform: translateX(12px); background: #fff; }
+    .switch:checked::after { transform: translateX(12px); background: var(--color-text-on-solid); }
     .switch:disabled { opacity: 0.45; cursor: default; }
     .sw-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; cursor: pointer; }
     .sw-row .sw-text { flex: 1; min-width: 0; }
@@ -4124,16 +4104,16 @@ export function renderAdminPageHtml(): string {
     .seg label { position: relative; display: inline-flex; }
     .seg input { position: absolute; opacity: 0; pointer-events: none; }
     .seg span { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 5px; color: var(--text-2); cursor: pointer; font-size: 12.5px; white-space: nowrap; }
-    .seg input:checked + span { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }
-    .seg input:focus-visible + span { outline: 2px solid var(--accent); }
+    .seg input:checked + span { background: var(--seg-on); color: var(--text); box-shadow: var(--shadow-sm); }
+    .seg input:focus-visible + span { outline: 2px solid var(--color-border-focus); }
     .form-err { color: var(--red-text); font-size: 12px; margin: 4px 0 10px; }
     .sec-title { font-size: 12px; font-weight: 600; color: var(--text-2); margin: 20px 0 10px; display: flex; align-items: center; gap: 8px; }
     .sec-title::after { content: ""; flex: 1; height: 1px; background: var(--border); }
     .callout { display: flex; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--hover); font-size: 12.5px; color: var(--text-2); margin: 12px 0; }
     .callout .ic { margin-top: 2px; }
-    .callout.red { border-color: rgba(235, 87, 87, 0.3); background: var(--red-soft); color: var(--text); }
+    .callout.red { border-color: var(--color-status-danger-border); background: var(--red-soft); color: var(--text); }
     .callout.red .ic { color: var(--red); }
-    .callout.yellow { border-color: rgba(242, 201, 76, 0.32); background: var(--yellow-soft); color: var(--text); }
+    .callout.yellow { border-color: var(--color-status-attention-border); background: var(--yellow-soft); color: var(--text); }
     .callout.yellow .ic { color: var(--yellow); }
     .pre { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 11.5px; letter-spacing: 0; color: var(--text-2); margin-top: 4px; }
 
@@ -4228,6 +4208,10 @@ export function renderAdminPageHtml(): string {
     .gate-card p { color: var(--text-2); margin: 0 0 6px; line-height: 1.55; }
     .scrim { display: none; }
 
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition: none !important; }
+      .palette, .dialog, .sheet, .toast, .live i { animation: none !important; }
+    }
     @media (max-width: 1180px) { .hide-md { display: none !important; } }
     @media (max-width: 900px) {
       .hide-sm { display: none !important; }
@@ -4507,7 +4491,7 @@ const ADMIN_PAGE_SCRIPT = `
       return Array.from(n)[0].toUpperCase();
     }
     function avatar(name, email, id, lg) {
-      return '<span class="av' + (lg ? ' av-lg' : '') + '" style="background:hsl(' + hashHue(id || email) + ' 40% 46%)" aria-hidden="true">' + esc(initials(name, email)) + '</span>';
+      return '<span class="av' + (lg ? ' av-lg' : '') + '" style="background:oklch(52% 0.08 ' + hashHue(id || email) + ')" aria-hidden="true">' + esc(initials(name, email)) + '</span>';
     }
 
     // MARK: - API
