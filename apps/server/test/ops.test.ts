@@ -443,6 +443,12 @@ describe("job queue", () => {
     expect(isRetryableDistillError(new Error("Gemini File API init failed (503): unavailable"))).toBe(true);
     expect(isRetryableDistillError(new Error("Gemini generateContent timed out after 900s"))).toBe(true);
     expect(isRetryableDistillError(new Error("녹음된 오디오에 음성 신호가 감지되지 않았습니다"))).toBe(false);
+    expect(
+      isRetryableDistillError(new Error("Gemini File processing did not reach ACTIVE state (state=FAILED)."))
+    ).toBe(false);
+    expect(
+      isRetryableDistillError(new Error("Gemini File processing did not reach ACTIVE state (state=PROCESSING)."))
+    ).toBe(true);
   });
 });
 
@@ -504,5 +510,27 @@ describe("deploy & logging safety", () => {
     expect(line).not.toContain("lct_secret");
     expect(line).not.toContain("share=abc");
     expect(line).toContain("q=keep");
+  });
+});
+
+describe("storage accounting", () => {
+  test("audio deleted after compaction no longer counts as space saved", async () => {
+    const token = ownerToken();
+    const before: any = await (await api("/api/admin/storage", token)).json();
+    const id = makeDoneLecture(null);
+    db.query(
+      `UPDATE lectures SET audio_path = NULL, audio_size = 0, audio_original_size = 5000000,
+         audio_compact_state = 'compacted' WHERE id = ?`
+    ).run(id);
+    const after: any = await (await api("/api/admin/storage", token)).json();
+    expect(after.compaction.savedBytesTotal).toBe(before.compaction.savedBytesTotal);
+  });
+
+  test("the iOS shortcut recipe does not block on the distillation queue", async () => {
+    const res = await handleRequest(new Request("http://localhost/api/clients/ios-shortcut"));
+    const recipe: any = await res.json();
+    expect(recipe.endpoint).toEndWith("/api/ingest/shortcut?wait=false");
+    expect(recipe.instructions.join("\n")).toContain("/api/ingest/shortcut?wait=false");
+    expect(recipe.instructions.join("\n")).not.toContain("${");
   });
 });

@@ -512,7 +512,7 @@ export function buildStorageStats(input: {
     .query(
       `SELECT COUNT(*) AS count,
          COALESCE(SUM(MAX(audio_original_size - audio_size, 0)), 0) AS saved
-       FROM lectures WHERE audio_compact_state = 'compacted'`
+       FROM lectures WHERE audio_compact_state = 'compacted' AND audio_path IS NOT NULL`
     )
     .get() as { count: number; saved: number };
 

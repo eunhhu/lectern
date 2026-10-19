@@ -289,7 +289,9 @@ export function isRetryableDistillError(err: unknown): boolean {
     msg.includes("GEMINI_API_KEY is not configured") ||
     msg.includes("음성 신호가 감지되지 않았습니다") ||
     msg.includes("Audio file not found") ||
-    msg.includes("ffmpeg transcoding failed")
+    msg.includes("ffmpeg transcoding failed") ||
+    // Gemini rejected this file itself; uploading it again ends the same way.
+    msg.includes("did not reach ACTIVE state (state=FAILED)")
   ) {
     return false;
   }
@@ -2169,7 +2171,9 @@ async function routeRequest(req: Request): Promise<Response> {
       const user = authenticateRequest(req);
       return jsonResponse({
         name: "Lectern 강의 녹음 요약",
-        endpoint: `${PUBLIC_BASE_URL}/api/ingest/shortcut`,
+        // wait=false: the shortcut gets the note URL right away instead of holding the
+        // request open while the lecture waits in the distillation queue.
+        endpoint: `${PUBLIC_BASE_URL}/api/ingest/shortcut?wait=false`,
         method: "POST",
         headers: {
           "X-Lectern-Token": user ? user.api_token : "<내_계정_API_토큰>",
@@ -2180,7 +2184,7 @@ async function routeRequest(req: Request): Promise<Response> {
         instructions: [
           "1. iOS '단축어(Shortcuts)' 앱에서 새 단축어 생성",
           "2. '오디오 녹음' 또는 공유 시트에서 '오디오 파일' 입력 받기 추가",
-          "3. 'URL 내용 가져오기' 액션 추가 → URL: https://lectern.qucord.com/api/ingest/shortcut, 메소드: POST, 헤더에 X-Lectern-Token 추가, 요청 본문: 폼(Form), 필드명 'audio'에 녹음 파일 연결",
+          `3. 'URL 내용 가져오기' 액션 추가 → URL: ${PUBLIC_BASE_URL}/api/ingest/shortcut?wait=false, 메소드: POST, 헤더에 X-Lectern-Token 추가, 요청 본문: 폼(Form), 필드명 'audio'에 녹음 파일 연결`,
           "4. '사전 값 가져오기'로 'url' 추출 후 'URL 열기' 액션 연결 → 내 계정에 노트가 저장되고 즉시 열립니다.",
         ],
       });

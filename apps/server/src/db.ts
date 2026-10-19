@@ -10,7 +10,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, dirname, extname } from "node:path";
+import { join, dirname, extname, resolve } from "node:path";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import {
   extractExcerpt,
@@ -153,8 +153,8 @@ export interface LectureRecord {
 const DEFAULT_BASE = existsSync("/home/eunhhu/work")
   ? "/home/eunhhu/work/lectern"
   : process.cwd();
-const DATA_DIR =
-  process.env.LECTERN_DATA_DIR || join(DEFAULT_BASE, "data");
+// Absolute, so stored audio paths and the uploads/ prefix checks in storage.ts agree.
+const DATA_DIR = resolve(process.env.LECTERN_DATA_DIR || join(DEFAULT_BASE, "data"));
 const LECTURES_ROOT =
   process.env.LECTERN_LECTURES_DIR ||
   (existsSync("/home/eunhhu/work/lectures")
