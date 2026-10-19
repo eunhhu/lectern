@@ -159,7 +159,32 @@ interface RecordingSpec {
   job?: JobProgress & { state: "queued" | "running" };
   createdBy?: UserId;
   userEdited?: boolean;
+  /** A v1 lecture carried over: a `legacy-markdown` document (Markdown, no body) and no transcript. */
+  legacyMarkdown?: string;
 }
+
+// A v1 lecture note as the P2 migration carries it over: Markdown with [MM:SS] marks.
+const LEGACY_NOTE = `# 정보보호 7주차 — 블록 암호 운영 모드
+
+## 핵심 요약
+- [03:12] **ECB**는 같은 평문 블록을 같은 암호문으로 바꿔 패턴이 드러난다.
+- [09:40] **CBC**는 앞 블록의 암호문을 섞으므로 *예측할 수 없는* 초기화 벡터가 필요하다.
+  - 초기화 벡터는 비밀일 필요는 없지만 재사용하면 안 된다.
+
+## 운영 모드 비교
+| 모드 | 병렬 암호화 | 오류 전파 |
+|---|---|---|
+| ECB | 가능 | 없음 |
+| CBC | 불가 | 다음 블록 |
+
+\`[쉬는 시간 생략: 10분]\`
+
+## 시험
+> [1:02:40] 기말시험 범위는 운영 모드까지이고 CBC 복호화 그림이 꼭 나온다.
+
+1. 복호화 그림을 직접 그려 볼 것
+2. \`IV\`를 재사용하면 생기는 문제 정리
+`;
 
 const FOLDERS: [id: string, ws: WorkspaceId, parent: string | null, name: string][] = [
   ["fld_semester", PERSONAL_WS, null, "2026년 2학기"],
@@ -169,6 +194,8 @@ const FOLDERS: [id: string, ws: WorkspaceId, parent: string | null, name: string
   ["fld_research", PERSONAL_WS, null, "연구실"],
   ["fld_seminar", PERSONAL_WS, "fld_research", "세미나"],
   ["fld_personal", PERSONAL_WS, null, "개인"],
+  // v1 courses become folders when the P2 migration carries lectures over.
+  ["fld_security", PERSONAL_WS, null, "정보보호"],
   ["fld_weekly", TEAM_WS, null, "주간 회의"],
   ["fld_interviews", TEAM_WS, null, "사용자 인터뷰"],
 ];
@@ -341,6 +368,18 @@ const RECORDINGS: RecordingSpec[] = [
     tags: [["tag_idea"]],
     script: S.IDEA_MEMO,
     doc: Docs.IDEA_MEMO_DOC,
+  },
+  {
+    id: "rec_legacy_sec07",
+    ws: PERSONAL_WS,
+    title: "정보보호 7주차 — 블록 암호 운영 모드",
+    domain: "lecture",
+    folder: "fld_security",
+    daysAgo: 40,
+    hour: 10,
+    durationMin: 75,
+    status: "ready",
+    legacyMarkdown: LEGACY_NOTE,
   },
   {
     id: "rec_test",
@@ -672,6 +711,37 @@ export function buildFixtureData(now = new Date()): FixtureData {
         page_count: spec.pdf.pages,
         meta: { original_name: spec.pdf.name },
         created_at: uploadedAt,
+      });
+    }
+
+    if (spec.legacyMarkdown) {
+      const documentId = `${spec.id}_doc` as DocumentId;
+      data.transcripts.set(id, { segments: [], gaps: [] });
+      data.documents.push({
+        id: documentId,
+        workspace_id: spec.ws,
+        recording_id: id,
+        template_id: "legacy-markdown" as TemplateId,
+        template_version: 1,
+        current_version: 1,
+        user_edited: false,
+        created_at: finishedAt,
+        updated_at: finishedAt,
+      });
+      data.versions.push({
+        id: `${documentId}_v1` as DocumentVersionId,
+        workspace_id: spec.ws,
+        document_id: documentId,
+        recording_id: id,
+        version: 1,
+        base_version: null,
+        template_id: "legacy-markdown" as TemplateId,
+        template_version: 1,
+        body: null,
+        rendered_md: spec.legacyMarkdown,
+        created_by: "ai",
+        author_id: null,
+        created_at: finishedAt,
       });
     }
 

@@ -114,3 +114,16 @@ test("new screens and states have no axe violations", async ({ page, axe }) => {
   await expect(page.getByRole("menuitem", { name: "프로필과 계정" })).toBeVisible();
   await axe(page, "사용자 메뉴");
 });
+
+test("a carried-over v1 note: Markdown drawn as a document, [MM:SS] marks move the player", async ({ page, axe }) => {
+  await page.goto("/app/recordings/rec_legacy_sec07");
+  await expect(page.getByRole("heading", { level: 1, name: "정보보호 7주차 — 블록 암호 운영 모드" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "운영 모드 비교" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "오류 전파" })).toBeVisible();
+  await expect(page.getByText("이 노트에는 전사가 없습니다.")).toBeVisible();
+  // No raw Markdown on screen.
+  await expect(page.getByText("## 시험")).toHaveCount(0);
+  await page.getByRole("button", { name: /^1:02:40로 이동/ }).click();
+  await expect(page.getByRole("slider", { name: "재생 위치" })).toHaveValue("3760");
+  await axe(page, "이전 노트 (legacy-markdown)");
+});

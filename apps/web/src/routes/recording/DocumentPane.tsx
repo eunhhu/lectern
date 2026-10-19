@@ -12,6 +12,7 @@ import { formatTimestamp } from "../../lib/format.ts";
 import { resolveSourceRange } from "../../lib/segments.ts";
 import { Icon } from "../../ui/Icon.tsx";
 import { Badge, uiStyles } from "../../ui/controls.tsx";
+import { LegacyDocument } from "./LegacyDocument.tsx";
 import { usePlayback } from "./playback.tsx";
 import s from "./recording.module.css";
 
@@ -53,7 +54,7 @@ export function DocumentPane({ doc, pdfs, headingId }: { doc: DocumentWithVersio
           <span className={s.docVersion}>버전 {doc.version.version}</span>
         </div>
         {!body ? (
-          <pre className={s.legacy}>{doc.version.rendered_md}</pre>
+          <LegacyDocument markdown={doc.version.rendered_md} />
         ) : (
           body.sections.map((section) => (
             <section key={section.key} className={s.docSection} aria-labelledby={`sec-${section.key}`}>

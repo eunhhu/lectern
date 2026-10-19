@@ -72,7 +72,8 @@ describe("fixture data set", () => {
         const inside = t.segments.filter((s) => s.end_ms > gap.start_ms && s.start_ms < gap.end_ms);
         expect(inside).toEqual([]);
       }
-      expect(rec.duration_ms).toBeGreaterThanOrEqual(t.segments.at(-1)!.end_ms);
+      // A carried-over v1 lecture has no transcript.
+      if (t.segments.length) expect(rec.duration_ms).toBeGreaterThanOrEqual(t.segments.at(-1)!.end_ms);
       const speakerIds = new Set(data.speakers.filter((s) => s.recording_id === id).map((s) => s.id));
       for (const s of t.segments) if (s.speaker_id) expect(speakerIds.has(s.speaker_id)).toBe(true);
     }
@@ -95,7 +96,13 @@ describe("fixture data set", () => {
     };
     let cited = 0;
     for (const v of data.versions) {
-      for (const block of v.body!.sections.flatMap((s) => s.blocks)) {
+      if (!v.body) {
+        // legacy-markdown: Markdown alone, cited by its [MM:SS] marks.
+        expect(v.template_id).toBe("legacy-markdown");
+        expect(v.rendered_md).toMatch(/\[\d{1,2}:\d{2}\]/);
+        continue;
+      }
+      for (const block of v.body.sections.flatMap((s) => s.blocks)) {
         check(v.recording_id, block.sources, block.id);
         cited += block.sources.length;
         if (block.type === "list") for (const item of block.items) check(v.recording_id, item.sources, block.id);
