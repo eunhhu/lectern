@@ -6,8 +6,10 @@
 import { Hono } from "hono";
 import { API_BASE_PATH, serializeOpenApi } from "@lectern/domain";
 import { logger } from "../../log.ts";
+import { askService, type AskService } from "../../ask/service.ts";
 import { actionItemsRouter } from "./action-items.ts";
 import { adminRouter } from "./admin.ts";
+import { createAskRouter } from "./ask.ts";
 import { assetsRouter } from "./assets.ts";
 import { calendarRouter } from "./calendar.ts";
 import { apiError, type V2Env } from "./common.ts";
@@ -47,7 +49,12 @@ export const RESOURCE_ROUTERS = [
 
 let openApiJson: string | null = null;
 
-export function createApiV2App() {
+export interface ApiV2Options {
+  /** The 물어보기 service (default: from the configuration; null while LECTERN_ASK is off). */
+  askService?: () => AskService | null;
+}
+
+export function createApiV2App(options: ApiV2Options = {}) {
   const v2 = new Hono<V2Env>();
 
   // Authenticated API responses are never stored by browsers or proxies.
@@ -67,6 +74,7 @@ export function createApiV2App() {
   });
 
   for (const router of RESOURCE_ROUTERS) v2.route("/", router);
+  v2.route("/", createAskRouter(options.askService ?? askService));
 
   // Unknown /api/v2 paths (and known paths with another method) answer in the v2 error
   // shape instead of falling through to the legacy router.

@@ -4,6 +4,7 @@
 // are benign (concurrent trash moves fail harmlessly and every step is idempotent).
 
 import { config } from "@lectern/config";
+import { runAskUpkeep } from "./ask/index-job.ts";
 import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
@@ -71,6 +72,14 @@ export function startMaintenanceSchedule(): () => void {
         }
       })
       .catch((err) => logger.error("maintenance failed", { err }));
+    try {
+      const ask = runAskUpkeep();
+      if (ask.queued || ask.removed || ask.staleTurns) {
+        logger.info("ask upkeep", { index_jobs_queued: ask.queued, index_orphans_removed: ask.removed, stale_turns: ask.staleTurns });
+      }
+    } catch (err) {
+      logger.error("ask upkeep failed", { err });
+    }
   };
   const first = setTimeout(run, 2 * 60_000);
   first.unref?.();

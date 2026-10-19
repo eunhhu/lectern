@@ -233,9 +233,12 @@ async function selectPassages(
       return { mode: "full_note", chunks: all, grounded: true };
     }
   }
-  // A short follow-up ("그건 언제야?") borrows the previous question's terms.
+  // A short follow-up ("그건 언제야?") borrows the previous question's terms, and the
+  // passages the previous answer cited count as its evidence. A follow-up with terms of
+  // its own is a new topic: it needs evidence of its own, or it ends as 모름 for free.
   const lastQuestion = history.at(-1)?.question;
-  const query = lastQuestion && queryTerms(question).length < 2 ? `${lastQuestion} ${question}` : question;
+  const anaphoric = Boolean(lastQuestion) && queryTerms(question).length < 2;
+  const query = anaphoric ? `${lastQuestion} ${question}` : question;
   const result = await retrieve(
     { db: deps.db, embedder: deps.embedder, vectorIndex: deps.vectorIndex, queryCache: deps.queryCache },
     access,
@@ -246,7 +249,7 @@ async function selectPassages(
   const carried = carriedPassages(deps, access, threadId);
   const seen = new Set(carried.map((c) => c.id));
   let ranked = [...carried, ...result.chunks.map((r) => r.chunk).filter((c) => !seen.has(c.id))];
-  let grounded = hasEvidence(result) || carried.length > 0;
+  let grounded = hasEvidence(result) || (anaphoric && carried.length > 0);
   if (!grounded && access.scope.kind === "recording" && access.recordingIds.length === 1) {
     // "요약해줘" on a long note matches nothing specific: give the note's document.
     ranked = recordingChunks(deps.db, access.workspaceId, access.recordingIds[0]!).filter((c) => c.kind === "document");

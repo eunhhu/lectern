@@ -24,8 +24,12 @@ import { handleRequest } from "../src/index.ts";
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/** Reads that have no fixture yet: no upload session can exist, asset bytes have no schema. */
-const READ_STUBS = new Set(["getUpload", "getAssetContent"]);
+/**
+ * Reads that have no fixture: no upload session can exist, asset bytes have no schema, and
+ * the ask routes are real but answer 501 while LECTERN_ASK is off (the test default; they
+ * are tested enabled in ask-api.test.ts).
+ */
+const READ_STUBS = new Set(["getUpload", "getAssetContent", "listAskThreads", "getAskThread", "getAskUsage"]);
 const isFixtureRoute = (route: RouteDef) => route.method === "get" && !READ_STUBS.has(route.operationId);
 
 /** A fixture id (or other valid value) for every path parameter in the route table. */
@@ -47,6 +51,7 @@ const PATH_PARAMS: Record<string, string> = {
   event_candidate_id: ID.eventAssignment,
   integration_id: ID.integrationGoogle,
   share_link_id: ID.shareOs5Doc,
+  thread_id: "0199f0a0-a5a5-7000-8000-000000000001",
 };
 
 /** Per-operation path parameter overrides, where another fixture has the interesting data. */
@@ -58,8 +63,9 @@ const PATH_PARAM_OVERRIDES: Record<string, Record<string, string>> = {
 const QUERIES: Record<string, Record<string, string>> = {
   search: { workspace_id: ID.wsPersonal, q: "FCFS" },
   streamEvents: { workspace_id: ID.wsPersonal },
+  getAskUsage: { workspace_id: ID.wsPersonal },
 };
-for (const op of ["listFolders", "listTags", "listRecordings", "listCalendarSuggestions", "listIntegrations", "listShareLinks"]) {
+for (const op of ["listFolders", "listTags", "listRecordings", "listCalendarSuggestions", "listIntegrations", "listShareLinks", "listAskThreads"]) {
   QUERIES[op] = { workspace_id: ID.wsPersonal };
 }
 
@@ -87,6 +93,8 @@ const BODIES: Record<string, unknown> = {
   startGoogleIntegration: { workspace_id: ID.wsPersonal },
   createShareLink: { target_type: "document", target_id: ID.docOs5, scope: { transcript: false, audio: false } },
   updateShareLink: { password: null },
+  createAskThread: { workspace_id: ID.wsPersonal, scope: { kind: "workspace" } },
+  askQuestion: { question: "시험 범위가 어디까지야?" },
 };
 
 function urlFor(route: RouteDef, query: Record<string, string> = QUERIES[route.operationId] ?? {}): string {

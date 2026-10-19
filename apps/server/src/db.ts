@@ -18,6 +18,8 @@ import {
 } from "../../../packages/core/src/index.ts";
 import { config, readSecret } from "@lectern/config";
 import { runMigrations } from "@lectern/db";
+import { deleteRecordingIndex, deleteRecordingThreads, deleteWorkspaceAskData } from "@lectern/ask";
+import { personalWorkspaceId } from "./ask/workspace.ts";
 import { BlobStore, deleteArtifactsForJobs } from "@lectern/harness";
 import { ensurePrivateDir, hardenPrivateTree, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
@@ -835,6 +837,7 @@ export function deleteUserAndData(targetUserId: string): boolean {
     deleteLectureById(lec.id);
   }
   deleteAllUserSessions(targetUserId);
+  deleteWorkspaceAskData(db, personalWorkspaceId(targetUserId));
   const res = db.query(`DELETE FROM users WHERE id = ?`).run(targetUserId);
   return res.changes > 0;
 }
@@ -1415,6 +1418,28 @@ export function updateLectureProgress(
   return getLectureById(id);
 }
 
+type LectureContentListener = (lectureId: string, ownerId: string) => void;
+const lectureContentListeners: LectureContentListener[] = [];
+
+/**
+ * Called after a lecture's notes are written (distill finished, user edit). The ask index
+ * (ask/index-job.ts) subscribes; db.ts cannot import the queue itself.
+ */
+export function onLectureContentChanged(listener: LectureContentListener): void {
+  lectureContentListeners.push(listener);
+}
+
+function notifyLectureContentChanged(lecture: LectureRecord | null): void {
+  if (!lecture) return;
+  for (const listener of lectureContentListeners) {
+    try {
+      listener(lecture.id, lecture.owner_id);
+    } catch (err) {
+      logger.error("lecture content listener failed", { lecture_id: lecture.id, err });
+    }
+  }
+}
+
 export function completeLectureRecord(
   id: string,
   result: {
@@ -1507,7 +1532,9 @@ export function completeLectureRecord(
     id
   );
 
-  return getLectureById(id)!;
+  const done = getLectureById(id)!;
+  notifyLectureContentChanged(done);
+  return done;
 }
 
 export function failLectureRecord(id: string, errorMessage: string): LectureRecord | null {
@@ -1543,7 +1570,9 @@ export function updateLectureMarkdown(
       // ignore
     }
   }
-  return getLectureById(id);
+  const updated = getLectureById(id);
+  if (markdown !== rec.markdown) notifyLectureContentChanged(updated);
+  return updated;
 }
 
 export function setLectureVisibility(
@@ -1605,6 +1634,13 @@ export function deleteLectureAudioOnly(id: string): { ok: boolean; reclaimedByte
 export function deleteLectureById(id: string): boolean {
   const rec = getLectureById(id);
   deleteHarnessArtifacts(id);
+  if (rec) {
+    // The search index and note-scoped ask threads are derived from this lecture
+    // (ADR-0009 §9); they go with it whether or not LECTERN_ASK is on now.
+    const workspaceId = personalWorkspaceId(rec.owner_id);
+    deleteRecordingIndex(db, workspaceId, id);
+    deleteRecordingThreads(db, workspaceId, id);
+  }
   if (rec) {
     if (rec.md_source_path) {
       db.query(

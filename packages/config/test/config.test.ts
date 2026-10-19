@@ -11,6 +11,7 @@ describe("@lectern/config", () => {
     expect(c.repoDir).toBeNull();
     expect(c.workerMode).toBe("embedded");
     expect(c.distillEngine).toBe("legacy");
+    expect(c.ask).toEqual({ enabled: false, monthlyLimitMicrousd: 2_000_000 });
     expect(c.gemini.model).toBe("gemini-3.8-flash");
     expect(c.logRequests).toBe(true);
     expect(JSON.stringify(c)).not.toContain("/home/eunhhu");
@@ -24,6 +25,8 @@ describe("@lectern/config", () => {
       LECTERN_LOG_REQUESTS: "0",
       LECTERN_WORKER_MODE: "external",
       LECTERN_DISTILL_ENGINE: "harness",
+      LECTERN_ASK: "1",
+      LECTERN_ASK_MONTHLY_LIMIT_MICROUSD: "500000",
       LECTERN_OWNER_ALIASES: "Sunwoo, admin ,",
       LECTERN_GEMINI_ALLOWED_MODELS: "gemini-x, gemini-y",
       LECTERN_SHUTDOWN_GRACE_SEC: "5",
@@ -34,6 +37,7 @@ describe("@lectern/config", () => {
     expect(c.logRequests).toBe(false);
     expect(c.workerMode).toBe("external");
     expect(c.distillEngine).toBe("harness");
+    expect(c.ask).toEqual({ enabled: true, monthlyLimitMicrousd: 500_000 });
     expect(c.owner.aliases).toEqual(["sunwoo", "admin"]);
     expect(c.gemini.allowedModels).toEqual(["gemini-x", "gemini-y"]);
     expect(c.shutdownGraceMs).toBe(5000);

@@ -13,6 +13,7 @@
       "name": "@lectern/server",
       "version": "1.0.0",
       "dependencies": {
+        "@lectern/ask": "workspace:*",
         "@lectern/config": "workspace:*",
         "@lectern/core": "workspace:*",
         "@lectern/db": "workspace:*",

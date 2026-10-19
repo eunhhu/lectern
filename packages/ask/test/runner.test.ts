@@ -256,6 +256,15 @@ describe("ask turn", () => {
     expect(second.turn.outcome).toBe("answered");
   });
 
+  test("a follow-up on a new topic needs its own evidence; carried passages do not count", async () => {
+    const model = new ScriptedModel([(req) => [{ type: "text", text: `11월 3일입니다 [${labelOf(req, "11월 3일")}].` }, done()]]);
+    const { db, deps } = setup(model);
+    const first = await ask(deps, db, workspaceScope, "출시일이 언제야?");
+    const offTopic = await ask(deps, db, workspaceScope, "양자역학 불확정성 원리 설명", first.thread.id);
+    expect(model.requests.length).toBe(1);
+    expect(offTopic.turn).toMatchObject({ outcome: "no_answer", cost_microusd: 0 });
+  });
+
   test("with embeddings the query embedding is metered and charged to the turn", async () => {
     const embedder = new FakeEmbedder(64);
     const model = new ScriptedModel([(req) => [{ type: "text", text: `IV가 필요합니다 [${labelOf(req, "IV")}].` }, done()]]);

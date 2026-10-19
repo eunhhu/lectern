@@ -101,6 +101,15 @@ const ENV = {
     description:
       "legacy: the distill job calls packages/core directly; harness: the same Gemini call runs as one stage on packages/harness (stage_run, artifact and ai_call cost rows, resume without a second Gemini call)",
   },
+  LECTERN_ASK: {
+    schema: bool(false),
+    description:
+      "1: turn on 물어보기 (/api/v2/ask) and its search index over each user's lectures (ADR-0009); index jobs and answers call Gemini (cost). 0: the ask routes answer 501",
+  },
+  LECTERN_ASK_MONTHLY_LIMIT_MICROUSD: {
+    schema: int(0, 1_000_000_000, 2_000_000),
+    description: "Per-workspace monthly ask budget in micro-USD (2000000 = $2, ROADMAP D14); 0 blocks asking",
+  },
   LECTERN_OWNER_EMAIL: { schema: optionalString, description: "Bootstrap owner account email" },
   LECTERN_OWNER_NAME: { schema: optionalString, description: "Bootstrap owner display name" },
   LECTERN_OWNER_ALIASES: {
@@ -163,6 +172,8 @@ export interface Config {
   gemini: { model: string; allowedModels: string[]; timeoutMs: number };
   /** Which code runs distill jobs (AI_HARNESS §11 step 1). */
   distillEngine: "legacy" | "harness";
+  /** 물어보기 (ADR-0009): off by default because indexing and answers cost money. */
+  ask: { enabled: boolean; monthlyLimitMicrousd: number };
   owner: {
     email: string | null;
     name: string | null;
@@ -225,6 +236,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       timeoutMs: p.LECTERN_GEMINI_TIMEOUT_MS,
     },
     distillEngine: p.LECTERN_DISTILL_ENGINE,
+    ask: {
+      enabled: p.LECTERN_ASK,
+      monthlyLimitMicrousd: p.LECTERN_ASK_MONTHLY_LIMIT_MICROUSD,
+    },
     owner: {
       email: p.LECTERN_OWNER_EMAIL?.toLowerCase() ?? null,
       name: p.LECTERN_OWNER_NAME ?? null,

@@ -25,6 +25,7 @@ import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
 import { enqueueJob, isLectureBusy, registerJobHandler, type JobOutcome, type LeasedJob } from "./queue.ts";
 import { compactLectureAudio, isFfmpegAvailable } from "./storage.ts";
+import "./ask/index-job.ts"; // registers the ask `index` job handler and the lecture-change hook
 
 export const LECTURE_GONE_MESSAGE = "강의가 삭제되어 작업을 중단했습니다.";
 

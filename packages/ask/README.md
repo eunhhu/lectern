@@ -23,7 +23,7 @@ Depends on `@lectern/domain`, `zod` and `bun:sqlite` only (`test/package.test.ts
 
 ## Wiring (not done yet)
 
-- **Harness**: wrap `runIndexStage` with `defineStage({ name: INDEX_STAGE.name, version: INDEX_STAGE.version, output: IndexStageOutput, key: (i) => indexStageKey(i, embedder), run: (i, ctx) => runIndexStage({ db, embedder, meter: ctx.meter }, i) })` and run it after `publish`.
+- **Harness**: wrap `runIndexStage` with `defineStage({ name: INDEX_STAGE.name, version: INDEX_STAGE.version, output: IndexStageOutput, key: (i) => indexStageKey(i, embedder), run: (i, ctx) => runIndexStage({ db, embedder, meter: (m, c) => ctx.meter(m, c) }, i) })` and run it after `publish`.
 - **API**: on `POST /ask/threads/{id}/turns`, resolve the scope with `resolveAccessScope` from the v2 `recording`/`folder`/`membership` rows, call `prepareAskTurn` (map `AskRequestError` to the JSON error), then open the SSE response and call `runAskTurn` with an `emit` that writes `event: <type>` / `data: <json>`. Do not abort the run when the client disconnects.
 - **Deletes**: call `deleteRecordingIndex` and `deleteRecordingThreads` when a recording is deleted; `failStaleTurns` at boot.
 - **Providers**: a Gemini `AskModel` (streaming, function calls) and a `gemini-embedding-2` `Embedder` (768 dims, query/document prefixes) next to the harness providers; `onModelCall` → `recordAiCall`.
