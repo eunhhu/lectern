@@ -59,6 +59,27 @@ describe("@lectern/config", () => {
     expect(JSON.stringify(raw)).not.toContain("AIza-secret-value");
   });
 
+  test("policy page values: an email address and a real YYYY-MM-DD date, or unset", () => {
+    expect(loadConfig({}).legal).toEqual({ contactEmail: null, officerName: null, effectiveDate: null });
+    expect(
+      loadConfig({
+        LECTERN_LEGAL_CONTACT_EMAIL: " privacy@example.com ",
+        LECTERN_LEGAL_OFFICER_NAME: "홍길동",
+        LECTERN_LEGAL_EFFECTIVE_DATE: "2026-10-26",
+      }).legal
+    ).toEqual({ contactEmail: "privacy@example.com", officerName: "홍길동", effectiveDate: "2026-10-26" });
+    let err: unknown;
+    try {
+      loadConfig({ LECTERN_LEGAL_CONTACT_EMAIL: "not-an-email", LECTERN_LEGAL_EFFECTIVE_DATE: "2026-02-30" });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ConfigError);
+    const issues = (err as ConfigError).issues.join("\n");
+    expect(issues).toContain("LECTERN_LEGAL_CONTACT_EMAIL");
+    expect(issues).toContain("LECTERN_LEGAL_EFFECTIVE_DATE");
+  });
+
   test("the reference table lists every variable", () => {
     const table = describeEnv();
     for (const name of ["PORT", "LECTERN_DATA_DIR", "LECTERN_WORKER_MODE", "GEMINI_API_KEY", "LECTERN_DEPLOY_TOKEN"]) {

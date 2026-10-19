@@ -22,11 +22,16 @@
   - 할 일: 로그아웃 상태의 `/`(또는 홈페이지로 등록할 공개 경로)에 Lectern이 무엇을 하는지(녹음 → 전사·문서, 일정 추출, Google 캘린더 연동), `/privacy`·`/terms` 링크, 문의처를 보이게 한다. 이 작업은 웹 UI(`apps/server/src/ui.ts`)와 라우트를 소유한 세션의 몫이다.
 - [ ] **`/privacy`와 `/terms`가 실제로 서빙된다.** 파일은 `apps/server/static/legal/privacy.html`, `terms.html`이고, `apps/server/src/http.ts`(Hono 진입점)가 `/privacy`, `/terms`로 서빙한다. 이 코드가 `main`에 배포돼야 운영에서 열린다.
   - 두 페이지는 인라인 `<style>` 하나를 쓴다. CSP의 `style-src`에서 `'unsafe-inline'`을 빼면 그 해시(`'sha256-Ia0aH08zjPbxs8BI3T0x37ocu7Zu4c1RwKfMXdGTJDo='`)를 두 경로의 CSP에 넣어야 스타일이 적용된다. 스타일이 막혀도 내용은 읽힌다.
-- [ ] **자리표시자 교체.** 다음 명령의 결과가 비어 있어야 한다.
-  ```bash
-  grep -n '{{' apps/server/static/legal/*.html
-  ```
-  `{{CONTACT_EMAIL}}`(문의 이메일), `{{OPERATOR_NAME}}`(개인정보 보호책임자 이름), `{{EFFECTIVE_DATE}}`(공고·시행일, 예: 2026년 10월 26일)를 채운다. 개인 이메일을 공개하고 싶지 않으면 `qucord.com` 도메인의 별도 주소(예: privacy@ 또는 support@)를 만들어 쓴다.
+- [ ] **운영자 값 설정.** 두 페이지의 `{{CONTACT_EMAIL}}`(문의 이메일), `{{OPERATOR_NAME}}`(개인정보 보호책임자 이름), `{{EFFECTIVE_DATE}}`(공고·시행일)는 HTML을 고쳐 채우지 않는다. 공개 저장소에 운영자 정보를 남기지 않도록 서버가 응답할 때 환경 변수로 채운다(`apps/server/src/legal.ts`).
+  - 운영 환경(`/etc/lectern/lectern.env`, 아직 유닛에 직접 적고 있으면 `sudo systemctl edit lectern`)에 세 값을 넣고 `sudo systemctl restart lectern`을 한다.
+    - `LECTERN_LEGAL_CONTACT_EMAIL`: 개인 주소 대신 `qucord.com`의 역할 주소(예: privacy@ 또는 support@)를 쓴다.
+    - `LECTERN_LEGAL_OFFICER_NAME`
+    - `LECTERN_LEGAL_EFFECTIVE_DATE`: `YYYY-MM-DD` 형식. 페이지에는 "2026년 10월 26일"처럼 나간다.
+  - 값이 비어 있으면 페이지에 "추후 공고" 같은 문구가 나가고, 서버 로그에 `policy page shows placeholder text` 경고가 남는다. 검증 신청 전에는 세 값이 모두 있어야 한다.
+  - 확인: 다음 명령의 결과가 비어 있어야 한다.
+    ```bash
+    curl -s https://lectern.qucord.com/privacy https://lectern.qucord.com/terms | grep -n '추후 공고'
+    ```
 - [ ] **(P4·P5) 기능 구현.** Google 로그인과 캘린더 연동이 운영에서 동작해야 데모 영상을 찍을 수 있다. 리디렉션 URI 경로는 구현할 때 정해진다(§3.5).
 
 검증: 로그아웃한 브라우저(시크릿 창)에서 `https://lectern.qucord.com/`이 앱 설명과 개인정보처리방침 링크를 보여 주고, `https://lectern.qucord.com/privacy`와 `/terms`가 200으로 열린다.

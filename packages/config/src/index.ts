@@ -27,6 +27,12 @@ const optionalString = z
   .transform((v) => (v === "" ? undefined : v))
   .optional();
 
+const isIsoDate = (v: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+};
+
 interface EnvSpec {
   schema: z.ZodType;
   description: string;
@@ -114,6 +120,21 @@ const ENV = {
     schema: int(0, 1_000_000_000, 2_000_000),
     description: "Per-workspace monthly ask budget in micro-USD (2000000 = $2, ROADMAP D14); 0 blocks asking",
   },
+  LECTERN_LEGAL_CONTACT_EMAIL: {
+    schema: optionalString.refine((v) => v === undefined || z.email().safeParse(v).success, {
+      message: "must be an email address",
+    }),
+    description:
+      "Contact address printed on /privacy and /terms (account deletion and data requests); a role address such as privacy@, not a personal one",
+  },
+  LECTERN_LEGAL_OFFICER_NAME: {
+    schema: optionalString,
+    description: "개인정보 보호책임자 name printed on /privacy",
+  },
+  LECTERN_LEGAL_EFFECTIVE_DATE: {
+    schema: optionalString.refine((v) => v === undefined || isIsoDate(v), { message: "must be YYYY-MM-DD" }),
+    description: "공고·시행일 of the current /privacy and /terms (YYYY-MM-DD)",
+  },
   LECTERN_OWNER_EMAIL: { schema: optionalString, description: "Bootstrap owner account email" },
   LECTERN_OWNER_NAME: { schema: optionalString, description: "Bootstrap owner display name" },
   LECTERN_OWNER_ALIASES: {
@@ -180,6 +201,8 @@ export interface Config {
   distillEngine: "legacy" | "harness";
   /** 물어보기 (ADR-0009): off by default because indexing and answers cost money. */
   ask: { enabled: boolean; monthlyLimitMicrousd: number };
+  /** Operator-specific values for /privacy and /terms (null = not set yet). */
+  legal: { contactEmail: string | null; officerName: string | null; effectiveDate: string | null };
   owner: {
     email: string | null;
     name: string | null;
@@ -246,6 +269,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     ask: {
       enabled: p.LECTERN_ASK,
       monthlyLimitMicrousd: p.LECTERN_ASK_MONTHLY_LIMIT_MICROUSD,
+    },
+    legal: {
+      contactEmail: p.LECTERN_LEGAL_CONTACT_EMAIL ?? null,
+      officerName: p.LECTERN_LEGAL_OFFICER_NAME ?? null,
+      effectiveDate: p.LECTERN_LEGAL_EFFECTIVE_DATE ?? null,
     },
     owner: {
       email: p.LECTERN_OWNER_EMAIL?.toLowerCase() ?? null,

@@ -4,14 +4,11 @@
 // move off the legacy if-chain.
 
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { Hono } from "hono";
 import { API_BASE_PATH, createApiV2App } from "./api/v2/index.ts";
+import { LEGAL_PAGES, legalPageHtml } from "./legal.ts";
 import { logger } from "./log.ts";
 import { WEB_SHELL_BASE, webShellResponse } from "./web-shell.ts";
-
-const LEGAL_DIR = join(import.meta.dir, "../static/legal");
 
 type Env = { Variables: { requestId: string } };
 
@@ -47,12 +44,13 @@ export function createHttpApp(legacy: (req: Request) => Promise<Response>, optio
 
   app.route(API_BASE_PATH, createApiV2App());
 
-  // Public policy pages (linked from the OAuth consent screen and the app stores).
-  for (const page of ["privacy", "terms"] as const) {
+  // Public policy pages (linked from the OAuth consent screen and the app stores), with
+  // the operator's contact, officer and effective date filled in (legal.ts).
+  for (const page of LEGAL_PAGES) {
     app.get(`/${page}`, async (c, next) => {
-      const file = join(LEGAL_DIR, `${page}.html`);
-      if (!existsSync(file)) return next();
-      return new Response(Bun.file(file), {
+      const html = legalPageHtml(page);
+      if (html === null) return next();
+      return new Response(html, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "public, max-age=3600",
