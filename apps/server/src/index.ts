@@ -1,6 +1,6 @@
-import { existsSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   distillLectureAudio,
   renderMarkdownToHtml,
@@ -33,6 +33,9 @@ import {
   getUserById,
   getUserBySessionOrApiToken,
   getUserStorageUsageBytes,
+  hashPassword,
+  isUserRole,
+  isUserStatus,
   listAllLecturesForAdmin,
   listAuditLogs,
   listInterruptedLectures,
@@ -83,6 +86,29 @@ const BOOT_GIT_SHA = resolveGitSha();
 
 const bootstrapOwner = ensureBootstrapOwner();
 await syncLocalLecturesDir(bootstrapOwner.id);
+
+// The archive sync walks and reads every Markdown file under LECTURES_ROOT, so lecture
+// list requests run it at most once per interval rather than on every request. Newly
+// found files always belong to the workspace owner, whichever admin triggered the sync.
+const LOCAL_SYNC_MIN_INTERVAL_MS = 60_000;
+let lastLocalSyncAt = Date.now();
+let localSyncInFlight: Promise<void> | null = null;
+
+export async function syncLocalLecturesIfStale(now = Date.now()): Promise<boolean> {
+  if (localSyncInFlight) {
+    await localSyncInFlight;
+    return false;
+  }
+  if (now - lastLocalSyncAt < LOCAL_SYNC_MIN_INTERVAL_MS) return false;
+  lastLocalSyncAt = now;
+  localSyncInFlight = syncLocalLecturesDir(bootstrapOwner.id)
+    .catch((err) => console.error("Local lecture sync failed:", err))
+    .finally(() => {
+      localSyncInFlight = null;
+    });
+  await localSyncInFlight;
+  return true;
+}
 
 type SSEController = ReadableStreamDefaultController<Uint8Array>;
 const sseClientsByOwner = new Map<string, Set<SSEController>>();
@@ -229,23 +255,54 @@ function runBackgroundDistillation(
   })();
 }
 
-// Auto-resume any lecture that was interrupted mid-processing (e.g., server restart)
-for (const item of listInterruptedLectures()) {
-  if (
-    item.audio_path &&
-    existsSync(item.audio_path) &&
-    item.source_client !== "bun-test" &&
-    !item.id.startsWith("test_") &&
-    !item.id.startsWith("unauth_")
-  ) {
+/** Whether distillation may fall back to the server's own GEMINI_API_KEY for this account. */
+function canUseServerKey(user: UserRecord | null): boolean {
+  return Boolean(
+    user && user.can_use_server_key !== 0 && (user.status || "active") === "active"
+  );
+}
+
+const SERVER_KEY_RESTRICTED_MESSAGE =
+  "노트 자동 분석 권한이 제한된 계정입니다. 관리자에게 문의하세요.";
+
+// Auto-resume lectures interrupted mid-processing (e.g., server restart). A user-supplied
+// Gemini key is never persisted, so a resume always runs on the server key: owners who may
+// not use it get the lecture marked failed instead, so it can be retried with their own key.
+export function resumeInterruptedLectures(
+  items: LectureRecord[] = listInterruptedLectures()
+): { resumed: string[]; failed: string[] } {
+  const resumed: string[] = [];
+  const failed: string[] = [];
+  for (const item of items) {
+    if (
+      !item.audio_path ||
+      !existsSync(item.audio_path) ||
+      item.source_client === "bun-test" ||
+      item.id.startsWith("test_") ||
+      item.id.startsWith("unauth_")
+    ) {
+      continue;
+    }
+    if (!canUseServerKey(getUserById(item.owner_id))) {
+      failLectureRecord(
+        item.id,
+        "서버 재시작으로 분석이 중단되었습니다. 서버 분석 키 사용이 제한된 계정이라 자동으로 재개하지 않았습니다. 개인 API 키로 다시 시도해주세요."
+      );
+      failed.push(item.id);
+      continue;
+    }
     runBackgroundDistillation(item.id, item.owner_id, {
       audioPath: item.audio_path,
       course: item.course,
       title: item.title,
       model: item.model_requested || DEFAULT_GEMINI_MODEL,
     });
+    resumed.push(item.id);
   }
+  return { resumed, failed };
 }
+
+resumeInterruptedLectures();
 
 function jsonResponse(
   data: unknown,
@@ -264,6 +321,158 @@ function jsonResponse(
     },
   });
 }
+
+// The pages ship inline <script>/<style> and on* handlers, plus the Pretendard webfont
+// from jsDelivr; anything else (remote scripts, framing, plugins) is refused.
+const HTML_CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+  "font-src 'self' data: https://cdn.jsdelivr.net",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+function applySecurityHeaders(res: Response): Response {
+  const headers = res.headers;
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "same-origin");
+  if ((headers.get("content-type") || "").toLowerCase().startsWith("text/html")) {
+    headers.set("Content-Security-Policy", HTML_CONTENT_SECURITY_POLICY);
+    headers.set("X-Frame-Options", "DENY");
+  }
+  return res;
+}
+
+// The server only listens on 127.0.0.1 behind a reverse proxy, and each trusted proxy
+// appends the address it accepted the connection from to X-Forwarded-For. Entries to the
+// left of those are whatever the client sent and cannot be trusted.
+const TRUSTED_PROXY_HOPS = Math.max(
+  0,
+  Math.floor(Number(process.env.LECTERN_TRUSTED_PROXY_HOPS ?? 1)) || 0
+);
+
+let warnedMissingForwardedFor = false;
+
+/**
+ * The client address reported by the trusted proxy, or null when there is none. Callers
+ * then skip per-IP limits (per-email limits still apply) rather than lumping every client
+ * into one shared bucket that a single abuser could exhaust for everyone.
+ */
+export function getClientIp(req: Request): string | null {
+  if (TRUSTED_PROXY_HOPS === 0) return null;
+  const hops = (req.headers.get("x-forwarded-for") || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (hops.length > 0) {
+    return hops[Math.max(0, hops.length - TRUSTED_PROXY_HOPS)];
+  }
+  if (!warnedMissingForwardedFor) {
+    warnedMissingForwardedFor = true;
+    console.warn(
+      "No X-Forwarded-For on an auth request: per-IP rate limits are inactive until the proxy sets it."
+    );
+  }
+  return null;
+}
+
+/** In-memory fixed-window counter; fine for this single-process server. */
+class RateLimiter {
+  private readonly windows = new Map<string, { count: number; resetAt: number }>();
+  private static readonly MAX_KEYS = 50_000;
+
+  constructor(readonly limit: number, readonly windowMs: number) {}
+
+  /** Seconds until `key` may try again, or 0 when it is under the limit. */
+  retryAfterSec(key: string, now = Date.now()): number {
+    const w = this.windows.get(key);
+    if (!w || w.resetAt <= now || w.count < this.limit) return 0;
+    return Math.max(1, Math.ceil((w.resetAt - now) / 1000));
+  }
+
+  hit(key: string, now = Date.now()): void {
+    let w = this.windows.get(key);
+    if (!w || w.resetAt <= now) {
+      if (this.windows.size >= RateLimiter.MAX_KEYS) this.prune(now);
+      w = { count: 0, resetAt: now + this.windowMs };
+      this.windows.set(key, w);
+    }
+    w.count++;
+  }
+
+  clear(): void {
+    this.windows.clear();
+  }
+
+  private prune(now: number): void {
+    for (const [key, w] of this.windows) {
+      if (w.resetAt <= now) this.windows.delete(key);
+    }
+    // Still full of live windows: drop the oldest so memory stays bounded.
+    for (const key of this.windows.keys()) {
+      if (this.windows.size < RateLimiter.MAX_KEYS) break;
+      this.windows.delete(key);
+    }
+  }
+}
+
+const MINUTE_MS = 60_000;
+const authRateLimits = {
+  // Failed password attempts only, so normal sign-ins on many devices never trip it.
+  loginEmail: new RateLimiter(10, 15 * MINUTE_MS),
+  loginIp: new RateLimiter(30, 15 * MINUTE_MS),
+  // Every send-code request: each one mails a code.
+  sendCodeEmail: new RateLimiter(5, 15 * MINUTE_MS),
+  sendCodeIp: new RateLimiter(20, 60 * MINUTE_MS),
+  resetEmail: new RateLimiter(10, 15 * MINUTE_MS),
+  resetIp: new RateLimiter(30, 15 * MINUTE_MS),
+};
+
+export function resetAuthRateLimits(): void {
+  for (const limiter of Object.values(authRateLimits)) limiter.clear();
+}
+
+// A null key (no known client IP) is skipped.
+type RateLimitCheck = [RateLimiter, string | null];
+
+function firstRateLimitWait(checks: RateLimitCheck[]): number {
+  for (const [limiter, key] of checks) {
+    if (key === null) continue;
+    const wait = limiter.retryAfterSec(key);
+    if (wait > 0) return wait;
+  }
+  return 0;
+}
+
+function recordRateLimitHits(checks: RateLimitCheck[]): void {
+  for (const [limiter, key] of checks) {
+    if (key !== null) limiter.hit(key);
+  }
+}
+
+function tooManyRequestsResponse(retryAfterSec: number): Response {
+  return jsonResponse(
+    {
+      error: `요청이 너무 많습니다. ${Math.ceil(retryAfterSec / 60)}분 후 다시 시도해주세요.`,
+    },
+    429,
+    { "Retry-After": String(retryAfterSec) }
+  );
+}
+
+// Compared against when the account does not exist, so a login takes as long for an
+// unknown email as for a wrong password.
+const DUMMY_PASSWORD_HASH = hashPassword(randomBytes(16).toString("hex"));
+
+const RESET_CODE_SENT_MESSAGE =
+  "가입된 계정이라면 이메일로 6자리 인증번호가 발송됩니다. (10분간 유효)";
+const INVALID_CODE_MESSAGE = "인증번호가 올바르지 않거나 만료되었습니다.";
 
 async function sendResendVerificationEmail(
   toEmail: string,
@@ -357,9 +566,8 @@ export function extractAuthToken(req: Request, url: URL): string | null {
   return parseSessionCookie(req.headers.get("cookie"));
 }
 
-export function authenticateRequest(req: Request): UserRecord | null {
-  const url = new URL(req.url);
-  const token = extractAuthToken(req, url);
+/** Resolves a session or API token to a user allowed to act (not suspended or pending). */
+function resolveActiveUser(token: string | null | undefined): UserRecord | null {
   if (!token) return null;
   const user = getUserBySessionOrApiToken(token);
   if (!user) return null;
@@ -367,6 +575,10 @@ export function authenticateRequest(req: Request): UserRecord | null {
     return null;
   }
   return user;
+}
+
+export function authenticateRequest(req: Request): UserRecord | null {
+  return resolveActiveUser(extractAuthToken(req, new URL(req.url)));
 }
 
 export function isAdminUser(user: UserRecord | null): boolean {
@@ -398,16 +610,96 @@ export function toUserDto(user: UserRecord) {
   };
 }
 
+/** Public sharing (`is_public`) is reserved for admins and members with `can_share`. */
+function canSharePublicly(user: UserRecord | null): boolean {
+  if (!user) return false;
+  if (isAdminUser(user)) return true;
+  return user.can_share !== 0 && user.role !== "viewer";
+}
+
+const SHARE_RESTRICTED_MESSAGE = "외부 공유 링크 공개 권한이 제한된 계정입니다.";
+
+// Only a deployment explicitly served over plain http (local dev) drops `Secure`.
+const SESSION_COOKIE_SECURE = !PUBLIC_BASE_URL.toLowerCase().startsWith("http://");
+
 function makeSessionCookieHeader(sessionToken: string, maxAgeSec = 30 * 86400): string {
   return `lectern_session=${encodeURIComponent(
     sessionToken
-  )}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}`;
+  )}; Path=/; HttpOnly;${SESSION_COOKIE_SECURE ? " Secure;" : ""} SameSite=Lax; Max-Age=${maxAgeSec}`;
 }
 
-async function saveIncomingAudio(
-  req: Request
-): Promise<{
-  audioPath: string;
+const AUDIO_MIME_BY_EXT: Record<string, string> = {
+  ".m4a": "audio/mp4",
+  ".mp4": "audio/mp4",
+  ".aac": "audio/aac",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".webm": "audio/webm",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".flac": "audio/flac",
+  ".3gp": "audio/3gpp",
+  ".aiff": "audio/aiff",
+  ".aif": "audio/aiff",
+};
+
+// Declared upload types we recognise, mapped to the extension the file is stored under.
+const AUDIO_EXT_BY_MIME: Record<string, string> = {
+  "audio/mp4": ".m4a",
+  "audio/m4a": ".m4a",
+  "audio/x-m4a": ".m4a",
+  "audio/aac": ".aac",
+  "audio/x-aac": ".aac",
+  "audio/mpeg": ".mp3",
+  "audio/mp3": ".mp3",
+  "audio/wav": ".wav",
+  "audio/wave": ".wav",
+  "audio/x-wav": ".wav",
+  "audio/vnd.wave": ".wav",
+  "audio/webm": ".webm",
+  "audio/ogg": ".ogg",
+  "audio/opus": ".opus",
+  "audio/flac": ".flac",
+  "audio/x-flac": ".flac",
+  "audio/3gpp": ".3gp",
+  "audio/aiff": ".aiff",
+  "audio/x-aiff": ".aiff",
+  "video/mp4": ".m4a",
+  "video/webm": ".webm",
+  "video/ogg": ".ogg",
+  "video/3gpp": ".3gp",
+};
+
+/** Content-Type for a stored audio file, derived from its extension alone. */
+function audioMimeForPath(filePath: string): string | null {
+  return AUDIO_MIME_BY_EXT[extname(filePath).toLowerCase()] ?? null;
+}
+
+/**
+ * Picks the storage extension for an upload. Only audio extensions are accepted and a
+ * declared type must be audio (or generic binary). The stored and served MIME type is
+ * then derived from that extension and never echoed back from the client.
+ */
+function resolveUploadAudioExt(fileName: string, declaredType: string): string {
+  const mime = declaredType.split(";")[0].trim().toLowerCase();
+  const isGenericBinary = !mime || mime === "application/octet-stream";
+  if (!isGenericBinary && !AUDIO_EXT_BY_MIME[mime] && !mime.startsWith("audio/")) {
+    throw new Error(`오디오 파일만 업로드할 수 있습니다. (지원하지 않는 형식: ${mime})`);
+  }
+  const ext = extname(fileName).toLowerCase();
+  if (ext) {
+    if (!AUDIO_MIME_BY_EXT[ext]) {
+      throw new Error(`지원하지 않는 오디오 확장자입니다: ${ext}`);
+    }
+    return ext;
+  }
+  return AUDIO_EXT_BY_MIME[mime] ?? ".m4a";
+}
+
+interface IncomingAudio {
+  data: ArrayBuffer;
+  ext: string;
   audioMime: string;
   audioSize: number;
   audioSha256: string;
@@ -416,8 +708,13 @@ async function saveIncomingAudio(
   model: string;
   sourceClient: string;
   apiKey?: string;
-  formToken?: string;
-}> {
+}
+
+/** Reads and validates an upload in memory. Nothing is written to disk here. */
+async function readIncomingAudio(
+  req: Request,
+  parsedForm?: FormData
+): Promise<IncomingAudio> {
   const contentType = req.headers.get("content-type") || "";
   let course =
     decodeURIComponent(req.headers.get("x-course") || "").trim() ||
@@ -428,12 +725,11 @@ async function saveIncomingAudio(
   let sourceClient = (req.headers.get("x-client") || "api").trim();
   const apiKey = (req.headers.get("x-gemini-key") || "").trim() || undefined;
   let idempotencyKey = (req.headers.get("x-idempotency-key") || "").trim();
-  let formToken: string | undefined;
 
-  const id = generateId("aud");
-
+  let ext: string;
+  let data: ArrayBuffer;
   if (contentType.includes("multipart/form-data")) {
-    const form = await req.formData();
+    const form = parsedForm || (await req.formData());
     const fileField = (form.get("audio") || form.get("file")) as File | null;
     if (!fileField || typeof fileField === "string") {
       throw new Error("multipart form에 'audio' 또는 'file' 필드가 없습니다.");
@@ -444,60 +740,33 @@ async function saveIncomingAudio(
     if (form.get("source")) {
       sourceClient = String(form.get("source")).trim() || sourceClient;
     }
-    if (form.get("token")) {
-      formToken = String(form.get("token")).trim() || undefined;
-    }
     if (form.get("idempotency_key")) {
       idempotencyKey = String(form.get("idempotency_key")).trim() || idempotencyKey;
     }
 
-    const origExt = extname(fileField.name || "").toLowerCase() || ".m4a";
-    const audioPath = join(DATA_DIR, "uploads", `${id}${origExt}`);
-    const arrBuf = await fileField.arrayBuffer();
-    if (!arrBuf.byteLength) {
+    ext = resolveUploadAudioExt(fileField.name || "", fileField.type || "");
+    data = await fileField.arrayBuffer();
+    if (!data.byteLength) {
       throw new Error("빈 오디오 파일입니다.");
     }
-    await Bun.write(audioPath, arrBuf);
-    const sha256 =
-      idempotencyKey ||
-      createHash("sha256").update(Buffer.from(arrBuf)).digest("hex");
-
-    return {
-      audioPath,
-      audioMime: fileField.type || "audio/mp4",
-      audioSize: arrBuf.byteLength,
-      audioSha256: sha256,
-      course,
-      title: title || "",
-      model,
-      sourceClient,
-      apiKey,
-      formToken,
-    };
+  } else {
+    // Raw binary body (e.g. direct iOS Shortcut / native stream)
+    ext = resolveUploadAudioExt("", contentType);
+    data = await req.arrayBuffer();
+    if (!data.byteLength) {
+      throw new Error("빈 오디오 데이터입니다.");
+    }
   }
 
-  // Raw binary body (e.g. direct iOS Shortcut / native stream)
-  const ext = contentType.includes("webm")
-    ? ".webm"
-    : contentType.includes("wav")
-    ? ".wav"
-    : contentType.includes("mpeg") || contentType.includes("mp3")
-    ? ".mp3"
-    : ".m4a";
-  const audioPath = join(DATA_DIR, "uploads", `${id}${ext}`);
-  const buf = await req.arrayBuffer();
-  if (!buf.byteLength) {
-    throw new Error("빈 오디오 데이터입니다.");
-  }
-  await Bun.write(audioPath, buf);
   const sha256 =
     idempotencyKey ||
-    createHash("sha256").update(Buffer.from(buf)).digest("hex");
+    createHash("sha256").update(Buffer.from(data)).digest("hex");
 
   return {
-    audioPath,
-    audioMime: contentType || "audio/mp4",
-    audioSize: buf.byteLength,
+    data,
+    ext,
+    audioMime: AUDIO_MIME_BY_EXT[ext],
+    audioSize: data.byteLength,
     audioSha256: sha256,
     course,
     title: title || "",
@@ -507,30 +776,98 @@ async function saveIncomingAudio(
   };
 }
 
-function serveAudioWithRange(
+async function storeIncomingAudio(incoming: IncomingAudio): Promise<string> {
+  const audioPath = join(DATA_DIR, "uploads", `${generateId("aud")}${incoming.ext}`);
+  await Bun.write(audioPath, incoming.data);
+  return audioPath;
+}
+
+function ingestPermissionError(
+  user: UserRecord,
+  apiKey: string | undefined
+): Response | null {
+  if (user.can_ingest === 0 || user.role === "viewer") {
+    return jsonResponse(
+      { error: "오디오 업로드 및 노트 생성 권한이 없는 계정(뷰어)입니다." },
+      403
+    );
+  }
+  if (!apiKey && !canUseServerKey(user)) {
+    return jsonResponse({ error: SERVER_KEY_RESTRICTED_MESSAGE }, 403);
+  }
+  return null;
+}
+
+/**
+ * Authorizes an ingest request before anything is stored. Header and cookie credentials
+ * are checked first, so a non-multipart upload without them is refused unread. The
+ * multipart `token` field is only consulted when no header credential resolved, and it
+ * goes through the same active-account check.
+ */
+async function acceptIngestUpload(
   req: Request,
-  filePath: string,
-  mimeType: string
-): Response {
+  unauthorizedMessage: string
+): Promise<{ user: UserRecord; incoming: IncomingAudio } | { response: Response }> {
+  const headerApiKey = (req.headers.get("x-gemini-key") || "").trim() || undefined;
+  let user = authenticateRequest(req);
+  let form: FormData | undefined;
+
+  if (user) {
+    const denied = ingestPermissionError(user, headerApiKey);
+    if (denied) return { response: denied };
+  } else {
+    const isMultipart = (req.headers.get("content-type") || "").includes(
+      "multipart/form-data"
+    );
+    if (!isMultipart) {
+      return { response: jsonResponse({ error: unauthorizedMessage }, 401) };
+    }
+    form = await req.formData();
+    user = resolveActiveUser(String(form.get("token") || "").trim());
+    if (!user) {
+      return { response: jsonResponse({ error: unauthorizedMessage }, 401) };
+    }
+    const denied = ingestPermissionError(user, headerApiKey);
+    if (denied) return { response: denied };
+  }
+
+  const incoming = await readIncomingAudio(req, form);
+  if (user.quota_mb > 0) {
+    const usedBytes = getUserStorageUsageBytes(user.id);
+    if (usedBytes + incoming.audioSize > user.quota_mb * 1024 * 1024) {
+      return {
+        response: jsonResponse(
+          {
+            error: `계정 오디오 저장 용량 한도(${user.quota_mb}MB)를 초과했습니다.`,
+          },
+          403
+        ),
+      };
+    }
+  }
+  return { user, incoming };
+}
+
+function serveAudioWithRange(req: Request, filePath: string): Response {
   const st = statSync(filePath);
   const total = st.size;
   const range = req.headers.get("range");
   const bunFile = Bun.file(filePath);
+  // The type comes from the stored file's extension, never from the uploader; anything
+  // that is not a known audio file is offered as a download instead of being rendered.
+  const mimeType = audioMimeForPath(filePath);
+  const baseHeaders: Record<string, string> = {
+    "Content-Type": mimeType ?? "application/octet-stream",
+    "Accept-Ranges": "bytes",
+  };
+  if (!mimeType) baseHeaders["Content-Disposition"] = "attachment";
 
-  if (!range) {
+  const m = range ? range.match(/bytes=(\d*)-(\d*)/) : null;
+  if (!m) {
     return new Response(bunFile, {
       status: 200,
-      headers: {
-        "Content-Type": mimeType,
-        "Content-Length": String(total),
-        "Accept-Ranges": "bytes",
-      },
+      headers: { ...baseHeaders, "Content-Length": String(total) },
     });
-  }
-
-  const m = range.match(/bytes=(\d*)-(\d*)/);
-  if (!m) {
-    return new Response(bunFile, { status: 200 });
   }
   const start = m[1] ? parseInt(m[1], 10) : 0;
   const end = m[2] ? Math.min(total - 1, parseInt(m[2], 10)) : total - 1;
@@ -544,15 +881,25 @@ function serveAudioWithRange(
   return new Response(bunFile.slice(start, end + 1), {
     status: 206,
     headers: {
-      "Content-Type": mimeType,
+      ...baseHeaders,
       "Content-Range": `bytes ${start}-${end}/${total}`,
       "Content-Length": String(end - start + 1),
-      "Accept-Ranges": "bytes",
     },
   });
 }
 
 export async function handleRequest(req: Request): Promise<Response> {
+  try {
+    return applySecurityHeaders(await routeRequest(req));
+  } catch (err) {
+    console.error("Unhandled request error:", err);
+    return applySecurityHeaders(
+      jsonResponse({ error: "서버 내부 오류가 발생했습니다." }, 500)
+    );
+  }
+}
+
+async function routeRequest(req: Request): Promise<Response> {
     if (req.method === "OPTIONS") {
       return jsonResponse({ ok: true });
     }
@@ -736,6 +1083,10 @@ export async function handleRequest(req: Request): Promise<Response> {
     // 5. Auth Routes: /api/auth/{login,register,logout,me,password,profile,rotate-token}
     if (req.method === "POST" && path === "/api/auth/login") {
       try {
+        const clientIp = getClientIp(req);
+        const ipWait = firstRateLimitWait([[authRateLimits.loginIp, clientIp]]);
+        if (ipWait) return tooManyRequestsResponse(ipWait);
+
         const body: any = await req.json();
         let rawId = String(body.email || body.username || "").trim().toLowerCase();
         const password = String(body.password || "");
@@ -746,8 +1097,19 @@ export async function handleRequest(req: Request): Promise<Response> {
         if (ownerAliases.includes(rawId) && process.env.LECTERN_OWNER_EMAIL) {
           rawId = process.env.LECTERN_OWNER_EMAIL.trim().toLowerCase();
         }
+        const emailWait = firstRateLimitWait([[authRateLimits.loginEmail, rawId]]);
+        if (emailWait) return tooManyRequestsResponse(emailWait);
+
         const user = getUserByEmail(rawId);
-        if (!user || !verifyPassword(password, user.password_hash)) {
+        const passwordOk = verifyPassword(
+          password,
+          user ? user.password_hash : DUMMY_PASSWORD_HASH
+        );
+        if (!user || !passwordOk) {
+          recordRateLimitHits([
+            [authRateLimits.loginIp, clientIp],
+            [authRateLimits.loginEmail, rawId],
+          ]);
           return jsonResponse(
             { error: "아이디(이메일) 또는 비밀번호가 올바르지 않습니다." },
             401
@@ -792,6 +1154,10 @@ export async function handleRequest(req: Request): Promise<Response> {
 
     if (req.method === "POST" && path === "/api/auth/send-code") {
       try {
+        const clientIp = getClientIp(req);
+        const ipWait = firstRateLimitWait([[authRateLimits.sendCodeIp, clientIp]]);
+        if (ipWait) return tooManyRequestsResponse(ipWait);
+
         const body: any = await req.json();
         const email = String(body.email || "").trim().toLowerCase();
         const purpose = body.purpose === "reset" ? "reset" : "signup";
@@ -803,30 +1169,47 @@ export async function handleRequest(req: Request): Promise<Response> {
           );
         }
 
-        if (purpose === "signup") {
-          const settings = getSystemSettings();
-          if (!settings.allow_public_signup) {
-            return jsonResponse(
-              {
-                error:
-                  "현재 공개 회원가입이 비활성화되어 있습니다. 관리자에게 문의하세요.",
-              },
-              403
+        const emailWait = firstRateLimitWait([[authRateLimits.sendCodeEmail, email]]);
+        if (emailWait) return tooManyRequestsResponse(emailWait);
+        recordRateLimitHits([
+          [authRateLimits.sendCodeIp, clientIp],
+          [authRateLimits.sendCodeEmail, email],
+        ]);
+
+        if (purpose === "reset") {
+          // Same answer, and no awaited mail send, whether or not the account exists,
+          // so this endpoint cannot be used to discover who is registered.
+          const resetUser = getUserByEmail(email);
+          if (resetUser) {
+            const code = createEmailVerificationCode(email, "reset", 10);
+            sendResendVerificationEmail(email, code, "reset").catch((err) =>
+              console.error("Password reset email failed:", err)
             );
+            recordAuditLog({
+              actorId: "anonymous",
+              actorEmail: email,
+              action: "auth.send_code.reset",
+              detail: "이메일 인증번호 발송 요청",
+            });
           }
-          if (getUserByEmail(email)) {
-            return jsonResponse(
-              { error: "이미 가입된 이메일 주소입니다." },
-              400
-            );
-          }
-        } else {
-          if (!getUserByEmail(email)) {
-            return jsonResponse(
-              { error: "해당 이메일로 가입된 계정을 찾을 수 없습니다." },
-              404
-            );
-          }
+          return jsonResponse({ ok: true, message: RESET_CODE_SENT_MESSAGE });
+        }
+
+        const settings = getSystemSettings();
+        if (!settings.allow_public_signup) {
+          return jsonResponse(
+            {
+              error:
+                "현재 공개 회원가입이 비활성화되어 있습니다. 관리자에게 문의하세요.",
+            },
+            403
+          );
+        }
+        if (getUserByEmail(email)) {
+          return jsonResponse(
+            { error: "이미 가입된 이메일 주소입니다." },
+            400
+          );
         }
 
         const code = createEmailVerificationCode(email, purpose, 10);
@@ -852,6 +1235,10 @@ export async function handleRequest(req: Request): Promise<Response> {
 
     if (req.method === "POST" && path === "/api/auth/reset-password") {
       try {
+        const clientIp = getClientIp(req);
+        const ipWait = firstRateLimitWait([[authRateLimits.resetIp, clientIp]]);
+        if (ipWait) return tooManyRequestsResponse(ipWait);
+
         const body: any = await req.json();
         const email = String(body.email || "").trim().toLowerCase();
         const verificationCode = String(
@@ -872,18 +1259,20 @@ export async function handleRequest(req: Request): Promise<Response> {
           );
         }
 
+        const emailWait = firstRateLimitWait([[authRateLimits.resetEmail, email]]);
+        if (emailWait) return tooManyRequestsResponse(emailWait);
+        recordRateLimitHits([
+          [authRateLimits.resetIp, clientIp],
+          [authRateLimits.resetEmail, email],
+        ]);
+
+        // Unknown accounts get the same answer as a wrong code.
         const user = getUserByEmail(email);
-        if (!user) {
-          return jsonResponse(
-            { error: "계정을 찾을 수 없습니다." },
-            404
-          );
-        }
-        if (!verifyEmailVerificationCode(email, verificationCode, "reset", true)) {
-          return jsonResponse(
-            { error: "인증번호가 올바르지 않거나 만료되었습니다." },
-            400
-          );
+        if (
+          !user ||
+          !verifyEmailVerificationCode(email, verificationCode, "reset", true)
+        ) {
+          return jsonResponse({ error: INVALID_CODE_MESSAGE }, 400);
         }
 
         updateUserPassword(user.id, newPassword);
@@ -1182,15 +1571,14 @@ export async function handleRequest(req: Request): Promise<Response> {
           const email = String(body.email || "").trim().toLowerCase();
           const displayName = String(body.displayName || "").trim();
           const password = String(body.password || "");
-          const role = (body.role || "member") as
-            | "owner"
-            | "admin"
-            | "member"
-            | "viewer";
-          const status = (body.status || "active") as
-            | "active"
-            | "pending"
-            | "suspended";
+          const role = body.role || "member";
+          const status = body.status || "active";
+          if (!isUserRole(role)) {
+            return jsonResponse({ error: "유효하지 않은 역할입니다." }, 400);
+          }
+          if (!isUserStatus(status)) {
+            return jsonResponse({ error: "유효하지 않은 계정 상태입니다." }, 400);
+          }
 
           if (!email || email.length < 3) {
             return jsonResponse({ error: "아이디 또는 이메일을 입력해주세요." }, 400);
@@ -1284,6 +1672,16 @@ export async function handleRequest(req: Request): Promise<Response> {
         if (req.method === "PATCH") {
           try {
             const body: any = await req.json();
+            const nextRole = body.role || undefined;
+            const nextStatus = body.status || undefined;
+            if (nextRole !== undefined && !isUserRole(nextRole)) {
+              return jsonResponse({ error: "유효하지 않은 역할입니다." }, 400);
+            }
+            if (nextStatus !== undefined && !isUserStatus(nextStatus)) {
+              return jsonResponse({ error: "유효하지 않은 계정 상태입니다." }, 400);
+            }
+            // Only an owner may grant the owner role or touch an owner account
+            // (which covers taking the role away).
             if (
               targetUser.role === "owner" &&
               adminUser.role !== "owner"
@@ -1293,15 +1691,21 @@ export async function handleRequest(req: Request): Promise<Response> {
                 403
               );
             }
+            if (nextRole === "owner" && adminUser.role !== "owner") {
+              return jsonResponse(
+                { error: "Owner 역할 부여는 Owner 계정만 수행할 수 있습니다." },
+                403
+              );
+            }
             if (
               targetUser.id === adminUser.id &&
-              (body.status === "suspended" ||
-                (body.role && body.role !== "owner" && body.role !== "admin"))
+              ((nextStatus !== undefined && nextStatus !== "active") ||
+                (nextRole !== undefined && nextRole !== targetUser.role))
             ) {
               return jsonResponse(
                 {
                   error:
-                    "본인 계정의 관리자 권한을 해제하거나 정지시킬 수 없습니다.",
+                    "본인 계정의 역할을 변경하거나 정지시킬 수 없습니다.",
                 },
                 400
               );
@@ -1309,8 +1713,8 @@ export async function handleRequest(req: Request): Promise<Response> {
 
             const updated = updateUserByAdmin(targetId, {
               displayName: body.displayName,
-              role: body.role,
-              status: body.status,
+              role: nextRole,
+              status: nextStatus,
               canIngest: body.canIngest,
               canShare: body.canShare,
               canUseServerKey: body.canUseServerKey,
@@ -1392,8 +1796,8 @@ export async function handleRequest(req: Request): Promise<Response> {
       if (!user) {
         return jsonResponse({ error: "로그인이 필요합니다." }, 401);
       }
-      if (user.is_admin === 1) {
-        await syncLocalLecturesDir(user.id);
+      if (isAdminUser(user)) {
+        await syncLocalLecturesIfStale();
       }
       const course = url.searchParams.get("course") || undefined;
       const q = url.searchParams.get("q") || undefined;
@@ -1411,6 +1815,13 @@ export async function handleRequest(req: Request): Promise<Response> {
       }
       const body: any = await req.json();
       const mode = body.mode;
+      if (
+        mode === "batch_visibility" &&
+        body.isPublic === true &&
+        !canSharePublicly(user)
+      ) {
+        return jsonResponse({ error: SHARE_RESTRICTED_MESSAGE }, 403);
+      }
       const result = cleanupLecturesForUser(user.id, {
         mode,
         ids: body.ids,
@@ -1526,11 +1937,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         if (!rec.audio_path || !existsSync(rec.audio_path)) {
           return jsonResponse({ error: "Audio file not found" }, 404);
         }
-        return serveAudioWithRange(
-          req,
-          rec.audio_path,
-          rec.audio_mime || "audio/mp4"
-        );
+        return serveAudioWithRange(req, rec.audio_path);
       }
 
       if (req.method === "DELETE" && sub === "audio") {
@@ -1568,6 +1975,16 @@ export async function handleRequest(req: Request): Promise<Response> {
             400
           );
         }
+        // Without a caller-supplied key the retry runs on the server key, which both the
+        // requester and the lecture's owner must be allowed to use.
+        const retryApiKey =
+          (req.headers.get("x-gemini-key") || "").trim() || undefined;
+        if (
+          !retryApiKey &&
+          (!canUseServerKey(user) || !canUseServerKey(getUserById(rec.owner_id)))
+        ) {
+          return jsonResponse({ error: SERVER_KEY_RESTRICTED_MESSAGE }, 403);
+        }
         const reset = resetLectureForRetry(id);
         if (reset) {
           broadcastLectureEvent(rec.owner_id, {
@@ -1584,6 +2001,7 @@ export async function handleRequest(req: Request): Promise<Response> {
           course: rec.course,
           title: rec.title,
           model: rec.model_requested || DEFAULT_GEMINI_MODEL,
+          apiKey: retryApiKey,
         });
         return jsonResponse({
           ok: true,
@@ -1600,11 +2018,8 @@ export async function handleRequest(req: Request): Promise<Response> {
           typeof body.is_public === "boolean"
             ? body.is_public
             : !Boolean(rec.is_public);
-        if (nextPublic && user && user.can_share === 0 && !isAdminUser(user)) {
-          return jsonResponse(
-            { error: "외부 공유 링크 공개 권한이 제한된 계정입니다." },
-            403
-          );
+        if (nextPublic && !canSharePublicly(user)) {
+          return jsonResponse({ error: SHARE_RESTRICTED_MESSAGE }, 403);
         }
         const updated = setLectureVisibility(
           id,
@@ -1637,6 +2052,9 @@ export async function handleRequest(req: Request): Promise<Response> {
           return jsonResponse({ error: "수정 권한이 없습니다." }, 403);
         }
         const body: any = await req.json();
+        if (body.is_public === true && !canSharePublicly(user)) {
+          return jsonResponse({ error: SHARE_RESTRICTED_MESSAGE }, 403);
+        }
         const updated = updateLectureMarkdown(
           id,
           String(body.title || rec.title),
@@ -1681,46 +2099,13 @@ export async function handleRequest(req: Request): Promise<Response> {
     // 9. Async Web/Native Ingest: POST /api/lectures/ingest
     if (req.method === "POST" && path === "/api/lectures/ingest") {
       try {
-        let user = authenticateRequest(req);
-        const incoming = await saveIncomingAudio(req);
-        if (!user && incoming.formToken) {
-          user = getUserBySessionOrApiToken(incoming.formToken);
-        }
-        if (!user) {
-          try { unlinkSync(incoming.audioPath); } catch {}
-          return jsonResponse({ error: "로그인이 필요합니다." }, 401);
-        }
-        if (user.can_ingest === 0 || user.role === "viewer") {
-          try { unlinkSync(incoming.audioPath); } catch {}
-          return jsonResponse(
-            { error: "오디오 업로드 및 노트 생성 권한이 없는 계정(뷰어)입니다." },
-            403
-          );
-        }
-        if (user.can_use_server_key === 0 && !incoming.apiKey) {
-          try { unlinkSync(incoming.audioPath); } catch {}
-          return jsonResponse(
-            { error: "노트 자동 분석 권한이 제한된 계정입니다. 관리자에게 문의하세요." },
-            403
-          );
-        }
-        if (user.quota_mb > 0) {
-          const usedBytes = getUserStorageUsageBytes(user.id);
-          if (usedBytes + incoming.audioSize > user.quota_mb * 1024 * 1024) {
-            try { unlinkSync(incoming.audioPath); } catch {}
-            return jsonResponse(
-              {
-                error: `계정 오디오 저장 용량 한도(${user.quota_mb}MB)를 초과했습니다.`,
-              },
-              403
-            );
-          }
-        }
+        const accepted = await acceptIngestUpload(req, "로그인이 필요합니다.");
+        if ("response" in accepted) return accepted.response;
+        const { user, incoming } = accepted;
 
         // Idempotent Upload Deduplication: if this exact audio was already uploaded by this user
         const existing = getLectureByAudioSha256(user.id, incoming.audioSha256);
         if (existing) {
-          try { unlinkSync(incoming.audioPath); } catch {}
           if (existing.status === "error" && existing.audio_path && existsSync(existing.audio_path)) {
             const retried = resetLectureForRetry(existing.id);
             runBackgroundDistillation(existing.id, user.id, {
@@ -1748,13 +2133,14 @@ export async function handleRequest(req: Request): Promise<Response> {
           });
         }
 
+        const audioPath = await storeIncomingAudio(incoming);
         const id = generateId("lec");
         const pending = createPendingLecture({
           id,
           ownerId: user.id,
           title: incoming.title,
           course: incoming.course,
-          audioPath: incoming.audioPath,
+          audioPath,
           audioMime: incoming.audioMime,
           audioSize: incoming.audioSize,
           audioSha256: incoming.audioSha256,
@@ -1768,7 +2154,13 @@ export async function handleRequest(req: Request): Promise<Response> {
           lecture: toLectureSummaryDto(pending),
         });
 
-        runBackgroundDistillation(id, user.id, incoming);
+        runBackgroundDistillation(id, user.id, {
+          audioPath,
+          course: incoming.course,
+          title: incoming.title,
+          model: incoming.model,
+          apiKey: incoming.apiKey,
+        });
 
         return jsonResponse({
           ok: true,
@@ -1784,49 +2176,16 @@ export async function handleRequest(req: Request): Promise<Response> {
     // 10. Quick-Action / iOS Shortcut / Menu Bar / Android Tile Ingest: POST /api/ingest/shortcut
     if (req.method === "POST" && path === "/api/ingest/shortcut") {
       try {
-        let user = authenticateRequest(req);
         const waitComplete = url.searchParams.get("wait") !== "false";
-        const incoming = await saveIncomingAudio(req);
-        if (!user && incoming.formToken) {
-          user = getUserBySessionOrApiToken(incoming.formToken);
-        }
-        if (!user) {
-          try { unlinkSync(incoming.audioPath); } catch {}
-          return jsonResponse(
-            { error: "인증 토큰(X-Lectern-Token 또는 로그인 세션)이 필요합니다." },
-            401
-          );
-        }
-        if (user.can_ingest === 0 || user.role === "viewer") {
-          try { unlinkSync(incoming.audioPath); } catch {}
-          return jsonResponse(
-            { error: "오디오 업로드 및 노트 생성 권한이 없는 계정(뷰어)입니다." },
-            403
-          );
-        }
-        if (user.can_use_server_key === 0 && !incoming.apiKey) {
-          try { unlinkSync(incoming.audioPath); } catch {}
-          return jsonResponse(
-            { error: "노트 자동 분석 권한이 제한된 계정입니다. 관리자에게 문의하세요." },
-            403
-          );
-        }
-        if (user.quota_mb > 0) {
-          const usedBytes = getUserStorageUsageBytes(user.id);
-          if (usedBytes + incoming.audioSize > user.quota_mb * 1024 * 1024) {
-            try { unlinkSync(incoming.audioPath); } catch {}
-            return jsonResponse(
-              {
-                error: `계정 오디오 저장 용량 한도(${user.quota_mb}MB)를 초과했습니다.`,
-              },
-              403
-            );
-          }
-        }
+        const accepted = await acceptIngestUpload(
+          req,
+          "인증 토큰(X-Lectern-Token 또는 로그인 세션)이 필요합니다."
+        );
+        if ("response" in accepted) return accepted.response;
+        const { user, incoming } = accepted;
 
         const existing = getLectureByAudioSha256(user.id, incoming.audioSha256);
         if (existing) {
-          try { unlinkSync(incoming.audioPath); } catch {}
           if (existing.status === "error" && existing.audio_path && existsSync(existing.audio_path)) {
             const retried = resetLectureForRetry(existing.id);
             runBackgroundDistillation(existing.id, user.id, {
@@ -1859,13 +2218,14 @@ export async function handleRequest(req: Request): Promise<Response> {
           });
         }
 
+        const audioPath = await storeIncomingAudio(incoming);
         const id = generateId("lec");
         const pending = createPendingLecture({
           id,
           ownerId: user.id,
           title: incoming.title,
           course: incoming.course,
-          audioPath: incoming.audioPath,
+          audioPath,
           audioMime: incoming.audioMime,
           audioSize: incoming.audioSize,
           audioSha256: incoming.audioSha256,
@@ -1880,7 +2240,13 @@ export async function handleRequest(req: Request): Promise<Response> {
         });
 
         if (!waitComplete) {
-          runBackgroundDistillation(id, user.id, incoming);
+          runBackgroundDistillation(id, user.id, {
+            audioPath,
+            course: incoming.course,
+            title: incoming.title,
+            model: incoming.model,
+            apiKey: incoming.apiKey,
+          });
 
           return jsonResponse({
             ok: true,
@@ -1892,32 +2258,55 @@ export async function handleRequest(req: Request): Promise<Response> {
           });
         }
 
-        const res = await distillLectureAudio({
-          audioPath: incoming.audioPath,
-          courseName: incoming.course,
-          title: incoming.title,
-          model: incoming.model,
-          apiKey: incoming.apiKey,
-          onProgress: (ev) => {
-            const updated = updateLectureProgress(
-              id,
-              ev.stage,
-              ev.message,
-              ev.progress ?? 50
-            );
-            if (updated) {
-              broadcastLectureEvent(user!.id, {
-                type: "progress",
+        let done: LectureRecord;
+        try {
+          const res = await distillLectureAudio({
+            audioPath,
+            courseName: incoming.course,
+            title: incoming.title,
+            model: incoming.model,
+            apiKey: incoming.apiKey,
+            onProgress: (ev) => {
+              const updated = updateLectureProgress(
                 id,
-                stage: updated.stage,
-                stage_message: updated.stage_message,
-                progress: updated.progress,
-                lecture: toLectureSummaryDto(updated),
-              });
-            }
-          },
-        });
-        const done = completeLectureRecord(id, res);
+                ev.stage,
+                ev.message,
+                ev.progress ?? 50
+              );
+              if (updated) {
+                broadcastLectureEvent(user.id, {
+                  type: "progress",
+                  id,
+                  stage: updated.stage,
+                  stage_message: updated.stage_message,
+                  progress: updated.progress,
+                  lecture: toLectureSummaryDto(updated),
+                });
+              }
+            },
+          });
+          done = completeLectureRecord(id, res);
+        } catch (err: any) {
+          // Leave the row in 'error' (retryable), not 'processing' forever.
+          const errMsg = err?.message || String(err);
+          const failed = failLectureRecord(id, errMsg);
+          broadcastLectureEvent(user.id, {
+            type: "error",
+            id,
+            error_message: errMsg,
+            lecture: failed ? toLectureSummaryDto(failed) : undefined,
+          });
+          return jsonResponse(
+            {
+              ok: false,
+              id,
+              status: "error",
+              error: errMsg,
+              url: `${PUBLIC_BASE_URL}/?lecture=${id}`,
+            },
+            502
+          );
+        }
         broadcastLectureEvent(user.id, {
           type: "completed",
           id,

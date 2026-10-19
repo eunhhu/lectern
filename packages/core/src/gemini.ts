@@ -12,7 +12,8 @@ export function resolveGeminiApiKey(explicitKey?: string): string {
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) {
     return process.env.GEMINI_API_KEY.trim();
   }
-  const localEnvPath = join(homedir(), "local.env");
+  // Bun caches homedir() at startup, so prefer the live HOME (tests sandbox it).
+  const localEnvPath = join(process.env.HOME || homedir(), "local.env");
   if (existsSync(localEnvPath)) {
     const content = readFileSync(localEnvPath, "utf8");
     for (const rawLine of content.split(/\r?\n/)) {
