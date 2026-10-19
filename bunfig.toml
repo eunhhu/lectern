@@ -1,0 +1,3 @@
+[test]
+# Point the DB, lecture archive and HOME (~/local.env) at temp dirs for every test run.
+preload = ["./apps/server/test/preload.ts"]

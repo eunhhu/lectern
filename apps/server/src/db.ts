@@ -16,6 +16,28 @@ import {
   probeAudioDuration,
 } from "../../../packages/core/src/index.ts";
 
+export const USER_ROLES = ["owner", "admin", "member", "viewer"] as const;
+export const USER_STATUSES = ["active", "pending", "suspended"] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+export type UserStatus = (typeof USER_STATUSES)[number];
+
+export function isUserRole(value: unknown): value is UserRole {
+  return (USER_ROLES as readonly unknown[]).includes(value);
+}
+
+export function isUserStatus(value: unknown): value is UserStatus {
+  return (USER_STATUSES as readonly unknown[]).includes(value);
+}
+
+function assertValidRoleAndStatus(role: unknown, status: unknown): void {
+  if (role !== undefined && !isUserRole(role)) {
+    throw new Error(`유효하지 않은 역할입니다: ${String(role)}`);
+  }
+  if (status !== undefined && !isUserStatus(status)) {
+    throw new Error(`유효하지 않은 계정 상태입니다: ${String(status)}`);
+  }
+}
+
 export interface UserRecord {
   id: string;
   email: string;
@@ -23,8 +45,8 @@ export interface UserRecord {
   password_hash: string;
   api_token: string;
   is_admin: number;
-  role: "owner" | "admin" | "member" | "viewer";
-  status: "active" | "pending" | "suspended";
+  role: UserRole;
+  status: UserStatus;
   can_ingest: number;
   can_share: number;
   can_use_server_key: number;
@@ -226,9 +248,19 @@ try {
       purpose TEXT NOT NULL DEFAULT 'signup',
       expires_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (email, purpose)
     );
   `);
+
+  const verificationCols = db
+    .query(`PRAGMA table_info(email_verifications)`)
+    .all() as Array<{ name: string }>;
+  if (!verificationCols.some((c) => c.name === "attempts")) {
+    db.exec(
+      `ALTER TABLE email_verifications ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0`
+    );
+  }
 
   const cols = db.query(`PRAGMA table_info(lectures)`).all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === "owner_id")) {
@@ -321,8 +353,8 @@ export function createUser(input: {
   displayName: string;
   password: string;
   isAdmin?: boolean;
-  role?: "owner" | "admin" | "member" | "viewer";
-  status?: "active" | "pending" | "suspended";
+  role?: UserRole;
+  status?: UserStatus;
   canIngest?: boolean;
   canShare?: boolean;
   canUseServerKey?: boolean;
@@ -330,6 +362,7 @@ export function createUser(input: {
   memo?: string;
   fixedApiToken?: string;
 }): UserRecord {
+  assertValidRoleAndStatus(input.role || undefined, input.status || undefined);
   const normEmail = input.email.trim().toLowerCase();
   const existing = getUserByEmail(normEmail);
   if (existing) {
@@ -595,8 +628,8 @@ export function updateUserByAdmin(
   targetUserId: string,
   patch: {
     displayName?: string;
-    role?: "owner" | "admin" | "member" | "viewer";
-    status?: "active" | "pending" | "suspended";
+    role?: UserRole;
+    status?: UserStatus;
     canIngest?: boolean;
     canShare?: boolean;
     canUseServerKey?: boolean;
@@ -606,12 +639,16 @@ export function updateUserByAdmin(
     revokeSessions?: boolean;
   }
 ): UserRecord | null {
+  assertValidRoleAndStatus(patch.role || undefined, patch.status || undefined);
   const cur = getUserById(targetUserId);
   if (!cur) return null;
 
   const nextRole = patch.role || cur.role || (cur.is_admin ? "owner" : "member");
   const nextIsAdmin = nextRole === "owner" || nextRole === "admin" ? 1 : 0;
   const nextStatus = patch.status || cur.status || "active";
+  const isBeingDeactivated =
+    (nextStatus === "suspended" || nextStatus === "pending") &&
+    nextStatus !== cur.status;
   const nextDisplayName =
     typeof patch.displayName === "string" && patch.displayName.trim()
       ? patch.displayName.trim()
@@ -662,8 +699,12 @@ export function updateUserByAdmin(
   if (typeof patch.newPassword === "string" && patch.newPassword.length >= 6) {
     updateUserPassword(targetUserId, patch.newPassword);
   }
-  if (patch.revokeSessions || nextStatus === "suspended") {
+  if (patch.revokeSessions || nextStatus === "suspended" || isBeingDeactivated) {
     deleteAllUserSessions(targetUserId);
+  }
+  if (isBeingDeactivated) {
+    // A leaked or device-stored API token must not come back to life on reactivation.
+    rotateUserApiToken(targetUserId);
   }
 
   return getUserById(targetUserId);
@@ -728,11 +769,14 @@ export function createEmailVerificationCode(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ttlMinutes * 60 * 1000).toISOString();
   db.query(
-    `INSERT OR REPLACE INTO email_verifications (email, code, purpose, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?)`
+    `INSERT OR REPLACE INTO email_verifications (email, code, purpose, expires_at, created_at, attempts)
+     VALUES (?, ?, ?, ?, ?, 0)`
   ).run(email, code, purpose, expiresAt, now.toISOString());
   return code;
 }
+
+/** Wrong guesses allowed per issued code before it is invalidated. */
+export const MAX_VERIFICATION_CODE_ATTEMPTS = 5;
 
 export function verifyEmailVerificationCode(
   rawEmail: string,
@@ -745,21 +789,36 @@ export function verifyEmailVerificationCode(
   if (!email || !code) return false;
   const row = db
     .query(
-      `SELECT code, expires_at FROM email_verifications WHERE email = ? AND purpose = ?`
+      `SELECT code, expires_at, attempts FROM email_verifications WHERE email = ? AND purpose = ?`
     )
-    .get(email, purpose) as { code: string; expires_at: string } | null;
+    .get(email, purpose) as { code: string; expires_at: string; attempts: number } | null;
   if (!row) return false;
-  if (new Date(row.expires_at).getTime() < Date.now()) {
+  const discard = () =>
     db.query(
       `DELETE FROM email_verifications WHERE email = ? AND purpose = ?`
     ).run(email, purpose);
+  const attempts = row.attempts || 0;
+  if (
+    new Date(row.expires_at).getTime() < Date.now() ||
+    attempts >= MAX_VERIFICATION_CODE_ATTEMPTS
+  ) {
+    discard();
     return false;
   }
-  if (row.code !== code) return false;
+  const expected = Buffer.from(row.code);
+  const given = Buffer.from(code);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
+    if (attempts + 1 >= MAX_VERIFICATION_CODE_ATTEMPTS) {
+      discard();
+    } else {
+      db.query(
+        `UPDATE email_verifications SET attempts = ? WHERE email = ? AND purpose = ?`
+      ).run(attempts + 1, email, purpose);
+    }
+    return false;
+  }
   if (consume) {
-    db.query(
-      `DELETE FROM email_verifications WHERE email = ? AND purpose = ?`
-    ).run(email, purpose);
+    discard();
   }
   return true;
 }
@@ -811,9 +870,8 @@ export function ensureBootstrapOwner(): UserRecord {
     }
   }
 
-  db.query(
-    `UPDATE lectures SET owner_id = ? WHERE owner_id = '' OR source_client = 'local-sync'`
-  ).run(owner.id);
+  // Only adopt orphaned rows; never take over lectures another account already owns.
+  db.query(`UPDATE lectures SET owner_id = ? WHERE owner_id = ''`).run(owner.id);
 
   return owner;
 }
@@ -895,8 +953,15 @@ export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
       }
 
       const existing = db
-        .query("SELECT id, updated_at, duration_sec FROM lectures WHERE md_source_path = ?")
-        .get(mdPath) as { id: string; updated_at: string; duration_sec: number } | null;
+        .query(
+          "SELECT id, markdown, audio_path, audio_size FROM lectures WHERE md_source_path = ?"
+        )
+        .get(mdPath) as {
+        id: string;
+        markdown: string;
+        audio_path: string | null;
+        audio_size: number;
+      } | null;
 
       const dateLabel = parseDateFromFilename(baseStem, st.mtime);
       const firstHeading = mdContent.match(/^#\s+(.+)$/m)?.[1]?.replace(/^📚\s*/, "").trim();
@@ -942,14 +1007,19 @@ export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
           st.mtime.toISOString()
         );
       } else {
+        const unchanged =
+          existing.markdown === mdContent &&
+          (!audioPath ||
+            (existing.audio_path === audioPath && existing.audio_size === audioSize));
+        if (unchanged) continue;
+        // Refresh content only: ownership of an existing row is never reassigned here.
         db.query(
           `UPDATE lectures
-           SET owner_id = ?, markdown = ?, excerpt = ?, audio_path = COALESCE(?, audio_path),
+           SET markdown = ?, excerpt = ?, audio_path = COALESCE(?, audio_path),
                audio_mime = COALESCE(?, audio_mime),
                audio_size = CASE WHEN ? > 0 THEN ? ELSE audio_size END
            WHERE id = ?`
         ).run(
-          targetOwnerId,
           mdContent,
           excerpt,
           audioPath,

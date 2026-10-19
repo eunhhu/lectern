@@ -1,15 +1,41 @@
-import { describe, expect, test } from "bun:test";
-import { handleRequest } from "../src/index.ts";
+import "./preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
+import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
+  getClientIp,
+  handleRequest,
+  resetAuthRateLimits,
+  resumeInterruptedLectures,
+  syncLocalLecturesIfStale,
+} from "../src/index.ts";
+import {
+  DATA_DIR,
+  LECTURES_ROOT,
+  MAX_VERIFICATION_CODE_ATTEMPTS,
   completeLectureRecord,
   createEmailVerificationCode,
   createPendingLecture,
   createUser,
+  db,
   deleteLectureById,
   deleteUserAndData,
   ensureBootstrapOwner,
+  failLectureRecord,
   generateId,
+  getLectureById,
+  getUserById,
+  listInterruptedLectures,
+  listLecturesForUser,
+  setLectureVisibility,
+  syncLocalLecturesDir,
+  updateUserByAdmin,
+  verifyEmailVerificationCode,
 } from "../src/db.ts";
+
+beforeEach(() => {
+  resetAuthRateLimits();
+});
 
 describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
   test("GET /api/health returns service status and authRequired: true without leaking private lectureCount or internal model names", async () => {
@@ -488,5 +514,706 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
       new Request("http://localhost/api/cd/deploy", { method: "POST" })
     );
     expect(res.status).toBe(401);
+  });
+});
+
+// MARK: - Security regression tests
+
+let uniqSeq = 0;
+function uniq(prefix: string): string {
+  return `${prefix}_${Date.now()}_${++uniqSeq}`;
+}
+
+function makeUser(
+  overrides: Partial<Parameters<typeof createUser>[0]> = {}
+) {
+  return createUser({
+    email: `${uniq("sec")}@test.local`,
+    displayName: "보안테스트",
+    password: "correct_password_1",
+    role: "member",
+    ...overrides,
+  });
+}
+
+function postJson(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {}
+): Promise<Response> {
+  return handleRequest(
+    new Request(`http://localhost${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    })
+  );
+}
+
+function login(email: string, password: string, ip: string): Promise<Response> {
+  return postJson(
+    "/api/auth/login",
+    { email, password },
+    // A client-chosen leftmost entry must not change which bucket is charged.
+    { "X-Forwarded-For": `10.${++uniqSeq % 250}.0.1, ${ip}` }
+  );
+}
+
+// Written by hand so a part carries exactly the Content-Type a hostile client would send
+// (Bun's FormData serializer substitutes one guessed from the filename).
+function audioMultipart(
+  fileName: string,
+  partType: string,
+  extra: Record<string, string> = {}
+): { headers: Record<string, string>; body: string } {
+  const boundary = `lectern-test-${++uniqSeq}`;
+  let body = "";
+  for (const [name, value] of Object.entries({ course: "보안테스트", ...extra })) {
+    body += `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
+  }
+  body +=
+    `--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="${fileName}"\r\n` +
+    `Content-Type: ${partType}\r\n\r\n<script>alert(1)</script>\r\n--${boundary}--\r\n`;
+  return {
+    headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+    body,
+  };
+}
+
+function audioForm(
+  fileName: string,
+  type: string,
+  extra: Record<string, string> = {}
+): FormData {
+  const form = new FormData();
+  form.append("audio", new File([new Uint8Array([1, 2, 3, 4, 5, 6])], fileName, { type }));
+  form.append("course", "보안테스트");
+  for (const [k, v] of Object.entries(extra)) form.append(k, v);
+  return form;
+}
+
+function uploadsCount(): number {
+  return readdirSync(join(DATA_DIR, "uploads")).length;
+}
+
+function writeUploadFile(ext: string, content: string | Uint8Array): string {
+  const filePath = join(DATA_DIR, "uploads", `${generateId("aud")}${ext}`);
+  writeFileSync(filePath, content);
+  return filePath;
+}
+
+describe("security regressions", () => {
+  test("#1 a verification code is invalidated after 5 wrong guesses", async () => {
+    const email = `${uniq("brute")}@test.local`;
+    const code = createEmailVerificationCode(email, "signup", 10);
+    const wrong = code === "000000" ? "111111" : "000000";
+
+    for (let i = 0; i < MAX_VERIFICATION_CODE_ATTEMPTS - 1; i++) {
+      expect(verifyEmailVerificationCode(email, wrong, "signup")).toBe(false);
+    }
+    // Still valid below the limit (checked without consuming it)
+    expect(verifyEmailVerificationCode(email, code, "signup", false)).toBe(true);
+    expect(verifyEmailVerificationCode(email, wrong, "signup")).toBe(false);
+    // The 5th wrong guess burned the code: the right one no longer works
+    expect(verifyEmailVerificationCode(email, code, "signup")).toBe(false);
+
+    // Same through the HTTP password reset flow
+    const user = makeUser();
+    const resetCode = createEmailVerificationCode(user.email, "reset", 10);
+    const resetWrong = resetCode === "000000" ? "111111" : "000000";
+    for (let i = 0; i < MAX_VERIFICATION_CODE_ATTEMPTS; i++) {
+      const res = await postJson("/api/auth/reset-password", {
+        email: user.email,
+        verificationCode: resetWrong,
+        newPassword: "attacker_pw_1",
+      });
+      expect(res.status).toBe(400);
+    }
+    const lateRes = await postJson("/api/auth/reset-password", {
+      email: user.email,
+      verificationCode: resetCode,
+      newPassword: "attacker_pw_1",
+    });
+    expect(lateRes.status).toBe(400);
+    expect((await login(user.email, "attacker_pw_1", "203.0.113.1")).status).toBe(401);
+    expect((await login(user.email, "correct_password_1", "203.0.113.1")).status).toBe(200);
+
+    deleteUserAndData(user.id);
+  });
+
+  test("#1 login is rate limited per email and per client IP, keyed on the proxy-appended X-Forwarded-For entry", async () => {
+    expect(
+      getClientIp(
+        new Request("http://localhost/", {
+          headers: { "X-Forwarded-For": "6.6.6.6, 198.51.100.7" },
+        })
+      )
+    ).toBe("198.51.100.7");
+    expect(getClientIp(new Request("http://localhost/"))).toBeNull();
+
+    // Per email: 10 failures lock the account out, even with the right password from a new IP
+    const victim = makeUser();
+    for (let i = 0; i < 10; i++) {
+      expect((await login(victim.email, `wrong_${i}`, "203.0.113.10")).status).toBe(401);
+    }
+    const lockedRes = await login(victim.email, "correct_password_1", "203.0.113.11");
+    expect(lockedRes.status).toBe(429);
+    expect(Number(lockedRes.headers.get("Retry-After"))).toBeGreaterThan(0);
+
+    // Per IP: 30 failures spread over different emails block that IP, even for a valid login
+    const other = makeUser();
+    for (let i = 0; i < 30; i++) {
+      const res = await login(`${uniq("nobody")}@test.local`, "x", "203.0.113.20");
+      expect(res.status).toBe(401);
+    }
+    expect((await login(other.email, "correct_password_1", "203.0.113.20")).status).toBe(429);
+    expect((await login(other.email, "correct_password_1", "203.0.113.21")).status).toBe(200);
+
+    deleteUserAndData(victim.id);
+    deleteUserAndData(other.id);
+  }, 120_000); // ~45 logins, each a deliberate scrypt
+
+  test("#1 send-code and reset-password are rate limited", async () => {
+    const email = `${uniq("flood")}@test.local`;
+    const headers = { "X-Forwarded-For": "203.0.113.30" };
+    for (let i = 0; i < 5; i++) {
+      const res = await postJson("/api/auth/send-code", { email, purpose: "reset" }, headers);
+      expect(res.status).toBe(200);
+    }
+    const blocked = await postJson("/api/auth/send-code", { email, purpose: "reset" }, headers);
+    expect(blocked.status).toBe(429);
+
+    const resetEmail = `${uniq("resetflood")}@test.local`;
+    for (let i = 0; i < 10; i++) {
+      const res = await postJson(
+        "/api/auth/reset-password",
+        { email: resetEmail, verificationCode: "123456", newPassword: "whatever_1" },
+        { "X-Forwarded-For": "203.0.113.31" }
+      );
+      expect(res.status).toBe(400);
+    }
+    const resetBlocked = await postJson(
+      "/api/auth/reset-password",
+      { email: resetEmail, verificationCode: "123456", newPassword: "whatever_1" },
+      { "X-Forwarded-For": "203.0.113.32" }
+    );
+    expect(resetBlocked.status).toBe(429);
+
+    // Without a proxy-reported address there is no shared per-IP bucket for one client
+    // to exhaust for everyone (more than the per-IP send-code limit of 20, all accepted)
+    for (let i = 0; i < 25; i++) {
+      const res = await postJson("/api/auth/send-code", {
+        email: `${uniq("noxff")}@test.local`,
+        purpose: "reset",
+      });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  test("#1 reset endpoints do not reveal whether an email is registered", async () => {
+    const user = makeUser();
+    const unknown = `${uniq("ghost")}@test.local`;
+
+    const knownRes = await postJson("/api/auth/send-code", { email: user.email, purpose: "reset" });
+    const unknownRes = await postJson("/api/auth/send-code", { email: unknown, purpose: "reset" });
+    expect(knownRes.status).toBe(200);
+    expect(unknownRes.status).toBe(200);
+    expect(await unknownRes.json()).toEqual(await knownRes.json());
+    const hasCode = (email: string) =>
+      Boolean(db.query(`SELECT 1 FROM email_verifications WHERE email = ? AND purpose = 'reset'`).get(email));
+    expect(hasCode(user.email)).toBe(true);
+    expect(hasCode(unknown)).toBe(false);
+
+    const wrongCodeRes = await postJson("/api/auth/reset-password", {
+      email: user.email,
+      verificationCode: "999999x",
+      newPassword: "whatever_1",
+    });
+    const unknownResetRes = await postJson("/api/auth/reset-password", {
+      email: unknown,
+      verificationCode: "999999x",
+      newPassword: "whatever_1",
+    });
+    expect(unknownResetRes.status).toBe(wrongCodeRes.status);
+    expect(await unknownResetRes.json()).toEqual(await wrongCodeRes.json());
+
+    deleteUserAndData(user.id);
+  });
+
+  test("#2 only an owner can grant or remove the owner role; role and status are validated", async () => {
+    const owner = makeUser({ role: "owner", isAdmin: true });
+    const admin = makeUser({ role: "admin" });
+    const member = makeUser();
+    const patch = (actor: { api_token: string }, targetId: string, body: unknown) =>
+      handleRequest(
+        new Request(`http://localhost/api/admin/users/${targetId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "X-Lectern-Token": actor.api_token },
+          body: JSON.stringify(body),
+        })
+      );
+    const create = (actor: { api_token: string }, body: unknown) =>
+      postJson("/api/admin/users", body, { "X-Lectern-Token": actor.api_token });
+
+    // The reproduced escalation: admin makes itself owner, then takes over the real owner
+    expect((await patch(admin, admin.id, { role: "owner" })).status).toBe(403);
+    expect(getUserById(admin.id)!.role).toBe("admin");
+    expect((await patch(admin, member.id, { role: "owner" })).status).toBe(403);
+    expect(getUserById(member.id)!.role).toBe("member");
+    expect((await patch(admin, owner.id, { role: "member" })).status).toBe(403);
+    expect((await patch(admin, owner.id, { newPassword: "hijacked_pw_1" })).status).toBe(403);
+    expect(getUserById(owner.id)!.role).toBe("owner");
+    expect((await login(owner.email, "hijacked_pw_1", "203.0.113.40")).status).toBe(401);
+
+    // Invalid values are rejected instead of being written
+    expect((await patch(owner, member.id, { role: "superuser" })).status).toBe(400);
+    expect((await patch(owner, member.id, { status: "banned" })).status).toBe(400);
+    expect(getUserById(member.id)!.role).toBe("member");
+    expect(getUserById(member.id)!.status).toBe("active");
+    const newEmail = `${uniq("created")}@test.local`;
+    expect((await create(admin, { email: newEmail, password: "pw_123456", role: "owner" })).status).toBe(403);
+    expect((await create(owner, { email: newEmail, password: "pw_123456", role: "root" })).status).toBe(400);
+    expect((await create(owner, { email: newEmail, password: "pw_123456", status: "deleted" })).status).toBe(400);
+    expect(() => makeUser({ role: "god" as any })).toThrow();
+    expect(() => makeUser({ status: "banned" as any })).toThrow();
+    expect(() => updateUserByAdmin(member.id, { role: "root" as any })).toThrow();
+    expect(() => updateUserByAdmin(member.id, { status: "banned" as any })).toThrow();
+
+    // An owner may still grant the role
+    expect((await patch(owner, member.id, { role: "owner" })).status).toBe(200);
+    expect(getUserById(member.id)!.role).toBe("owner");
+
+    deleteUserAndData(owner.id);
+    deleteUserAndData(admin.id);
+    deleteUserAndData(member.id);
+  });
+
+  test("#3 stored audio is served with an extension-derived type, never the uploader's (no stored XSS)", async () => {
+    const owner = ensureBootstrapOwner();
+    const htmlId = generateId("test_xss");
+    const html = createPendingLecture({
+      id: htmlId,
+      ownerId: owner.id,
+      title: "xss",
+      course: "보안테스트",
+      audioPath: writeUploadFile(".html", "<script>alert(document.cookie)</script>"),
+      audioMime: "text/html",
+      audioSize: 40,
+      modelRequested: "gemini-flash-latest",
+      sourceClient: "bun-test",
+    });
+    setLectureVisibility(htmlId, true);
+    const audioUrl = `http://localhost/api/lectures/${htmlId}/audio?share=${html.share_token}`;
+    for (const headers of [{}, { Range: "bytes=0-3" }, { Range: "items=0-3" }] as Record<string, string>[]) {
+      const res = await handleRequest(new Request(audioUrl, { headers }));
+      expect(res.status).toBeLessThan(300);
+      expect(res.headers.get("content-type")).toBe("application/octet-stream");
+      expect(res.headers.get("content-disposition")).toBe("attachment");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    }
+
+    const m4aId = generateId("test_xss");
+    const m4a = createPendingLecture({
+      id: m4aId,
+      ownerId: owner.id,
+      title: "spoofed mime",
+      course: "보안테스트",
+      audioPath: writeUploadFile(".m4a", new Uint8Array([0, 1, 2, 3])),
+      audioMime: "text/html",
+      audioSize: 4,
+      modelRequested: "gemini-flash-latest",
+      sourceClient: "bun-test",
+    });
+    setLectureVisibility(m4aId, true);
+    const m4aRes = await handleRequest(
+      new Request(`http://localhost/api/lectures/${m4aId}/audio?share=${m4a.share_token}`)
+    );
+    expect(m4aRes.headers.get("content-type")).toBe("audio/mp4");
+
+    deleteLectureById(htmlId);
+    deleteLectureById(m4aId);
+  });
+
+  test("#3 non-audio uploads are rejected before anything is stored", async () => {
+    const user = makeUser();
+    const before = uploadsCount();
+    const auth = { "X-Lectern-Token": user.api_token };
+    const attempts: Array<[string, { headers: Record<string, string>; body: string }]> = [
+      // Raw bodies declared as a renderable document (the reproduced share-link XSS)
+      [
+        "/api/lectures/ingest",
+        { headers: { "Content-Type": "text/html" }, body: "<script>alert(1)</script>" },
+      ],
+      [
+        "/api/ingest/shortcut?wait=false",
+        { headers: { "Content-Type": "image/svg+xml" }, body: "<svg onload=alert(1)>" },
+      ],
+      // Audio part type, non-audio extension
+      ["/api/ingest/shortcut?wait=false", audioMultipart("evil.html", "audio/mp4")],
+      ["/api/lectures/ingest", audioMultipart("evil.svg", "application/octet-stream")],
+    ];
+    for (const [path, { headers, body }] of attempts) {
+      const res = await handleRequest(
+        new Request(`http://localhost${path}`, {
+          method: "POST",
+          headers: { ...auth, ...headers },
+          body,
+        })
+      );
+      expect(res.status).toBe(400);
+    }
+    expect(uploadsCount()).toBe(before);
+    expect(listLecturesForUser(user.id).length).toBe(0);
+    deleteUserAndData(user.id);
+  });
+
+  test("#3 every response carries nosniff; HTML pages carry CSP, X-Frame-Options and Referrer-Policy", async () => {
+    for (const path of ["/api/health", "/api/lectures", "/api/nope", "/", "/admin"]) {
+      const res = await handleRequest(new Request(`http://localhost${path}`));
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    }
+    for (const path of ["/", "/admin"]) {
+      const res = await handleRequest(new Request(`http://localhost${path}`));
+      const csp = res.headers.get("content-security-policy") || "";
+      expect(csp).toContain("frame-ancestors 'none'");
+      expect(csp).toContain("object-src 'none'");
+      expect(res.headers.get("x-frame-options")).toBe("DENY");
+      expect(res.headers.get("referrer-policy")).toBe("same-origin");
+    }
+  });
+
+  test("#4 suspended and pending accounts cannot ingest through the multipart token field", async () => {
+    const before = uploadsCount();
+    for (const status of ["suspended", "pending"]) {
+      const user = makeUser();
+      // Flip status directly so the old api_token stays valid: this isolates the status check
+      db.query(`UPDATE users SET status = ? WHERE id = ?`).run(status, user.id);
+      for (const path of ["/api/lectures/ingest", "/api/ingest/shortcut?wait=false"]) {
+        const res = await handleRequest(
+          new Request(`http://localhost${path}`, {
+            method: "POST",
+            body: audioForm("lecture.m4a", "audio/mp4", { token: user.api_token }),
+          })
+        );
+        expect(res.status).toBe(401);
+      }
+      expect(listLecturesForUser(user.id).length).toBe(0);
+      deleteUserAndData(user.id);
+    }
+    expect(uploadsCount()).toBe(before);
+  });
+
+  test("#4 suspending a user rotates their API token", async () => {
+    const user = makeUser();
+    const oldToken = user.api_token;
+    const suspended = updateUserByAdmin(user.id, { status: "suspended" })!;
+    expect(suspended.api_token).not.toBe(oldToken);
+    const reactivated = updateUserByAdmin(user.id, { status: "active" })!;
+    expect(reactivated.api_token).toBe(suspended.api_token);
+    const meRes = await handleRequest(
+      new Request("http://localhost/api/auth/me", { headers: { "X-Lectern-Token": oldToken } })
+    );
+    expect(meRes.status).toBe(401);
+    deleteUserAndData(user.id);
+  });
+
+  test("#5 retry and boot auto-resume honour can_use_server_key", async () => {
+    const restricted = makeUser({ canUseServerKey: false });
+    const audioPath = writeUploadFile(".m4a", new Uint8Array([1, 2, 3, 4]));
+    const lectureInput = {
+      ownerId: restricted.id,
+      title: "제한 계정 강의",
+      course: "보안테스트",
+      audioPath,
+      audioMime: "audio/mp4",
+      audioSize: 4,
+      modelRequested: "gemini-flash-latest",
+      sourceClient: "web",
+    };
+
+    const failedId = generateId("lec");
+    createPendingLecture({ id: failedId, ...lectureInput });
+    failLectureRecord(failedId, "분석 실패");
+    const owner = ensureBootstrapOwner();
+    for (const actor of [restricted, owner]) {
+      const res = await handleRequest(
+        new Request(`http://localhost/api/lectures/${failedId}/retry`, {
+          method: "POST",
+          headers: { "X-Lectern-Token": actor.api_token },
+        })
+      );
+      expect(res.status).toBe(403);
+      expect(getLectureById(failedId)!.status).toBe("error");
+    }
+
+    const interruptedId = generateId("lec");
+    createPendingLecture({ id: interruptedId, ...lectureInput });
+    const result = resumeInterruptedLectures([getLectureById(interruptedId)!]);
+    expect(result.resumed).toEqual([]);
+    expect(result.failed).toEqual([interruptedId]);
+    expect(getLectureById(interruptedId)!.status).toBe("error");
+
+    deleteUserAndData(restricted.id);
+  });
+
+  test("#6 the local archive sync never reassigns another admin's lectures and is throttled on list", async () => {
+    const adminA = makeUser({ role: "admin" });
+    const adminB = makeUser({ role: "admin" });
+    const id = generateId("lec");
+    createPendingLecture({
+      id,
+      ownerId: adminA.id,
+      title: "",
+      course: "동기화테스트",
+      audioPath: "/tmp/nonexistent_sync.m4a",
+      audioMime: "audio/mp4",
+      audioSize: 0,
+      modelRequested: "gemini-flash-latest",
+      sourceClient: "web",
+    });
+    const done = completeLectureRecord(id, {
+      title: "동기화테스트 노트",
+      courseName: "동기화테스트",
+      markdown: "# 📚 동기화테스트\n\nA 관리자의 노트",
+      excerpt: "A 관리자의 노트",
+      modelUsed: "gemini-3.8-flash",
+      durationSec: 120,
+    });
+    expect(done.md_source_path?.startsWith(LECTURES_ROOT)).toBe(true);
+    // Edit the archived file so the sync takes its UPDATE path for this row
+    writeFileSync(done.md_source_path!, "# 📚 동기화테스트\n\nA 관리자의 노트 (수정됨)\n");
+
+    await syncLocalLecturesDir(adminB.id);
+    expect(getLectureById(id)!.markdown).toContain("(수정됨)");
+    expect(getLectureById(id)!.owner_id).toBe(adminA.id);
+
+    // Bootstrapping with an explicit owner email (as in production) adopts only orphaned
+    // rows, not an archive-synced lecture someone else already owns.
+    const syncedId = generateId("lec");
+    createPendingLecture({
+      id: syncedId,
+      ownerId: adminA.id,
+      title: "",
+      course: "동기화테스트",
+      audioPath: "/tmp/nonexistent_sync.m4a",
+      audioMime: "audio/mp4",
+      audioSize: 0,
+      modelRequested: "gemini-flash-latest",
+      sourceClient: "local-sync",
+    });
+    process.env.LECTERN_OWNER_EMAIL = ensureBootstrapOwner().email;
+    try {
+      ensureBootstrapOwner();
+    } finally {
+      delete process.env.LECTERN_OWNER_EMAIL;
+    }
+    expect(getLectureById(id)!.owner_id).toBe(adminA.id);
+    expect(getLectureById(syncedId)!.owner_id).toBe(adminA.id);
+    expect(await syncLocalLecturesIfStale(Date.now() + 10 * 60_000)).toBe(true);
+    const listRes = await handleRequest(
+      new Request("http://localhost/api/lectures", { headers: { "X-Lectern-Token": adminB.api_token } })
+    );
+    const listJson: any = await listRes.json();
+    expect(listJson.lectures.some((l: any) => l.id === id)).toBe(false);
+    expect(getLectureById(id)!.owner_id).toBe(adminA.id);
+
+    // A file dropped into the archive is not picked up by every list request...
+    const courseDir = join(LECTURES_ROOT, "스로틀테스트");
+    mkdirSync(courseDir, { recursive: true });
+    const mdPath = join(courseDir, `${uniq("20261019")}_스로틀테스트_요약.md`);
+    writeFileSync(mdPath, "# 📚 스로틀테스트\n\n외부에서 추가된 노트");
+    const findRow = () =>
+      db.query(`SELECT id, owner_id FROM lectures WHERE md_source_path = ?`).get(mdPath) as
+        | { id: string; owner_id: string }
+        | null;
+    expect(await syncLocalLecturesIfStale()).toBe(false);
+    await handleRequest(
+      new Request("http://localhost/api/lectures", { headers: { "X-Lectern-Token": adminB.api_token } })
+    );
+    expect(findRow()).toBeNull();
+    // ...only once the interval has passed, and it goes to the workspace owner
+    expect(await syncLocalLecturesIfStale(Date.now() + 20 * 60_000)).toBe(true);
+    expect(findRow()?.owner_id).toBe(ensureBootstrapOwner().id);
+
+    deleteLectureById(findRow()!.id);
+    deleteUserAndData(adminA.id);
+    deleteUserAndData(adminB.id);
+  });
+
+  test("#7 PUT and batch cleanup cannot make a lecture public without can_share", async () => {
+    for (const overrides of [{ canShare: false }, { role: "viewer" as const, canShare: true }]) {
+      const user = makeUser(overrides);
+      const id = generateId("test_share");
+      createPendingLecture({
+        id,
+        ownerId: user.id,
+        title: "공유 제한",
+        course: "보안테스트",
+        audioPath: "/tmp/nonexistent_share.m4a",
+        audioMime: "audio/mp4",
+        audioSize: 0,
+        modelRequested: "gemini-flash-latest",
+        sourceClient: "bun-test",
+      });
+      const auth = { "X-Lectern-Token": user.api_token, "Content-Type": "application/json" };
+      const put = (body: unknown) =>
+        handleRequest(
+          new Request(`http://localhost/api/lectures/${id}`, {
+            method: "PUT",
+            headers: auth,
+            body: JSON.stringify(body),
+          })
+        );
+
+      expect((await put({ is_public: true })).status).toBe(403);
+      expect(getLectureById(id)!.is_public).toBe(0);
+      const cleanupRes = await postJson(
+        "/api/lectures/cleanup",
+        { mode: "batch_visibility", ids: [id], isPublic: true },
+        auth
+      );
+      expect(cleanupRes.status).toBe(403);
+      expect(getLectureById(id)!.is_public).toBe(0);
+      // Editing without touching visibility, or keeping it private, still works
+      expect((await put({ title: "새 제목" })).status).toBe(200);
+      expect((await put({ is_public: false })).status).toBe(200);
+
+      deleteUserAndData(user.id);
+    }
+  });
+
+  test("#8 ingest authenticates before reading or storing the upload", async () => {
+    const before = uploadsCount();
+    for (const path of ["/api/lectures/ingest", "/api/ingest/shortcut"]) {
+      for (const headers of [{}, { "X-Lectern-Token": "lct_not_a_real_token" }] as Record<string, string>[]) {
+        const req = new Request(`http://localhost${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "audio/mp4", ...headers },
+          body: new Uint8Array(4096),
+        });
+        expect((await handleRequest(req)).status).toBe(401);
+        expect(req.bodyUsed).toBe(false);
+      }
+      const badFormToken = await handleRequest(
+        new Request(`http://localhost${path}`, {
+          method: "POST",
+          body: audioForm("lecture.m4a", "audio/mp4", { token: "lct_not_a_real_token" }),
+        })
+      );
+      expect(badFormToken.status).toBe(401);
+    }
+
+    // An authenticated account without ingest rights is refused before the body is read
+    const viewer = makeUser({ role: "viewer" });
+    const viewerReq = new Request("http://localhost/api/lectures/ingest", {
+      method: "POST",
+      headers: { "Content-Type": "audio/mp4", "X-Lectern-Token": viewer.api_token },
+      body: new Uint8Array(4096),
+    });
+    expect((await handleRequest(viewerReq)).status).toBe(403);
+    expect(viewerReq.bodyUsed).toBe(false);
+
+    expect(uploadsCount()).toBe(before);
+    deleteUserAndData(viewer.id);
+  });
+
+  test("#9 a failed wait=true shortcut ingest marks the lecture failed instead of leaving it processing", async () => {
+    // The sandbox has no Gemini key, so distillation fails deterministically and offline
+    expect(process.env.GEMINI_API_KEY).toBeUndefined();
+    const user = makeUser();
+    // Declared as HTML: an allowed extension is accepted, but the type is not trusted
+    const upload = audioMultipart("lecture.m4a", "text/html");
+    const res = await handleRequest(
+      new Request("http://localhost/api/ingest/shortcut", {
+        method: "POST",
+        headers: { "X-Lectern-Token": user.api_token, ...upload.headers },
+        body: upload.body,
+      })
+    );
+    expect(res.status).toBe(502);
+    const data: any = await res.json();
+    expect(data.status).toBe("error");
+    const rec = getLectureById(data.id)!;
+    expect(rec.status).toBe("error");
+    expect(rec.error_message).toContain("GEMINI_API_KEY");
+    expect(listInterruptedLectures().some((l) => l.id === data.id)).toBe(false);
+    // Accepted uploads store the extension-derived type, not the client's
+    expect(rec.audio_path?.endsWith(".m4a")).toBe(true);
+    expect(rec.audio_mime).toBe("audio/mp4");
+
+    deleteUserAndData(user.id);
+  });
+
+  test("#10 the session cookie is Secure, HttpOnly and SameSite", async () => {
+    const user = makeUser();
+    const loginRes = await login(user.email, "correct_password_1", "203.0.113.50");
+    expect(loginRes.status).toBe(200);
+    const cookie = loginRes.headers.get("set-cookie") || "";
+    expect(cookie).toContain("lectern_session=ses_");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("SameSite=Lax");
+
+    const logoutRes = await handleRequest(
+      new Request("http://localhost/api/auth/logout", { method: "POST" })
+    );
+    const clearCookie = logoutRes.headers.get("set-cookie") || "";
+    expect(clearCookie).toContain("Secure");
+    expect(clearCookie).toContain("Max-Age=0");
+
+    deleteUserAndData(user.id);
+  });
+
+  test("the web UI's cookie-only auth works for fetch, SSE, ingest, audio, downloads and logout", async () => {
+    const user = makeUser();
+    const loginRes = await login(user.email, "correct_password_1", "203.0.113.60");
+    const session = /lectern_session=([^;]+)/.exec(loginRes.headers.get("set-cookie") || "")![1];
+    const cookie = { Cookie: `lectern_session=${session}` };
+    const get = (path: string) =>
+      handleRequest(new Request(`http://localhost${path}`, { headers: cookie }));
+
+    const me: any = await (await get("/api/auth/me")).json();
+    expect(me.user.id).toBe(user.id);
+
+    const sse = await get("/api/events");
+    expect(sse.status).toBe(200);
+    try {
+      await sse.body?.cancel();
+    } catch {}
+
+    const id = generateId("test_cookie");
+    const idemKey = uniq("cookie_idem");
+    createPendingLecture({
+      id,
+      ownerId: user.id,
+      title: "쿠키 인증",
+      course: "보안테스트",
+      audioPath: writeUploadFile(".m4a", new Uint8Array([1, 2, 3, 4])),
+      audioMime: "audio/mp4",
+      audioSize: 4,
+      audioSha256: idemKey,
+      modelRequested: "gemini-flash-latest",
+      sourceClient: "bun-test",
+    });
+    // Multipart ingest with only the cookie (dedupes onto the lecture above, so nothing runs)
+    const ingestRes = await handleRequest(
+      new Request("http://localhost/api/lectures/ingest", {
+        method: "POST",
+        headers: { ...cookie, "X-Idempotency-Key": idemKey },
+        body: audioForm("lecture.m4a", "audio/mp4"),
+      })
+    );
+    expect(ingestRes.status).toBe(200);
+    expect(((await ingestRes.json()) as any).lecture.id).toBe(id);
+    expect((await get(`/api/lectures/${id}/audio`)).status).toBe(200);
+    expect((await get(`/api/lectures/${id}/markdown`)).status).toBe(200);
+
+    const logoutRes = await handleRequest(
+      new Request("http://localhost/api/auth/logout", { method: "POST", headers: cookie })
+    );
+    expect(logoutRes.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect((await get("/api/auth/me")).status).toBe(401);
+
+    deleteUserAndData(user.id);
   });
 });
