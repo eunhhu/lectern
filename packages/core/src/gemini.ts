@@ -31,6 +31,31 @@ export function resolveGeminiApiKey(explicitKey?: string): string {
   );
 }
 
+const GENERATE_TIMEOUT_MS = Math.max(
+  60_000,
+  Number(process.env.LECTERN_GEMINI_TIMEOUT_MS) || 15 * 60_000
+);
+
+/**
+ * fetch with a deadline: a stalled connection to Gemini must not hold a job slot (and the
+ * lecture in 'processing') forever. Timeouts surface as a clear, retryable error.
+ */
+async function geminiFetch(
+  label: string,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err: any) {
+    if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+      throw new Error(`Gemini ${label} timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw err;
+  }
+}
+
 interface UploadedGeminiFile {
   uri: string;
   name: string;
@@ -46,7 +71,8 @@ async function uploadToGeminiFileApi(
   const fileSize = bunFile.size;
   const displayName = basename(filePath);
 
-  const initRes = await fetch(
+  const initRes = await geminiFetch(
+    "upload init",
     `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${encodeURIComponent(apiKey)}`,
     {
       method: "POST",
@@ -58,7 +84,8 @@ async function uploadToGeminiFileApi(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ file: { display_name: displayName } }),
-    }
+    },
+    60_000
   );
 
   if (!initRes.ok) {
@@ -81,15 +108,20 @@ async function uploadToGeminiFileApi(
     const command = isLast ? "upload, finalize" : "upload";
     const slice = bunFile.slice(offset, end);
 
-    const chunkRes = await fetch(uploadUrl, {
-      method: "POST",
-      headers: {
-        "Content-Length": String(end - offset),
-        "X-Goog-Upload-Offset": String(offset),
-        "X-Goog-Upload-Command": command,
+    const chunkRes = await geminiFetch(
+      "chunk upload",
+      uploadUrl,
+      {
+        method: "POST",
+        headers: {
+          "Content-Length": String(end - offset),
+          "X-Goog-Upload-Offset": String(offset),
+          "X-Goog-Upload-Command": command,
+        },
+        body: slice,
       },
-      body: slice,
-    });
+      180_000
+    );
 
     if (!chunkRes.ok) {
       const errBody = await chunkRes.text();
@@ -117,12 +149,19 @@ async function uploadToGeminiFileApi(
   while (state === "PROCESSING" && attempts < 60) {
     await Bun.sleep(2500);
     attempts++;
-    const statusRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${fileInfo.name}?key=${encodeURIComponent(apiKey)}`
-    );
-    if (statusRes.ok) {
-      const statusJson: any = await statusRes.json();
-      state = statusJson.state;
+    try {
+      const statusRes = await geminiFetch(
+        "file status",
+        `https://generativelanguage.googleapis.com/v1beta/${fileInfo.name}?key=${encodeURIComponent(apiKey)}`,
+        {},
+        30_000
+      );
+      if (statusRes.ok) {
+        const statusJson: any = await statusRes.json();
+        state = statusJson.state;
+      }
+    } catch {
+      // A slow status probe is not fatal; the next poll (or the attempt cap) decides.
     }
   }
 
@@ -135,9 +174,11 @@ async function uploadToGeminiFileApi(
 
 async function deleteGeminiFile(apiKey: string, fileName: string): Promise<void> {
   try {
-    await fetch(
+    await geminiFetch(
+      "file delete",
       `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${encodeURIComponent(apiKey)}`,
-      { method: "DELETE" }
+      { method: "DELETE" },
+      15_000
     );
   } catch {
     // ignore cleanup network error
@@ -275,7 +316,7 @@ export async function distillLectureAudio(
       modelRequested
     )}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-    const genRes = await fetch(genUrl, {
+    const genRes = await geminiFetch("generateContent", genUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -291,7 +332,7 @@ export async function distillLectureAudio(
           temperature: 0.2,
         },
       }),
-    });
+    }, GENERATE_TIMEOUT_MS);
 
     if (!genRes.ok) {
       const errBody = await genRes.text();

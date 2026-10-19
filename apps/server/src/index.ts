@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
   distillLectureAudio,
   renderMarkdownToHtml,
@@ -8,6 +8,8 @@ import {
 } from "../../../packages/core/src/index.ts";
 import {
   DATA_DIR,
+  db,
+  searchLecturesForAdmin,
   type LectureRecord,
   type UserRecord,
   cleanupLecturesForUser,
@@ -61,26 +63,58 @@ import {
   renderAppHtml,
   renderSharePageHtml,
 } from "./ui.ts";
+import type {
+  AdminLectureDto,
+  AdminLectureListDto,
+  AdminOpsDto,
+  CompactRequest,
+  CompactResponse,
+  GcResponse,
+  JobDto,
+  LectureSummaryDto,
+  RetentionResponse,
+} from "./admin-api.ts";
+import {
+  countJobs,
+  drainJobs,
+  enqueueJob,
+  getLectureJobState,
+  isLectureBusy,
+  snapshotJobs,
+  type JobInfo,
+  type JobOutcome,
+} from "./jobs.ts";
+import {
+  applyRetentionPolicies,
+  buildStorageStats,
+  compactLectureAudio,
+  estimateCompactedBytes,
+  isFfmpegAvailable,
+  listCompactionCandidates,
+  moveToTrash,
+  scanOrphanUploads,
+  type RetentionOutcome,
+} from "./storage.ts";
+import {
+  BOOT_AT,
+  MAINTENANCE_INTERVAL_MIN,
+  backupStats,
+  databaseIsHealthy,
+  databaseStats,
+  deployStatus,
+  diskStats,
+  maintenanceStatus,
+  pullLatestRelease,
+  recordRequestOutcome,
+  redactUrlForLog,
+  requestStats,
+  resolveGitSha,
+  runMaintenance,
+} from "./ops.ts";
 
 const PORT = Number(process.env.PORT || 18775);
 const PUBLIC_BASE_URL =
   process.env.LECTERN_BASE_URL || "https://lectern.qucord.com";
-
-function resolveGitSha(): string {
-  try {
-    const res = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
-      cwd: existsSync("/home/eunhhu/work/lectern")
-        ? "/home/eunhhu/work/lectern"
-        : process.cwd(),
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    const out = new TextDecoder().decode(res.stdout).trim();
-    return out || "unknown";
-  } catch {
-    return "unknown";
-  }
-}
 
 const BOOT_GIT_SHA = resolveGitSha();
 
@@ -114,7 +148,7 @@ type SSEController = ReadableStreamDefaultController<Uint8Array>;
 const sseClientsByOwner = new Map<string, Set<SSEController>>();
 const sseEncoder = new TextEncoder();
 
-export function toLectureSummaryDto(l: LectureRecord) {
+export function toLectureSummaryDto(l: LectureRecord): LectureSummaryDto {
   const displayDateLabel =
     l.date_label && l.date_label.length > 10
       ? l.date_label
@@ -168,92 +202,211 @@ export function broadcastLectureEvent(
   }
 }
 
-function runBackgroundDistillation(
+// Set by the entry point to a graceful shutdown; a process supervisor (systemd) restarts us.
+let restartHandler: ((reason: string) => void) | null = null;
+
+function scheduleRestart(reason: string): void {
+  setTimeout(() => {
+    if (restartHandler) restartHandler(reason);
+    else process.exit(0);
+  }, 350);
+}
+
+/** Tells every SSE client the server is going away; browsers reconnect on their own. */
+function closeAllSseStreams(): void {
+  const bye = sseEncoder.encode(`event: shutdown\ndata: {}\n\n`);
+  for (const clients of sseClientsByOwner.values()) {
+    for (const ctrl of clients) {
+      try {
+        ctrl.enqueue(bye);
+        ctrl.close();
+      } catch {
+        // already closed
+      }
+    }
+    clients.clear();
+  }
+}
+
+interface DistillInput {
+  audioPath: string;
+  course: string;
+  title: string;
+  model: string;
+  apiKey?: string;
+}
+
+function broadcastProgress(ownerId: string, updated: LectureRecord | null): void {
+  if (!updated) return;
+  broadcastLectureEvent(ownerId, {
+    type: "progress",
+    id: updated.id,
+    stage: updated.stage,
+    stage_message: updated.stage_message,
+    progress: updated.progress,
+    lecture: toLectureSummaryDto(updated),
+  });
+}
+
+/**
+ * Queues the distillation of a lecture whose row is already 'processing'. The job queue
+ * bounds how many run at once, and a lecture that already has a distillation queued or
+ * running is not queued twice: the existing job's completion is returned instead.
+ */
+function enqueueDistillation(
   id: string,
   ownerId: string,
-  incoming: {
-    audioPath: string;
-    course: string;
-    title: string;
-    model: string;
-    apiKey?: string;
+  input: DistillInput
+): Promise<JobOutcome> {
+  const { done, deduplicated, position } = enqueueJob("distill", id, () =>
+    runDistillation(id, ownerId, input)
+  );
+  if (!deduplicated && position > 0) {
+    broadcastProgress(
+      ownerId,
+      updateLectureProgress(
+        id,
+        "queued",
+        `분석 대기열 ${position}번째 — 앞선 작업이 끝나면 자동으로 시작됩니다.`,
+        5
+      )
+    );
   }
-) {
-  (async () => {
-    const maxAttempts = 3;
-    let lastErr: any = null;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        if (attempt > 1) {
-          const retryUpdate = updateLectureProgress(
+  return done;
+}
+
+const LECTURE_GONE_MESSAGE = "강의가 삭제되어 작업을 중단했습니다.";
+
+/**
+ * Only transient failures are worth another attempt: network errors, timeouts, 429 and
+ * 5xx from Gemini. Configuration problems, silent recordings, unreadable audio and other
+ * 4xx answers fail the same way every time, so retrying them only burns a job slot.
+ */
+export function isRetryableDistillError(err: unknown): boolean {
+  const msg = String((err as any)?.message ?? err ?? "");
+  if (
+    msg.includes("GEMINI_API_KEY is not configured") ||
+    msg.includes("음성 신호가 감지되지 않았습니다") ||
+    msg.includes("Audio file not found") ||
+    msg.includes("ffmpeg transcoding failed")
+  ) {
+    return false;
+  }
+  const status = msg.match(/\((\d{3})\)/);
+  if (status) {
+    const code = Number(status[1]);
+    return code === 408 || code === 429 || code >= 500;
+  }
+  return true;
+}
+
+async function runDistillation(
+  id: string,
+  ownerId: string,
+  input: DistillInput
+): Promise<JobOutcome> {
+  const maxAttempts = 3;
+  let lastErr: any = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (!getLectureById(id)) return { ok: false, error: LECTURE_GONE_MESSAGE };
+    try {
+      if (attempt > 1) {
+        broadcastProgress(
+          ownerId,
+          updateLectureProgress(
             id,
             "retrying",
             `일시적 네트워크/API 오류 자동 재시도 중 (${attempt}/${maxAttempts})...`,
             15
-          );
-          if (retryUpdate) {
-            broadcastLectureEvent(ownerId, {
-              type: "progress",
-              id,
-              stage: retryUpdate.stage,
-              stage_message: retryUpdate.stage_message,
-              progress: retryUpdate.progress,
-              lecture: toLectureSummaryDto(retryUpdate),
-            });
-          }
-          await new Promise((r) => setTimeout(r, 2500 * attempt));
-        }
+          )
+        );
+        await new Promise((r) => setTimeout(r, 2500 * attempt));
+      }
 
-        const res = await distillLectureAudio({
-          audioPath: incoming.audioPath,
-          courseName: incoming.course,
-          title: incoming.title,
-          model: incoming.model,
-          apiKey: incoming.apiKey,
-          onProgress: (ev) => {
-            const updated = updateLectureProgress(
-              id,
-              ev.stage,
-              ev.message,
-              ev.progress ?? 50
-            );
-            if (updated) {
-              broadcastLectureEvent(ownerId, {
-                type: "progress",
-                id,
-                stage: updated.stage,
-                stage_message: updated.stage_message,
-                progress: updated.progress,
-                lecture: toLectureSummaryDto(updated),
-              });
-            }
-          },
-        });
-        const done = completeLectureRecord(id, res);
+      const res = await distillLectureAudio({
+        audioPath: input.audioPath,
+        courseName: input.course,
+        title: input.title,
+        model: input.model,
+        apiKey: input.apiKey,
+        onProgress: (ev) => {
+          broadcastProgress(
+            ownerId,
+            updateLectureProgress(id, ev.stage, ev.message, ev.progress ?? 50)
+          );
+        },
+      });
+      // Deleted while Gemini was working: don't write notes (or archive files) for it.
+      if (!getLectureById(id)) return { ok: false, error: LECTURE_GONE_MESSAGE };
+      const done = completeLectureRecord(id, res);
+      broadcastLectureEvent(ownerId, {
+        type: "completed",
+        id,
+        lecture: toLectureSummaryDto(done),
+      });
+      if (getSystemSettings().storage_auto_compact) {
+        scheduleCompaction(id, ownerId);
+      }
+      return { ok: true };
+    } catch (err: any) {
+      lastErr = err;
+      if (!isRetryableDistillError(err)) break;
+    }
+  }
+
+  const errMsg = lastErr?.message || String(lastErr);
+  const failed = failLectureRecord(id, errMsg);
+  broadcastLectureEvent(ownerId, {
+    type: "error",
+    id,
+    error_message: errMsg,
+    lecture: failed ? toLectureSummaryDto(failed) : undefined,
+  });
+  return { ok: false, error: errMsg };
+}
+
+/**
+ * Queues re-encoding of a finished lecture's audio (see storage.ts). Returns false when
+ * compaction is unavailable (no ffmpeg) or the lecture already has one queued/running.
+ */
+function scheduleCompaction(id: string, ownerId: string): boolean {
+  if (!isFfmpegAvailable()) return false;
+  const { deduplicated } = enqueueJob("compact", id, async () => {
+    if (isLectureBusy(id, "distill")) {
+      return { ok: false, error: "분석 작업이 진행 중인 강의입니다." };
+    }
+    const res = await compactLectureAudio(id, getSystemSettings().storage_compact_bitrate_kbps);
+    if (res.state === "compacted") {
+      const updated = getLectureById(id);
+      if (updated) {
         broadcastLectureEvent(ownerId, {
-          type: "completed",
+          type: "updated",
           id,
-          lecture: toLectureSummaryDto(done),
+          lecture: toLectureSummaryDto(updated),
         });
-        return;
-      } catch (err: any) {
-        lastErr = err;
-        if (String(err?.message || "").includes("음성 신호가 감지되지 않았습니다")) {
-          break;
-        }
       }
     }
-
-    const errMsg = lastErr?.message || String(lastErr);
-    const failed = failLectureRecord(id, errMsg);
-    broadcastLectureEvent(ownerId, {
-      type: "error",
-      id,
-      error_message: errMsg,
-      lecture: failed ? toLectureSummaryDto(failed) : undefined,
-    });
-  })();
+    return { ok: res.ok, error: res.error ?? null, savedBytes: res.savedBytes };
+  });
+  return !deduplicated;
 }
+
+function broadcastRetentionOutcome(outcome: RetentionOutcome): void {
+  for (const item of outcome.audioRemoved) {
+    if (item.lecture) {
+      broadcastLectureEvent(item.owner_id, {
+        type: "updated",
+        id: item.id,
+        lecture: toLectureSummaryDto(item.lecture),
+      });
+    }
+  }
+  for (const item of outcome.deleted) {
+    broadcastLectureEvent(item.owner_id, { type: "deleted", id: item.id, ids: [item.id] });
+  }
+}
+
+const LECTURE_BUSY_MESSAGE = "이미 분석 또는 압축 작업이 진행 중인 강의입니다.";
 
 /** Whether distillation may fall back to the server's own GEMINI_API_KEY for this account. */
 function canUseServerKey(user: UserRecord | null): boolean {
@@ -291,7 +444,7 @@ export function resumeInterruptedLectures(
       failed.push(item.id);
       continue;
     }
-    runBackgroundDistillation(item.id, item.owner_id, {
+    void enqueueDistillation(item.id, item.owner_id, {
       audioPath: item.audio_path,
       course: item.course,
       title: item.title,
@@ -698,7 +851,8 @@ function resolveUploadAudioExt(fileName: string, declaredType: string): string {
 }
 
 interface IncomingAudio {
-  data: ArrayBuffer;
+  /** The upload body as a Blob: written to disk without another copy in JS memory. */
+  data: Blob;
   ext: string;
   audioMime: string;
   audioSize: number;
@@ -708,6 +862,12 @@ interface IncomingAudio {
   model: string;
   sourceClient: string;
   apiKey?: string;
+}
+
+async function sha256OfBlob(blob: Blob): Promise<string> {
+  const hasher = new Bun.CryptoHasher("sha256");
+  for await (const chunk of blob.stream()) hasher.update(chunk);
+  return hasher.digest("hex");
 }
 
 /** Reads and validates an upload in memory. Nothing is written to disk here. */
@@ -727,7 +887,7 @@ async function readIncomingAudio(
   let idempotencyKey = (req.headers.get("x-idempotency-key") || "").trim();
 
   let ext: string;
-  let data: ArrayBuffer;
+  let data: Blob;
   if (contentType.includes("multipart/form-data")) {
     const form = parsedForm || (await req.formData());
     const fileField = (form.get("audio") || form.get("file")) as File | null;
@@ -745,28 +905,26 @@ async function readIncomingAudio(
     }
 
     ext = resolveUploadAudioExt(fileField.name || "", fileField.type || "");
-    data = await fileField.arrayBuffer();
-    if (!data.byteLength) {
+    data = fileField;
+    if (!data.size) {
       throw new Error("빈 오디오 파일입니다.");
     }
   } else {
     // Raw binary body (e.g. direct iOS Shortcut / native stream)
     ext = resolveUploadAudioExt("", contentType);
-    data = await req.arrayBuffer();
-    if (!data.byteLength) {
+    data = await req.blob();
+    if (!data.size) {
       throw new Error("빈 오디오 데이터입니다.");
     }
   }
 
-  const sha256 =
-    idempotencyKey ||
-    createHash("sha256").update(Buffer.from(data)).digest("hex");
+  const sha256 = idempotencyKey || (await sha256OfBlob(data));
 
   return {
     data,
     ext,
     audioMime: AUDIO_MIME_BY_EXT[ext],
-    audioSize: data.byteLength,
+    audioSize: data.size,
     audioSha256: sha256,
     course,
     title: title || "",
@@ -888,15 +1046,74 @@ function serveAudioWithRange(req: Request, filePath: string): Response {
   });
 }
 
+function toJobDto(job: JobInfo): JobDto {
+  const lecture = getLectureById(job.lectureId);
+  const owner = lecture ? getUserById(lecture.owner_id) : null;
+  return {
+    id: job.id,
+    kind: job.kind,
+    lectureId: job.lectureId,
+    lectureTitle: lecture?.title || "(삭제된 강의)",
+    ownerEmail: owner?.email || "",
+    state: job.state,
+    stage: job.kind === "distill" ? lecture?.stage || "" : job.state === "running" ? "compacting" : "queued",
+    progress: job.kind === "distill" ? lecture?.progress ?? 0 : 0,
+    enqueuedAt: job.enqueuedAt,
+    startedAt: job.startedAt,
+  };
+}
+
+function buildOpsDto(): AdminOpsDto {
+  const jobs = snapshotJobs();
+  const mem = process.memoryUsage();
+  return {
+    ok: true,
+    server: {
+      gitSha: BOOT_GIT_SHA,
+      bootAt: BOOT_AT.toISOString(),
+      uptimeSec: Math.round((Date.now() - BOOT_AT.getTime()) / 1000),
+      bunVersion: Bun.version,
+      pid: process.pid,
+      platform: `${process.platform}-${process.arch}`,
+      memory: { rssBytes: mem.rss, heapUsedBytes: mem.heapUsed },
+      ffmpegAvailable: isFfmpegAvailable(),
+      requests: requestStats(),
+    },
+    jobs: {
+      concurrency: jobs.concurrency,
+      running: jobs.running.map(toJobDto),
+      queued: jobs.queued.map(toJobDto),
+      recent: jobs.recent.map((j) => {
+        const lecture = getLectureById(j.lectureId);
+        const owner = lecture ? getUserById(lecture.owner_id) : null;
+        return {
+          ...j,
+          lectureTitle: lecture?.title || "(삭제된 강의)",
+          ownerEmail: owner?.email || "",
+        };
+      }),
+      last24h: jobs.last24h,
+    },
+    disk: diskStats(),
+    database: databaseStats(),
+    backups: backupStats(),
+    maintenance: maintenanceStatus(),
+    deploy: deployStatus(),
+  };
+}
+
 export async function handleRequest(req: Request): Promise<Response> {
+  let res: Response;
   try {
-    return applySecurityHeaders(await routeRequest(req));
+    res = applySecurityHeaders(await routeRequest(req));
   } catch (err) {
     console.error("Unhandled request error:", err);
-    return applySecurityHeaders(
+    res = applySecurityHeaders(
       jsonResponse({ error: "서버 내부 오류가 발생했습니다." }, 500)
     );
   }
+  recordRequestOutcome(res.status);
+  return res;
 }
 
 async function routeRequest(req: Request): Promise<Response> {
@@ -1022,14 +1239,24 @@ async function routeRequest(req: Request): Promise<Response> {
 
     // 4. Health check (no private lecture count exposed)
     if (req.method === "GET" && path === "/api/health") {
-      return jsonResponse({
-        status: "ok",
-        service: "lectern",
-        version: "1.0.0",
-        authRequired: true,
-        gitSha: BOOT_GIT_SHA,
-        runtime: `Bun ${Bun.version}`,
-      });
+      const dbOk = databaseIsHealthy();
+      const disk = diskStats();
+      return jsonResponse(
+        {
+          status: dbOk ? "ok" : "error",
+          service: "lectern",
+          version: "1.0.0",
+          authRequired: true,
+          gitSha: BOOT_GIT_SHA,
+          runtime: `Bun ${Bun.version}`,
+          uptimeSec: Math.round((Date.now() - BOOT_AT.getTime()) / 1000),
+          checks: {
+            database: dbOk ? "ok" : "error",
+            disk: disk ? (disk.low ? "low" : "ok") : "unknown",
+          },
+        },
+        dbOk ? 200 : 503
+      );
     }
 
     // 4b. Continuous Deployment Webhook: POST /api/cd/deploy
@@ -1043,39 +1270,24 @@ async function routeRequest(req: Request): Promise<Response> {
         return jsonResponse({ error: "Unauthorized CD request" }, 401);
       }
 
-      const repoDir = "/home/eunhhu/work/lectern";
-      const fetchProc = Bun.spawnSync(["git", "fetch", "origin", "main"], {
-        cwd: repoDir,
-      });
-      const resetProc = Bun.spawnSync(["git", "reset", "--hard", "origin/main"], {
-        cwd: repoDir,
-      });
-      const installProc = Bun.spawnSync(["bun", "install"], { cwd: repoDir });
-
-      const newSha = resolveGitSha();
-      const ok =
-        fetchProc.exitCode === 0 &&
-        resetProc.exitCode === 0 &&
-        installProc.exitCode === 0;
-
-      if (!ok) {
+      const result = await pullLatestRelease();
+      if (!result.ok) {
         return jsonResponse(
-          {
-            ok: false,
-            error: "Git pull or bun install failed during CD",
-            newSha,
-          },
-          500
+          { ok: false, error: result.error, newSha: result.sha },
+          result.busy ? 409 : 500
         );
       }
-
-      setTimeout(() => {
-        process.exit(0);
-      }, 350);
-
+      recordAuditLog({
+        actorId: "system",
+        actorEmail: "cd-webhook",
+        action: "ops.deploy",
+        detail: `${result.previousSha.slice(0, 7)} → ${result.sha.slice(0, 7)}`,
+      });
+      scheduleRestart("deploy");
       return jsonResponse({
         ok: true,
-        deployedSha: newSha,
+        deployedSha: result.sha,
+        previousSha: result.previousSha,
         restarting: true,
       });
     }
@@ -1666,6 +1878,162 @@ async function routeRequest(req: Request): Promise<Response> {
         }
       }
 
+      if (req.method === "GET" && path === "/api/admin/ops") {
+        return jsonResponse(buildOpsDto());
+      }
+
+      if (req.method === "GET" && path === "/api/admin/storage") {
+        return jsonResponse(
+          buildStorageStats({ settings: getSystemSettings(), jobs: countJobs("compact") })
+        );
+      }
+
+      if (req.method === "GET" && path === "/api/admin/lectures") {
+        const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 50));
+        const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
+        const { total, rows } = searchLecturesForAdmin({
+          status: url.searchParams.get("status") || undefined,
+          q: url.searchParams.get("q") || undefined,
+          ownerId: url.searchParams.get("owner") || undefined,
+          limit,
+          offset,
+        });
+        const lectures: AdminLectureDto[] = rows.map((l) => ({
+          ...toLectureSummaryDto(l),
+          owner_id: l.owner_id,
+          owner_email: l.owner_email,
+          owner_name: l.owner_name,
+          audio_ext: l.audio_path ? extname(l.audio_path).toLowerCase() : "",
+          compacted: l.audio_compact_state === "compacted",
+          audio_original_size:
+            l.audio_compact_state === "compacted" && l.audio_original_size
+              ? l.audio_original_size
+              : l.audio_size,
+          error_message: l.error_message,
+          source_client: l.source_client,
+          job_state: getLectureJobState(l.id),
+        }));
+        const body: AdminLectureListDto = { ok: true, total, limit, offset, lectures };
+        return jsonResponse(body);
+      }
+
+      if (req.method === "POST" && path === "/api/admin/storage/compact") {
+        const body = ((await req.json().catch(() => ({}))) || {}) as CompactRequest;
+        const ids = Array.isArray(body.ids)
+          ? body.ids.filter((x): x is string => typeof x === "string")
+          : undefined;
+        if (!body.all && !ids?.length) {
+          return jsonResponse({ error: "압축할 강의(ids) 또는 all:true 를 지정해주세요." }, 400);
+        }
+        const settings = getSystemSettings();
+        const candidates = listCompactionCandidates(body.all ? undefined : ids).filter(
+          (c) => !isLectureBusy(c.id)
+        );
+        const candidateBytes = candidates.reduce((s, c) => s + (c.audio_size || 0), 0);
+        const estimatedSavedBytes = candidates.reduce(
+          (s, c) =>
+            s +
+            Math.max(
+              0,
+              c.audio_size -
+                estimateCompactedBytes(
+                  c.duration_sec,
+                  c.audio_size,
+                  settings.storage_compact_bitrate_kbps
+                )
+            ),
+          0
+        );
+        const dryRun = Boolean(body.dryRun);
+        let queued = 0;
+        if (!dryRun) {
+          if (!isFfmpegAvailable()) {
+            return jsonResponse({ error: "서버에 ffmpeg가 없어 압축할 수 없습니다." }, 503);
+          }
+          for (const c of candidates) {
+            if (scheduleCompaction(c.id, c.owner_id)) queued++;
+          }
+          recordAuditLog({
+            actorId: adminUser.id,
+            actorEmail: adminUser.email,
+            action: "storage.compact",
+            detail: `오디오 압축 ${queued}건 대기열 추가 (${settings.storage_compact_bitrate_kbps}kbps, 예상 절감 ${Math.round(estimatedSavedBytes / 1048576)}MB)`,
+          });
+        }
+        const response: CompactResponse = {
+          ok: true,
+          dryRun,
+          candidates: candidates.length,
+          queued,
+          candidateBytes,
+          estimatedSavedBytes,
+        };
+        return jsonResponse(response);
+      }
+
+      if (req.method === "POST" && path === "/api/admin/storage/gc") {
+        const body: any = (await req.json().catch(() => ({}))) || {};
+        const dryRun = Boolean(body.dryRun);
+        const orphans = scanOrphanUploads();
+        const bytes = orphans.reduce((s, f) => s + f.bytes, 0);
+        const movedToTrash = dryRun ? 0 : moveToTrash(orphans);
+        if (!dryRun) {
+          recordAuditLog({
+            actorId: adminUser.id,
+            actorEmail: adminUser.email,
+            action: "storage.gc",
+            detail: `고아 업로드 파일 ${movedToTrash}개 휴지통 이동 (${Math.round(bytes / 1048576)}MB)`,
+          });
+        }
+        const response: GcResponse = {
+          ok: true,
+          dryRun,
+          orphans: { count: orphans.length, bytes, files: orphans.slice(0, 50).map((f) => f.name) },
+          movedToTrash,
+        };
+        return jsonResponse(response);
+      }
+
+      if (req.method === "POST" && path === "/api/admin/storage/retention") {
+        const body: any = (await req.json().catch(() => ({}))) || {};
+        const dryRun = Boolean(body.dryRun);
+        const outcome = applyRetentionPolicies(getSystemSettings(), {
+          dryRun,
+          isBusy: (lectureId) => isLectureBusy(lectureId),
+        });
+        if (!dryRun) {
+          broadcastRetentionOutcome(outcome);
+          recordAuditLog({
+            actorId: adminUser.id,
+            actorEmail: adminUser.email,
+            action: "storage.retention",
+            detail: `보존 정책 적용: 오디오 삭제 ${outcome.audioRemoved.length}건, 실패 강의 삭제 ${outcome.deleted.length}건`,
+          });
+        }
+        const response: RetentionResponse = {
+          ok: true,
+          dryRun,
+          retention: outcome.retention,
+          failedRetention: outcome.failedRetention,
+        };
+        return jsonResponse(response);
+      }
+
+      if (req.method === "POST" && path === "/api/admin/maintenance/run") {
+        const result = await runMaintenance({
+          forceBackup: true,
+          isBusy: (lectureId) => isLectureBusy(lectureId),
+          onRetention: broadcastRetentionOutcome,
+        });
+        recordAuditLog({
+          actorId: adminUser.id,
+          actorEmail: adminUser.email,
+          action: "ops.maintenance",
+          detail: `수동 유지보수 실행 (세션 ${result.expiredSessions}, 고아 ${result.orphanFiles.count}, 백업 ${result.backup ? result.backup.file : "없음"}, 오류 ${result.errors.length})`,
+        });
+        return jsonResponse({ ok: true, result });
+      }
+
       const adminUserMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
       if (adminUserMatch) {
         const targetId = decodeURIComponent(adminUserMatch[1]);
@@ -1974,6 +2342,9 @@ async function routeRequest(req: Request): Promise<Response> {
         if (!isOwner) {
           return jsonResponse({ error: "재분석 권한이 없습니다." }, 403);
         }
+        if (isLectureBusy(id)) {
+          return jsonResponse({ error: LECTURE_BUSY_MESSAGE }, 409);
+        }
         if (!rec.audio_path || !existsSync(rec.audio_path)) {
           return jsonResponse(
             { error: "서버에 보존된 원본 오디오 파일이 없어 재분석할 수 없습니다." },
@@ -2001,7 +2372,7 @@ async function routeRequest(req: Request): Promise<Response> {
             lecture: toLectureSummaryDto(reset),
           });
         }
-        runBackgroundDistillation(id, rec.owner_id, {
+        void enqueueDistillation(id, rec.owner_id, {
           audioPath: rec.audio_path,
           course: rec.course,
           title: rec.title,
@@ -2111,9 +2482,14 @@ async function routeRequest(req: Request): Promise<Response> {
         // Idempotent Upload Deduplication: if this exact audio was already uploaded by this user
         const existing = getLectureByAudioSha256(user.id, incoming.audioSha256);
         if (existing) {
-          if (existing.status === "error" && existing.audio_path && existsSync(existing.audio_path)) {
+          if (
+            existing.status === "error" &&
+            existing.audio_path &&
+            existsSync(existing.audio_path) &&
+            !isLectureBusy(existing.id)
+          ) {
             const retried = resetLectureForRetry(existing.id);
-            runBackgroundDistillation(existing.id, user.id, {
+            void enqueueDistillation(existing.id, user.id, {
               audioPath: existing.audio_path,
               course: existing.course,
               title: existing.title,
@@ -2159,7 +2535,7 @@ async function routeRequest(req: Request): Promise<Response> {
           lecture: toLectureSummaryDto(pending),
         });
 
-        runBackgroundDistillation(id, user.id, {
+        void enqueueDistillation(id, user.id, {
           audioPath,
           course: incoming.course,
           title: incoming.title,
@@ -2191,9 +2567,14 @@ async function routeRequest(req: Request): Promise<Response> {
 
         const existing = getLectureByAudioSha256(user.id, incoming.audioSha256);
         if (existing) {
-          if (existing.status === "error" && existing.audio_path && existsSync(existing.audio_path)) {
+          if (
+            existing.status === "error" &&
+            existing.audio_path &&
+            existsSync(existing.audio_path) &&
+            !isLectureBusy(existing.id)
+          ) {
             const retried = resetLectureForRetry(existing.id);
-            runBackgroundDistillation(existing.id, user.id, {
+            void enqueueDistillation(existing.id, user.id, {
               audioPath: existing.audio_path,
               course: existing.course,
               title: existing.title,
@@ -2245,7 +2626,7 @@ async function routeRequest(req: Request): Promise<Response> {
         });
 
         if (!waitComplete) {
-          runBackgroundDistillation(id, user.id, {
+          void enqueueDistillation(id, user.id, {
             audioPath,
             course: incoming.course,
             title: incoming.title,
@@ -2263,60 +2644,28 @@ async function routeRequest(req: Request): Promise<Response> {
           });
         }
 
-        let done: LectureRecord;
-        try {
-          const res = await distillLectureAudio({
-            audioPath,
-            courseName: incoming.course,
-            title: incoming.title,
-            model: incoming.model,
-            apiKey: incoming.apiKey,
-            onProgress: (ev) => {
-              const updated = updateLectureProgress(
-                id,
-                ev.stage,
-                ev.message,
-                ev.progress ?? 50
-              );
-              if (updated) {
-                broadcastLectureEvent(user.id, {
-                  type: "progress",
-                  id,
-                  stage: updated.stage,
-                  stage_message: updated.stage_message,
-                  progress: updated.progress,
-                  lecture: toLectureSummaryDto(updated),
-                });
-              }
-            },
-          });
-          done = completeLectureRecord(id, res);
-        } catch (err: any) {
-          // Leave the row in 'error' (retryable), not 'processing' forever.
-          const errMsg = err?.message || String(err);
-          const failed = failLectureRecord(id, errMsg);
-          broadcastLectureEvent(user.id, {
-            type: "error",
-            id,
-            error_message: errMsg,
-            lecture: failed ? toLectureSummaryDto(failed) : undefined,
-          });
+        // Same queue as every other distillation, so blocking clients cannot exceed the
+        // concurrency limit; the job itself records success/failure and emits SSE events.
+        const outcome = await enqueueDistillation(id, user.id, {
+          audioPath,
+          course: incoming.course,
+          title: incoming.title,
+          model: incoming.model,
+          apiKey: incoming.apiKey,
+        });
+        const done = getLectureById(id);
+        if (!outcome.ok || !done || done.status !== "done") {
           return jsonResponse(
             {
               ok: false,
               id,
-              status: "error",
-              error: errMsg,
+              status: done?.status ?? "error",
+              error: outcome.error || done?.error_message || "노트 생성에 실패했습니다.",
               url: `${PUBLIC_BASE_URL}/?lecture=${id}`,
             },
             502
           );
         }
-        broadcastLectureEvent(user.id, {
-          type: "completed",
-          id,
-          lecture: toLectureSummaryDto(done),
-        });
 
         return jsonResponse({
           ok: true,
@@ -2338,13 +2687,75 @@ async function routeRequest(req: Request): Promise<Response> {
 }
 
 if (import.meta.main) {
+  const logRequests = process.env.LECTERN_LOG_REQUESTS !== "0";
+  const shutdownGraceMs =
+    Math.max(0, Number(process.env.LECTERN_SHUTDOWN_GRACE_SEC ?? 20) || 0) * 1000;
+
   const server = Bun.serve({
     port: PORT,
     hostname: "127.0.0.1",
     maxRequestBodySize: 250 * 1024 * 1024, // 250 MB
     idleTimeout: 255,
-    fetch: handleRequest,
+    async fetch(req) {
+      const started = performance.now();
+      const res = await handleRequest(req);
+      if (logRequests) {
+        const url = new URL(req.url);
+        // Health probes run every few seconds during deploys; only log them when unhealthy.
+        if (url.pathname !== "/api/health" || res.status !== 200) {
+          const ms = Math.round(performance.now() - started);
+          console.log(`${res.status} ${req.method} ${redactUrlForLog(url)} ${ms}ms`);
+        }
+      }
+      return res;
+    },
   });
 
-  console.log(`🚀 Lectern Bun Server listening on http://127.0.0.1:${server.port}`);
+  isFfmpegAvailable(); // logs a warning at boot when compaction cannot run
+
+  const runScheduledMaintenance = () => {
+    runMaintenance({
+      isBusy: (lectureId) => isLectureBusy(lectureId),
+      onRetention: broadcastRetentionOutcome,
+    })
+      .then((r) => {
+        if (r.errors.length || r.orphanFiles.count || r.backup || r.retention.count || r.failedRetention.count) {
+          console.log(
+            `Maintenance: sessions -${r.expiredSessions}, codes -${r.expiredCodes}, audit -${r.prunedAuditLogs}, orphans→trash ${r.orphanFiles.count}, retention ${r.retention.count}/${r.failedRetention.count}, backup ${r.backup?.file ?? "-"}, errors ${r.errors.length}`
+          );
+        }
+      })
+      .catch((err) => console.error("Maintenance failed:", err));
+  };
+  setTimeout(runScheduledMaintenance, 2 * 60_000).unref();
+  setInterval(runScheduledMaintenance, MAINTENANCE_INTERVAL_MIN * 60_000).unref();
+
+  // Graceful shutdown (SIGTERM from systemd, Ctrl-C, or a CD deploy): keep serving while
+  // running jobs get a grace period (new jobs are not started; their rows stay
+  // 'processing' and are resumed on the next boot), then close SSE streams and exit.
+  let shuttingDown = false;
+  const shutdown = async (reason: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`Shutting down (${reason})...`);
+    const drained = await drainJobs(shutdownGraceMs);
+    if (!drained) {
+      console.warn("Jobs still running at shutdown; they will be resumed on the next boot.");
+    }
+    closeAllSseStreams();
+    await Promise.race([server.stop(), new Promise((r) => setTimeout(r, 5000))]);
+    try {
+      db.exec(`PRAGMA wal_checkpoint(TRUNCATE)`);
+    } catch {
+      // ignore
+    }
+    process.exit(0);
+  };
+  restartHandler = (reason) => void shutdown(reason);
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+
+  console.log(
+    `🚀 Lectern Bun Server listening on http://127.0.0.1:${server.port} (sha ${BOOT_GIT_SHA.slice(0, 7)})`
+  );
 }

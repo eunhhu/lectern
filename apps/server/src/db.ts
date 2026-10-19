@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import {
   copyFileSync,
+  linkSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -67,7 +68,7 @@ export interface SystemSettings {
   storage_compact_bitrate_kbps: number;
   /** Days after which done lectures lose their audio (notes are kept). 0 = off. */
   audio_retention_days: number;
-  /** Days after which failed lectures lose their audio. 0 = off. */
+  /** Days after which failed lectures (no notes) are deleted with their audio. 0 = off. */
   failed_audio_retention_days: number;
   /** Days of audit log history kept. 0 = forever. */
   audit_retention_days: number;
@@ -134,6 +135,11 @@ export interface LectureRecord {
   audio_mime: string | null;
   audio_size: number;
   audio_sha256?: string | null;
+  /** Size of the upload before compaction (0 until the lecture is compacted). */
+  audio_original_size?: number;
+  /** null = not processed yet, 'compacted' = re-encoded copy kept, 'skipped' = not worth it. */
+  audio_compact_state?: "compacted" | "skipped" | null;
+  audio_compacted_at?: string | null;
   duration_sec: number;
   model_requested: string;
   model_used: string;
@@ -164,6 +170,7 @@ export const db = new Database(dbPath, { create: true });
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA synchronous = NORMAL;
+  PRAGMA busy_timeout = 5000;
 
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -293,10 +300,24 @@ try {
   if (!cols.some((c) => c.name === "audio_sha256")) {
     db.exec(`ALTER TABLE lectures ADD COLUMN audio_sha256 TEXT`);
   }
+  if (!cols.some((c) => c.name === "audio_original_size")) {
+    db.exec(`ALTER TABLE lectures ADD COLUMN audio_original_size INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.some((c) => c.name === "audio_compact_state")) {
+    db.exec(`ALTER TABLE lectures ADD COLUMN audio_compact_state TEXT`);
+  }
+  if (!cols.some((c) => c.name === "audio_compacted_at")) {
+    db.exec(`ALTER TABLE lectures ADD COLUMN audio_compacted_at TEXT`);
+  }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_lectures_owner ON lectures(owner_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_lectures_sha256 ON lectures(owner_id, audio_sha256)`);
-} catch {
-  // ignore if already migrated
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_lectures_status ON lectures(status, updated_at)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`);
+} catch (err) {
+  // Every step above is idempotent, so a failure here is a real schema problem: say so
+  // instead of booting silently against a half-migrated database.
+  console.error("Database migration failed:", err);
 }
 
 export function formatKstTimestamp(input?: string | Date): {
@@ -641,34 +662,42 @@ export function getUserStorageUsageBytes(userId: string): number {
 }
 
 export function listUsersCrmSummary(): UserCrmRow[] {
+  // One pass over lectures and sessions instead of two queries per user.
   const users = db
-    .query(`SELECT * FROM users ORDER BY is_admin DESC, created_at ASC`)
-    .all() as UserRecord[];
-  return users.map((u) => {
-    const stats = db
-      .query(
-        `SELECT
-          COUNT(*) AS lecture_count,
-          COALESCE(SUM(CASE WHEN is_public = 1 THEN 1 ELSE 0 END), 0) AS public_count,
-          COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
-          COALESCE(SUM(audio_size), 0) AS audio_bytes
-         FROM lectures WHERE owner_id = ?`
-      )
-      .get(u.id) as {
+    .query(
+      `SELECT u.*,
+         COALESCE(l.lecture_count, 0) AS lecture_count,
+         COALESCE(l.public_count, 0) AS public_count,
+         COALESCE(l.error_count, 0) AS error_count,
+         COALESCE(l.audio_bytes, 0) AS audio_bytes,
+         COALESCE(s.session_count, 0) AS session_count
+       FROM users u
+       LEFT JOIN (
+         SELECT owner_id,
+           COUNT(*) AS lecture_count,
+           SUM(CASE WHEN is_public = 1 THEN 1 ELSE 0 END) AS public_count,
+           SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error_count,
+           SUM(audio_size) AS audio_bytes
+         FROM lectures GROUP BY owner_id
+       ) l ON l.owner_id = u.id
+       LEFT JOIN (
+         SELECT user_id, COUNT(*) AS session_count
+         FROM sessions WHERE expires_at > ? GROUP BY user_id
+       ) s ON s.user_id = u.id
+       ORDER BY u.is_admin DESC, u.created_at ASC`
+    )
+    .all(new Date().toISOString()) as Array<
+    UserRecord & {
       lecture_count: number;
       public_count: number;
       error_count: number;
       audio_bytes: number;
-    };
-    const sess = db
-      .query(`SELECT COUNT(*) AS cnt FROM sessions WHERE user_id = ?`)
-      .get(u.id) as { cnt: number };
-    const role = (u.role || (u.is_admin ? "owner" : "member")) as
-      | "owner"
-      | "admin"
-      | "member"
-      | "viewer";
-    const status = (u.status || "active") as "active" | "pending" | "suspended";
+      session_count: number;
+    }
+  >;
+  return users.map((u) => {
+    const role = (u.role || (u.is_admin ? "owner" : "member")) as UserRole;
+    const status = (u.status || "active") as UserStatus;
     return {
       id: u.id,
       email: u.email,
@@ -683,11 +712,11 @@ export function listUsersCrmSummary(): UserCrmRow[] {
       memo: u.memo || "",
       last_login_at: u.last_login_at || null,
       created_at: u.created_at,
-      lecture_count: stats?.lecture_count || 0,
-      public_count: stats?.public_count || 0,
-      error_count: stats?.error_count || 0,
-      audio_bytes: stats?.audio_bytes || 0,
-      session_count: sess?.cnt || 0,
+      lecture_count: u.lecture_count,
+      public_count: u.public_count,
+      error_count: u.error_count,
+      audio_bytes: u.audio_bytes,
+      session_count: u.session_count,
     };
   });
 }
@@ -1117,6 +1146,45 @@ export function listAllLecturesForAdmin(limit = 100): Array<
   >;
 }
 
+/** Filterable, paginated lecture list across all accounts for the admin console. */
+export function searchLecturesForAdmin(filter: {
+  status?: string;
+  q?: string;
+  ownerId?: string;
+  limit: number;
+  offset: number;
+}): { total: number; rows: Array<LectureRecord & { owner_email: string; owner_name: string }> } {
+  const where: string[] = [];
+  const params: string[] = [];
+  if (filter.status && ["processing", "done", "error"].includes(filter.status)) {
+    where.push(`l.status = ?`);
+    params.push(filter.status);
+  }
+  if (filter.ownerId) {
+    where.push(`l.owner_id = ?`);
+    params.push(filter.ownerId);
+  }
+  if (filter.q && filter.q.trim()) {
+    const like = `%${filter.q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    where.push(
+      `(l.title LIKE ? ESCAPE '\\' OR l.course LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\' OR l.id = ?)`
+    );
+    params.push(like, like, like, filter.q.trim());
+  }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const from = `FROM lectures l LEFT JOIN users u ON u.id = l.owner_id ${whereSql}`;
+  const total = (db.query(`SELECT COUNT(*) AS n ${from}`).get(...params) as { n: number }).n;
+  const rows = db
+    .query(
+      `SELECT l.*, COALESCE(u.email, '') AS owner_email, COALESCE(u.display_name, '') AS owner_name
+       ${from} ORDER BY l.created_at DESC LIMIT ? OFFSET ?`
+    )
+    .all(...params, filter.limit, filter.offset) as Array<
+    LectureRecord & { owner_email: string; owner_name: string }
+  >;
+  return { total, rows };
+}
+
 export function listLecturesForUser(
   ownerId: string,
   courseFilter?: string,
@@ -1271,7 +1339,10 @@ export function completeLectureRecord(
   if (!isTestClient && (!owner || owner.is_admin === 1)) {
     try {
       const safeCourse =
-        result.courseName.replace(/[\\/:*?"<>|]/g, "_").trim() || "기타강의";
+        result.courseName
+          .replace(/[\\/:*?"<>|]/g, "_")
+          .trim()
+          .replace(/^\.+$/, "_") || "기타강의";
       const courseDir = join(LECTURES_ROOT, safeCourse);
       mkdirSync(courseDir, { recursive: true });
       mdSourcePath = join(
@@ -1286,10 +1357,17 @@ export function completeLectureRecord(
           `${kst.fileStamp}_${safeCourse}_${shortUuid}_원본${ext}`
         );
         if (!existsSync(archiveAudioPath)) {
+          // A hard link keeps the archived original without a second copy on disk.
+          // Compaction later swaps only the uploads/ path, so the archive keeps the
+          // lossless original; across filesystems fall back to a real copy.
           try {
-            copyFileSync(rec.audio_path, archiveAudioPath);
+            linkSync(rec.audio_path, archiveAudioPath);
           } catch {
-            // ignore
+            try {
+              copyFileSync(rec.audio_path, archiveAudioPath);
+            } catch {
+              // ignore
+            }
           }
         }
       }

@@ -208,6 +208,11 @@ export interface AdminStorageDto {
     /** Files in DATA_DIR/uploads that no lecture references (older than 1 hour). */
     orphans: { count: number; bytes: number };
   };
+  /**
+   * Orphans are never deleted outright: GC (and the hourly maintenance) moves them to
+   * DATA_DIR/trash, and files there are deleted after `retentionDays`.
+   */
+  trash: { count: number; bytes: number; retentionDays: number };
   /** Largest stored recordings, at most 20. */
   largest: Array<{
     id: string;
@@ -242,10 +247,17 @@ export interface CompactResponse {
 export interface GcResponse {
   ok: true;
   dryRun: boolean;
+  /** `files` lists at most 50 basenames. */
   orphans: { count: number; bytes: number; files: string[] };
-  deleted: number;
+  /** Orphans moved to the trash folder by this call (0 on a dry run). */
+  movedToTrash: number;
 }
 
+/**
+ * retention: done lectures older than audio_retention_days lose their audio (notes stay).
+ * failedRetention: failed lectures (no notes) untouched for failed_audio_retention_days
+ * are deleted together with their audio.
+ */
 export interface RetentionResponse {
   ok: true;
   dryRun: boolean;
