@@ -87,6 +87,9 @@ test("물어보기 screen: no evidence, the offline error with retry, and stoppi
   await context.setOffline(false);
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect(page.getByText("에이징(aging)", { exact: false })).toBeVisible();
+  // The text shows while the answer still streams; a question sent before it ends is
+  // ignored (the composer is busy). Wait until it is done.
+  await expect(page.getByRole("button", { name: "보내기" })).toBeVisible();
 
   await input.fill("이 폴더 노트들의 핵심을 요약해 줘");
   await input.press("Enter");

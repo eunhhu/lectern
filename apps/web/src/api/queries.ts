@@ -10,6 +10,8 @@ import { askSuggestions } from "../lib/ask-suggestions.ts";
 import type {
   AskScope,
   ActionItem,
+  BatchRecordingsRequest,
+  RecordingProgress,
   CreateFolderRequest,
   CreateTagRequest,
   EventCandidate,
@@ -141,8 +143,9 @@ export interface JobProgressValue {
 }
 
 /**
- * Latest progress of a job. The REST API has no progress field (README "domain 요청"),
- * so this is fed only by `job.progress` events, which the event stream replays on connect.
+ * Latest `job.progress` event of a job (the event stream sends them as the job runs).
+ * Screens start from the recording's REST `progress` and let these replace it
+ * (useLiveProgress).
  */
 export function useJobProgress(jobId: JobId | null | undefined) {
   return useQuery<JobProgressValue | null>({
@@ -152,6 +155,27 @@ export function useJobProgress(jobId: JobId | null | undefined) {
     initialData: null,
     staleTime: Infinity,
   });
+}
+
+export interface LiveProgress {
+  stage: StageName;
+  progress: number | null;
+  /** Short status line from the server (`노트 정리 중...`), when it sends one. */
+  message: string | null;
+  /** Place in the queue while waiting (1 = next). */
+  queuePosition: number | null;
+}
+
+/** A recording's progress: the REST value first, then live `job.progress` events. */
+export function useLiveProgress(initial: RecordingProgress | null | undefined): LiveProgress | null {
+  const live = useJobProgress(initial?.job_id).data;
+  if (!initial && !live) return null;
+  return {
+    stage: live?.stage ?? initial!.stage,
+    progress: live?.progress ?? initial?.progress ?? null,
+    message: live ? null : (initial?.message ?? null),
+    queuePosition: initial?.state === "queued" && !live ? initial.queue_position : null,
+  };
 }
 
 function applyEvent(qc: QueryClient, ws: string, event: ServerEvent) {
@@ -228,12 +252,25 @@ export function useBulkUpdate(ws: WorkspaceId) {
   });
 }
 
-export function useBulkDelete(ws: WorkspaceId) {
+/** POST /recordings/batch: one request for many recordings, results per recording. */
+export function useBatchRecordings(ws: WorkspaceId) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (ids: string[]) => settle(ids, (id) => api.deleteRecording(id)),
-    onSettled: () => void qc.invalidateQueries({ queryKey: queryKeys.recordings(ws) }),
+    mutationFn: async (body: BatchRecordingsRequest): Promise<BulkResult> => {
+      const { results } = await api.batchRecordings(body);
+      return {
+        succeeded: results.filter((r) => r.ok).map((r) => r.recording_id),
+        failed: results.filter((r) => !r.ok).map((r) => ({ id: r.recording_id, message: r.error?.message ?? "요청을 처리하지 못했습니다." })),
+      };
+    },
+    onSettled: (_data, _error, body) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.recordings(ws) });
+      for (const id of body.recording_ids) {
+        if (body.action === "delete") qc.removeQueries({ queryKey: queryKeys.recording(id) });
+        else void qc.invalidateQueries({ queryKey: queryKeys.recording(id) });
+      }
+    },
   });
 }
 
@@ -307,35 +344,36 @@ export function useTagActions(ws: WorkspaceId) {
 }
 
 // --- calendar -----------------------------------------------------------------
-// There is no workspace-level list of action items yet (README "domain 요청"), so this
-// gathers the per-recording lists of processed recordings.
 
-const PROCESSED = new Set(["ready", "partial"]);
-
+/** The workspace's action items (GET /action-items), each with its recording. */
 export function useWorkspaceActionItems(ws: WorkspaceId) {
   const api = useApi();
   const recordings = useRecordings(ws).data;
-  return useQuery({
-    queryKey: [...queryKeys.workspaceActionItems(ws), recordings?.map((r) => r.id).join(",")],
-    enabled: Boolean(recordings),
-    queryFn: async (): Promise<{ item: ActionItem; recording: RecordingListItem }[]> => {
-      const done = (recordings ?? []).filter((r) => PROCESSED.has(r.status));
-      const lists = await Promise.all(done.map((r) => allPages(() => api.listActionItems(r.id))));
-      return lists.flatMap((items, i) => items.map((item) => ({ item, recording: done[i]! })));
-    },
+  const items = useQuery({
+    queryKey: queryKeys.workspaceActionItems(ws),
+    queryFn: () => allPages((cursor) => api.listWorkspaceActionItems({ workspace_id: ws, cursor, limit: 200 })),
   });
+  const byId = new Map((recordings ?? []).map((r) => [r.id as string, r]));
+  return {
+    ...items,
+    data:
+      items.data && recordings
+        ? items.data.flatMap((item): { item: ActionItem; recording: RecordingListItem }[] => {
+            const recording = byId.get(item.recording_id);
+            return recording ? [{ item, recording }] : [];
+          })
+        : undefined,
+  };
 }
 
-/** Events the user confirmed (accepted, or already synced to their calendar). */
+/** Events the user confirmed (accepted, or already synced to their calendar), in one request. */
 export function useConfirmedEvents(ws: WorkspaceId) {
   const api = useApi();
   return useQuery({
     queryKey: queryKeys.calendar(ws),
     queryFn: async (): Promise<EventCandidate[]> => {
-      const [accepted, synced] = await Promise.all(
-        (["accepted", "synced"] as const).map((status) => allPages((cursor) => api.listCalendarSuggestions({ workspace_id: ws, status, cursor }))),
-      );
-      return [...accepted!, ...synced!].sort((a, b) => (a.start_at < b.start_at ? -1 : 1));
+      const events = await allPages((cursor) => api.listCalendarSuggestions({ workspace_id: ws, statuses: "accepted,synced", cursor, limit: 200 }));
+      return events.sort((a, b) => (a.start_at < b.start_at ? -1 : 1));
     },
   });
 }

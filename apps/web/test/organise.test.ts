@@ -7,6 +7,7 @@ import { createFixtureClient } from "../src/api/fixture/client.ts";
 import { asId } from "../src/api/types.ts";
 import type { Tag } from "../src/api/types.ts";
 import { PERSONAL_WS, TEAM_WS } from "../src/fixtures/index.ts";
+import { progressLabel } from "../src/app/labels.ts";
 import { addDays, dayKey, groupByDay, weekOf, type CalendarItem } from "../src/lib/calendar.ts";
 import { nextTagColor, uniqueName } from "../src/routes/library/organise.ts";
 import { avatarHue, initials } from "../src/ui/Avatar.tsx";
@@ -145,5 +146,57 @@ describe("helpers", () => {
     expect(avatarHue("usr_fixture_me")).toBe(avatarHue("usr_fixture_me"));
     expect(avatarHue("usr_a")).toBeGreaterThanOrEqual(0);
     expect(avatarHue("usr_a")).toBeLessThan(360);
+  });
+});
+
+describe("P2 additions in the fixture client", () => {
+  test("POST /recordings/batch moves, tags, untags and deletes with a result per recording", async () => {
+    const api = client();
+    const ids = [asId<D.RecordingId>("rec_os07"), asId<D.RecordingId>("rec_memo")];
+    const moved = D.BatchRecordingsResponse.parse(await api.batchRecordings({ action: "move", recording_ids: ids, folder_id: asId("fld_research") }));
+    expect(moved.results.map((r) => r.ok)).toEqual([true, true]);
+    expect(api.data.recordings.filter((r) => ids.includes(r.id)).map((r) => String(r.folder_id))).toEqual(["fld_research", "fld_research"]);
+
+    await api.batchRecordings({ action: "add_tags", recording_ids: ids, tag_ids: [asId("tag_exam")] });
+    const tagged = (await api.listRecordings({ workspace_id: PERSONAL_WS, limit: 200 })).items.filter((r) => ids.includes(r.id));
+    for (const r of tagged) expect(r.tag_ids.map(String)).toContain("tag_exam");
+    await api.batchRecordings({ action: "remove_tags", recording_ids: ids, tag_ids: [asId("tag_exam")] });
+    const untagged = (await api.listRecordings({ workspace_id: PERSONAL_WS, limit: 200 })).items.filter((r) => ids.includes(r.id));
+    for (const r of untagged) expect(r.tag_ids.map(String)).not.toContain("tag_exam");
+
+    // A member cannot delete a teammate's recording: that one fails, the rest go through.
+    const mixed = await api.batchRecordings({ action: "delete", recording_ids: [asId("rec_tw42"), asId("rec_test")] });
+    expect(mixed.results.map((r) => [String(r.recording_id), r.ok, r.error?.code ?? null])).toEqual([
+      ["rec_tw42", false, "forbidden"],
+      ["rec_test", true, null],
+    ]);
+  });
+
+  test("workspace action items, calendar status lists, progress and failure", async () => {
+    const api = client();
+    const items = D.ActionItemPage.parse(await api.listWorkspaceActionItems({ workspace_id: TEAM_WS, limit: 200 })).items;
+    expect(items.length).toBe(api.data.actionItems.filter((a) => a.workspace_id === TEAM_WS).length);
+    const due = items.filter((a) => a.due_at).map((a) => a.due_at!);
+    expect(due).toEqual([...due].sort());
+    expect(items.findIndex((a) => !a.due_at)).toBeGreaterThanOrEqual(due.length);
+    const open = (await api.listWorkspaceActionItems({ workspace_id: TEAM_WS, status: "open" })).items;
+    expect(open.every((a) => a.status === "open")).toBe(true);
+
+    const confirmed = (await api.listCalendarSuggestions({ workspace_id: PERSONAL_WS, statuses: "accepted,synced", limit: 200 })).items;
+    expect(new Set(confirmed.map((e) => e.status))).toEqual(new Set(["accepted", "synced"]));
+
+    const list = D.RecordingPage.parse(await api.listRecordings({ workspace_id: PERSONAL_WS, limit: 200 })).items;
+    const busy = list.filter((r) => r.status === "processing" || r.status === "queued");
+    expect(busy.length).toBeGreaterThan(0);
+    for (const r of busy) expect(r.progress?.job_id).toBeTruthy();
+    const failed = D.RecordingDetail.parse(await api.getRecording("rec_test"));
+    expect(failed.failure?.message).toContain("말소리");
+  });
+
+  test("progress lines", () => {
+    expect(progressLabel("queued", { stage: "ingest", progress: null, message: null, queuePosition: 2 })).toBe("처리 대기 중 · 2번째");
+    expect(progressLabel("processing", { stage: "legacy_distill", progress: 0.4, message: null, queuePosition: null })).toBe("문서 만드는 중 · 40%");
+    expect(progressLabel("processing", { stage: "legacy_distill", progress: null, message: "노트 정리 중...", queuePosition: null })).toBe("노트 정리 중...");
+    expect(progressLabel("uploading", null)).toBe("올리는 중…");
   });
 });

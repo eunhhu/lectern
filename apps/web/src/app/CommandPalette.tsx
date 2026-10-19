@@ -25,6 +25,7 @@ import { queryKeys, useApi, useFolders, useRecordings } from "../api/queries.ts"
 import type { RecordingDetail } from "../api/types.ts";
 import { bestMatch, looksLikeQuestion } from "../lib/hangul.ts";
 import { formatDate, formatTimestamp } from "../lib/format.ts";
+import { hitText, hitTime } from "../lib/search-hits.ts";
 import { Icon, type IconName } from "../ui/Icon.tsx";
 import { Kbd } from "../ui/controls.tsx";
 import { DOMAIN_LABEL } from "./labels.ts";
@@ -162,9 +163,10 @@ function PaletteBody() {
       aliases: ["folder"],
       run: go(() => void navigate({ to: "/library", search: { folder: f.id } })),
     }));
-    const hits: Item[] = (q.length >= 2 ? (search.data?.items ?? []) : []).map((h, i) => {
-      const text = h.snippet.map((p) => p.text).join("");
-      const t = h.kind === "transcript" ? h.start_ms : undefined;
+    // Title hits (`kind: "recording"`) are already in the recordings list above.
+    const hits: Item[] = (q.length >= 2 ? (search.data?.items ?? []) : []).filter((h) => h.kind !== "recording").map((h, i) => {
+      const text = hitText(h);
+      const t = hitTime(h);
       return {
         id: `hit:${i}:${h.recording_id}`,
         label: text,

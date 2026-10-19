@@ -4,7 +4,8 @@
 // the document pane renders with React elements: no HTML string ever reaches the DOM, so
 // a note cannot inject markup. Time marks become times the player can jump to.
 //
-// Blocks: # headings (1–4), paragraphs, - * + and 1. lists (nested by indent), > quotes,
+// Blocks: # headings (1–4), paragraphs (one per line, as v1 drew them: a note's lines are
+// separate timed statements), - * + and 1. lists (nested by indent), > quotes,
 // ``` code, | tables |, --- rules. Inline: `code`, **bold**, *italic*, [text](https://…),
 // [MM:SS] / [H:MM:SS] / [MM:SS ~ MM:SS] times, and the v1 filter notes
 // [쉬는 시간 생략: …] and [수업 종료 후 녹음 절단: …].
@@ -99,43 +100,30 @@ const LIST_ITEM = /^(\s*)(?:([-*+])|(\d+)\.)\s+(.*)$/;
 export function parseLegacyMarkdown(md: string): MdBlock[] {
   const lines = md.replace(/\r\n?/g, "\n").split("\n");
   const blocks: MdBlock[] = [];
-  let paragraph: string[] = [];
-
-  const flushParagraph = () => {
-    if (paragraph.length) blocks.push({ t: "p", c: parseInline(paragraph.join(" ")) });
-    paragraph = [];
-  };
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]!;
     const line = raw.trim();
 
     if (line.startsWith("```")) {
-      flushParagraph();
       const lang = line.slice(3).trim();
       const code: string[] = [];
       while (++i < lines.length && !lines[i]!.trim().startsWith("```")) code.push(lines[i]!);
       blocks.push({ t: "code", lang, v: code.join("\n") });
       continue;
     }
-    if (!line) {
-      flushParagraph();
-      continue;
-    }
+    if (!line) continue;
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) {
-      flushParagraph();
       blocks.push({ t: "hr" });
       continue;
     }
     const heading = /^(#{1,4})\s+(.+)$/.exec(line);
     if (heading) {
-      flushParagraph();
       const c = parseInline(heading[2]!.trim());
       blocks.push({ t: "heading", level: heading[1]!.length as 1 | 2 | 3 | 4, c, text: inlineText(c) });
       continue;
     }
     if (line.startsWith("|") && line.endsWith("|")) {
-      flushParagraph();
       const cells = (row: string) =>
         row
           .trim()
@@ -153,14 +141,12 @@ export function parseLegacyMarkdown(md: string): MdBlock[] {
       continue;
     }
     if (line.startsWith(">")) {
-      flushParagraph();
       const quote: MdInline[][] = [parseInline(line.replace(/^>\s?/, ""))];
       while (i + 1 < lines.length && lines[i + 1]!.trim().startsWith(">")) quote.push(parseInline(lines[++i]!.trim().replace(/^>\s?/, "")));
       blocks.push({ t: "quote", lines: quote });
       continue;
     }
     if (LIST_ITEM.test(raw)) {
-      flushParagraph();
       const items: { indent: number; ordered: boolean; text: string }[] = [];
       for (; i < lines.length; i++) {
         const m = LIST_ITEM.exec(lines[i]!);
@@ -175,9 +161,8 @@ export function parseLegacyMarkdown(md: string): MdBlock[] {
       blocks.push(buildList(items));
       continue;
     }
-    paragraph.push(line);
+    blocks.push({ t: "p", c: parseInline(line) });
   }
-  flushParagraph();
   return blocks;
 }
 

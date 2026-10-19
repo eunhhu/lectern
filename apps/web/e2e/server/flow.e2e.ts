@@ -7,8 +7,9 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { expect, test } from "../fixtures.ts";
-import { E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD } from "./accounts.ts";
+import { expect, tabTo, test } from "../fixtures.ts";
+import { E2E_LECTURES, E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD } from "./accounts.ts";
+import { wav } from "./wav.ts";
 
 // Playwright runs specs under Node from apps/web (it empties test-results/ before each run).
 const SHOTS = process.env.E2E_SCREENSHOT_DIR ?? join(process.cwd(), "test-results/screens");
@@ -64,69 +65,66 @@ test("login: a visitor without a session lands on 로그인 and returns to the p
   expect(stored).not.toMatch(/ses_|lct_|token/i);
 });
 
-test("library, recording, 물어보기 and sign-out over the real API", async ({ page, axe }) => {
+test("library, recordings, 물어보기 and sign-out over the real API", async ({ page, axe }) => {
   await signIn(page);
   await expect(page.getByRole("heading", { level: 1, name: "홈" })).toBeVisible();
 
-  // The library lists what /api/v2/recordings returns for the personal workspace.
-  const me = await api<{ personal_workspace_id: string }>(page, "/api/v2/me");
+  // /me is the account that signed in; the library lists what /api/v2/recordings returns.
+  const me = await api<{ email: string; display_name: string; personal_workspace_id: string }>(page, "/api/v2/me");
   expect(me.status).toBe(200);
+  expect(me.body.email).toBe(E2E_OWNER_EMAIL);
+  await expect(page.getByRole("button", { name: new RegExp(me.body.display_name) }).last()).toBeVisible();
   const list = await api<Page_<RecordingItem>>(page, `/api/v2/recordings?workspace_id=${me.body.personal_workspace_id}&limit=200`);
   expect(list.status).toBe(200);
-  expect(list.body.items.length).toBeGreaterThan(0);
+  expect(list.body.items.map((r) => r.title)).toEqual(expect.arrayContaining(E2E_LECTURES.map((l) => l.title)));
   await page.getByRole("link", { name: "라이브러리" }).first().click();
   const grid = page.getByRole("grid", { name: "녹음 목록" });
   await expect(grid).toBeVisible();
-  for (const rec of list.body.items.slice(0, 5)) await expect(grid.getByText(rec.title, { exact: true }).first()).toBeVisible();
+  for (const rec of list.body.items) await expect(grid.getByText(rec.title, { exact: true }).first()).toBeVisible();
   await axe(page, "라이브러리 (서버)");
   await shot(page, "02-library");
 
-  // A processed recording: document, transcript, and the player on the real audio clock.
-  const ready = list.body.items.find((r) => r.status === "ready")!;
-  const detail = await api<{ assets: { id: string; kind: string }[] }>(page, `/api/v2/recordings/${ready.id}`);
-  const audio = detail.body.assets.find((a) => a.kind.startsWith("audio"));
-  let bridged = false;
-  if (audio) {
-    const probe = await page.request.get(`/api/v2/assets/${audio.id}/content`, { headers: { Range: "bytes=0-1" } });
-    if (probe.status() !== 206) {
-      // The asset route is not served yet (501): test-only, answer it with a seeded
-      // lecture's audio from the v1 route, which honours Range the same way, so the
-      // browser's real <audio> element, its Range requests and the clock still run.
-      expect([501, 404]).toContain(probe.status());
-      const v1 = await api<{ lectures: { id: string }[] }>(page, "/api/lectures");
-      const lecture = v1.body.lectures[0]!;
-      await page.route(`**/api/v2/assets/${audio.id}/content`, async (route) => {
-        const response = await route.fetch({ url: new URL(`/api/lectures/${lecture.id}/audio`, page.url()).href });
-        await route.fulfill({ response });
-      });
-      bridged = true;
-    }
-  }
+  // A carried-over lecture with a transcript: the Markdown note, real audio over Range,
+  // and the transcript following the audio element's clock.
+  const withTranscript = E2E_LECTURES.find((l) => l.transcript)!;
+  const lecture = list.body.items.find((r) => r.title === withTranscript.title)!;
   const ranges: string[] = [];
   page.on("request", (req) => {
-    if (req.url().includes("/content") && req.headers().range) ranges.push(req.headers().range!);
+    if (req.url().includes("/api/v2/assets/") && req.headers().range) ranges.push(req.headers().range!);
   });
-  await grid.getByText(ready.title, { exact: true }).first().click();
-  await expect(page.getByRole("heading", { level: 1, name: ready.title })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "전사", level: 2 })).toBeVisible();
-  if (audio) {
-    const play = page.getByRole("button", { name: "재생", exact: true });
-    await expect(play).toBeEnabled();
-    await expect(page.getByText("오디오 준비 중")).toHaveCount(0);
-    await play.click();
-    await expect(page.getByRole("button", { name: "일시정지", exact: true })).toBeVisible();
-    // The player position and the transcript's current segment follow the audio element.
-    const position = page.getByRole("slider", { name: "재생 위치" });
-    await expect.poll(async () => Number(await position.inputValue()), { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
-    await expect(page.locator('[aria-current="true"]').first()).toBeVisible();
-    await page.getByRole("button", { name: "일시정지", exact: true }).click();
-    expect(ranges.length, "the browser fetched the audio with Range requests").toBeGreaterThan(0);
-    test.info().annotations.push({ type: "audio", description: bridged ? "asset route 501: played the seeded v1 audio through a test route" : "asset route served Range" });
-  }
-  await axe(page, "녹음 상세 (서버)");
+  await grid.getByText(lecture.title, { exact: true }).first().click();
+  await expect(page.getByRole("heading", { level: 1, name: lecture.title })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "운영 모드" })).toBeVisible();
+  await expect(page.getByText("## 운영 모드")).toHaveCount(0);
+  const segments = page.getByRole("list", { name: "전사" });
+  await expect(segments.getByText(withTranscript.transcript![0]!.text)).toBeVisible();
+  const play = page.getByRole("button", { name: "재생", exact: true });
+  await expect(play).toBeEnabled();
+  await play.click();
+  await expect(page.getByRole("button", { name: "일시정지", exact: true })).toBeVisible();
+  const position = page.getByRole("slider", { name: "재생 위치" });
+  await expect.poll(async () => Number(await position.inputValue()), { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+  await expect(segments.locator('[aria-current="true"]')).toHaveCount(1);
+  await page.getByRole("button", { name: "일시정지", exact: true }).click();
+  expect(ranges.length, "the browser fetched the audio with Range requests").toBeGreaterThan(0);
+  // A [MM:SS] mark of the note moves the player and the transcript there.
+  await page.getByRole("button", { name: /^00:17로 이동/ }).click();
+  await expect(position).toHaveValue("17");
+  await expect(segments.locator('[aria-current="true"]')).toContainText("기말시험 범위는");
+  await axe(page, "녹음 상세 (서버, 전사 있음)");
   await shot(page, "03-recording");
 
-  // 물어보기 over the notes the ask service indexed (the seeded v1 lectures).
+  // A carried-over lecture without a transcript (every v1 lecture): the panel says so.
+  const plain = list.body.items.find((r) => r.id !== lecture.id)!;
+  await page.goto(`/app/recordings/${plain.id}`);
+  await expect(page.getByRole("heading", { level: 1, name: plain.title })).toBeVisible();
+  await expect(page.getByText("이 노트에는 전사가 없습니다.")).toBeVisible();
+  await page.getByRole("button", { name: /^00:06로 이동/ }).click();
+  await expect(page.getByRole("slider", { name: "재생 위치" })).toHaveValue("6");
+  await axe(page, "녹음 상세 (서버, 이전 노트)");
+  await shot(page, "06-legacy-note");
+
+  // 물어보기 over the same notes (indexed by the ask service).
   await page.goto("/app/ask");
   await expect(page.getByRole("heading", { level: 1, name: "물어보기" })).toBeVisible();
   const input = page.getByRole("textbox", { name: "질문" });
@@ -147,29 +145,64 @@ test("library, recording, 물어보기 and sign-out over the real API", async ({
   await input.press("Enter");
   await expect(page.getByText("관련 내용을 찾지 못했습니다", { exact: true })).toBeVisible();
 
-  // The source opens its recording at the cited moment (a 404 page while the v2
-  // recordings are still fixtures with other ids).
-  const href = await source.getAttribute("href");
-  const recordingId = /\/recordings\/([^?]+)/.exec(href ?? "")?.[1];
-  expect(href).toMatch(/\?t=\d+/);
+  // The source opens the cited recording (its id is the v2 recording id) at that moment.
+  expect(await source.getAttribute("href")).toBe(`/app/recordings/${lecture.id}?t=17000`);
   await source.click();
-  const target = await api(page, `/api/v2/recordings/${recordingId}`);
-  if (target.status === 200) await expect(page.getByRole("heading", { level: 1, name: /정보보호 7주차/ })).toBeVisible();
-  else await expect(page.getByText("녹음을 찾을 수 없습니다.")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: lecture.title })).toBeVisible();
+  await expect(page.getByRole("slider", { name: "재생 위치" })).toHaveValue("17");
 
-  // A write the server does not offer yet answers 501: a calm 준비 중, not an error.
+  // Profile edits are real now.
   await page.goto("/app/settings#account");
   await page.getByRole("textbox", { name: "이름" }).fill("E2E 새 이름");
   await page.getByRole("button", { name: "저장" }).click();
-  await expect(page.getByText(/프로필을 저장했습니다\.|아직 준비 중인 기능입니다/).first()).toBeVisible();
+  await expect(page.getByText("프로필을 저장했습니다.")).toBeVisible();
+  expect((await api<{ display_name: string }>(page, "/api/v2/me")).body.display_name).toBe("E2E 새 이름");
 
   // Sign out: back to 로그인, and the app is closed until signing in again.
-  await page.getByRole("button", { name: /데모 사용자|E2E/ }).last().click();
+  await page.getByRole("button", { name: /E2E 새 이름/ }).last().click();
   await page.getByRole("menuitem", { name: "로그아웃" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "로그인" })).toBeVisible();
   expect((await page.request.get("/api/auth/me")).status()).toBe(401);
   await page.goto("/app/ask");
   await expect(page).toHaveURL(/\/app\/login\?next=/);
+});
+
+test("folders and moves go through the real API", async ({ page }) => {
+  await signIn(page, "/app/library");
+  const grid = page.getByRole("grid", { name: "녹음 목록" });
+  await expect(grid).toBeVisible();
+  const me = await api<{ personal_workspace_id: string }>(page, "/api/v2/me");
+  const ws = me.body.personal_workspace_id;
+
+  // New folder, named in place (POST /folders, then PATCH /folders/{id}).
+  const tree = page.getByRole("treegrid", { name: "폴더" });
+  await page.getByRole("button", { name: "새 폴더" }).click();
+  const name = page.getByRole("textbox", { name: "폴더 이름" });
+  await expect(name).toBeFocused();
+  await name.fill("E2E 보관함");
+  await name.press("Enter");
+  await expect(tree.getByRole("row", { name: "E2E 보관함" })).toBeVisible();
+  const folders = await api<Page_<{ id: string; name: string }>>(page, `/api/v2/folders?workspace_id=${ws}`);
+  const folder = folders.body.items.find((f) => f.name === "E2E 보관함")!;
+  expect(folder).toBeTruthy();
+
+  // Select a recording with the keyboard and move it there (PATCH /recordings/{id}).
+  const target = (await api<Page_<RecordingItem>>(page, `/api/v2/recordings?workspace_id=${ws}&limit=200`)).body.items[0]!;
+  await grid.getByRole("row", { name: new RegExp(target.title) }).focus();
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("toolbar", { name: "선택한 녹음 작업" }).getByText("1개 선택됨")).toBeVisible();
+  await tabTo(page, "폴더로 이동…");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: /폴더로 이동/ })).toBeVisible();
+  await tabTo(page, /폴더/);
+  await page.keyboard.press("Enter");
+  await page.getByRole("option", { name: "E2E 보관함", exact: true }).press("Enter");
+  await tabTo(page, "이동");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("녹음 1개를 ‘E2E 보관함’ 폴더로 옮겼습니다.")).toBeVisible();
+  await expect
+    .poll(async () => (await api<{ recording: { folder_id: string | null } }>(page, `/api/v2/recordings/${target.id}`)).body.recording.folder_id)
+    .toBe(folder.id);
 });
 
 test("the player says 오디오 준비 중 when the asset bytes are not served", async ({ page }) => {
@@ -200,4 +233,26 @@ test("물어보기 is 준비 중 rather than broken when a request is refused", 
   await input.press("Enter");
   await expect(page.getByRole("list", { name: "대화" }).getByText("물어보기는 아직 준비 중입니다")).toBeVisible();
   await shot(page, "05-ask-not-ready");
+});
+
+test("upload: a recording goes up in parts and waits for processing", async ({ page }) => {
+  await signIn(page);
+  await expect(page.getByRole("heading", { level: 1, name: "홈" })).toBeVisible();
+  await page.locator("body").press("u");
+  const dialog = page.getByRole("dialog", { name: "녹음 올리기" });
+  await expect(dialog).toBeVisible();
+  const chooser = page.waitForEvent("filechooser");
+  await dialog.getByRole("button", { name: "파일 선택" }).click();
+  await (await chooser).setFiles([{ name: "E2E 업로드 녹음.wav", mimeType: "audio/wav", buffer: Buffer.from(wav(6)) }]);
+  await dialog.getByRole("button", { name: "녹음 1개 올리기" }).click();
+  await expect(page.getByText("녹음 1개를 올렸습니다.")).toBeVisible();
+
+  // POST /uploads → PUT parts → complete: the recording exists and waits for the worker
+  // (the e2e server runs none), and home shows it as waiting.
+  const me = await api<{ personal_workspace_id: string }>(page, "/api/v2/me");
+  const list = await api<Page_<RecordingItem>>(page, `/api/v2/recordings?workspace_id=${me.body.personal_workspace_id}&limit=200`);
+  const uploaded = list.body.items.find((r) => r.title === "E2E 업로드 녹음");
+  expect(uploaded?.status).toMatch(/queued|processing/);
+  await expect(page.getByRole("link", { name: "E2E 업로드 녹음" }).first()).toBeVisible();
+  await expect(page.getByText(/처리 대기 중|문서 만드는 중/).first()).toBeVisible();
 });

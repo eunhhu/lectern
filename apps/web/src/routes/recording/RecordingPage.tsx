@@ -7,12 +7,12 @@
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Menu, MenuItem, MenuTrigger, Popover, Tab, TabList, TabPanel, Tabs, ToggleButton } from "react-aria-components";
-import { useApi, useDocument, useFolders, useJobProgress, useRecording, useTags, useTranscript } from "../../api/queries.ts";
+import { useApi, useDocument, useFolders, useLiveProgress, useRecording, useTags, useTranscript } from "../../api/queries.ts";
 import { ApiClientError } from "../../api/client.ts";
 import type { AskScope, RecordingDetail } from "../../api/types.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { setPreferences, usePreferences, type RecordingPanel } from "../../app/preferences.ts";
-import { DOMAIN_LABEL, STATUS, stageLabel } from "../../app/labels.ts";
+import { DOMAIN_LABEL, progressLabel, STATUS } from "../../app/labels.ts";
 import { formatDateTime, formatDuration } from "../../lib/format.ts";
 import { createAudioClock, SimulatedClock, type AudioPart, type MediaClock } from "../../lib/media-clock.ts";
 import { Icon, type IconName } from "../../ui/Icon.tsx";
@@ -264,7 +264,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
     return (
       <div className={s.page}>
         {header}
-        <div className={s.state}>{rec.status === "failed" ? <FailedState /> : <ProcessingState detail={detail} />}</div>
+        <div className={s.state}>{rec.status === "failed" ? <FailedState failure={detail.failure} /> : <ProcessingState detail={detail} />}</div>
         {dialogs}
       </div>
     );
@@ -421,14 +421,9 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
 }
 
 function ProcessingState({ detail }: { detail: RecordingDetail }) {
-  const progress = useJobProgress(detail.active_job?.id).data;
+  const progress = useLiveProgress(detail.progress);
   const rec = detail.recording;
-  const label =
-    rec.status === "uploading"
-      ? "올리는 중…"
-      : rec.status === "queued"
-        ? "처리 대기 중…"
-        : `${stageLabel(progress?.stage)}${progress?.progress != null ? ` · ${Math.round(progress.progress * 100)}%` : "…"}`;
+  const label = progressLabel(rec.status, progress);
   return (
     <div className={s.processing} aria-busy="true">
       <p className={s.processingTitle}>{label}</p>
@@ -438,8 +433,8 @@ function ProcessingState({ detail }: { detail: RecordingDetail }) {
   );
 }
 
-function FailedState() {
+function FailedState({ failure }: { failure: RecordingDetail["failure"] }) {
   return (
-    <ErrorBox title="이 녹음을 처리하지 못했습니다.">파일이 재생되는지 확인한 뒤 다시 올리세요.</ErrorBox>
+    <ErrorBox title="이 녹음을 처리하지 못했습니다.">{failure?.message || "파일이 재생되는지 확인한 뒤 다시 올리세요."}</ErrorBox>
   );
 }
