@@ -31,6 +31,7 @@ packages/
   config/            환경 변수 zod 스키마 = 설정의 단일 진실 공급원
   db/                Drizzle 스키마와 SQL 마이그레이션 (packages/db/migrations)
   core/              현행 AI 경로 (Gemini 호출, Markdown 렌더링, 오디오 전처리)
+  ask/               검색 색인, 하이브리드 검색, 물어보기(RAG) (ADR-0009)
   (domain/ harness/ media/ design-tokens/ ui/ 는 v2에서 추가된다)
 deploy/systemd/      운영 유닛 템플릿과 EnvironmentFile 예시
 docs/
