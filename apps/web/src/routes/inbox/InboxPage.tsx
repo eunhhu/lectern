@@ -1,5 +1,6 @@
-// 홈/수신함 (ARCHITECTURE §7): recordings in progress, event suggestions to confirm,
-// recordings that need attention, and recent documents.
+// 홈/수신함 (ARCHITECTURE §7): recordings in progress, recordings that need attention and
+// the review deck on the left; event suggestions to confirm and what is coming up on the
+// right; recent documents below.
 
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -52,62 +53,66 @@ export function InboxPage() {
       </header>
 
       <div className={s.grid}>
-        <section className={s.card} aria-labelledby="inbox-busy">
-          <h2 id="inbox-busy" className={s.cardTitle}>
-            처리 중 <span className={s.count}>{busy.length}</span>
-          </h2>
-          {busy.length === 0 ? (
-            <EmptyState icon="check" tone="success" title="처리 중인 녹음이 없습니다." />
-          ) : (
-            <ul className={s.rows} role="list" aria-busy={busy.length > 0}>
-              {busy.map((r) => (
-                <BusyRow key={r.id} rec={r} />
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className={s.card} aria-labelledby="inbox-suggestions">
-          <h2 id="inbox-suggestions" className={s.cardTitle}>
-            확인할 일정 제안 <span className={s.count}>{suggestions.length}</span>
-          </h2>
-          {suggestions.length === 0 ? (
-            <EmptyState icon="check" tone="success" title="확인할 일정 제안이 없습니다." />
-          ) : (
-            <ul className={s.rows} role="list">
-              {suggestions.map((e) => (
-                <SuggestionRow key={e.id} event={e} recording={recordings.find((r) => r.id === e.recording_id)} now={now} />
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {attention.length > 0 && (
-          <section className={s.card} aria-labelledby="inbox-attention">
-            <h2 id="inbox-attention" className={s.cardTitle}>
-              확인 필요 <span className={s.count}>{attention.length}</span>
+        <div className={s.column}>
+          <section className={s.card} aria-labelledby="inbox-busy">
+            <h2 id="inbox-busy" className={s.cardTitle}>
+              처리 중 <span className={s.count}>{busy.length}</span>
             </h2>
-            <ul className={s.rows} role="list">
-              {attention.map((r) => (
-                <li key={r.id} className={s.row}>
-                  <Icon name="alert" />
-                  <div className={s.rowMain}>
-                    <Link to="/recordings/$recordingId" params={{ recordingId: r.id }} className={s.rowLink}>
-                      {r.title}
-                    </Link>
-                    <p className={s.rowMeta}>
-                      {r.status === "failed" ? "처리하지 못했습니다. 녹음을 열어 원인을 확인하세요." : "일부 구간을 전사하지 못했습니다. 문서에 빠진 구간이 표시됩니다."}
-                    </p>
-                  </div>
-                  <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge>
-                </li>
-              ))}
-            </ul>
+            {busy.length === 0 ? (
+              <EmptyState icon="check" tone="success" title="처리 중인 녹음이 없습니다." />
+            ) : (
+              <ul className={s.rows} role="list" aria-busy={busy.length > 0}>
+                {busy.map((r) => (
+                  <BusyRow key={r.id} rec={r} />
+                ))}
+              </ul>
+            )}
           </section>
-        )}
 
-        <UpcomingCard now={now} />
-        <ReviewCard />
+          {attention.length > 0 && (
+            <section className={s.card} aria-labelledby="inbox-attention">
+              <h2 id="inbox-attention" className={s.cardTitle}>
+                확인 필요 <span className={s.count}>{attention.length}</span>
+              </h2>
+              <ul className={s.rows} role="list">
+                {attention.map((r) => (
+                  <li key={r.id} className={s.row}>
+                    <Icon name="alert" />
+                    <div className={s.rowMain}>
+                      <Link to="/recordings/$recordingId" params={{ recordingId: r.id }} className={s.rowLink}>
+                        {r.title}
+                      </Link>
+                      <p className={s.rowMeta}>
+                        {r.status === "failed" ? "처리하지 못했습니다. 녹음을 열어 원인을 확인하세요." : "일부 구간을 전사하지 못했습니다. 문서에 빠진 구간이 표시됩니다."}
+                      </p>
+                    </div>
+                    <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          <ReviewCard />
+        </div>
+        <div className={s.column}>
+          <section className={s.card} aria-labelledby="inbox-suggestions">
+            <h2 id="inbox-suggestions" className={s.cardTitle}>
+              확인할 일정 제안 <span className={s.count}>{suggestions.length}</span>
+            </h2>
+            {suggestions.length === 0 ? (
+              <EmptyState icon="check" tone="success" title="확인할 일정 제안이 없습니다." />
+            ) : (
+              <ul className={s.rows} role="list">
+                {suggestions.map((e) => (
+                  <SuggestionRow key={e.id} event={e} recording={recordings.find((r) => r.id === e.recording_id)} now={now} />
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <UpcomingCard now={now} />
+        </div>
       </div>
 
       <section className={s.recentSection} aria-labelledby="inbox-recent">

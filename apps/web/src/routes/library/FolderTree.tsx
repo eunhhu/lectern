@@ -261,6 +261,7 @@ export function FolderTree({
                 <Icon name="inbox" />
                 <span className={s.treeLabel}>폴더 없음</span>
                 <span className={s.navCount}>{unfiled}</span>
+                <span className={s.rowMenuSpacer} aria-hidden="true" />
               </span>
             </TreeItemContent>
           </TreeItem>

@@ -196,6 +196,11 @@
   display: none;
 }
 
+.rowMenuSpacer {
+  width: var(--size-control-sm);
+  flex: none;
+}
+
 .menuKey {
   margin-left: auto;
   font-family: var(--font-family-mono);
