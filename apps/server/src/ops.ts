@@ -4,6 +4,7 @@
 
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -37,6 +38,14 @@ const BACKUP_INTERVAL_HOURS = config().backupIntervalHours;
 export const BACKUP_DIR = resolve(DATA_DIR, "backups");
 const DB_PATH = resolve(DATA_DIR, "lectern.sqlite");
 const BACKUP_NAME_RE = /^lectern-\d{8}-\d{6}\.sqlite$/;
+/** Pre-migrate snapshots (packages/db) and operator snapshots (docs/runbooks/backup-restore.md). */
+const SNAPSHOT_NAME_RE = /^(?:pre-migrate|manual)-.+\.sqlite$/;
+/**
+ * The privacy policy promises that deleted data leaves every backup copy within 7 days.
+ * Scheduled backups meet it through rotation (BACKUP_KEEP, one a day); the snapshots
+ * above sit outside that rotation, so they are deleted by age instead.
+ */
+export const SNAPSHOT_MAX_AGE_MS = 7 * 24 * 3600_000;
 
 /** The checkout this server runs from (its HEAD is the reported gitSha). */
 const RUNNING_REPO_DIR = config().repoDir ?? REPO_ROOT;
@@ -185,6 +194,23 @@ export function backupDatabase(now = new Date()): { file: string; sizeBytes: num
   return { file, sizeBytes: sizeOf(target) };
 }
 
+/** Deletes pre-migrate and manual snapshots older than SNAPSHOT_MAX_AGE_MS (by mtime). */
+export function pruneOldSnapshots(now = Date.now()): { count: number; bytes: number } {
+  if (!existsSync(BACKUP_DIR)) return { count: 0, bytes: 0 };
+  let count = 0;
+  let bytes = 0;
+  for (const file of readdirSync(BACKUP_DIR)) {
+    if (!SNAPSHOT_NAME_RE.test(file)) continue;
+    const path = join(BACKUP_DIR, file);
+    const st = lstatSync(path);
+    if (!st.isFile() || now - st.mtimeMs < SNAPSHOT_MAX_AGE_MS) continue;
+    unlinkSync(path);
+    count++;
+    bytes += st.size;
+  }
+  return { count, bytes };
+}
+
 function backupIsDue(now: number): boolean {
   const latest = listBackups()[0];
   return !latest || now - latest.mtimeMs >= BACKUP_INTERVAL_HOURS * 3600_000 - 60_000;
@@ -278,6 +304,7 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
   const backup = step<{ file: string; sizeBytes: number } | null>("backup", null, () =>
     options.forceBackup || backupIsDue(now) ? backupDatabase(new Date(now)) : null
   );
+  const prunedSnapshots = step("old snapshots", { count: 0, bytes: 0 }, () => pruneOldSnapshots(now));
   const walCheckpointed = step("wal checkpoint", false, () => {
     db.exec(`PRAGMA wal_checkpoint(TRUNCATE)`);
     db.exec(`PRAGMA optimize`);
@@ -304,6 +331,7 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
       bytes: retentionOutcome?.failedRetention.bytes ?? 0,
     },
     backup,
+    prunedSnapshots,
     walCheckpointed,
     errors,
   };

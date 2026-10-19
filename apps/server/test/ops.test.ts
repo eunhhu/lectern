@@ -1,6 +1,6 @@
 import "./preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { handleRequest, isRetryableDistillError } from "../src/index.ts";
 import {
@@ -37,7 +37,13 @@ import {
   isFfmpegAvailable,
   purgeTrash,
 } from "../src/storage.ts";
-import { BACKUP_DIR, DEPLOY_REPO_DIR, redactUrlForLog } from "../src/ops.ts";
+import {
+  BACKUP_DIR,
+  DEPLOY_REPO_DIR,
+  SNAPSHOT_MAX_AGE_MS,
+  pruneOldSnapshots,
+  redactUrlForLog,
+} from "../src/ops.ts";
 
 const hasFfmpeg = isFfmpegAvailable();
 const originalSettings: SystemSettings = getSystemSettings();
@@ -406,6 +412,7 @@ describe("maintenance", () => {
     expect(result.backup?.file).toMatch(/^lectern-\d{8}-\d{6}\.sqlite$/);
     expect(existsSync(join(BACKUP_DIR, result.backup.file))).toBe(true);
     expect(readdirSync(BACKUP_DIR).length).toBeGreaterThanOrEqual(1);
+    expect(result.prunedSnapshots).toEqual({ count: 0, bytes: 0 });
     // A snapshot holds every account: owner-only, like the database itself.
     expect(statSync(BACKUP_DIR).mode & 0o777).toBe(0o700);
     expect(statSync(join(BACKUP_DIR, result.backup.file)).mode & 0o777).toBe(0o600);
@@ -418,6 +425,34 @@ describe("maintenance", () => {
     expect(ops.backups.latest.file).toBe(result.backup.file);
     expect(DATA_DIR).toContain("lectern-test-"); // never the real data dir
     deleteUserAndData(member.userId);
+  });
+
+  test("deletes pre-migrate and manual snapshots once they are 7 days old", () => {
+    mkdirSync(BACKUP_DIR, { recursive: true });
+    const now = Date.now();
+    const write = (name: string, ageMs: number) => {
+      const path = join(BACKUP_DIR, name);
+      writeFileSync(path, "snapshot");
+      const at = new Date(now - ageMs);
+      utimesSync(path, at, at);
+      return path;
+    };
+    const day = 24 * 3600_000;
+    const oldPreMigrate = write("pre-migrate-20200101-000000.sqlite", SNAPSHOT_MAX_AGE_MS + day);
+    const oldManual = write("manual-20200101-000000.sqlite", SNAPSHOT_MAX_AGE_MS + 60_000);
+    const freshPreMigrate = write("pre-migrate-20991231-000000.sqlite", SNAPSHOT_MAX_AGE_MS - day);
+    // Scheduled backups rotate by count (BACKUP_KEEP), never by age here.
+    const scheduled = write("lectern-20200101-000000.sqlite", SNAPSHOT_MAX_AGE_MS + day);
+    try {
+      expect(pruneOldSnapshots(now)).toEqual({ count: 2, bytes: 16 });
+      expect(existsSync(oldPreMigrate)).toBe(false);
+      expect(existsSync(oldManual)).toBe(false);
+      expect(existsSync(freshPreMigrate)).toBe(true);
+      expect(existsSync(scheduled)).toBe(true);
+      expect(pruneOldSnapshots(now)).toEqual({ count: 0, bytes: 0 });
+    } finally {
+      for (const path of [freshPreMigrate, scheduled]) if (existsSync(path)) unlinkSync(path);
+    }
   });
 });
 

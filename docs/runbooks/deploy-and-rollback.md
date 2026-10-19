@@ -21,7 +21,7 @@
    5. 사전 점검: 운영 DB를 `VACUUM INTO`로 임시 디렉터리에 복사하고, 새 코드(`apps/server/src/preflight.ts`)를 그 사본과 임시 경로로 띄운다. 새 릴리스의 마이그레이션이 **실제 데이터 사본에 먼저 적용**되고, `/api/health`, `/`, `/admin`, `/s/…`(404), `/api/lectures`(401), `/assets/*` 응답을 확인한다. 설정 값이 잘못돼도(`packages/config` 검증 실패) 여기서 걸린다.
    6. 3~5 중 하나라도 실패하면 이전 커밋으로 `reset --hard`하고(필요하면 의존성도 다시 설치) 실패를 응답한다. **운영 서버는 재시작되지 않는다.**
    7. 성공하면 감사 로그에 `ops.deploy`를 남기고 응답한 뒤, 우아한 종료를 시작한다. 실행 중인 작업에 `LECTERN_SHUTDOWN_GRACE_SEC`(기본 20초)를 주고, SSE를 닫고, 종료 코드 0으로 끝난다.
-6. systemd(`Restart=always`, `RestartSec=1`)가 새 코드로 서버를 다시 띄운다. 부팅할 때 대기 중인 마이그레이션이 있으면 적용 직전에 `DATA_DIR/backups/pre-migrate-YYYYMMDD-HHMMSS.sqlite`를 뜬다(최신 3개 보관). 실행 중이던 작업은 종료할 때 영속 큐(`job` 테이블)로 돌아가고, 새 프로세스가 다시 실행한다. 강제 종료(`kill -9`, 정전)면 lease가 만료된 뒤 회수돼 다시 실행된다.
+6. systemd(`Restart=always`, `RestartSec=1`)가 새 코드로 서버를 다시 띄운다. 부팅할 때 대기 중인 마이그레이션이 있으면 적용 직전에 `DATA_DIR/backups/pre-migrate-YYYYMMDD-HHMMSS.sqlite`를 뜬다(최신 3개, 만든 지 7일까지 보관). 실행 중이던 작업은 종료할 때 영속 큐(`job` 테이블)로 돌아가고, 새 프로세스가 다시 실행한다. 강제 종료(`kill -9`, 정전)면 lease가 만료된 뒤 회수돼 다시 실행된다.
    - `LECTERN_WORKER_MODE=embedded`(기본)이면 API 프로세스가 작업도 실행한다. `lectern-worker.service`를 설치하고 `external`로 바꾸면 워커 프로세스만 작업을 실행한다([host-setup.md §6](host-setup.md#6-워커-유닛-설치-p0-워커가-들어온-뒤)).
 7. CI가 `/api/health`의 `gitSha`가 이 SHA(또는 이 SHA를 포함하는 더 새 커밋)가 될 때까지 최대 약 90초 기다린다.
 

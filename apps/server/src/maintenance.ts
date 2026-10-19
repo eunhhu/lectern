@@ -51,6 +51,7 @@ export function startMaintenanceSchedule(): () => void {
             retention: r.retention.count,
             failed_retention: r.failedRetention.count,
             backup: r.backup?.file ?? null,
+            pruned_snapshots: r.prunedSnapshots?.count ?? 0,
             errors: r.errors.length,
           });
         }

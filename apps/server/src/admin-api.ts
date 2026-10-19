@@ -109,6 +109,8 @@ export interface MaintenanceResultDto {
   prunedJobEvents?: number;
   /** Finished job rows older than 30 days. */
   prunedJobs?: number;
+  /** pre-migrate-* and manual-* snapshots older than 7 days (privacy policy retention). */
+  prunedSnapshots?: { count: number; bytes: number };
   orphanFiles: { count: number; bytes: number };
   tempFiles: { count: number; bytes: number };
   retention: { count: number; bytes: number };

@@ -17,8 +17,9 @@
 - 유지보수가 1시간마다 돈다(`LECTERN_MAINTENANCE_INTERVAL_MIN=60`, 부팅 2분 뒤 첫 실행).
 - 마지막 백업이 24시간(`LECTERN_BACKUP_INTERVAL_HOURS`)보다 오래됐으면 `VACUUM INTO`로 새 백업을 쓴다. 서버가 계속 요청을 받는 중에도 일관된 스냅샷이 만들어진다.
 - 최신 7개(`LECTERN_BACKUP_KEEP`)만 남기고 나머지는 지운다. 이 정리는 `lectern-YYYYMMDD-HHMMSS.sqlite` 이름만 대상으로 한다.
-- 마이그레이션 직전 사본 `pre-migrate-YYYYMMDD-HHMMSS.sqlite`는 개수(최신 3개)로만 정리된다. 마이그레이션이 드물면 오래 남는다.
-- **보관 기간 약속**: [개인정보처리방침](../../apps/server/static/legal/privacy.html#retention)은 삭제된 데이터가 백업 사본에 최대 7일 남는다고 약속한다. 그래서 자동 정리 대상이 아닌 `pre-migrate-*`, `manual-*` 사본은 운영자가 **7일이 지나면 지운다**(§6 1번). 오프호스트 사본도 같다(§5).
+- 마이그레이션 직전 사본 `pre-migrate-YYYYMMDD-HHMMSS.sqlite`는 최신 3개만 남고, 수동 사본 `manual-*.sqlite`(§2.2)와 함께 **만든 지 7일(파일 mtime 기준)이 지나면 유지보수가 지운다.** 결과의 `prunedSnapshots`와 로그 `pruned_snapshots`로 확인한다.
+- **보관 기간 약속**: [개인정보처리방침](../../apps/server/static/legal/privacy.html#retention)은 삭제된 데이터가 백업 사본에 최대 7일 남는다고 약속한다. 호스트 안의 사본은 위 두 정리로 지켜진다. 오프호스트 사본(§5)은 운영자가 맞춘다.
+- 장애 조사 때문에 7일보다 오래 둬야 하는 사본은 `backups/` 밖(예: `data/hold/`)으로 옮겨 둔다. 그대로 두면 지워진다. 조사가 끝나면 바로 지운다.
 - **백업은 DB와 같은 디스크에 있다.** 디스크가 죽으면 함께 잃는다. 오프호스트 복사(§5)를 해야 재해 복구가 된다.
 
 ## 2. 수동 백업
@@ -31,7 +32,7 @@
 
 ### 2.2 호스트에서 (순환 대상이 아닌 이름으로)
 
-`sqlite3` CLI가 없을 수 있으니 Bun으로 뜬다. `manual-` 접두사는 자동 정리 대상이 아니므로, 쓸 일이 끝나면(늦어도 7일 뒤) 직접 지운다.
+`sqlite3` CLI가 없을 수 있으니 Bun으로 뜬다. `manual-` 사본은 7개 순환에는 들지 않고, 만든 지 7일이 지나면 유지보수가 지운다(§1).
 
 ```bash
 cd /home/eunhhu/work/lectern/data && STAMP=$(date -u +%Y%m%d-%H%M%S) && \
@@ -173,12 +174,9 @@ rsync -av <pi>:/home/eunhhu/work/lectern/data/uploads/ ~/lectern-offhost/uploads
 
 ## 6. 정기 점검 (주 1회)
 
-1. 7일이 지난 `pre-migrate-*`, `manual-*` 사본을 지운다(개인정보처리방침의 7일 약속). 먼저 목록을 보고, 장애 조사에 필요한 사본이면 조사가 끝날 때까지 남긴 뒤 지운다.
+1. 7일이 지난 `pre-migrate-*`, `manual-*` 사본이 남아 있지 않은지 본다(유지보수가 지운다). 출력이 있으면 유지보수가 멈췄거나 실패한 것이니 관리자 콘솔의 마지막 유지보수 결과와 `errors`를 확인한다. `data/hold/`에 옮겨 둔 사본도 조사가 끝났으면 지운다.
    ```bash
    find /home/eunhhu/work/lectern/data/backups -maxdepth 1 \( -name 'pre-migrate-*.sqlite' -o -name 'manual-*.sqlite' \) -mtime +7 -print
-   ```
-   ```bash
-   find /home/eunhhu/work/lectern/data/backups -maxdepth 1 \( -name 'pre-migrate-*.sqlite' -o -name 'manual-*.sqlite' \) -mtime +7 -delete
    ```
 2. 관리자 콘솔 운영 보기에서 백업 개수(7)와 최신 백업 시각(24시간 이내)을 확인한다.
 3. 최신 백업에 §3.1 점검을 돌린다.
