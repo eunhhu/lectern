@@ -465,7 +465,9 @@ export function resumeInterruptedLectures(
   return { resumed, failed };
 }
 
-resumeInterruptedLectures();
+// The CD preflight boots this module against a copy of the live database: never start
+// real work from there.
+if (process.env.LECTERN_PREFLIGHT !== "1") resumeInterruptedLectures();
 
 function jsonResponse(
   data: unknown,

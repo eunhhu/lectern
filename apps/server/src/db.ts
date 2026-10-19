@@ -17,6 +17,7 @@ import {
   probeAudioDuration,
 } from "../../../packages/core/src/index.ts";
 import { config, readSecret } from "@lectern/config";
+import { runMigrations } from "@lectern/db";
 
 export const USER_ROLES = ["owner", "admin", "member", "viewer"] as const;
 export const USER_STATUSES = ["active", "pending", "suspended"] as const;
@@ -313,6 +314,18 @@ try {
   // Every step above is idempotent, so a failure here is a real schema problem: say so
   // instead of booting silently against a half-migrated database.
   console.error("Database migration failed:", err);
+}
+
+// v2 schema: versioned Drizzle migrations (packages/db). A failure throws and aborts the
+// boot, so the CD preflight, which migrates a copy of the live database, catches it before
+// the running server is restarted.
+{
+  const migration = runMigrations(db, { backupDir: join(DATA_DIR, "backups") });
+  if (migration.applied.length) {
+    console.log(
+      `Applied migrations: ${migration.applied.join(", ")}${migration.backup ? ` (backup: ${migration.backup})` : ""}`
+    );
+  }
 }
 
 export function formatKstTimestamp(input?: string | Date): {

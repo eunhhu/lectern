@@ -462,6 +462,10 @@ async function runPreflight(repoDir: string): Promise<StepResult> {
   const sandbox = mkdtempSync(join(tmpdir(), "lectern-preflight-"));
   try {
     for (const dir of ["data", "lectures", "home"]) mkdirSync(join(sandbox, dir));
+    // The new release boots against a consistent copy of the live database, so its
+    // migrations are rehearsed on real data before the real one is touched.
+    const copy = join(sandbox, "data", "lectern.sqlite");
+    db.exec(`VACUUM INTO '${copy.replace(/'/g, "''")}'`);
     return await runStep(
       repoDir,
       ["bun", "run", "apps/server/src/preflight.ts"],
