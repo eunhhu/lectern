@@ -37,7 +37,6 @@ import {
   getSystemSettings,
   getUserByEmail,
   getUserById,
-  getUserBySessionOrApiToken,
   getUserStorageUsageBytes,
   hashPassword,
   isUserRole,
@@ -96,6 +95,7 @@ import {
 import { enqueueDistillation, isRetryableDistillError, scheduleCompaction } from "./job-handlers.ts";
 import { emitLectureEvent, onLectureEvent, tailForeignLectureEvents, type LectureEventPayload } from "./events.ts";
 import { toLectureSummaryDto } from "./dto.ts";
+import { authenticateRequest, extractAuthToken, isAdminUser, resolveActiveUser } from "./auth.ts";
 import { emitRetentionOutcome, runMaintenanceNow, startMaintenanceSchedule } from "./maintenance.ts";
 import { liveWorkers, publishApiRelease } from "./coordination.ts";
 import { makePrivate } from "./fsperm.ts";
@@ -521,52 +521,8 @@ function safeTokenCompare(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
-function parseSessionCookie(cookieHeader: string | null): string | null {
-  if (!cookieHeader) return null;
-  const parts = cookieHeader.split(";");
-  for (const part of parts) {
-    const [k, ...v] = part.trim().split("=");
-    if (k === "lectern_session") {
-      return decodeURIComponent(v.join("=").trim());
-    }
-  }
-  return null;
-}
-
-export function extractAuthToken(req: Request, url: URL): string | null {
-  const authHeader = (req.headers.get("authorization") || "").trim();
-  if (authHeader.toLowerCase().startsWith("bearer ")) {
-    const tok = authHeader.slice(7).trim();
-    if (tok) return tok;
-  }
-  const xTok = (req.headers.get("x-lectern-token") || "").trim();
-  if (xTok) return xTok;
-  const qTok = (url.searchParams.get("token") || "").trim();
-  if (qTok) return qTok;
-  return parseSessionCookie(req.headers.get("cookie"));
-}
-
-/** Resolves a session or API token to a user allowed to act (not suspended or pending). */
-function resolveActiveUser(token: string | null | undefined): UserRecord | null {
-  if (!token) return null;
-  const user = getUserBySessionOrApiToken(token);
-  if (!user) return null;
-  if (user.status === "suspended" || user.status === "pending") {
-    return null;
-  }
-  return user;
-}
-
-export function authenticateRequest(req: Request): UserRecord | null {
-  return resolveActiveUser(extractAuthToken(req, new URL(req.url)));
-}
-
-export function isAdminUser(user: UserRecord | null): boolean {
-  if (!user) return false;
-  return (
-    user.is_admin === 1 || user.role === "owner" || user.role === "admin"
-  );
-}
+// Session/token authentication lives in auth.ts so the API v2 routes can share it.
+export { authenticateRequest, extractAuthToken, isAdminUser };
 
 export function toUserDto(user: UserRecord) {
   const role = user.role || (user.is_admin === 1 ? "owner" : "member");
