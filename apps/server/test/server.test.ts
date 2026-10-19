@@ -539,6 +539,29 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     );
     expect(res.status).toBe(401);
   });
+
+  test("UI enforces text overflow truncation, word-break wrapping, and responsive grid rules across App, Share, and Admin views", async () => {
+    const appRes = await handleRequest(new Request("http://localhost/"));
+    expect(appRes.status).toBe(200);
+    const appHtml = await appRes.text();
+    expect(appHtml).toContain("grid-template-columns: 400px minmax(0, 1fr)");
+    expect(appHtml).toContain("overflow-wrap: anywhere");
+    expect(appHtml).toContain("text-overflow: ellipsis");
+    expect(appHtml).toContain("@media (max-width: 1280px)");
+    expect(appHtml).toContain("@media (max-width: 1024px)");
+    expect(appHtml).toContain("@media (max-width: 640px)");
+
+    const adminRes = await handleRequest(new Request("http://localhost/admin"));
+    expect(adminRes.status).toBe(200);
+    const adminHtml = await adminRes.text();
+    // The Linear-style console: truncating rows, min-width:0 flex/grid children, and
+    // breakpoints for the narrow-desktop, drawer (900px) and phone layouts.
+    expect(adminHtml).toContain("text-overflow: ellipsis");
+    expect(adminHtml).toContain("minmax(0, 1fr)");
+    expect(adminHtml).toContain("@media (max-width: 1180px)");
+    expect(adminHtml).toContain("@media (max-width: 900px)");
+    expect(adminHtml).toContain("@media (max-width: 600px)");
+  });
 });
 
 // MARK: - Security regression tests

@@ -1,6 +1,6 @@
 import "./preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { handleRequest, isRetryableDistillError } from "../src/index.ts";
 import {
@@ -643,5 +643,37 @@ describe("admin lecture detail and status counts", () => {
     expect(errOnly.lectures.map((l: any) => l.id)).toEqual([failed]);
     expect(done.every((id) => all.lectures.some((l: any) => l.id === id))).toBe(true);
     deleteUserAndData(member.userId);
+  });
+});
+
+describe("Resend key from the credentials file", () => {
+  test("signup requires an email code when the key is only in the credentials file", async () => {
+    const credFile = process.env.LECTERN_RESEND_CREDENTIALS_FILE!;
+    expect(credFile).toContain("lectern-test-"); // the sandbox path, never the host's real file
+    expect(process.env.RESEND_API_KEY).toBeUndefined();
+    const register = (email: string) =>
+      handleRequest(
+        new Request("http://localhost/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password: "signup_password_1", displayName: "가입" }),
+        })
+      );
+
+    writeFileSync(credFile, JSON.stringify({ resend: { api_key: "re_test_only_not_real" } }));
+    try {
+      const res = await register(`${uniq("cred")}@ops.test`);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as any).error).toContain("인증번호");
+    } finally {
+      unlinkSync(credFile);
+    }
+
+    // Without any key, signup works without a code (local/dev behaviour is unchanged).
+    const email = `${uniq("nocred")}@ops.test`;
+    const ok = await register(email);
+    expect([200, 201]).toContain(ok.status);
+    const created = db.query(`SELECT id FROM users WHERE email = ?`).get(email) as { id: string } | null;
+    if (created) deleteUserAndData(created.id);
   });
 });

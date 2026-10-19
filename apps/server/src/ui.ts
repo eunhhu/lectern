@@ -201,11 +201,14 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       position: sticky;
       top: 0;
       z-index: 30;
-      height: 72px;
-      padding: 0 var(--elysium-space-48);
+      min-height: 72px;
+      height: auto;
+      padding: 12px var(--elysium-space-48);
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
+      gap: var(--elysium-space-12);
       background: var(--elysium-surface-default);
       border-bottom: 1px solid var(--elysium-border-subtle);
     }
@@ -216,17 +219,21 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       font: 700 20px/30px var(--elysium-font-sans);
       color: var(--elysium-text-primary);
       text-decoration: none;
+      min-width: 0;
     }
     .brand-mark {
       width: 12px;
       height: 12px;
       border-radius: var(--elysium-radius-pill);
       background: var(--elysium-action-primary);
+      flex-shrink: 0;
     }
     .actions {
       display: flex;
       align-items: center;
-      gap: var(--elysium-space-12);
+      flex-wrap: wrap;
+      gap: var(--elysium-space-8);
+      min-width: 0;
     }
     .btn {
       display: inline-flex;
@@ -257,8 +264,10 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
     }
     .container {
       max-width: 920px;
+      width: 100%;
       margin: 0 auto;
       padding: var(--elysium-space-48) var(--elysium-space-48) var(--elysium-space-64);
+      min-width: 0;
     }
     .article-card {
       background: var(--elysium-surface-default);
@@ -266,6 +275,9 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       border-radius: var(--elysium-radius-24);
       padding: var(--elysium-space-48);
       box-shadow: var(--elysium-shadow-sm);
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
     }
     .meta-bar {
       display: flex;
@@ -273,6 +285,7 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       gap: var(--elysium-space-12);
       align-items: center;
       margin-bottom: var(--elysium-space-24);
+      min-width: 0;
     }
     .badge {
       padding: 6px 14px;
@@ -281,6 +294,10 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       background: var(--elysium-action-subtle);
       color: var(--elysium-text-brand);
       font-variant-numeric: tabular-nums;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .badge-muted {
       background: var(--elysium-surface-subtle);
@@ -288,6 +305,7 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
     }
     .audio-bar {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: var(--elysium-space-16);
       padding: var(--elysium-space-20) var(--elysium-space-24);
@@ -295,11 +313,19 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       border: 1px solid var(--elysium-border-subtle);
       border-radius: var(--elysium-radius-16);
       margin-bottom: var(--elysium-space-32);
+      min-width: 0;
+      max-width: 100%;
     }
-    .audio-bar audio { flex: 1; height: 40px; }
+    .audio-bar audio { flex: 1 1 200px; min-width: 0; max-width: 100%; height: 40px; }
+    .md-body {
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
     .md-body h1, .md-body h2, .md-body h3, .md-body h4 {
       word-break: keep-all;
-      overflow-wrap: break-word;
+      overflow-wrap: anywhere;
       color: var(--elysium-text-primary);
     }
     .md-body h1 {
@@ -319,9 +345,11 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       letter-spacing: -0.003em;
       margin: var(--elysium-space-32) 0 var(--elysium-space-12);
     }
-    .md-body p, .md-body li {
+    .md-body p, .md-body li, .md-body td, .md-body th, .md-body a {
       font: 400 16px/28px var(--elysium-font-sans);
       color: var(--elysium-text-primary);
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .md-body p { margin: 0 0 var(--elysium-space-16); }
     .md-body ul, .md-body ol { padding-left: 24px; margin: var(--elysium-space-16) 0; }
@@ -334,6 +362,9 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       border-radius: var(--elysium-radius-4);
       background: var(--elysium-surface-subtle);
       color: var(--elysium-text-brand);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: pre-wrap;
     }
     .md-code {
       padding: var(--elysium-space-20) var(--elysium-space-24);
@@ -341,9 +372,17 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       background: var(--elysium-surface-subtle);
       border: 1px solid var(--elysium-border-subtle);
       overflow-x: auto;
+      max-width: 100%;
       margin: var(--elysium-space-20) 0;
     }
-    .md-code code { background: none; padding: 0; color: var(--elysium-text-primary); }
+    .md-code code {
+      background: none;
+      padding: 0;
+      color: var(--elysium-text-primary);
+      white-space: pre;
+      overflow-wrap: normal;
+      word-break: normal;
+    }
     .md-quote {
       margin: var(--elysium-space-24) 0;
       padding: var(--elysium-space-20) var(--elysium-space-24);
@@ -351,6 +390,7 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       background: var(--elysium-action-subtle);
       border-radius: 0 var(--elysium-radius-12) var(--elysium-radius-12) 0;
       word-break: keep-all;
+      overflow-wrap: anywhere;
     }
     .ts-chip {
       display: inline-flex;
@@ -373,13 +413,19 @@ export function renderSharePageHtml(lecture: LectureRecord): string {
       border-radius: var(--elysium-radius-pill);
       font: 600 13px/20px var(--elysium-font-sans);
       font-variant-numeric: tabular-nums;
+      max-width: 100%;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .filter-break { background: var(--elysium-status-warning-surface); color: var(--elysium-status-warning-text); }
     .filter-cut { background: var(--elysium-status-success-surface); color: var(--elysium-status-success-text); }
     @media (max-width: 768px) {
-      .share-topbar { padding: 0 var(--elysium-space-20); }
-      .container { padding: var(--elysium-space-24) var(--elysium-space-20); }
-      .article-card { padding: var(--elysium-space-24); }
+      .share-topbar { padding: 12px var(--elysium-space-20); }
+      .container { padding: var(--elysium-space-24) var(--elysium-space-16); }
+      .article-card { padding: var(--elysium-space-24) var(--elysium-space-20); border-radius: var(--elysium-radius-16); }
+      .md-body h1 { font-size: 24px; line-height: 34px; }
+      .md-body h2 { font-size: 20px; line-height: 28px; }
     }
   </style>
 </head>
@@ -477,9 +523,11 @@ export function renderAppHtml(): string {
     /* App Shell: 400px Library Sidebar + Spacious Reader Canvas */
     .app-shell {
       display: grid;
-      grid-template-columns: 400px 1fr;
+      grid-template-columns: 400px minmax(0, 1fr);
       height: 100vh;
       width: 100vw;
+      max-width: 100vw;
+      overflow: hidden;
       background: var(--elysium-surface-canvas);
     }
 
@@ -490,6 +538,9 @@ export function renderAppHtml(): string {
       background: var(--elysium-surface-default);
       border-right: 1px solid var(--elysium-border-subtle);
       height: 100vh;
+      min-width: 0;
+      min-height: 0;
+      max-width: 100%;
       overflow: hidden;
     }
 
@@ -499,12 +550,16 @@ export function renderAppHtml(): string {
       flex-direction: column;
       gap: var(--elysium-space-20);
       border-bottom: 1px solid var(--elysium-border-subtle);
+      min-width: 0;
+      flex-shrink: 0;
     }
 
     .sidebar-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: var(--elysium-space-8);
+      min-width: 0;
     }
 
     .brand {
@@ -514,6 +569,7 @@ export function renderAppHtml(): string {
       font: 700 22px/30px var(--elysium-font-sans);
       letter-spacing: -0.01em;
       color: var(--elysium-text-primary);
+      min-width: 0;
     }
     .brand-mark {
       width: 12px;
@@ -521,6 +577,7 @@ export function renderAppHtml(): string {
       border-radius: var(--elysium-radius-pill);
       background: var(--elysium-action-primary);
       box-shadow: 0 0 0 4px var(--elysium-action-subtle);
+      flex-shrink: 0;
     }
     .brand-sub {
       font: 600 13px/20px var(--elysium-font-sans);
@@ -659,7 +716,17 @@ export function renderAppHtml(): string {
       border: 1px solid var(--elysium-border-control);
       cursor: pointer;
       white-space: nowrap;
+      max-width: 240px;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
       transition: all 150ms ease;
+    }
+    .pill span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
     }
     .pill:hover {
       background: var(--elysium-surface-subtle);
@@ -672,13 +739,16 @@ export function renderAppHtml(): string {
 
     /* Elysium/Desktop/ListRow (8186:4263) & Card (8186:4226) — Spacious Lecture List */
     .lecture-list {
-      flex: 1;
+      flex: 1 1 0%;
       overflow-y: auto;
+      overflow-x: hidden;
       padding: var(--elysium-space-20) var(--elysium-space-24);
       display: flex;
       flex-direction: column;
       gap: var(--elysium-space-12);
       background: var(--elysium-surface-canvas);
+      min-width: 0;
+      min-height: 0;
     }
 
     .lecture-card {
@@ -690,6 +760,10 @@ export function renderAppHtml(): string {
       display: flex;
       flex-direction: column;
       gap: var(--elysium-space-8);
+      min-width: 0;
+      max-width: 100%;
+      flex-shrink: 0;
+      overflow: hidden;
       transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
     }
     .lecture-card:hover {
@@ -706,19 +780,30 @@ export function renderAppHtml(): string {
       align-items: center;
       justify-content: space-between;
       gap: var(--elysium-space-8);
+      min-width: 0;
     }
     .card-course {
       font: 600 13px/20px var(--elysium-font-sans);
       color: var(--elysium-text-brand);
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .card-date {
       font: 400 13px/20px var(--elysium-font-sans);
       color: var(--elysium-text-secondary);
       font-variant-numeric: tabular-nums;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .card-title {
       font: 600 16px/24px var(--elysium-font-sans);
       color: var(--elysium-text-primary);
+      min-width: 0;
+      max-width: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -730,6 +815,8 @@ export function renderAppHtml(): string {
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .card-progress {
       margin-top: var(--elysium-space-4);
@@ -752,28 +839,37 @@ export function renderAppHtml(): string {
       display: flex;
       flex-direction: column;
       gap: var(--elysium-space-12);
+      min-width: 0;
+      flex-shrink: 0;
     }
     .user-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: var(--elysium-space-8);
+      min-width: 0;
     }
     .user-name {
       font: 600 14px/20px var(--elysium-font-sans);
       color: var(--elysium-text-primary);
+      min-width: 0;
+      flex: 1 1 auto;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .footer-actions {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: var(--elysium-space-8);
+      min-width: 0;
     }
     .footer-actions .btn {
-      padding: 0 var(--elysium-space-12);
+      padding: 0 var(--elysium-space-8);
       font: 600 13px/20px var(--elysium-font-sans);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     /* Main Reader Pane */
@@ -781,26 +877,34 @@ export function renderAppHtml(): string {
       display: flex;
       flex-direction: column;
       height: 100vh;
+      min-width: 0;
+      max-width: 100%;
       overflow: hidden;
       background: var(--elysium-surface-canvas);
     }
 
-    /* Reader Topbar — Height 76px, Desktop Horizontal Padding 48px */
+    /* Reader Topbar — Responsive Height & Wrapping, Desktop Horizontal Padding 48px */
     .reader-toolbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: var(--elysium-space-24);
-      height: 76px;
-      padding: 0 var(--elysium-space-48);
+      flex-wrap: wrap;
+      gap: var(--elysium-space-12) var(--elysium-space-20);
+      min-height: 76px;
+      height: auto;
+      padding: 12px var(--elysium-space-48);
       border-bottom: 1px solid var(--elysium-border-subtle);
       background: var(--elysium-surface-default);
       flex-shrink: 0;
+      min-width: 0;
     }
     .toolbar-meta {
       display: flex;
       align-items: center;
-      gap: var(--elysium-space-12);
+      flex-wrap: wrap;
+      gap: var(--elysium-space-8);
+      min-width: 0;
+      flex: 1 1 260px;
       overflow: hidden;
     }
     .meta-pill {
@@ -814,33 +918,45 @@ export function renderAppHtml(): string {
       color: var(--elysium-text-secondary);
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .meta-pill.course {
       background: var(--elysium-action-subtle);
       color: var(--elysium-text-brand);
+      max-width: min(260px, 60vw);
+      display: inline-block;
+      line-height: 32px;
     }
     .toolbar-actions {
       display: flex;
       align-items: center;
-      gap: var(--elysium-space-12);
+      flex-wrap: wrap;
+      gap: var(--elysium-space-8);
+      min-width: 0;
+      max-width: 100%;
     }
 
     /* Reader Scroll Area — Elysium Desktop Margin 48px, Column Gap 48px */
     .reader-scroll {
       flex: 1;
       overflow-y: auto;
+      overflow-x: hidden;
       display: grid;
       grid-template-columns: minmax(0, 1fr) 240px;
       gap: var(--elysium-space-48);
       padding: var(--elysium-space-48) var(--elysium-space-48) 96px;
       max-width: 1280px;
       width: 100%;
+      min-width: 0;
       margin: 0 auto;
     }
 
     /* Audio Player Card (Elysium/Desktop/Card 8186:4226 — Padding 24, Radius 16) */
     .audio-bar {
       display: none;
+      flex-wrap: wrap;
       align-items: center;
       gap: var(--elysium-space-16);
       padding: var(--elysium-space-20) var(--elysium-space-24);
@@ -849,9 +965,11 @@ export function renderAppHtml(): string {
       border: 1px solid var(--elysium-border-subtle);
       border-radius: var(--elysium-radius-16);
       box-shadow: var(--elysium-shadow-sm);
+      min-width: 0;
+      max-width: 100%;
     }
     .audio-bar.visible { display: flex; }
-    .audio-bar audio { flex: 1; height: 40px; }
+    .audio-bar audio { flex: 1 1 200px; min-width: 0; max-width: 100%; height: 40px; }
     .speed-select {
       height: var(--elysium-size-control-md);
       padding: 0 14px;
@@ -871,17 +989,22 @@ export function renderAppHtml(): string {
       padding: var(--elysium-space-48);
       box-shadow: var(--elysium-shadow-sm);
       min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
     }
 
     /* Markdown Article Typography (Elysium Section 4.1 Type Scale) */
     .md-article {
       min-width: 0;
+      max-width: 100%;
       color: var(--elysium-text-primary);
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .md-article h1, .md-article h2, .md-article h3, .md-article h4 {
       color: var(--elysium-text-primary);
       word-break: keep-all;
-      overflow-wrap: break-word;
+      overflow-wrap: anywhere;
     }
     .md-article h1 {
       font: 700 32px/44px var(--elysium-font-sans);
@@ -906,9 +1029,11 @@ export function renderAppHtml(): string {
       font: 600 18px/28px var(--elysium-font-sans);
       margin: var(--elysium-space-24) 0 var(--elysium-space-8);
     }
-    .md-article p, .md-article li {
+    .md-article p, .md-article li, .md-article td, .md-article th, .md-article a {
       font: 400 16px/28px var(--elysium-font-sans);
       color: var(--elysium-text-primary);
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .md-article p {
       margin: 0 0 var(--elysium-space-16);
@@ -926,6 +1051,9 @@ export function renderAppHtml(): string {
       border-radius: var(--elysium-radius-4);
       background: var(--elysium-surface-subtle);
       color: var(--elysium-text-brand);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: pre-wrap;
     }
     .md-code {
       padding: var(--elysium-space-20) var(--elysium-space-24);
@@ -933,9 +1061,17 @@ export function renderAppHtml(): string {
       background: var(--elysium-surface-subtle);
       border: 1px solid var(--elysium-border-subtle);
       overflow-x: auto;
+      max-width: 100%;
       margin: var(--elysium-space-24) 0;
     }
-    .md-code code { background: none; padding: 0; color: var(--elysium-text-primary); }
+    .md-code code {
+      background: none;
+      padding: 0;
+      color: var(--elysium-text-primary);
+      white-space: pre;
+      overflow-wrap: normal;
+      word-break: normal;
+    }
     .md-quote {
       margin: var(--elysium-space-24) 0;
       padding: var(--elysium-space-20) var(--elysium-space-24);
@@ -943,6 +1079,7 @@ export function renderAppHtml(): string {
       background: var(--elysium-action-subtle);
       border-radius: 0 var(--elysium-radius-12) var(--elysium-radius-12) 0;
       word-break: keep-all;
+      overflow-wrap: anywhere;
     }
     .md-quote p { margin: 6px 0; color: var(--elysium-text-primary); }
     .md-hr {
@@ -952,6 +1089,7 @@ export function renderAppHtml(): string {
     }
     .md-table-wrap {
       overflow-x: auto;
+      max-width: 100%;
       margin: var(--elysium-space-24) 0;
       border: 1px solid var(--elysium-border-subtle);
       border-radius: var(--elysium-radius-12);
@@ -1000,6 +1138,10 @@ export function renderAppHtml(): string {
       font: 600 13px/20px var(--elysium-font-sans);
       font-variant-numeric: tabular-nums;
       margin: 6px 0;
+      max-width: 100%;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .filter-break { background: var(--elysium-status-warning-surface); color: var(--elysium-status-warning-text); }
     .filter-cut { background: var(--elysium-status-success-surface); color: var(--elysium-status-success-text); }
@@ -1015,6 +1157,8 @@ export function renderAppHtml(): string {
       border-radius: var(--elysium-radius-16);
       max-height: calc(100vh - 160px);
       overflow-y: auto;
+      overflow-x: hidden;
+      min-width: 0;
     }
     .toc-title {
       font: 600 13px/20px var(--elysium-font-sans);
@@ -1022,11 +1166,17 @@ export function renderAppHtml(): string {
       margin-bottom: var(--elysium-space-16);
     }
     .toc-link {
-      display: block;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      overflow-wrap: anywhere;
+      word-break: break-word;
       font: 400 14px/22px var(--elysium-font-sans);
       color: var(--elysium-text-secondary);
       text-decoration: none;
-      padding: 6px 0;
+      margin: 6px 0;
       line-height: 1.45;
       transition: color 150ms ease;
     }
@@ -1074,6 +1224,7 @@ export function renderAppHtml(): string {
     .modal-card {
       width: 100%;
       max-width: 520px;
+      min-width: 0;
       background: var(--elysium-surface-elevated);
       border: 1px solid var(--elysium-border-subtle);
       border-radius: var(--elysium-radius-16);
@@ -1081,6 +1232,7 @@ export function renderAppHtml(): string {
       box-shadow: var(--elysium-shadow-lg);
       max-height: 90vh;
       overflow-y: auto;
+      overflow-x: hidden;
       display: flex;
       flex-direction: column;
       gap: var(--elysium-space-20);
@@ -1089,11 +1241,17 @@ export function renderAppHtml(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: var(--elysium-space-12);
+      min-width: 0;
     }
     .modal-title {
       font: 700 20px/30px var(--elysium-font-sans);
       letter-spacing: -0.003em;
       color: var(--elysium-text-primary);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     /* Recorder Visualizer */
@@ -1172,12 +1330,15 @@ export function renderAppHtml(): string {
       bottom: var(--elysium-space-32);
       right: var(--elysium-space-32);
       z-index: 100;
+      max-width: calc(100vw - 32px);
       padding: var(--elysium-space-16) var(--elysium-space-20);
       border-radius: var(--elysium-radius-12);
       background: var(--elysium-surface-inverse);
       color: var(--elysium-surface-default);
       font: 600 14px/20px var(--elysium-font-sans);
       box-shadow: var(--elysium-shadow-md);
+      overflow-wrap: anywhere;
+      word-break: break-word;
       opacity: 0;
       transform: translateY(10px);
       pointer-events: none;
@@ -1221,8 +1382,18 @@ export function renderAppHtml(): string {
       color: var(--elysium-text-brand);
     }
 
+    @media (max-width: 1280px) {
+      .app-shell { grid-template-columns: 340px minmax(0, 1fr); }
+      .reader-scroll {
+        grid-template-columns: minmax(0, 1fr);
+        padding: var(--elysium-space-32) var(--elysium-space-32) 96px;
+      }
+      .toc-rail { display: none; }
+      .reader-toolbar { padding: 12px var(--elysium-space-32); }
+    }
+
     @media (max-width: 1024px) {
-      .app-shell { grid-template-columns: 1fr; }
+      .app-shell { grid-template-columns: minmax(0, 1fr); }
       .sidebar {
         position: fixed;
         inset: 0 0 64px 0;
@@ -1231,11 +1402,12 @@ export function renderAppHtml(): string {
       }
       .sidebar.mobile-open { display: flex; }
       .reader-toolbar {
-        padding: 0 var(--elysium-space-20);
-        height: 64px;
+        padding: 12px var(--elysium-space-20);
+        min-height: 64px;
+        height: auto;
       }
       .reader-scroll {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
         padding: var(--elysium-space-20) var(--elysium-space-20) 104px;
         gap: var(--elysium-space-24);
       }
@@ -1245,9 +1417,25 @@ export function renderAppHtml(): string {
       }
       .toc-rail { display: none; }
       .mobile-tabbar { display: flex; }
-      .client-grid { grid-template-columns: 1fr; }
+      .client-grid { grid-template-columns: minmax(0, 1fr); }
       .btn { height: var(--elysium-size-touch-min); }
       .field-input, .search-input { height: var(--elysium-size-touch-min); }
+      .toast {
+        left: 16px;
+        right: 16px;
+        bottom: calc(76px + env(safe-area-inset-bottom));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .modal-backdrop { padding: var(--elysium-space-16); }
+      .modal-card { padding: var(--elysium-space-20); }
+      .document-sheet { padding: var(--elysium-space-20) var(--elysium-space-16); }
+      .md-article h1 { font-size: 24px; line-height: 34px; }
+      .md-article h2 { font-size: 20px; line-height: 28px; }
+      .toolbar-actions { width: 100%; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; padding-bottom: 2px; }
+      .toolbar-actions::-webkit-scrollbar { display: none; }
+      .toolbar-actions .btn { height: 38px; padding: 0 12px; font-size: 13px; flex-shrink: 0; }
     }
 
     /* Auth Gate — Elysium Card Spec (Padding 32, Radius 24, Gap 20) */
@@ -1577,10 +1765,10 @@ export function renderAppHtml(): string {
           <span style="font:600 14px/20px var(--elysium-font-sans);color:var(--elysium-text-primary);">내 계정 전용 API 토큰 (네이티브 앱 / iOS 단축어 연동용)</span>
           <button class="btn" style="height:32px;padding:0 12px;font-size:13px;" data-action="copy-api-token">토큰 복사</button>
         </div>
-        <code id="my-api-token-code" style="display:block;margin-bottom:16px;padding:10px 14px;background:var(--elysium-surface-default);border:1px solid var(--elysium-border-subtle);border-radius:var(--elysium-radius-8);font:500 14px/20px var(--elysium-font-mono);color:var(--elysium-text-brand);">lct_...</code>
+        <code id="my-api-token-code" style="display:block;margin-bottom:16px;padding:10px 14px;background:var(--elysium-surface-default);border:1px solid var(--elysium-border-subtle);border-radius:var(--elysium-radius-8);font:500 14px/20px var(--elysium-font-mono);color:var(--elysium-text-brand);overflow-x:auto;overflow-wrap:anywhere;word-break:break-all;max-width:100%;">lct_...</code>
         <div style="font:600 14px/20px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:8px;">원클릭 HTTP Ingest API (cURL / 단축어 연동)</div>
-        <code id="my-curl-snippet" style="display:block;white-space:pre-wrap;font:500 13px/20px var(--elysium-font-mono);color:var(--elysium-text-secondary);">curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\
-  -H "X-Lectern-Token: <내_API_토큰>" \\
+        <code id="my-curl-snippet" style="display:block;white-space:pre-wrap;font:500 13px/20px var(--elysium-font-mono);color:var(--elysium-text-secondary);overflow-x:auto;overflow-wrap:anywhere;word-break:break-all;max-width:100%;">curl -X POST https://lectern.qucord.com/api/ingest/shortcut \\
+  -H "X-Lectern-Token: &lt;내_API_토큰&gt;" \\
   -H "X-Course: 정보보호개론" \\
   -F "audio=@20261014_lecture.m4a"</code>
       </div>
@@ -1626,7 +1814,7 @@ export function renderAppHtml(): string {
           <label class="field-label" for="pw-current">현재 비밀번호</label>
           <input type="password" id="pw-current" class="field-input" placeholder="현재 비밀번호 입력" autocomplete="current-password" required />
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
           <div class="field-group">
             <label class="field-label" for="pw-new">새 비밀번호 (6자 이상)</label>
             <input type="password" id="pw-new" class="field-input" placeholder="새 비밀번호" autocomplete="new-password" required />
@@ -1656,16 +1844,16 @@ export function renderAppHtml(): string {
         <button class="btn btn-icon" data-action="close-modal" data-modal="cleanup-modal" aria-label="닫기">✕</button>
       </div>
 
-      <div id="cleanup-current-box" style="padding:20px;border-radius:var(--elysium-radius-16);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);display:flex;flex-direction:column;gap:16px;">
-        <div style="font:600 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);" id="cleanup-cur-title">현재 선택된 강의 노트</div>
+      <div id="cleanup-current-box" style="padding:20px;border-radius:var(--elysium-radius-16);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);display:flex;flex-direction:column;gap:16px;min-width:0;">
+        <div style="font:600 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;" id="cleanup-cur-title">현재 선택된 강의 노트</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <button class="btn" id="cleanup-vis-btn" data-action="toggle-visibility">공개/비공개 전환</button>
           <button class="btn" data-action="rotate-share-token">공유 링크 재발급 (기존 링크 차단)</button>
         </div>
         <div class="field-group">
           <label class="field-label" for="cleanup-move-course">과목 이동</label>
-          <div style="display:flex;gap:10px;align-items:center;">
-            <input type="text" id="cleanup-move-course" class="field-input" style="flex:1;" placeholder="변경할 과목명 입력" />
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <input type="text" id="cleanup-move-course" class="field-input" style="flex:1 1 180px;min-width:0;" placeholder="변경할 과목명 입력" />
             <button class="btn" data-action="move-course">과목 변경</button>
           </div>
         </div>
@@ -1677,28 +1865,28 @@ export function renderAppHtml(): string {
 
       <div style="font:600 16px/24px var(--elysium-font-sans);color:var(--elysium-text-primary);">워크스페이스 일괄 기록 정리</div>
       <div style="display:flex;flex-direction:column;gap:12px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);">
-          <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);">
+          <div style="min-width:0;flex:1 1 220px;">
             <div style="font:600 15px/22px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:4px;">실패·중단된 분석 기록 정리</div>
             <div style="font:400 14px/20px var(--elysium-font-sans);color:var(--elysium-text-secondary);">오류 상태이거나 15분 이상 멈춘 미완료 기록과 임시 파일을 삭제합니다.</div>
           </div>
-          <button class="btn" data-action="workspace-cleanup" data-cleanup-mode="failed">일괄 정리</button>
+          <button class="btn" style="flex-shrink:0;" data-action="workspace-cleanup" data-cleanup-mode="failed">일괄 정리</button>
         </div>
 
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);">
-          <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);">
+          <div style="min-width:0;flex:1 1 220px;">
             <div style="font:600 15px/22px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:4px;">짧은 테스트·단편 녹음(15초 미만) 정리</div>
             <div style="font:400 14px/20px var(--elysium-font-sans);color:var(--elysium-text-secondary);">실수로 눌렸거나 테스트로 녹음된 짧은 단편 노트를 일괄 삭제합니다.</div>
           </div>
-          <button class="btn" data-action="workspace-cleanup" data-cleanup-mode="short_fragments">단편 삭제</button>
+          <button class="btn" style="flex-shrink:0;" data-action="workspace-cleanup" data-cleanup-mode="short_fragments">단편 삭제</button>
         </div>
 
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);">
-          <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-subtle);border:1px solid var(--elysium-border-subtle);">
+          <div style="min-width:0;flex:1 1 220px;">
             <div style="font:600 15px/22px var(--elysium-font-sans);color:var(--elysium-text-primary);margin-bottom:4px;">완료된 모든 노트의 원본 음성파일 비우기</div>
             <div style="font:400 14px/20px var(--elysium-font-sans);color:var(--elysium-text-secondary);">마크다운 강의 노트는 영구 보존하고 대용량 원본 오디오만 정리합니다.</div>
           </div>
-          <button class="btn" data-action="workspace-cleanup" data-cleanup-mode="audio_only_all">오디오 비우기</button>
+          <button class="btn" style="flex-shrink:0;" data-action="workspace-cleanup" data-cleanup-mode="audio_only_all">오디오 비우기</button>
         </div>
       </div>
     </div>
@@ -2234,13 +2422,13 @@ const APP_PAGE_SCRIPT = `
         const isAct = c === activeCourse;
         const cls = isAct ? 'pill active' : 'pill';
         const check = isAct ? '<span aria-hidden="true">✓</span>' : '';
-        return '<button type="button" class="' + cls + '" aria-pressed="' + isAct + '" data-course="' + escapeClientHtml(c) + '">' + check + '<span>' + escapeClientHtml(label) + '</span></button>';
+        return '<button type="button" class="' + cls + '" aria-pressed="' + isAct + '" title="' + escapeClientHtml(label) + '" data-course="' + escapeClientHtml(c) + '">' + check + '<span>' + escapeClientHtml(label) + '</span></button>';
       }).join('');
 
       const quickWrap = document.getElementById('quick-course-chips');
       if (quickWrap) {
         quickWrap.innerHTML = courses.map(c =>
-          '<button type="button" class="pill" style="height:36px;padding:0 14px;" data-course="' + escapeClientHtml(c) + '">' + escapeClientHtml(c) + '</button>'
+          '<button type="button" class="pill" style="height:36px;padding:0 14px;" title="' + escapeClientHtml(c) + '" data-course="' + escapeClientHtml(c) + '"><span>' + escapeClientHtml(c) + '</span></button>'
         ).join('');
       }
     }
@@ -2303,17 +2491,17 @@ const APP_PAGE_SCRIPT = `
           ? '<span style="font:500 11px/16px var(--elysium-font-mono);color:var(--elysium-text-tertiary);" title="UUID: ' + escapeClientHtml(item.id) + '">#' + escapeClientHtml(uuidShort) + '</span>'
           : '';
         const progHtml = item.status === 'processing'
-          ? '<div class="card-progress"><div class="card-progress-bar" style="width:' + (item.progress || 15) + '%"></div></div><div style="font:600 13px/20px var(--elysium-font-sans);color:var(--elysium-text-brand);margin-top:4px;">' + escapeClientHtml(item.stage_message || '분석 중...') + ' (' + (item.progress || 15) + '%)</div>'
+          ? '<div class="card-progress"><div class="card-progress-bar" style="width:' + (item.progress || 15) + '%"></div></div><div style="font:600 13px/20px var(--elysium-font-sans);color:var(--elysium-text-brand);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeClientHtml(item.stage_message || '분석 중...') + ' (' + (item.progress || 15) + '%)</div>'
           : item.status === 'error'
-          ? '<div style="font:600 13px/20px var(--elysium-font-sans);color:var(--elysium-status-danger-text);margin-top:4px;">분석 실패 · 원본 재분석 가능</div>'
+          ? '<div style="font:600 13px/20px var(--elysium-font-sans);color:var(--elysium-status-danger-text);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">분석 실패 · 원본 재분석 가능</div>'
           : '';
         return '<div class="lecture-card ' + (isAct ? 'active' : '') + '" data-lecture-id="' + escapeClientHtml(item.id) + '">' +
           '<div class="card-top">' +
-            '<span class="card-course">' + escapeClientHtml(item.course) + '</span>' +
-            '<span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' + durBadge + visBadge + uuidBadge + '</span>' +
+            '<span class="card-course" title="' + escapeClientHtml(item.course) + '">' + escapeClientHtml(item.course) + '</span>' +
+            '<span style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;flex-shrink:0;">' + durBadge + visBadge + uuidBadge + '</span>' +
           '</div>' +
-          '<div class="card-title">' + escapeClientHtml(item.title) + '</div>' +
-          '<div style="font:500 12px/18px var(--elysium-font-mono);color:var(--elysium-text-secondary);margin-top:-2px;">녹음 일시: ' + escapeClientHtml(item.date_label) + '</div>' +
+          '<div class="card-title" title="' + escapeClientHtml(item.title) + '">' + escapeClientHtml(item.title) + '</div>' +
+          '<div style="font:500 12px/18px var(--elysium-font-mono);color:var(--elysium-text-secondary);margin-top:-2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">녹음 일시: ' + escapeClientHtml(item.date_label) + '</div>' +
           '<div class="card-excerpt">' + escapeClientHtml(item.excerpt || '') + '</div>' +
           progHtml +
         '</div>';
@@ -2354,6 +2542,7 @@ const APP_PAGE_SCRIPT = `
       renderLectureList();
 
       document.getElementById('cur-course').textContent = currentLecture.course;
+      document.getElementById('cur-course').title = currentLecture.course || '';
       document.getElementById('cur-date').textContent = '녹음 ' + (currentLecture.date_label || '');
       const curDurEl = document.getElementById('cur-duration');
       if (curDurEl) {
@@ -2408,7 +2597,7 @@ const APP_PAGE_SCRIPT = `
 
       const tocList = document.getElementById('toc-list');
       tocList.innerHTML = (data.rendered?.toc || []).map(t =>
-        '<a class="toc-link lvl-' + escapeClientHtml(t.level) + '" href="#' + escapeClientHtml(t.id) + '">' + escapeClientHtml(t.text) + '</a>'
+        '<a class="toc-link lvl-' + escapeClientHtml(t.level) + '" href="#' + escapeClientHtml(t.id) + '" title="' + escapeClientHtml(t.text) + '">' + escapeClientHtml(t.text) + '</a>'
       ).join('');
 
       if (isEditorOpen() && editorLectureId === currentLecture.id) {
@@ -2479,7 +2668,9 @@ const APP_PAGE_SCRIPT = `
         modalBtn.textContent = isPub ? '현재: 공개중 → 비공개로 전환' : '현재: 비공개 → 공개로 전환';
       }
       if (curTitle) {
-        curTitle.textContent = '현재 노트: ' + currentLecture.title + (isPub ? ' (공유 링크 열림)' : ' (비공개)');
+        const fullTitle = '현재 노트: ' + currentLecture.title + (isPub ? ' (공유 링크 열림)' : ' (비공개)');
+        curTitle.textContent = fullTitle;
+        curTitle.title = fullTitle;
       }
       if (moveInput) {
         moveInput.value = currentLecture.course || '';
@@ -2974,12 +3165,13 @@ const APP_PAGE_SCRIPT = `
         const mb = ((item.size || 0) / 1048576).toFixed(1);
         const ownerNote = item.ownerId ? '' : ' · 계정 미지정 (이전 버전에서 저장됨)';
         const idAttr = ' data-local-id="' + escapeClientHtml(item.localId) + '"';
-        return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-default);border:1px solid var(--elysium-border-subtle);">' +
-          '<div style="min-width:0;flex:1;">' +
-            '<div style="font:600 14px/20px var(--elysium-font-sans);color:var(--elysium-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">[' + escapeClientHtml(item.course) + '] ' + escapeClientHtml(item.fileName) + ' (' + mb + ' MB)</div>' +
-            '<div style="font:400 13px/20px var(--elysium-font-sans);color:var(--elysium-status-danger-text);">' + escapeClientHtml((item.lastError || '업로드 대기 중') + ownerNote) + '</div>' +
+        const itemLabel = '[' + escapeClientHtml(item.course) + '] ' + escapeClientHtml(item.fileName) + ' (' + mb + ' MB)';
+        return '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:12px 16px;border-radius:var(--elysium-radius-12);background:var(--elysium-surface-default);border:1px solid var(--elysium-border-subtle);">' +
+          '<div style="min-width:0;flex:1 1 180px;">' +
+            '<div style="font:600 14px/20px var(--elysium-font-sans);color:var(--elysium-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + itemLabel + '">' + itemLabel + '</div>' +
+            '<div style="font:400 13px/20px var(--elysium-font-sans);color:var(--elysium-status-danger-text);overflow-wrap:anywhere;word-break:break-word;">' + escapeClientHtml((item.lastError || '업로드 대기 중') + ownerNote) + '</div>' +
           '</div>' +
-          '<div style="display:flex;gap:8px;flex-shrink:0;">' +
+          '<div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;">' +
             '<button type="button" class="btn btn-primary" style="height:32px;padding:0 12px;font-size:13px;" data-vault-action="retry"' + idAttr + '>재업로드</button>' +
             '<button type="button" class="btn" style="height:32px;padding:0 12px;font-size:13px;" data-vault-action="download"' + idAttr + '>원본 저장</button>' +
             '<button type="button" class="btn btn-danger" style="height:32px;padding:0 12px;font-size:13px;" data-vault-action="delete"' + idAttr + '>삭제</button>' +

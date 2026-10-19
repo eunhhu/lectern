@@ -19,6 +19,8 @@ if (!process.env.LECTERN_TEST_SANDBOX) {
   process.env.LECTERN_DATA_DIR = dataDir;
   process.env.LECTERN_LECTURES_DIR = lecturesDir;
   process.env.HOME = homeDir;
+  // The server falls back to a host credentials file for the Resend key; never read it.
+  process.env.LECTERN_RESEND_CREDENTIALS_FILE = join(root, "no-credentials.json");
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
   for (const key of [

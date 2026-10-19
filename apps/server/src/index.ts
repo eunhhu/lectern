@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
@@ -638,17 +638,35 @@ const RESET_CODE_SENT_MESSAGE =
   "가입된 계정이라면 이메일로 6자리 인증번호가 발송됩니다. (10분간 유효)";
 const INVALID_CODE_MESSAGE = "인증번호가 올바르지 않거나 만료되었습니다.";
 
+// The Resend key comes from the environment, or else from the host's credentials file
+// (overridable so tests never read the real one).
+const RESEND_CREDENTIALS_FILE =
+  process.env.LECTERN_RESEND_CREDENTIALS_FILE ?? "/home/eunhhu/.hermes/credentials/accounts.json";
+
+function resolveResendApiKey(): string {
+  const envKey = (process.env.RESEND_API_KEY || "").trim();
+  if (envKey) return envKey;
+  try {
+    if (RESEND_CREDENTIALS_FILE && existsSync(RESEND_CREDENTIALS_FILE)) {
+      const parsed = JSON.parse(readFileSync(RESEND_CREDENTIALS_FILE, "utf8"));
+      const fileKey = String(parsed?.resend?.api_key || "").trim();
+      if (fileKey) return fileKey;
+    }
+  } catch {}
+  return "";
+}
+
 async function sendResendVerificationEmail(
   toEmail: string,
   code: string,
   purpose: "signup" | "reset"
 ): Promise<{ sent: boolean; id?: string }> {
-  const apiKey = (process.env.RESEND_API_KEY || "").trim();
+  const apiKey = resolveResendApiKey();
   const from = (
     process.env.RESEND_FROM_EMAIL || "Lectern <noreply@qucord.com>"
   ).trim();
   if (!apiKey) {
-    return { sent: false };
+    throw new Error("이메일 발송 API 키(RESEND_API_KEY)가 설정되지 않았습니다.");
   }
 
   const subject =
@@ -1599,8 +1617,8 @@ async function routeRequest(req: Request): Promise<Response> {
           );
         }
 
-        const mustVerifyEmail =
-          Boolean(process.env.RESEND_API_KEY) || Boolean(verificationCode);
+        // Same key lookup as the mail sender: if codes can be mailed, signup requires one.
+        const mustVerifyEmail = Boolean(resolveResendApiKey()) || Boolean(verificationCode);
         if (mustVerifyEmail) {
           if (!verificationCode) {
             return jsonResponse(
