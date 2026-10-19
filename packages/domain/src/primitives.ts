@@ -74,6 +74,12 @@ export const UsageLedgerId = idSchema("UsageLedgerId", "usage ledger row");
 export type UsageLedgerId = z.infer<typeof UsageLedgerId>;
 export const UploadId = idSchema("UploadId", "resumable upload session");
 export type UploadId = z.infer<typeof UploadId>;
+export const ChunkId = idSchema("ChunkId", "search index chunk (a transcript window, document block or PDF page)");
+export type ChunkId = z.infer<typeof ChunkId>;
+export const AskThreadId = idSchema("AskThreadId", "ask conversation thread");
+export type AskThreadId = z.infer<typeof AskThreadId>;
+export const AskTurnId = idSchema("AskTurnId", "ask turn (one question and its answer)");
+export type AskTurnId = z.infer<typeof AskTurnId>;
 
 /** Template ids are slugs (`lecture`, `meeting`, `legacy-markdown`), not row ids. */
 export const TemplateId = named(

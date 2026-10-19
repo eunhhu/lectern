@@ -60,7 +60,7 @@ export type GapKind = z.infer<typeof GapKind>;
 export const QuestionKind = named(
   "QuestionKind",
   z.enum(["recall", "issue", "discussion"]),
-  "`recall`: active-recall card (lectures). `issue`: key issue Q&A (meetings). `discussion`: open prompt.",
+  "`recall`: active-recall card (lectures). `issue`: key issue Q&A (meetings). `discussion`: open prompt. Deprecated (ADR-0009): the pipeline no longer generates questions by default; answers to the user's own questions come from /ask.",
 );
 export type QuestionKind = z.infer<typeof QuestionKind>;
 
@@ -101,7 +101,7 @@ export type DocumentAuthor = z.infer<typeof DocumentAuthor>;
 
 export const JobKind = named(
   "JobKind",
-  z.enum(["process", "regenerate", "compact", "calendar_sync", "reminder", "maintenance"]),
+  z.enum(["process", "regenerate", "compact", "calendar_sync", "reminder", "maintenance", "index"]),
 );
 export type JobKind = z.infer<typeof JobKind>;
 
@@ -127,6 +127,7 @@ export const StageName = named(
     "extract",
     "verify",
     "publish",
+    "index", // after publish: chunk, full-text index and embed for search and ask (ADR-0009)
     "compact_audio",
     "calendar_sync",
     "reminder",

@@ -47,6 +47,9 @@
       "name": "search"
     },
     {
+      "name": "ask"
+    },
+    {
       "name": "calendar"
     },
     {
@@ -2504,6 +2507,317 @@
         }
       }
     },
+    "/ask/threads": {
+      "post": {
+        "operationId": "createAskThread",
+        "summary": "Start an ask thread over a recording, a folder or the workspace",
+        "tags": [
+          "ask"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAskThreadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new, empty thread.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskThread"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listAskThreads",
+        "summary": "The caller's ask threads",
+        "tags": [
+          "ask"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque `next_cursor` from the previous page.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size, 50 when omitted.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          },
+          {
+            "name": "recording_id",
+            "in": "query",
+            "required": false,
+            "description": "Only threads scoped to this recording (the note's ask panel).",
+            "schema": {
+              "$ref": "#/components/schemas/RecordingId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Threads, most recently updated first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskThreadPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/ask/threads/{thread_id}": {
+      "get": {
+        "operationId": "getAskThread",
+        "summary": "A thread with all its turns",
+        "tags": [
+          "ask"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AskThreadId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The thread.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskThreadDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAskThread",
+        "summary": "Delete a thread and its turns",
+        "tags": [
+          "ask"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AskThreadId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done. No body."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/ask/threads/{thread_id}/turns": {
+      "post": {
+        "operationId": "askQuestion",
+        "summary": "Ask a question; the answer streams back as server-sent events",
+        "tags": [
+          "ask"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AskThreadId"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Client-chosen key; repeating a mutation with the same key returns the first result.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskQuestionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "An SSE stream read with fetch() (EventSource cannot POST). Each `data:` line is one AskStreamEvent and `event:` is its `type`. Not resumable: after a disconnect, read the turn from GET /ask/threads/{thread_id}.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskStreamEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/ask/usage": {
+      "get": {
+        "operationId": "getAskUsage",
+        "summary": "This month's ask spending and limits",
+        "tags": [
+          "ask"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage for the current month.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskUsage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
     "/calendar/suggestions": {
       "get": {
         "operationId": "listCalendarSuggestions",
@@ -3888,6 +4202,852 @@
         "pattern": "^[A-Za-z0-9_-]{1,64}$",
         "description": "Opaque id of a stage artifact. New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it."
       },
+      "AskAnswerDeltaEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "answer.delta"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "text"
+        ],
+        "description": "Next piece of the answer. Markers for passages that were not provided are already removed."
+      },
+      "AskCitation": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AskTranscriptCitation"
+          },
+          {
+            "$ref": "#/components/schemas/AskDocumentCitation"
+          },
+          {
+            "$ref": "#/components/schemas/AskPdfPageCitation"
+          }
+        ],
+        "description": "A passage the answer cites, already checked to be one of the passages retrieved for this turn and inside the thread's scope. Open union on `kind`: render unknown kinds as a plain label.",
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "transcript": "#/components/schemas/AskTranscriptCitation",
+            "document": "#/components/schemas/AskDocumentCitation",
+            "pdf_page": "#/components/schemas/AskPdfPageCitation"
+          }
+        }
+      },
+      "AskCitationEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "citation"
+          },
+          "citation": {
+            "$ref": "#/components/schemas/AskCitation"
+          }
+        },
+        "required": [
+          "type",
+          "citation"
+        ],
+        "description": "A marker appeared for the first time; resolve `[label]` in the text with it. `support` is null here."
+      },
+      "AskCitationSupport": {
+        "type": "string",
+        "enum": [
+          "supported",
+          "weak"
+        ],
+        "description": "Deterministic check of a citation: `supported` when the citing sentence shares enough wording with the passage, `weak` when it does not (show a warning). Open enum."
+      },
+      "AskContextMode": {
+        "type": "string",
+        "enum": [
+          "full_note",
+          "retrieval"
+        ],
+        "description": "`full_note`: the whole note fit the context budget. `retrieval`: only the best-matching passages were used."
+      },
+      "AskDocumentCitation": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "document"
+          },
+          "label": {
+            "type": "string",
+            "pattern": "^c\\d{1,3}$",
+            "description": "Marker in the answer text: `c3` is written `[c3]`. Unique within the turn."
+          },
+          "chunk_id": {
+            "$ref": "#/components/schemas/ChunkId"
+          },
+          "recording_id": {
+            "$ref": "#/components/schemas/RecordingId"
+          },
+          "recording_title": {
+            "type": "string"
+          },
+          "snippet": {
+            "type": "string",
+            "description": "Short plain-text excerpt of the cited passage. Empty when `available` is false."
+          },
+          "support": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AskCitationSupport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null while the answer is streaming; set when the turn completes."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "False when the source was deleted or is no longer visible to the user. Do not link it then."
+          },
+          "document_id": {
+            "$ref": "#/components/schemas/DocumentId"
+          },
+          "document_version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "block_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BlockId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for legacy Markdown documents, which have no blocks."
+          },
+          "section_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the block's first transcript source starts, or a legacy `[MM:SS]` mark."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "description": "The block's own sources, to jump from the document to the transcript or PDF."
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "chunk_id",
+          "recording_id",
+          "recording_title",
+          "snippet",
+          "support",
+          "available",
+          "document_id",
+          "document_version",
+          "block_id",
+          "section_title",
+          "start_ms",
+          "sources"
+        ]
+      },
+      "AskErrorEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "error"
+          },
+          "error": {
+            "$ref": "#/components/schemas/AskTurnError"
+          }
+        },
+        "required": [
+          "type",
+          "error"
+        ],
+        "description": "The turn failed after the stream started. The stream ends after this event."
+      },
+      "AskFolderScope": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "folder"
+          },
+          "folder_id": {
+            "$ref": "#/components/schemas/FolderId"
+          },
+          "include_subfolders": {
+            "type": "boolean",
+            "description": "Also search recordings in descendant folders."
+          }
+        },
+        "required": [
+          "kind",
+          "folder_id",
+          "include_subfolders"
+        ],
+        "description": "The recordings in a folder."
+      },
+      "AskOutcome": {
+        "type": "string",
+        "enum": [
+          "answered",
+          "no_answer",
+          "unsupported"
+        ],
+        "description": "`answered`: at least one valid citation. `no_answer`: the notes do not contain the answer (모름), possibly decided without calling a model. `unsupported`: the model answered without any valid citation; show the text collapsed with a warning. Open enum."
+      },
+      "AskPdfPageCitation": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "pdf_page"
+          },
+          "label": {
+            "type": "string",
+            "pattern": "^c\\d{1,3}$",
+            "description": "Marker in the answer text: `c3` is written `[c3]`. Unique within the turn."
+          },
+          "chunk_id": {
+            "$ref": "#/components/schemas/ChunkId"
+          },
+          "recording_id": {
+            "$ref": "#/components/schemas/RecordingId"
+          },
+          "recording_title": {
+            "type": "string"
+          },
+          "snippet": {
+            "type": "string",
+            "description": "Short plain-text excerpt of the cited passage. Empty when `available` is false."
+          },
+          "support": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AskCitationSupport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null while the answer is streaming; set when the turn completes."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "False when the source was deleted or is no longer visible to the user. Do not link it then."
+          },
+          "asset_id": {
+            "$ref": "#/components/schemas/AssetId"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "chunk_id",
+          "recording_id",
+          "recording_title",
+          "snippet",
+          "support",
+          "available",
+          "asset_id",
+          "page"
+        ]
+      },
+      "AskQuestionRequest": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "question"
+        ]
+      },
+      "AskRecordingScope": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "recording"
+          },
+          "recording_id": {
+            "$ref": "#/components/schemas/RecordingId"
+          }
+        },
+        "required": [
+          "kind",
+          "recording_id"
+        ],
+        "description": "One recording (이 노트에 물어보기)."
+      },
+      "AskRetrievalEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "retrieval"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AskContextMode"
+          },
+          "passage_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "recording_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "type",
+          "mode",
+          "passage_count",
+          "recording_count"
+        ],
+        "description": "Passages were selected. With `passage_count` 0 a `no_answer` turn follows without a model call."
+      },
+      "AskScope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AskRecordingScope"
+          },
+          {
+            "$ref": "#/components/schemas/AskFolderScope"
+          },
+          {
+            "$ref": "#/components/schemas/AskWorkspaceScope"
+          }
+        ],
+        "description": "What a thread searches. Fixed when the thread is created. Open union: new kinds (tags, date ranges) may be added; show unknown kinds generically.",
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "recording": "#/components/schemas/AskRecordingScope",
+            "folder": "#/components/schemas/AskFolderScope",
+            "workspace": "#/components/schemas/AskWorkspaceScope"
+          }
+        }
+      },
+      "AskStreamEvent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AskTurnStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AskRetrievalEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AskToolEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AskAnswerDeltaEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AskCitationEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AskTurnCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AskErrorEvent"
+          }
+        ],
+        "description": "One message of the ask stream. Open union on `type`: ignore unknown types.",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "turn.started": "#/components/schemas/AskTurnStartedEvent",
+            "retrieval": "#/components/schemas/AskRetrievalEvent",
+            "tool": "#/components/schemas/AskToolEvent",
+            "answer.delta": "#/components/schemas/AskAnswerDeltaEvent",
+            "citation": "#/components/schemas/AskCitationEvent",
+            "turn.completed": "#/components/schemas/AskTurnCompletedEvent",
+            "error": "#/components/schemas/AskErrorEvent"
+          }
+        }
+      },
+      "AskThread": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/AskThreadId"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId"
+          },
+          "user_id": {
+            "$ref": "#/components/schemas/UserId"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/AskScope"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The first question, shortened."
+          },
+          "turn_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "user_id",
+          "scope",
+          "title",
+          "turn_count",
+          "created_at",
+          "updated_at"
+        ],
+        "description": "A conversation with the notes. Only the user who started it can see it."
+      },
+      "AskThreadDetail": {
+        "type": "object",
+        "properties": {
+          "thread": {
+            "$ref": "#/components/schemas/AskThread"
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AskTurn"
+            },
+            "description": "Every turn, oldest first."
+          }
+        },
+        "required": [
+          "thread",
+          "turns"
+        ]
+      },
+      "AskThreadId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "Opaque id of a ask conversation thread. New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it."
+      },
+      "AskThreadPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AskThread"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as `cursor` for the next page; null on the last page."
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "AskToolEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "tool"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Tool the model asked for, e.g. `search_notes`. Open set."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "started",
+              "finished"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "state"
+        ],
+        "description": "Progress of an extra lookup in the agent loop (global scopes only)."
+      },
+      "AskTranscriptCitation": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "transcript"
+          },
+          "label": {
+            "type": "string",
+            "pattern": "^c\\d{1,3}$",
+            "description": "Marker in the answer text: `c3` is written `[c3]`. Unique within the turn."
+          },
+          "chunk_id": {
+            "$ref": "#/components/schemas/ChunkId"
+          },
+          "recording_id": {
+            "$ref": "#/components/schemas/RecordingId"
+          },
+          "recording_title": {
+            "type": "string"
+          },
+          "snippet": {
+            "type": "string",
+            "description": "Short plain-text excerpt of the cited passage. Empty when `available` is false."
+          },
+          "support": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AskCitationSupport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null while the answer is streaming; set when the turn completes."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "False when the source was deleted or is no longer visible to the user. Do not link it then."
+          },
+          "start_idx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "First transcript segment the claim rests on (narrowed within the passage)."
+          },
+          "end_idx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "start_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Original-audio time of `start_idx`."
+          },
+          "end_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "chunk_id",
+          "recording_id",
+          "recording_title",
+          "snippet",
+          "support",
+          "available",
+          "start_idx",
+          "end_idx",
+          "start_ms",
+          "end_ms"
+        ]
+      },
+      "AskTurn": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/AskTurnId"
+          },
+          "thread_id": {
+            "$ref": "#/components/schemas/AskThreadId"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId"
+          },
+          "idx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Position in the thread, from 0."
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1
+          },
+          "answer": {
+            "description": "Plain text with light Markdown (paragraphs, `-` lists, `**bold**`) and `[c1]` citation markers. Null while running or when failed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AskCitation"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/AskTurnStatus"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AskOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null until completed."
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AskContextMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cached": {
+            "type": "boolean",
+            "description": "The answer was reused from an earlier identical question over identical passages (no model call)."
+          },
+          "cost_microusd": {
+            "description": "Model and embedding cost of this turn.",
+            "$ref": "#/components/schemas/MicroUsd"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AskTurnError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "thread_id",
+          "workspace_id",
+          "idx",
+          "question",
+          "answer",
+          "citations",
+          "status",
+          "outcome",
+          "mode",
+          "cached",
+          "cost_microusd",
+          "error",
+          "created_at",
+          "completed_at"
+        ]
+      },
+      "AskTurnCompletedEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "turn.completed"
+          },
+          "turn": {
+            "$ref": "#/components/schemas/AskTurn"
+          }
+        },
+        "required": [
+          "type",
+          "turn"
+        ],
+        "description": "The final turn. Replace the streamed text with `turn.answer` and the citations with `turn.citations`."
+      },
+      "AskTurnError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "description": "Why a turn failed, e.g. `quota_exceeded`, `budget_exceeded`, `unavailable`."
+      },
+      "AskTurnId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "Opaque id of a ask turn (one question and its answer). New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it."
+      },
+      "AskTurnStartedEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "turn.started"
+          },
+          "thread_id": {
+            "$ref": "#/components/schemas/AskThreadId"
+          },
+          "turn_id": {
+            "$ref": "#/components/schemas/AskTurnId"
+          },
+          "idx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "type",
+          "thread_id",
+          "turn_id",
+          "idx",
+          "created_at"
+        ]
+      },
+      "AskTurnStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "completed",
+          "failed"
+        ]
+      },
+      "AskUsage": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId"
+          },
+          "period": {
+            "$ref": "#/components/schemas/Period"
+          },
+          "turn_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "spent_microusd": {
+            "$ref": "#/components/schemas/MicroUsd"
+          },
+          "limit_microusd": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MicroUsd"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Monthly ask budget of the workspace; null when unlimited."
+          },
+          "per_turn_cap_microusd": {
+            "description": "No single question may cost more than this.",
+            "$ref": "#/components/schemas/MicroUsd"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "period",
+          "turn_count",
+          "spent_microusd",
+          "limit_microusd",
+          "per_turn_cap_microusd"
+        ],
+        "description": "This month's ask spending, for the quota display."
+      },
+      "AskWorkspaceScope": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "workspace"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "description": "Every recording in the workspace the user can see (전반적으로 물어보기)."
+      },
       "Asset": {
         "type": "object",
         "properties": {
@@ -4125,6 +5285,11 @@
           "sources"
         ]
       },
+      "ChunkId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "Opaque id of a search index chunk (a transcript window, document block or PDF page). New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it."
+      },
       "ClientKind": {
         "type": "string",
         "enum": [
@@ -4227,6 +5392,22 @@
           "name",
           "scopes"
         ]
+      },
+      "CreateAskThreadRequest": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/AskScope"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "scope"
+        ],
+        "description": "Start a thread. No model is called; ask the first question with POST /ask/threads/{thread_id}/turns."
       },
       "CreateDocumentVersionRequest": {
         "type": "object",
@@ -5707,7 +6888,8 @@
           "compact",
           "calendar_sync",
           "reminder",
-          "maintenance"
+          "maintenance",
+          "index"
         ]
       },
       "JobPage": {
@@ -6287,7 +7469,8 @@
           "flags",
           "created_at",
           "updated_at"
-        ]
+        ],
+        "description": "A generated review question. Deprecated (ADR-0009): new recordings get none unless a template turns `extract.questions` on; kept for existing data and clients."
       },
       "QuestionDifficulty": {
         "type": "string",
@@ -6309,7 +7492,7 @@
           "issue",
           "discussion"
         ],
-        "description": "`recall`: active-recall card (lectures). `issue`: key issue Q&A (meetings). `discussion`: open prompt."
+        "description": "`recall`: active-recall card (lectures). `issue`: key issue Q&A (meetings). `discussion`: open prompt. Deprecated (ADR-0009): the pipeline no longer generates questions by default; answers to the user's own questions come from /ask."
       },
       "QuestionPage": {
         "type": "object",
@@ -7362,6 +8545,7 @@
           "extract",
           "verify",
           "publish",
+          "index",
           "compact_audio",
           "calendar_sync",
           "reminder",

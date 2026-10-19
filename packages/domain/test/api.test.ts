@@ -82,6 +82,7 @@ describe("conventions", () => {
       "share-links",
       "admin",
       "events",
+      "ask",
     ]) {
       expect(prefixes.has(resource), resource).toBe(true);
     }

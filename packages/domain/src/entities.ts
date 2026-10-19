@@ -300,6 +300,7 @@ export const Question = named(
     created_at: Timestamp,
     updated_at: Timestamp,
   }),
+  "A generated review question. Deprecated (ADR-0009): new recordings get none unless a template turns `extract.questions` on; kept for existing data and clients.",
 );
 export type Question = z.infer<typeof Question>;
 
