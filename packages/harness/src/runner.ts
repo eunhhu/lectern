@@ -27,6 +27,7 @@ import { classifyError, HarnessError } from "./errors.ts";
 import { canonicalJson } from "./hash.ts";
 import { DEFAULT_PRICING, recordAiCall, type PricingTable } from "./ledger.ts";
 import { ZERO_USAGE, type ProviderCallResult } from "./providers.ts";
+import { deleteArtifactsForJobs, sweepHarnessData, type HarnessSweepResult } from "./retention.ts";
 import {
   DEFAULT_RETRY,
   stageKey,
@@ -131,19 +132,15 @@ export class Harness {
   /**
    * Deletes a job's artifact rows, then every blob no other artifact still references.
    * For outputs that must not outlive the job (the legacy distillation's notes already live
-   * in `lectures`), and the hook for deleting a recording's derived data.
+   * in `lectures`). Deleting a recording uses deleteArtifactsForJobs (retention.ts).
    */
   deleteArtifactsForJob(jobId: string): { artifacts: number; blobs: number } {
-    const shas = (
-      this.db.query(`SELECT DISTINCT sha256 FROM artifact WHERE job_id = ?`).all(jobId) as Array<{ sha256: string }>
-    ).map((r) => r.sha256);
-    const artifacts = this.db.query(`DELETE FROM artifact WHERE job_id = ?`).run(jobId).changes;
-    let blobs = 0;
-    for (const sha of shas) {
-      if (this.db.query(`SELECT 1 FROM artifact WHERE sha256 = ? LIMIT 1`).get(sha)) continue;
-      if (this.blobs.delete(sha)) blobs++;
-    }
-    return { artifacts, blobs };
+    return deleteArtifactsForJobs(this.db, this.blobs, [jobId]);
+  }
+
+  /** The maintenance sweep (retention.ts) over this harness's database and blob store. */
+  sweep(options: { graceMs?: number } = {}): HarnessSweepResult {
+    return sweepHarnessData(this.db, this.blobs, { now: this.now(), graceMs: options.graceMs });
   }
 }
 

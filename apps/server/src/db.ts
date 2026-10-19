@@ -18,6 +18,7 @@ import {
 } from "../../../packages/core/src/index.ts";
 import { config, readSecret } from "@lectern/config";
 import { runMigrations } from "@lectern/db";
+import { BlobStore, deleteArtifactsForJobs } from "@lectern/harness";
 import { ensurePrivateDir, hardenPrivateTree, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
 
@@ -158,6 +159,9 @@ export interface LectureRecord {
 // checks in storage.ts agree. Production sets them explicitly in the systemd unit.
 const DATA_DIR = config().dataDir;
 const LECTURES_ROOT = config().lecturesDir;
+/** packages/harness blob store: stage artifacts, i.e. copies of audio, transcripts and notes. */
+export const HARNESS_BLOB_DIR = join(DATA_DIR, "blobs");
+const harnessBlobs = new BlobStore(HARNESS_BLOB_DIR); // creates its directories on first write
 
 // Owner-only from the first write (see fsperm.ts); files left readable by older releases
 // are fixed here, before the database and its -wal/-shm files are opened.
@@ -1557,10 +1561,28 @@ export function setLectureVisibility(
   return getLectureById(id);
 }
 
+/**
+ * Deletes the harness artifacts of a lecture's jobs and the blobs nothing else references.
+ * They are copies of the recording's content, so they go with it (privacy policy §3);
+ * the jobs' stage_run/ai_call records follow the job rows (maintenance, 30 days).
+ */
+function deleteHarnessArtifacts(lectureId: string): void {
+  try {
+    const jobIds = (db.query(`SELECT id FROM job WHERE subject_id = ?`).all(lectureId) as Array<{ id: string }>).map(
+      (r) => r.id
+    );
+    if (jobIds.length) deleteArtifactsForJobs(db, harnessBlobs, jobIds);
+  } catch (err) {
+    logger.error("could not delete harness artifacts", { lecture_id: lectureId, err });
+  }
+}
+
 export function deleteLectureAudioOnly(id: string): { ok: boolean; reclaimedBytes: number; lecture: LectureRecord | null } {
   const rec = getLectureById(id);
   if (!rec) return { ok: false, reclaimedBytes: 0, lecture: null };
   let reclaimedBytes = 0;
+  // Derived audio (normalized copies, chunks) is audio too; everything derived goes with it.
+  deleteHarnessArtifacts(id);
 
   if (rec.audio_path && existsSync(rec.audio_path)) {
     try {
@@ -1582,6 +1604,7 @@ export function deleteLectureAudioOnly(id: string): { ok: boolean; reclaimedByte
 
 export function deleteLectureById(id: string): boolean {
   const rec = getLectureById(id);
+  deleteHarnessArtifacts(id);
   if (rec) {
     if (rec.md_source_path) {
       db.query(

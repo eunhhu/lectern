@@ -1,7 +1,6 @@
 // Job handlers for the durable queue, shared by the API's embedded worker and apps/worker.
 // Like queue.ts, this module must not import index.ts.
 
-import { join } from "node:path";
 import { config } from "@lectern/config";
 import {
   classifyGeminiError,
@@ -15,6 +14,7 @@ import {
   completeLectureRecord,
   db,
   failLectureRecord,
+  HARNESS_BLOB_DIR,
   getLectureById,
   getSystemSettings,
   type LectureRecord,
@@ -170,7 +170,7 @@ async function runLegacyDistillation(job: LeasedJob): Promise<JobOutcome> {
 let distillHarness: Harness | null = null;
 
 function defaultHarness(): Harness {
-  distillHarness ??= new Harness({ db, blobDir: join(config().dataDir, "blobs"), logger });
+  distillHarness ??= new Harness({ db, blobDir: HARNESS_BLOB_DIR, logger });
   return distillHarness;
 }
 
@@ -293,7 +293,13 @@ registerJobHandler("distill", runDistillation, {
   concurrency: config().maxConcurrentJobs,
   // Interrupted too many times (crashes or kills mid-run): leave a retryable error behind
   // instead of a lecture that says "processing" forever.
-  onLost: ({ subjectId, ownerId }) => {
+  onLost: ({ id, subjectId, ownerId }) => {
+    // The handler never reached its own cleanup (harness engine): drop the stage's copy of the notes.
+    try {
+      defaultHarness().deleteArtifactsForJob(id);
+    } catch (err) {
+      logger.error("could not delete distill artifacts", { job_id: id, err });
+    }
     if (!subjectId) return;
     const failed = failLectureRecord(
       subjectId,

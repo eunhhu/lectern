@@ -22,6 +22,7 @@ import {
   renameSync,
   statSync,
   unlinkSync,
+  utimesSync,
   writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -70,7 +71,7 @@ export class BlobStore {
     const bytes = typeof data === "string" ? Buffer.from(data, "utf8") : data;
     const sha256 = sha256Hex(bytes);
     const ref = { sha256, blobKey: BlobStore.keyFor(sha256), bytes: bytes.byteLength };
-    if (this.has(sha256)) return ref;
+    if (this.touch(sha256)) return ref;
     const tmp = this.tmpPath();
     const fd = openSync(tmp, "wx", BLOB_FILE_MODE);
     try {
@@ -103,7 +104,7 @@ export class BlobStore {
     }
     closeSync(fd);
     const sha256 = hash.digest("hex");
-    if (this.has(sha256)) unlinkQuietly(tmp);
+    if (this.touch(sha256)) unlinkQuietly(tmp);
     else this.commit(tmp, sha256);
     return { sha256, blobKey: BlobStore.keyFor(sha256), bytes };
   }
@@ -124,6 +125,21 @@ export class BlobStore {
       return statSync(this.path(sha256)).size;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * True when the blob already exists, after bumping its mtime: a stage that reuses an
+   * existing blob records it only when it finishes, and the maintenance sweep spares
+   * unreferenced blobs younger than its grace period (retention.ts).
+   */
+  private touch(sha256: string): boolean {
+    try {
+      const now = new Date();
+      utimesSync(this.path(sha256), now, now);
+      return true;
+    } catch {
+      return false;
     }
   }
 
