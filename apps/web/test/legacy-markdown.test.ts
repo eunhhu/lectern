@@ -36,23 +36,25 @@ describe("legacy Markdown", () => {
       "---",
     ].join("\n");
     const blocks = parseLegacyMarkdown(md);
-    expect(blocks.map((b) => b.t)).toEqual(["heading", "heading", "p", "list", "list", "quote", "code", "table", "hr"]);
+    expect(blocks.map((b) => b.t)).toEqual(["heading", "heading", "p", "p", "list", "list", "quote", "code", "table", "hr"]);
     expect(blocks[0]).toMatchObject({ t: "heading", level: 1, text: "정보보호 7주차" });
     const p = blocks[2]!;
     expect(p.t === "p" && p.c).toEqual([
       { t: "time", ms: 3000, label: "00:03" },
       { t: "text", v: " ECB는 " },
       { t: "strong", c: [{ t: "text", v: "위험" }] },
-      { t: "text", v: "하다. 이어지는 문장." },
+      { t: "text", v: "하다." },
     ]);
-    const list = blocks[3]!;
+    // Each line of a v1 note is its own paragraph (a separate timed statement).
+    expect(blocks[3]).toEqual({ t: "p", c: [{ t: "text", v: "이어지는 문장." }] });
+    const list = blocks[4]!;
     if (list.t !== "list") throw new Error("list");
     expect(list.items.map((i) => inlineText(i.c))).toEqual(["첫째 01:02", "둘째"]);
     const nested = list.items[0]!.children[0]!;
     expect(nested.t === "list" && inlineText(nested.items[0]!.c)).toBe("하위 항목 이어지는 줄");
-    expect(blocks[4]).toMatchObject({ t: "list", ordered: true });
-    expect(blocks[6]).toEqual({ t: "code", lang: "ts", v: "const x = `[00:01]`;" });
-    const table = blocks[7]!;
+    expect(blocks[5]).toMatchObject({ t: "list", ordered: true });
+    expect(blocks[7]).toEqual({ t: "code", lang: "ts", v: "const x = `[00:01]`;" });
+    const table = blocks[8]!;
     expect(table.t === "table" && table.rows.map((r) => r.map(inlineText))).toEqual([["ECB", "패턴 노출"]]);
   });
 

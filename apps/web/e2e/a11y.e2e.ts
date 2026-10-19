@@ -126,5 +126,5 @@ test("a carried-over v1 note: Markdown drawn as a document, [MM:SS] marks move t
   await page.getByRole("button", { name: /^1:02:40로 이동/ }).click();
   await expect(page.getByRole("slider", { name: "재생 위치" })).toHaveValue("3760");
   await axe(page, "이전 노트 (legacy-markdown)");
-  await page.screenshot({ path: "test-results/screens/06-legacy-note.png" });
+  await page.screenshot({ path: "test-results/screens/fixture-legacy-note.png" });
 });

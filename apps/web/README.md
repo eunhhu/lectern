@@ -72,19 +72,20 @@ e2e/       Playwright (*.e2e.ts: bun test가 집어 가지 않도록 .spec이 �
 - **물어보기**: `POST /ask/threads`(범위마다 대화 하나) → `POST /ask/threads/{id}/turns`의 SSE를 `fetch`로 읽는다. 멈추면 `AbortSignal`로 끊고, 서버가 끝까지 만들어 저장한 답은 "끝까지 만든 답 보기"로 대화에서 다시 읽는다.
 - **오디오**: `/assets/{id}/content`를 `<audio>`에 주면 브라우저가 Range 요청으로 받는다.
 
-엔드포인트 상태(이 브랜치 기준, 서버는 `apps/server/src/api/v2/README.md`):
+엔드포인트 상태(P2 백엔드 병합 뒤, 서버는 `apps/server/src/api/v2/README.md`):
 
-| 화면이 쓰는 API | 서버 지금 | 화면 |
+| 화면이 쓰는 API | 서버 | 화면 |
 |---|---|---|
 | `/api/auth/login`·`logout`·`me` (v1) | 실제 | 로그인, 로그아웃, 세션 확인 |
-| `GET /me`, `/workspaces`, `/workspaces/{id}/members`, `/me/devices` | 고정 픽스처(`demo@example.com`) | 그대로 보인다. 로그인한 계정과 다른 이름이 보인다 |
-| `GET /folders`, `/tags`, `/recordings`, `/recordings/{id}`(+`/transcript`·`/questions`·`/events`·`/action-items`), `/documents/{id}`, `/calendar/suggestions`, `/search` | 고정 픽스처 | 그대로 보인다(실제 녹음이 아니다) |
-| `GET /events` | 픽스처 재생 후 닫음 | `Last-Event-ID`로 30초마다 다시 붙는다 |
-| `/ask/threads`·`/ask/threads/{id}`·`/turns`(SSE)·`DELETE`·`/ask/usage` | **실제**(`LECTERN_ASK=1`, v1 강의 위), 꺼지면 501 | 동작. 501이면 준비 중 |
-| `GET /assets/{id}/content` | 501 | 재생 버튼 끔, "오디오 준비 중" |
-| 쓰기 전부(`PATCH /me`, 폴더·태그·녹음·할 일·일정 제안, `DELETE /me/devices/{id}`, 업로드, 문서 버전) | 501 | 준비 중 토스트, 상태는 바뀌지 않는다 |
-
-P2 백엔드가 읽기를 실제 데이터로 바꾸면 화면 쪽 변경 없이 실제 녹음이 보인다. 그때 바뀌어야 하는 것은 "`/`를 새 앱으로 바꾸기 전에 남은 일"에 있다.
+| `GET /me`, `/workspaces`, `/workspaces/{id}/members`, `/me/devices` | 실제(v1 사용자, 개인 워크스페이스 `wsp_<user id>`, 로그인 세션) | 로그인한 계정 그대로 |
+| `GET /folders`, `/tags`, `/recordings`(+ `progress`·`audio_bytes`), `/recordings/{id}`(+ `progress`·`failure`)·`/transcript`·`/events`·`/action-items`, `/documents/{id}`, `/action-items`, `/calendar/suggestions`(`statuses`), `/search` | 실제(v1 강의의 투영) | 실제 녹음. 이전 강의는 legacy-markdown 문서와 빈 전사 |
+| 쓰기: `PATCH /me`, 폴더·태그 CRUD, `PATCH`·`DELETE /recordings/{id}`, `POST /recordings/batch`, 할 일·일정 제안, `DELETE /me/devices/{id}` | 실제 | 동작 |
+| 업로드 `POST /uploads` → `PUT /parts/{n}` → `complete` | 실제(개인 워크스페이스, 새 녹음은 오디오 1개) | 동작. 제한에 걸리면 서버 문구를 녹음마다 보인다 |
+| `GET /assets/{id}/content` | 실제(Range) | 재생, 전사 동기화 |
+| `GET /events` | 실제(연결 유지, `Last-Event-ID`로 재생, 없으면 지금부터) | 진행률·상태 갱신 |
+| `/ask/*` | 실제(`LECTERN_ASK=1`), 꺼지면 501 | 동작. 501이면 준비 중 |
+| `POST /documents/{id}/versions` | 실제(`If-Match`, legacy는 `markdown`) | 클라이언트만 있다. 편집 화면은 아직 없다 |
+| 토큰 만들기·지우기, 작업 취소, Google 연동, 공유 링크 쓰기, 관리자 재시도 | 501 | 화면이 쓰지 않는다(쓰면 준비 중) |
 
 ## 화면
 
@@ -142,14 +143,14 @@ P2 백엔드가 읽기를 실제 데이터로 바꾸면 화면 쪽 변경 없이
 - `bun test apps/web`: 짝짓기(18개 경우), 구간 탐색(긴 전사 선형 비교 포함), 초성 검색, 한국어 표기·조사, IME 판별, 시뮬레이션 시계, `index.html`에 인라인 스크립트·스타일·외부 오리진 없음, 스타일에 색 리터럴 없음과 모든 `var()`가 토큰인지(DESIGN §2.1 "손으로 쓴 색 금지"를 stylelint 대신 테스트로), 픽스처 검증, 폴더·태그·프로필·기기·할 일 쓰기(`test/organise.test.ts`: 빈 이름·형제 중복·순환은 domain 오류 코드, 폴더 삭제는 녹음과 하위 폴더를 상위로), 날짜 묶기(Asia/Seoul), 아바타 이니셜, 전사 문단 묶기와 읽기 모드(`test/transcript.test.ts`), 물어보기(`test/ask.test.ts`: domain 스키마로 모든 이벤트·턴·스레드 검증, 이벤트 순서와 델타 합 = 답, 모든 `[cN]`에 앞서 온 `citation`이 있고 출처가 실제로 그 말을 한 구간인지, 범위 밖을 인용하지 않는지(하위 폴더 포함/제외), `no_answer`, 추천 질문마다 출처 있는 답, 멈춘 턴도 저장, 검증 오류 코드), HTTP 클라이언트(`test/http-client.test.ts`: 가짜 fetch로 라우트 표 URL, v2·v1 오류 본문, 쓰기의 `Idempotency-Key`, `If-Match`, 401 알림, 스키마와 다른 응답, 쪼개진 SSE, 모르는 이벤트 무시, `error` 이벤트, `Last-Event-ID` 재연결과 중복 제거, 501에서 멈춤, v1 로그인 응답의 토큰을 버림), 실제 오디오 시계(`test/audio-clock.test.ts`: 파트 이어 붙이기, 경계를 넘는 이동, 다음 파트로 넘어감, 오류 상태), v1 Markdown(`test/legacy-markdown.test.ts`, 악성 입력 포함).
 - `bun run web:e2e`(Playwright + `@axe-core/playwright`) 두 프로젝트:
   - **fixture**: 픽스처 빌드(`dist-fixture`)를 운영보다 엄격한 CSP의 미리보기 서버로. 아래 항목 전부.
-  - **server**: 운영 빌드(`dist`)를 실제 서버로(`e2e/server/start.ts`). 버리는 DB에 오너 계정과 v1 강의 2개(합성, WAV 오디오)를 넣고 `LECTERN_ASK=1`, `LECTERN_WORKER_MODE=external`로 띄운다. Gemini 호출은 fetch 경계의 가짜가 답하고(결정적 임베딩, 가장 맞는 조각을 `[cN]`으로 인용하는 모델) 다른 외부 요청은 모두 거절한다. apps/server는 고치지 않고 환경 변수만 준다. 확인: 세션 없이 들어오면 로그인 → 틀린 비밀번호 → 원래 가려던 화면, `lectern_session`이 HttpOnly이고 저장소에 토큰 없음, 라이브러리가 `/api/v2/recordings`와 같은지, 녹음 상세와 오디오(브라우저의 실제 `<audio>`가 Range 요청으로 받아 재생 위치와 전사의 현재 구간이 움직이는지. 자산 라우트가 아직 501이면 시험에서만 그 URL을 시드 강의의 v1 오디오 라우트로 돌려 같은 경로를 돈다; 501일 때의 "오디오 준비 중"은 따로 확인), 물어보기(실제 SSE, 출처, 기록, 근거 없음, 출처 링크), 501 쓰기의 준비 중, 로그아웃 뒤 다시 로그인으로, ask 라우트가 501일 때 준비 중. 화면은 axe 0건이고 스크린숏을 `test-results/screens`에 남긴다(`E2E_SCREENSHOT_DIR`로 바꿈).
+  - **server**: 운영 빌드(`dist`)를 실제 서버로(`e2e/server/start.ts`). 버리는 DB에 오너 계정과 v1 강의 2개(합성, WAV 오디오)를 넣고 `LECTERN_ASK=1`, `LECTERN_WORKER_MODE=external`로 띄운다. 이전 강의는 전사가 없으므로 한 강의에만 v2 표(`speaker`, `transcript_segment`)에 전사를 시드한다(전사 파이프라인이 쓸 자리). Gemini 호출은 fetch 경계의 가짜가 답하고(결정적 임베딩, 가장 맞는 조각을 `[cN]`으로 인용하는 모델) 다른 외부 요청은 모두 거절한다. apps/server는 고치지 않고 환경 변수만 준다. 확인: 세션 없이 들어오면 로그인 → 틀린 비밀번호 → 원래 가려던 화면, `lectern_session`이 HttpOnly이고 저장소에 토큰 없음, `/me`가 로그인한 계정인지, 라이브러리가 `/api/v2/recordings`와 같은지, 이전 노트(Markdown 문서, `[MM:SS]`로 플레이어 이동, 전사 없음 안내), 전사가 있는 녹음에서 브라우저의 실제 `<audio>`가 `/assets/{id}/content`를 Range 요청으로 받아 재생 위치와 전사의 현재 구간이 움직이는지, 물어보기(실제 SSE, 출처, 기록, 근거 없음, 출처 → 그 녹음의 그 시각), 프로필 저장, 폴더 만들기와 녹음 옮기기, 업로드(파트 → 완료 → 대기 중), 로그아웃 뒤 다시 로그인으로, 자산·물어보기가 501일 때의 준비 중. 화면은 axe 0건이고 스크린숏을 `test-results/screens`에 남긴다(`E2E_SCREENSHOT_DIR`로 바꿈).
   - axe WCAG 2.0/2.1/2.2 A·AA 태그로 홈, 라이브러리(전체·폴더·스마트 보기), 녹음 상세(완료·일부 완료·처리 중·실패, 원문 전사·자료 패널), 일정, 설정을 라이트·다크에서, 팔레트·단축키 표·업로드 대화상자·삭제 확인·회의 상세까지 위반 0건.
   - 키보드만으로 업로드(파일 선택 → 자동 짝짓기 확인 → 올리기) → 처리 완료 → 홈에서 열기 → 문서 → 출처 칩으로 전사 강조까지.
   - 단축키가 입력·IME 조합·끔 상태에서 꺼지는지, 끌어다 놓기와 키보드 대안 이동, 가상 스크롤 전사의 키보드 이동과 따라가기 해제.
   - 폴더(새로 만들기 → 제자리 이름, F2, 메뉴로 하위로 옮기기, Delete로 삭제와 녹음 상위 이동, 폴더 끌어다 놓기), 태그(만들기·이름·색·붙이기·삭제, 대화상자에서 새 태그), 전체 선택(부분 선택·⌘A·해제), 일정(확정 일정, 제안 추가, 키보드 날짜 이동), 사용자 메뉴와 프로필 저장. 이 화면들의 열린 메뉴·이름 칸·확인 대화상자 상태도 axe 0건.
   - 물어보기: 노트 패널(추천 질문 → 스트리밍 답 → 출처로 전사 강조 → "물어보기로"), 근거 없음 → "전체 노트에서 다시 묻기", 물어보기 화면(여러 노트 답, 출처 링크, 기록, 복사), 오프라인 오류 → 다시 시도, 멈춤, ⌘K(전체 노트와 이 노트). 물어보기 빈 화면·대화·답·근거 없음·오류 상태도 axe 0건.
   - 로그인 화면(라이트·다크, 오류), 로그아웃 → 로그인 → 홈, 세션 없이 딥 링크 → 로그인 → 그 화면, 이전 노트(표·제목·`[1:02:40]`로 플레이어 이동)도 fixture 프로젝트에 있다.
-  - 지금 e2e 53개(fixture 49, server 4) 통과. 단위 테스트는 `bun test apps/web` 94개.
+  - 지금 e2e 55개(fixture 49, server 6) 통과. 단위 테스트는 `bun test apps/web` 98개.
   - 모든 테스트는 CSP 위반이나 잡히지 않은 오류가 하나라도 나면 실패한다.
 - CI: `.github/workflows/ci-cd.yml`의 `web` job(Bun 1.4.3, `--frozen-lockfile`). `deploy-server`의 `needs`는 그대로다.
 
@@ -173,7 +174,7 @@ P2 백엔드가 읽기를 실제 데이터로 바꾸면 화면 쪽 변경 없이
 - **복습을 뺐다.** Lectern은 강의 전용이 아니라 범용 STT 노트 앱이라 회상 카드·정답 평가 같은 학습 시스템이 맞지 않는다는 제품 판단이다(지난 피드백 반영 때 만든 복습 화면 `7de7b7d`을 이번에 제거). 사이드바·라우트(`/review`)·`G R` 단축키·홈 카드·녹음 상세의 "질문" 탭을 지웠다. 질문 데이터는 domain 계약에 남아 있으므로 픽스처에서 지우지 않았다.
 - **Google 캘린더 연결은 자리 표시다.** 다른 기기 로그아웃은 `DELETE /me/devices/{id}`로 픽스처에서 실제로 지워진다(실제 서버는 아직 501).
 - **일정 월 보기는 React Aria `Calendar` 위에 그렸다.** 날짜 키보드 이동과 스크린 리더 이름을 직접 만들지 않으려고 `@internationalized/date@3.12.4`(React Aria가 이미 쓰는 패키지, 격리 링커라 직접 의존성으로 선언)를 추가했다. 칸 안 일정은 `CalendarCell`의 자식이라 칸 하나가 탭 정지 하나이고, 일정 목록은 레일의 "고른 날" 카드가 읽어 준다.
-- **홈의 다가오는 일정과 일정 화면은 워크스페이스 단위 목록 API가 없어 녹음마다 일정·할 일을 불러 모은다**(아래 요청). 픽스처에서는 문제가 없지만 실제 API에서는 녹음 수만큼 요청이 나간다.
+- **홈의 다가오는 일정과 일정 화면은 `GET /action-items`와 `statuses=accepted,synced` 한 번씩으로 읽는다**(전에는 녹음마다 불렀다).
 - **녹음 목록은 가상 스크롤하지 않는다.** 목록이 작다. 긴 전사는 가상 스크롤한다.
 - **수식은 LaTeX 원문을 코드로 보여 준다.** 렌더러(KaTeX 등)는 의존성·CSP 검토가 필요해 뒤로 미뤘다.
 - **PDF는 자리 표시다.** 칩이 가리키는 쪽 번호를 보여 준다. pdf.js 뷰어는 P3.
@@ -187,7 +188,7 @@ P2 백엔드가 읽기를 실제 데이터로 바꾸면 화면 쪽 변경 없이
 
 ## domain 요청
 
-**상태(이 브랜치)**: #1은 `09a5ab7`에서 고쳐졌고 `Out<S>`를 지웠다. #16–20은 domain 물어보기 계약(`a4c48ea`, ADR-0009 §11)으로 대체됐고 화면을 그 계약에 맞췄다(추천 질문 엔드포인트는 없어서 화면이 만든다). #2–15·#21은 P2 백엔드 브랜치의 domain 추가(`f3484a7`: 저장한 보기, 목록 필터, 일괄 작업, 진행률·실패 원인, 블록 `edited`, 목록 요약 필드, 워크스페이스 할 일 목록, 일정 상태 여러 개·날짜 범위, legacy-markdown 편집, 태그 색 목록)로 계약이 생겼다. 화면은 아직 그 추가를 쓰지 않는다(아래 "남은 일").
+**상태(이 브랜치)**: #1은 `09a5ab7`에서 고쳐졌고 `Out<S>`를 지웠다. #16–20은 domain 물어보기 계약(`a4c48ea`, ADR-0009 §11)으로 대체됐고 화면을 그 계약에 맞췄다(추천 질문 엔드포인트는 없어서 화면이 만든다). #2–15·#21은 P2 domain 추가(`f3484a7`)로 계약이 생겼고, 화면은 그중 일괄 작업(`POST /recordings/batch`), 워크스페이스 할 일(`GET /action-items`), 일정 `statuses`, 처음 열 때의 진행률(`progress`)과 실패 원인(`failure`), 목록의 오디오 용량(`audio_bytes`)을 쓴다. 쓰지 않는 것은 "`/`를 새 앱으로 바꾸기 전에 남은 일" 8번.
 
 `packages/domain`은 동결되어 다른 흐름이 소유하므로 고치지 않았다. 필요한 것을 여기 적는다. 1번만 버그이고 나머지는 하위 호환 추가이거나(2–10, 14–21) 계약이 비워 둔 의미를 정해 달라는 것이다(11–13).
 
@@ -223,28 +224,34 @@ P2 백엔드가 읽기를 실제 데이터로 바꾸면 화면 쪽 변경 없이
 
 ## 계약과 어긋나거나 정해지지 않은 것
 
-연결하면서 찾은 것이다. 고치지 않고 적는다(소유: P2 백엔드).
+P2 백엔드를 병합한 뒤 실제 서버로 다시 확인했다.
 
-1. **`/me`와 로그인한 계정이 다르다.** 스텁 `/me`는 누가 로그인해도 `demo@example.com`과 픽스처 개인 워크스페이스 id를 준다. 물어보기는 그 id를 호출자의 `wsp_<user id>` 별칭으로 받고, 응답(`AskThread.workspace_id`, `AskUsage.workspace_id`)에는 `wsp_<user id>`가 온다. 화면은 스레드를 워크스페이스 id로 다시 거르지 않는다.
-2. **녹음 id가 두 세계로 갈린다.** v2 녹음 목록은 픽스처 id이고 물어보기는 v1 강의 id를 인용한다. 그래서 지금 물어보기 출처를 누르면 "녹음을 찾을 수 없습니다"다(server e2e가 이 경우를 확인한다). P2 이행이 강의 id = 녹음 id를 지키면 풀린다(ARCHITECTURE §5.3).
-3. **v1 브리지 인용**: `snippet`에 `[00:17]` 시각 표시가 그대로 있다(계약은 "plain-text excerpt"). `section_title`은 섹션이 아니라 노트 제목이다. 화면은 둘 다 걸러서 보인다.
-4. **`label`이 조각 번호다.** 답이 하나만 인용해도 `[c2]`일 수 있다. 계약은 "turn 안에서 유일"만 말하므로 화면이 처음 나온 순서로 번호를 다시 붙인다. 서버가 처음 나온 순서로 붙여 준다면 이 변환은 필요 없다.
-5. **`citation` 이벤트가 표지 뒤에 온다.** 서버는 표지가 든 `answer.delta`를 먼저 보내고 `citation`을 그 뒤에 보낸다(계약 설명은 "A marker appeared for the first time"). 화면은 짝이 올 때까지 표지를 그리지 않으므로 문제는 없지만, 계약에 순서를 적어 두면 좋다.
-6. **추천 질문 엔드포인트가 없다.** 화면이 녹음 종류와 (폐기 예정인) 질문으로 만든다.
-7. **오디오 바이트**: `GET /assets/{id}/content`가 501이다. 운영에서 재생하려면 이 라우트가 v1 강의의 `audio_path`(또는 이행된 자산)를 Range로 서빙해야 한다. 화면은 원본 `audio` → `audio_compact` → `audio_normalized` 순으로 고르고 파트를 이어 붙이므로, 파트가 둘 이상이면 각 자산의 `duration_ms`가 있어야 한다.
-8. **legacy-markdown 녹음의 전사**: v1 강의에는 구간 전사가 없다. 이행된 녹음의 `GET /transcript`가 빈 `segments`를 돌려준다고 가정했다(404면 화면은 "전사를 불러오지 못했습니다"를 보인다).
-9. **v1 인증 응답**: `/api/auth/login`과 `/api/auth/me`는 본문에 세션 토큰과 `apiToken`을 담는다. 화면은 `id`·`email`·`displayName`만 남기고 버리지만, 브라우저 요청에는 토큰을 빼는 편이 안전하다.
-10. **세션 확인이 두 번이다.** 게이트는 `/api/auth/me`, 화면 데이터는 `/api/v2/me`다. v2 `/me`가 실제가 되면 게이트를 `/api/v2/me` 하나로 줄일 수 있다(401이면 로그인).
+해결됨: `/me`가 로그인한 계정이다. 물어보기 인용의 녹음 id가 v2 녹음 id와 같아 출처가 그 녹음을 연다. 자산 바이트를 Range로 준다. 이전 강의의 전사는 빈 `segments`다(가정대로).
+
+웹에서 맞춘 것(서버가 바뀌면 지울 수 있다):
+1. **v1 브리지 인용**: `snippet`에 `[00:17]`이 그대로 있고, `section_title`이 섹션이 아니라 노트 제목이다. 화면이 둘 다 걸러서 보인다.
+2. **`label`이 조각 번호다**(답이 `[c2]` 하나만 인용할 수 있다). 화면이 처음 나온 순서로 번호를 다시 붙인다.
+3. **`citation` 이벤트가 그 표지가 든 `answer.delta` 뒤에 온다.** 화면은 짝이 올 때까지 표지를 그리지 않는다. 계약 설명에 순서를 적어 두면 좋다.
+4. **이전 노트의 검색 적중**은 Markdown 원문 조각(`# …`, `[MM:SS]`)이다. 팔레트가 표시를 빼고 같은 줄의 `[MM:SS]`로 연다.
+5. **검색의 제목 적중**(`kind: recording`)은 팔레트가 녹음 목록으로 이미 보이므로 건너뛴다.
+
+백엔드에서 정할 것(목록만):
+6. 추천 질문 엔드포인트가 없다(화면이 만든다).
+7. `/api/auth/login`·`/api/auth/me` 본문에 세션 토큰과 `apiToken`이 담긴다(화면은 버리지만 브라우저 응답에서는 빼는 편이 안전하다).
+8. 업로드는 개인 워크스페이스, 새 녹음당 오디오 1개뿐이다. 계약(`CreateUploadRequest`)은 여러 파트를 허용하므로 화면의 "1부/2부" 묶음은 서버가 400으로 거절한다(문구는 녹음마다 보인다).
+9. 처리 중인 v1 작업의 `progress.stage`는 늘 `legacy_distill`이고 진행률(`progress`)이 대개 없다. 화면은 `message`(v1 단계 문구)를 보인다.
+10. 세션 확인이 두 번이다(게이트 `/api/auth/me`, 화면 데이터 `/api/v2/me`). v2 `/me`가 실제가 됐으니 게이트를 `/api/v2/me` 하나로 줄여도 된다(지시대로 기존 인증 엔드포인트를 남겼다).
 
 ## `/`를 새 앱으로 바꾸기 전에 남은 일
 
-1. **P2 백엔드의 실제 읽기**(`/me`, `/workspaces`, 폴더·태그·녹음·상세·전사·문서): 들어오면 이 브랜치에 병합하고 `bun run web:e2e`의 server 프로젝트를 다시 돌린다. 시험은 API 응답을 읽어 비교하므로 그대로 통과해야 하고, 이때 물어보기 출처 → 녹음 상세(위 2번)와 legacy-markdown 문서가 실제 데이터로 확인된다.
-2. **`/assets/{id}/content`(Range)**: 실제가 되면 server e2e가 재생 시계가 움직이는지까지 본다(지금은 501 분기).
-3. **쓰기 API**: 폴더·태그·녹음 수정·삭제, 프로필, 할 일·일정 제안, 기기 로그아웃. 화면은 이미 계약대로 보내고 501을 준비 중으로 보인다.
-4. **업로드**: v2 재개 가능 업로드가 생기기 전에는 새 화면에서 올릴 수 없다(준비 중 안내 후 `/`로). `/`를 바꾸려면 업로드가 먼저다.
-5. **회원가입·비밀번호 찾기·공유 페이지·관리자 콘솔**: 아직 `/`(ui.ts)에만 있다. 로그인 화면은 기존 화면으로 안내한다.
-6. **P2 domain 추가 쓰기**(`f3484a7`): 처음 열 때의 진행률(`RecordingDetail.progress`), 실패 원인, 일괄 작업 `POST /recordings/batch`, 목록 필터(지금은 전부 받아 화면이 거른다), 워크스페이스 할 일 목록(지금은 녹음마다 부른다), 일정 `statuses`·날짜 범위, 저장한 보기.
-7. **물어보기 켜기**: 운영은 `LECTERN_ASK=0`이다. 꺼진 동안 화면은 준비 중을 보인다.
-8. Pretendard 직접 호스팅 병합 후 `@font-face`, pdf.js 뷰어(P3), legacy-markdown 편집 화면(계약은 `CreateDocumentVersionRequest.markdown`).
+1. **회원가입·비밀번호 찾기·이메일 인증**: 아직 `/`(ui.ts)에만 있다. 로그인 화면은 기존 화면으로 안내한다.
+2. **이전 노트 편집**: 서버는 `POST /documents/{id}/versions`의 `markdown`을 받지만 편집 화면이 없다. v1 화면의 노트 고치기를 대신할 것이 있어야 한다.
+3. **공유 링크**(`/s/…`)와 공개 페이지, **관리자 콘솔**: 아직 v1. 공유 링크 쓰기는 501.
+4. **v1에만 있는 기능 점검**: 강의 재처리·오디오만 지우기·Markdown 내려받기·API 토큰 재발급 같은 v1 화면 기능을 새 앱의 어디로 옮길지(재처리는 `POST /recordings/{id}/reprocess`, 토큰은 501).
+5. **업로드 제한**: 팀 워크스페이스 업로드와 여러 오디오 파트(위 8번). 바꾸기 전에 업로드 대화상자가 미리 안내하도록 맞출지 정한다.
+6. **실제 전사**: 지금 처리는 v1 파이프라인이라 새 녹음도 전사 구간이 없다. P1 전사 파이프라인이 v2 표에 쓰기 시작하면 전사 패널이 채워진다(웹은 이미 그 모양을 읽는다).
+7. **물어보기 켜기**(운영 `LECTERN_ASK=0`), **CD**: `/`를 바꾸는 배포에서 `LECTERN_WEB_SHELL=1`과 함께.
+8. P2 domain 추가 중 아직 쓰지 않는 것: 저장한 보기(`/views`, 지금은 클라이언트 상수), 서버 목록 필터(라이브러리는 폴더 개수 때문에 전부 받아 거른다), 블록 `edited` 표시, 구간 `lang`, `TagColorName`.
+9. Pretendard 직접 호스팅 병합 후 `@font-face`, pdf.js 뷰어(P3).
 
 참고: 이 변경으로 `bun.lock`에 React, React Aria, TanStack, Playwright가 들어가므로 다음 운영 배포에서 Pi가 `bun install --frozen-lockfile`을 돌린다(`ops.ts`의 `DEPENDENCY_FILES`). `playwright@1.63.0`과 `playwright-core`에는 설치 스크립트가 없어 브라우저를 내려받지 않는다.
