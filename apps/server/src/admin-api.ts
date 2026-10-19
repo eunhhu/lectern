@@ -105,6 +105,10 @@ export interface MaintenanceResultDto {
   expiredSessions: number;
   expiredCodes: number;
   prunedAuditLogs: number;
+  /** SSE event rows older than a day. */
+  prunedJobEvents?: number;
+  /** Finished job rows older than 30 days. */
+  prunedJobs?: number;
   orphanFiles: { count: number; bytes: number };
   tempFiles: { count: number; bytes: number };
   retention: { count: number; bytes: number };

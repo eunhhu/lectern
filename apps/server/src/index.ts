@@ -79,19 +79,26 @@ import type {
   CompactResponse,
   GcResponse,
   JobDto,
+  JobKind,
   LectureSummaryDto,
   RetentionResponse,
 } from "./admin-api.ts";
 import {
   countJobs,
-  drainJobs,
-  enqueueJob,
+  embeddedWorker,
+  ensureEmbeddedWorker,
   getLectureJob,
   isLectureBusy,
   snapshotJobs,
+  waitForJob,
   type JobInfo,
-  type JobOutcome,
-} from "./jobs.ts";
+} from "./queue.ts";
+import { enqueueDistillation, isRetryableDistillError, scheduleCompaction } from "./job-handlers.ts";
+import { emitLectureEvent, onLectureEvent, tailForeignLectureEvents, type LectureEventPayload } from "./events.ts";
+import { toLectureSummaryDto } from "./dto.ts";
+import { emitRetentionOutcome, runMaintenanceNow, startMaintenanceSchedule } from "./maintenance.ts";
+
+export { isRetryableDistillError, toLectureSummaryDto };
 import {
   applyRetentionPolicies,
   buildStorageStats,
@@ -156,45 +163,8 @@ type SSEController = ReadableStreamDefaultController<Uint8Array>;
 const sseClientsByOwner = new Map<string, Set<SSEController>>();
 const sseEncoder = new TextEncoder();
 
-export function toLectureSummaryDto(l: LectureRecord): LectureSummaryDto {
-  const displayDateLabel =
-    l.date_label && l.date_label.length > 10
-      ? l.date_label
-      : formatKstTimestamp(l.created_at).fullLabel;
-  return {
-    id: l.id,
-    share_token: l.share_token,
-    is_public: Boolean(l.is_public),
-    title: l.title,
-    course: l.course,
-    date_label: displayDateLabel,
-    status: l.status,
-    stage: l.stage,
-    stage_message: l.stage_message,
-    progress: l.progress,
-    excerpt: l.excerpt,
-    duration_sec: l.duration_sec,
-    audio_size: l.audio_size,
-    model_used: l.model_used,
-    has_audio: Boolean(l.audio_path && existsSync(l.audio_path)),
-    created_at: l.created_at,
-    updated_at: l.updated_at,
-  };
-}
-
-export function broadcastLectureEvent(
-  ownerId: string,
-  payload: {
-    type: "created" | "progress" | "completed" | "error" | "updated" | "deleted";
-    id?: string;
-    ids?: string[];
-    lecture?: ReturnType<typeof toLectureSummaryDto>;
-    stage?: string;
-    stage_message?: string;
-    progress?: number;
-    error_message?: string | null;
-  }
-): void {
+/** Writes one event to this owner's open SSE streams. */
+function deliverToSse(ownerId: string, payload: LectureEventPayload): void {
   const clients = sseClientsByOwner.get(ownerId);
   if (!clients || clients.size === 0) return;
 
@@ -208,6 +178,15 @@ export function broadcastLectureEvent(
       clients.delete(ctrl);
     }
   }
+}
+
+// Events emitted in this process (user actions, the embedded worker) reach SSE directly;
+// events from an external worker arrive through tailForeignLectureEvents (main block).
+onLectureEvent(deliverToSse);
+
+/** Records a lecture change and notifies its owner's clients (SSE). */
+export function broadcastLectureEvent(ownerId: string, payload: LectureEventPayload): void {
+  emitLectureEvent(ownerId, payload);
 }
 
 // Set by the entry point to a graceful shutdown; a process supervisor (systemd) restarts us.
@@ -236,185 +215,7 @@ function closeAllSseStreams(): void {
   }
 }
 
-interface DistillInput {
-  audioPath: string;
-  course: string;
-  title: string;
-  model: string;
-  apiKey?: string;
-}
-
-function broadcastProgress(ownerId: string, updated: LectureRecord | null): void {
-  if (!updated) return;
-  broadcastLectureEvent(ownerId, {
-    type: "progress",
-    id: updated.id,
-    stage: updated.stage,
-    stage_message: updated.stage_message,
-    progress: updated.progress,
-    lecture: toLectureSummaryDto(updated),
-  });
-}
-
-/**
- * Queues the distillation of a lecture whose row is already 'processing'. The job queue
- * bounds how many run at once, and a lecture that already has a distillation queued or
- * running is not queued twice: the existing job's completion is returned instead.
- */
-function enqueueDistillation(
-  id: string,
-  ownerId: string,
-  input: DistillInput
-): Promise<JobOutcome> {
-  const { done, deduplicated, position } = enqueueJob("distill", id, () =>
-    runDistillation(id, ownerId, input)
-  );
-  if (!deduplicated && position > 0) {
-    broadcastProgress(
-      ownerId,
-      updateLectureProgress(
-        id,
-        "queued",
-        `분석 대기열 ${position}번째 — 앞선 작업이 끝나면 자동으로 시작됩니다.`,
-        5
-      )
-    );
-  }
-  return done;
-}
-
-const LECTURE_GONE_MESSAGE = "강의가 삭제되어 작업을 중단했습니다.";
-
-/**
- * Only transient failures are worth another attempt: network errors, timeouts, 429 and
- * 5xx from Gemini. Configuration problems, silent recordings, unreadable audio and other
- * 4xx answers fail the same way every time, so retrying them only burns a job slot.
- */
-export function isRetryableDistillError(err: unknown): boolean {
-  const msg = String((err as any)?.message ?? err ?? "");
-  if (
-    msg.includes("GEMINI_API_KEY is not configured") ||
-    msg.includes("음성 신호가 감지되지 않았습니다") ||
-    msg.includes("Audio file not found") ||
-    msg.includes("ffmpeg transcoding failed") ||
-    // Gemini rejected this file itself; uploading it again ends the same way.
-    msg.includes("did not reach ACTIVE state (state=FAILED)")
-  ) {
-    return false;
-  }
-  const status = msg.match(/\((\d{3})\)/);
-  if (status) {
-    const code = Number(status[1]);
-    return code === 408 || code === 429 || code >= 500;
-  }
-  return true;
-}
-
-async function runDistillation(
-  id: string,
-  ownerId: string,
-  input: DistillInput
-): Promise<JobOutcome> {
-  const maxAttempts = 3;
-  let lastErr: any = null;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    if (!getLectureById(id)) return { ok: false, error: LECTURE_GONE_MESSAGE };
-    try {
-      if (attempt > 1) {
-        broadcastProgress(
-          ownerId,
-          updateLectureProgress(
-            id,
-            "retrying",
-            `일시적 네트워크/API 오류 자동 재시도 중 (${attempt}/${maxAttempts})...`,
-            15
-          )
-        );
-        await new Promise((r) => setTimeout(r, 2500 * attempt));
-      }
-
-      const res = await distillLectureAudio({
-        audioPath: input.audioPath,
-        courseName: input.course,
-        title: input.title,
-        model: input.model,
-        apiKey: input.apiKey,
-        onProgress: (ev) => {
-          broadcastProgress(
-            ownerId,
-            updateLectureProgress(id, ev.stage, ev.message, ev.progress ?? 50)
-          );
-        },
-      });
-      // Deleted while Gemini was working: don't write notes (or archive files) for it.
-      if (!getLectureById(id)) return { ok: false, error: LECTURE_GONE_MESSAGE };
-      const done = completeLectureRecord(id, res);
-      broadcastLectureEvent(ownerId, {
-        type: "completed",
-        id,
-        lecture: toLectureSummaryDto(done),
-      });
-      if (getSystemSettings().storage_auto_compact) {
-        scheduleCompaction(id, ownerId);
-      }
-      return { ok: true };
-    } catch (err: any) {
-      lastErr = err;
-      if (!isRetryableDistillError(err)) break;
-    }
-  }
-
-  const errMsg = lastErr?.message || String(lastErr);
-  const failed = failLectureRecord(id, errMsg);
-  broadcastLectureEvent(ownerId, {
-    type: "error",
-    id,
-    error_message: errMsg,
-    lecture: failed ? toLectureSummaryDto(failed) : undefined,
-  });
-  return { ok: false, error: errMsg };
-}
-
-/**
- * Queues re-encoding of a finished lecture's audio (see storage.ts). Returns false when
- * compaction is unavailable (no ffmpeg) or the lecture already has one queued/running.
- */
-function scheduleCompaction(id: string, ownerId: string): boolean {
-  if (!isFfmpegAvailable()) return false;
-  const { deduplicated } = enqueueJob("compact", id, async () => {
-    if (isLectureBusy(id, "distill")) {
-      return { ok: false, error: "분석 작업이 진행 중인 강의입니다." };
-    }
-    const res = await compactLectureAudio(id, getSystemSettings().storage_compact_bitrate_kbps);
-    if (res.state === "compacted") {
-      const updated = getLectureById(id);
-      if (updated) {
-        broadcastLectureEvent(ownerId, {
-          type: "updated",
-          id,
-          lecture: toLectureSummaryDto(updated),
-        });
-      }
-    }
-    return { ok: res.ok, error: res.error ?? null, savedBytes: res.savedBytes };
-  });
-  return !deduplicated;
-}
-
-function broadcastRetentionOutcome(outcome: RetentionOutcome): void {
-  for (const item of outcome.audioRemoved) {
-    if (item.lecture) {
-      broadcastLectureEvent(item.owner_id, {
-        type: "updated",
-        id: item.id,
-        lecture: toLectureSummaryDto(item.lecture),
-      });
-    }
-  }
-  for (const item of outcome.deleted) {
-    broadcastLectureEvent(item.owner_id, { type: "deleted", id: item.id, ids: [item.id] });
-  }
-}
+const broadcastRetentionOutcome = emitRetentionOutcome;
 
 const LECTURE_BUSY_MESSAGE = "이미 분석 또는 압축 작업이 진행 중인 강의입니다.";
 
@@ -446,6 +247,8 @@ export function resumeInterruptedLectures(
     ) {
       continue;
     }
+    // Already in the durable queue (it survives restarts): the worker will pick it up.
+    if (getLectureJob(item.id)) continue;
     if (!canUseServerKey(getUserById(item.owner_id))) {
       failLectureRecord(
         item.id,
@@ -1091,7 +894,7 @@ function toAdminLectureDto(
     error_message: l.error_message,
     source_client: l.source_client,
     job_state: job?.state ?? null,
-    job_kind: job?.kind ?? null,
+    job_kind: (job?.kind as JobKind | undefined) ?? null,
   };
 }
 
@@ -1110,7 +913,7 @@ function toJobDto(job: JobInfo): JobDto {
   const owner = lecture ? getUserById(lecture.owner_id) : null;
   return {
     id: job.id,
-    kind: job.kind,
+    kind: job.kind as JobKind,
     lectureId: job.lectureId,
     lectureTitle: lecture?.title || "(삭제된 강의)",
     ownerEmail: owner?.email || "",
@@ -1139,7 +942,7 @@ function buildOpsDto(): AdminOpsDto {
       requests: requestStats(),
     },
     jobs: {
-      concurrency: jobs.concurrency,
+      concurrency: { distill: jobs.concurrency.distill ?? 0, compact: jobs.concurrency.compact ?? 0 },
       running: jobs.running.map(toJobDto),
       queued: jobs.queued.map(toJobDto),
       recent: jobs.recent.map((j) => {
@@ -1147,6 +950,7 @@ function buildOpsDto(): AdminOpsDto {
         const owner = lecture ? getUserById(lecture.owner_id) : null;
         return {
           ...j,
+          kind: j.kind as JobKind,
           lectureTitle: lecture?.title || "(삭제된 강의)",
           ownerEmail: owner?.email || "",
         };
@@ -2140,11 +1944,7 @@ async function routeRequest(req: Request): Promise<Response> {
       }
 
       if (req.method === "POST" && path === "/api/admin/maintenance/run") {
-        const result = await runMaintenance({
-          forceBackup: true,
-          isBusy: (lectureId) => isLectureBusy(lectureId),
-          onRetention: broadcastRetentionOutcome,
-        });
+        const result = await runMaintenanceNow(true);
         recordAuditLog({
           actorId: adminUser.id,
           actorEmail: adminUser.email,
@@ -2768,15 +2568,16 @@ async function routeRequest(req: Request): Promise<Response> {
 
         // Same queue as every other distillation, so blocking clients cannot exceed the
         // concurrency limit; the job itself records success/failure and emits SSE events.
-        const outcome = await enqueueDistillation(id, user.id, {
+        const { jobId } = enqueueDistillation(id, user.id, {
           audioPath,
           course: incoming.course,
           title: incoming.title,
           model: incoming.model,
           apiKey: incoming.apiKey,
         });
+        const outcome = await waitForJob(jobId);
         const done = getLectureById(id);
-        if (!outcome.ok || !done || done.status !== "done") {
+        if (outcome.state !== "succeeded" || !done || done.status !== "done") {
           return jsonResponse(
             {
               ok: false,
@@ -2834,22 +2635,13 @@ if (import.meta.main) {
 
   isFfmpegAvailable(); // logs a warning at boot when compaction cannot run
 
-  const runScheduledMaintenance = () => {
-    runMaintenance({
-      isBusy: (lectureId) => isLectureBusy(lectureId),
-      onRetention: broadcastRetentionOutcome,
-    })
-      .then((r) => {
-        if (r.errors.length || r.orphanFiles.count || r.backup || r.retention.count || r.failedRetention.count) {
-          console.log(
-            `Maintenance: sessions -${r.expiredSessions}, codes -${r.expiredCodes}, audit -${r.prunedAuditLogs}, orphans→trash ${r.orphanFiles.count}, retention ${r.retention.count}/${r.failedRetention.count}, backup ${r.backup?.file ?? "-"}, errors ${r.errors.length}`
-          );
-        }
-      })
-      .catch((err) => console.error("Maintenance failed:", err));
-  };
-  setTimeout(runScheduledMaintenance, 2 * 60_000).unref();
-  setInterval(runScheduledMaintenance, MAINTENANCE_INTERVAL_MIN * 60_000).unref();
+  // Jobs and maintenance run where the worker runs: here in embedded mode (until
+  // lectern-worker.service is installed), otherwise in apps/worker.
+  if (config().workerMode === "embedded") {
+    ensureEmbeddedWorker();
+    startMaintenanceSchedule();
+  }
+  tailForeignLectureEvents(deliverToSse);
 
   // Graceful shutdown (SIGTERM from systemd, Ctrl-C, or a CD deploy): keep serving while
   // running jobs get a grace period (new jobs are not started; their rows stay
@@ -2859,9 +2651,10 @@ if (import.meta.main) {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`Shutting down (${reason})...`);
-    const drained = await drainJobs(shutdownGraceMs);
+    const worker = embeddedWorker();
+    const drained = worker ? await worker.drain(shutdownGraceMs) : true;
     if (!drained) {
-      console.warn("Jobs still running at shutdown; they will be resumed on the next boot.");
+      console.warn("Jobs still running at shutdown were handed back to the queue.");
     }
     closeAllSseStreams();
     await Promise.race([server.stop(), new Promise((r) => setTimeout(r, 5000))]);

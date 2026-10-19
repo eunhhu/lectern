@@ -16,6 +16,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { REPO_ROOT, config } from "@lectern/config";
 import type { MaintenanceResultDto } from "./admin-api.ts";
+import { pruneLectureEvents } from "./events.ts";
+import { pruneFinishedJobs } from "./queue.ts";
 import { DATA_DIR, db, getSystemSettings } from "./db.ts";
 import {
   applyRetentionPolicies,
@@ -258,6 +260,10 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
   });
   step("trash", null, () => purgeTrash(now));
   const tempFiles = step("temp files", { count: 0, bytes: 0 }, () => purgeStaleTempFiles(now));
+  // SSE events are only useful to a client that reconnects soon; finished job rows feed
+  // the admin "recent jobs" list and the 24h stats.
+  const prunedJobEvents = step("job events", 0, () => pruneLectureEvents(24 * 3600_000, now));
+  const prunedJobs = step("finished jobs", 0, () => pruneFinishedJobs(30 * 24 * 3600_000, now));
 
   const retentionOutcome = step<RetentionOutcome | null>("retention", null, () =>
     applyRetentionPolicies(settings, { dryRun: false, isBusy: options.isBusy, now })
@@ -282,6 +288,8 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
     expiredSessions,
     expiredCodes,
     prunedAuditLogs,
+    prunedJobEvents,
+    prunedJobs,
     orphanFiles,
     tempFiles,
     retention: {
