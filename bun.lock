@@ -65,6 +65,10 @@
         "zod": "4.6.7",
       },
     },
+    "packages/media": {
+      "name": "@lectern/media",
+      "version": "0.1.0",
+    },
   },
   "packages": {
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
@@ -134,6 +138,8 @@
     "@lectern/design-tokens": ["@lectern/design-tokens@workspace:packages/design-tokens"],
 
     "@lectern/domain": ["@lectern/domain@workspace:packages/domain"],
+
+    "@lectern/media": ["@lectern/media@workspace:packages/media"],
 
     "@lectern/server": ["@lectern/server@workspace:apps/server"],
 
