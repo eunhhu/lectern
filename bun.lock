@@ -82,6 +82,7 @@
       "name": "@lectern/harness",
       "version": "0.1.0",
       "dependencies": {
+        "@lectern/ask": "workspace:*",
         "@lectern/core": "workspace:*",
         "@lectern/db": "workspace:*",
         "@lectern/domain": "workspace:*",

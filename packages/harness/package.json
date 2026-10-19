@@ -9,6 +9,7 @@
     "./pricing.json": "./pricing.json"
   },
   "dependencies": {
+    "@lectern/ask": "workspace:*",
     "@lectern/core": "workspace:*",
     "@lectern/db": "workspace:*",
     "@lectern/domain": "workspace:*",

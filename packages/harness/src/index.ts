@@ -4,6 +4,7 @@
 export * from "./blobs.ts";
 export * from "./errors.ts";
 export * from "./gemini.ts";
+export * from "./gemini-ask.ts";
 export * from "./hash.ts";
 export * from "./ledger.ts";
 export * from "./providers.ts";

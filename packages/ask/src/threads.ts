@@ -170,6 +170,20 @@ export function deleteRecordingThreads(db: Database, workspaceId: string, record
   })();
 }
 
+/** Account or workspace deletion: every thread, turn, chunk, FTS row and embedding of the workspace. */
+export function deleteWorkspaceAskData(db: Database, workspaceId: string): void {
+  db.transaction(() => {
+    db.query(`DELETE FROM ask_turn WHERE workspace_id = ?`).run(workspaceId);
+    db.query(`DELETE FROM ask_thread WHERE workspace_id = ?`).run(workspaceId);
+    db.query(
+      `DELETE FROM search_chunk_fts WHERE rowid IN (SELECT seq FROM search_chunk WHERE workspace_id = ?)`,
+    ).run(workspaceId);
+    db.query(`DELETE FROM search_chunk WHERE workspace_id = ?`).run(workspaceId);
+    db.query(`DELETE FROM search_embedding WHERE workspace_id = ?`).run(workspaceId);
+    db.query(`DELETE FROM search_index_state WHERE workspace_id = ?`).run(workspaceId);
+  })();
+}
+
 export class TurnConflictError extends Error {}
 
 /**

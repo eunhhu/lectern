@@ -188,6 +188,35 @@ describe("ask turn", () => {
     expect(calls.length).toBe(2);
   });
 
+  test("the provider's own model turn comes back with the next round", async () => {
+    const model = new ScriptedModel([
+      () => [{ type: "tool_call", id: "t1", name: "search_notes", args: { query: "QA 일정 결정" } }, { ...done(3_000, 20), finish: "tool_calls", turn: [{ opaque: "sig" }] }],
+      (req) => {
+        expect(req.exchanges[0]!.modelTurn).toEqual([{ opaque: "sig" }]);
+        return [{ type: "text", text: `QA를 당겼습니다 [${labelOf(req, "QA를")}].` }, done()];
+      },
+    ]);
+    const { db, deps } = setup(model);
+    const { turn } = await ask(deps, db, workspaceScope, "ECB가 위험한 이유는 패턴 때문이야?");
+    expect(turn.outcome).toBe("answered");
+  });
+
+  test("a provider that throws ends the turn as unavailable and is logged as an error call", async () => {
+    const model: AskModel = {
+      provider: "gemini",
+      model: "gemini-3.5-flash-lite",
+      // eslint-disable-next-line require-yield
+      async *stream() {
+        throw new Error("Gemini request failed (503): overloaded");
+      },
+    };
+    const { db, deps, calls } = setup(model);
+    const { turn, events } = await ask(deps, db, noteScope, "ECB가 왜 위험해?");
+    expect(turn).toMatchObject({ status: "failed", error: { code: "unavailable" }, cost_microusd: 0 });
+    expect(events.at(-1)).toMatchObject({ type: "error" });
+    expect(calls).toMatchObject([{ purpose: "ask", status: "error" }]);
+  });
+
   test("the per-turn cap stops the turn with budget_exceeded", async () => {
     const model = new ScriptedModel([]);
     const { db, deps } = setup(model, { limits: { perTurnCapMicrousd: 10 } });

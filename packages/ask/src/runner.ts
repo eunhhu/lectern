@@ -74,6 +74,12 @@ export interface ToolSpec {
 export interface ToolExchange {
   calls: Array<{ id: string; name: string; args: unknown }>;
   results: Array<{ id: string; name: string; output: string }>;
+  /**
+   * The provider's own record of the model turn that made the calls, replayed unchanged
+   * in the next request (Gemini attaches thought signatures to these parts and rejects a
+   * follow-up without them). Opaque to the runner.
+   */
+  modelTurn?: unknown;
 }
 
 export interface AskModelRequest {
@@ -97,6 +103,8 @@ export type AskModelEvent =
       usage: Usage;
       finish: "stop" | "length" | "tool_calls" | "refusal" | "error";
       requestId?: string | null;
+      /** Provider-specific model turn, kept for ToolExchange.modelTurn. */
+      turn?: unknown;
     };
 
 /** A chat model that streams. Adapters (Gemini, Claude) live with the harness providers. */
@@ -157,6 +165,13 @@ const TOOL_TOKENS = 1_200;
 const COMMIT_CHARS = 80;
 /** Carry the previous turn's cited passages into a follow-up question (at most this many). */
 const CARRY_OVER = 3;
+
+/** User-facing message for a failed provider call; configuration problems say so. */
+function providerErrorMessage(err: unknown): string {
+  const text = String((err as { message?: unknown })?.message ?? err ?? "");
+  if (/API key|GEMINI_API_KEY|not configured/i.test(text)) return "답변 모델이 설정되지 않았습니다(API 키 없음).";
+  return "답변 모델 호출에 실패했습니다. 잠시 뒤 다시 시도해 주세요.";
+}
 
 export function costOf(usage: Usage, price: Price): number {
   return Math.round(usage.inputTokens * price.input + usage.cachedTokens * price.cachedInput + usage.outputTokens * price.output);
@@ -376,30 +391,48 @@ export async function runAskTurn(
       const calls: ToolExchange["calls"] = [];
       let done: Extract<AskModelEvent, { type: "done" }> | null = null;
       const started = performance.now();
-      for await (const event of deps.model.stream({
-        system: prompt.system,
-        context: prompt.context,
-        instruction: prompt.instruction,
-        exchanges,
-        tools,
-        maxOutputTokens: CONTEXT_BUDGET.maxOutputTokens,
-        signal: args.signal,
-      })) {
-        if (event.type === "text") {
-          if (committed) streamText(event.text);
-          else {
-            held += event.text;
-            if (held.length >= COMMIT_CHARS || held.includes("\n")) {
-              committed = true;
-              streamText(held);
-              held = "";
+      try {
+        for await (const event of deps.model.stream({
+          system: prompt.system,
+          context: prompt.context,
+          instruction: prompt.instruction,
+          exchanges,
+          tools,
+          maxOutputTokens: CONTEXT_BUDGET.maxOutputTokens,
+          signal: args.signal,
+        })) {
+          if (event.type === "text") {
+            if (committed) streamText(event.text);
+            else {
+              held += event.text;
+              if (held.length >= COMMIT_CHARS || held.includes("\n")) {
+                committed = true;
+                streamText(held);
+                held = "";
+              }
             }
+          } else if (event.type === "tool_call") {
+            if (!committed && offerTools) calls.push({ id: event.id, name: event.name, args: event.args });
+          } else {
+            done = event;
           }
-        } else if (event.type === "tool_call") {
-          if (!committed && offerTools) calls.push({ id: event.id, name: event.name, args: event.args });
-        } else {
-          done = event;
         }
+      } catch (err) {
+        // Network, HTTP or parse failure inside the provider call: nothing is billed that
+        // the provider did not report, and the turn ends as unavailable.
+        meter.usage.llmCalls++;
+        deps.onModelCall?.({
+          purpose: "ask",
+          workspaceId: access.workspaceId,
+          provider: deps.model.provider,
+          model: deps.model.model,
+          usage: { inputTokens: 0, cachedTokens: 0, outputTokens: 0 },
+          latencyMs: Math.round(performance.now() - started),
+          status: "error",
+          requestId: null,
+          costMicrousd: 0,
+        });
+        throw new AskRequestError("unavailable", 503, providerErrorMessage(err));
       }
       const usage = done?.usage ?? { inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
       const cost = costOf(usage, price);
@@ -430,7 +463,7 @@ export async function runAskTurn(
           results.push({ id: call.id, name: call.name, output });
           emit({ type: "tool", name: call.name, state: "finished" });
         }
-        exchanges.push({ calls, results });
+        exchanges.push({ calls, results, modelTurn: done.turn });
         filter.addLabels(passages.map((p) => p.label));
         continue;
       }
