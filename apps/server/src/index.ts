@@ -478,7 +478,7 @@ function jsonResponse(
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
       "Access-Control-Allow-Headers":
-        "Content-Type, Authorization, X-Lectern-Token, X-Idempotency-Key, X-Course, X-Title, X-Model, X-Gemini-Key, X-Lectern-Deploy-Token",
+        "Content-Type, Authorization, X-Lectern-Token, X-Idempotency-Key, X-Course, X-Title, X-Model, X-Gemini-Key, X-Lectern-Deploy-Token, X-Lectern-Deploy-Sha",
       ...extraHeaders,
     },
   });
@@ -1347,25 +1347,38 @@ async function routeRequest(req: Request): Promise<Response> {
         return jsonResponse({ error: "Unauthorized CD request" }, 401);
       }
 
-      const result = await pullLatestRelease();
+      // CI passes the commit it tested; without one the webhook releases origin/main.
+      const targetSha =
+        (req.headers.get("x-lectern-deploy-sha") || "").trim().toLowerCase() || null;
+      const result = await pullLatestRelease(targetSha);
       if (!result.ok) {
         return jsonResponse(
-          { ok: false, error: result.error, newSha: result.sha },
+          {
+            ok: false,
+            error: result.error,
+            newSha: result.sha,
+            rolledBack: Boolean(result.rolledBack),
+            steps: result.steps,
+          },
           result.busy ? 409 : 500
         );
       }
-      recordAuditLog({
-        actorId: "system",
-        actorEmail: "cd-webhook",
-        action: "ops.deploy",
-        detail: `${result.previousSha.slice(0, 7)} → ${result.sha.slice(0, 7)}`,
-      });
-      scheduleRestart("deploy");
+      if (result.restart) {
+        recordAuditLog({
+          actorId: "system",
+          actorEmail: "cd-webhook",
+          action: "ops.deploy",
+          detail: `${result.previousSha.slice(0, 7)} → ${result.sha.slice(0, 7)}`,
+        });
+        scheduleRestart("deploy");
+      }
       return jsonResponse({
         ok: true,
         deployedSha: result.sha,
         previousSha: result.previousSha,
-        restarting: true,
+        restarting: result.restart,
+        note: result.note,
+        steps: result.steps,
       });
     }
 

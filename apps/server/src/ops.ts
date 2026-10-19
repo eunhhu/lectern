@@ -2,7 +2,17 @@
 // cleanup, retention, SQLite backups and WAL checkpoints), host/database gauges for the
 // admin dashboard, request counters, and the CD deploy runner.
 
-import { existsSync, mkdirSync, readdirSync, statSync, statfsSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  statfsSync,
+  unlinkSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { MaintenanceResultDto } from "./admin-api.ts";
 import { DATA_DIR, db, getSystemSettings } from "./db.ts";
@@ -309,12 +319,19 @@ export function resolveGitSha(): string {
   }
 }
 
+export interface StepResult {
+  ok: boolean;
+  code: number;
+  output: string;
+}
+
 async function runStep(
   cwd: string,
   cmd: string[],
-  timeoutMs: number
-): Promise<{ ok: boolean; output: string }> {
-  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+  timeoutMs: number,
+  env?: Record<string, string | undefined>
+): Promise<StepResult> {
+  const proc = Bun.spawn(cmd, { cwd, env, stdout: "pipe", stderr: "pipe" });
   const timer = setTimeout(() => proc.kill(), timeoutMs);
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -322,7 +339,7 @@ async function runStep(
     proc.exited,
   ]);
   clearTimeout(timer);
-  return { ok: code === 0, output: `${stdout}\n${stderr}`.trim().slice(-600) };
+  return { ok: code === 0, code, output: `${stdout}\n${stderr}`.trim().slice(-600) };
 }
 
 let deployInProgress = false;
@@ -332,44 +349,174 @@ export function deployStatus() {
   return { inProgress: deployInProgress, lastResult: lastDeploy };
 }
 
+const SHA_RE = /^[0-9a-f]{40}$/;
+// Files whose change means `bun install` has to run again.
+const DEPENDENCY_FILES = [
+  "bun.lock",
+  "package.json",
+  "apps/server/package.json",
+  "packages/core/package.json",
+];
+
+export type DeployOutcome =
+  | {
+      ok: true;
+      sha: string;
+      previousSha: string;
+      /** False when nothing changed (already live, or a newer release is live). */
+      restart: boolean;
+      note: "deployed" | "already-deployed" | "superseded";
+      steps: string[];
+    }
+  | {
+      ok: false;
+      busy?: boolean;
+      error: string;
+      sha: string;
+      /** The checkout was moved and then put back after a failed install or preflight. */
+      rolledBack?: boolean;
+      steps: string[];
+    };
+
 /**
- * Updates the checkout to origin/main and installs exactly the locked dependencies. Runs
- * the subprocesses asynchronously so requests keep being served meanwhile; a second
- * request while one is running is refused instead of racing it.
+ * Release a checkout to `targetSha` (or origin/main when none is given), safely:
+ * - only commits on origin/main are accepted, and the checkout never moves backwards
+ *   (an older SHA than the one running is reported as superseded, not deployed);
+ * - `bun install --frozen-lockfile` runs only when dependency files changed;
+ * - before the caller restarts the server, `preflight` boots the new code against a
+ *   throwaway data directory; if that or the install fails, the checkout is reset to the
+ *   previous commit (and its dependencies) so the running server's code stays intact.
+ * Subprocesses are async, so the server keeps answering requests meanwhile.
  */
-export async function pullLatestRelease(): Promise<
-  { ok: true; sha: string; previousSha: string } | { ok: false; busy?: boolean; error: string; sha: string }
-> {
+export async function releaseCheckout(options: {
+  repoDir: string;
+  targetSha?: string | null;
+  preflight: (repoDir: string) => Promise<StepResult>;
+}): Promise<DeployOutcome> {
+  const { repoDir } = options;
+  const steps: string[] = [];
+  const git = async (args: string[], timeoutMs = 60_000) => {
+    const res = await runStep(repoDir, ["git", ...args], timeoutMs);
+    steps.push(`git ${args.join(" ")} → ${res.code}`);
+    return res;
+  };
+  const headSha = async () => (await git(["rev-parse", "HEAD"])).output.trim();
+  const fail = (error: string, sha: string, rolledBack?: boolean): DeployOutcome => ({
+    ok: false,
+    error,
+    sha,
+    rolledBack,
+    steps,
+  });
+
+  if (options.targetSha && !SHA_RE.test(options.targetSha)) {
+    return fail("배포할 커밋 SHA 형식이 올바르지 않습니다.", "");
+  }
+  const previousSha = await headSha();
+  const fetched = await git(["fetch", "--quiet", "origin", "main"], 120_000);
+  if (!fetched.ok) return fail(`git fetch failed: ${fetched.output}`, previousSha);
+  const sha = options.targetSha || (await git(["rev-parse", "origin/main"])).output.trim();
+  if (!SHA_RE.test(sha)) return fail("origin/main 커밋을 확인할 수 없습니다.", previousSha);
+
+  const onMain = await git(["merge-base", "--is-ancestor", sha, "origin/main"]);
+  if (onMain.code !== 0) {
+    return fail("origin/main에 없는 커밋은 배포하지 않습니다.", previousSha);
+  }
+  if (sha === previousSha) {
+    return { ok: true, sha, previousSha, restart: false, note: "already-deployed", steps };
+  }
+  const alreadyIncluded = await git(["merge-base", "--is-ancestor", sha, previousSha]);
+  if (alreadyIncluded.code === 0) {
+    return { ok: true, sha: previousSha, previousSha, restart: false, note: "superseded", steps };
+  }
+
+  const depsDiff = await git(["diff", "--quiet", previousSha, sha, "--", ...DEPENDENCY_FILES]);
+  const depsChanged = depsDiff.code !== 0;
+  const install = async () => {
+    const res = await runStep(repoDir, ["bun", "install", "--frozen-lockfile"], 300_000);
+    steps.push(`bun install --frozen-lockfile → ${res.code}`);
+    return res;
+  };
+  const rollBack = async (reason: string): Promise<DeployOutcome> => {
+    const reset = await git(["reset", "--hard", previousSha]);
+    const reinstall = depsChanged && reset.ok ? await install() : null;
+    const restored = reset.ok && (!reinstall || reinstall.ok);
+    return fail(
+      `${reason}${restored ? " — 이전 버전으로 되돌렸습니다." : " — 이전 버전 복구에도 실패했습니다. 수동 확인이 필요합니다."}`,
+      previousSha,
+      restored
+    );
+  };
+
+  const reset = await git(["reset", "--hard", sha]);
+  if (!reset.ok) return rollBack(`git reset failed: ${reset.output}`);
+  if (depsChanged) {
+    const installed = await install();
+    if (!installed.ok) return rollBack(`bun install failed: ${installed.output}`);
+  } else {
+    steps.push("bun install skipped (dependencies unchanged)");
+  }
+  const checked = await options.preflight(repoDir);
+  steps.push(`preflight → ${checked.code}`);
+  if (!checked.ok) return rollBack(`preflight failed: ${checked.output}`);
+
+  return { ok: true, sha, previousSha, restart: true, note: "deployed", steps };
+}
+
+/** Boots the checked-out server code in a subprocess against throwaway directories. */
+async function runPreflight(repoDir: string): Promise<StepResult> {
+  const sandbox = mkdtempSync(join(tmpdir(), "lectern-preflight-"));
+  try {
+    for (const dir of ["data", "lectures", "home"]) mkdirSync(join(sandbox, dir));
+    return await runStep(
+      repoDir,
+      ["bun", "run", "apps/server/src/preflight.ts"],
+      120_000,
+      {
+        ...process.env,
+        LECTERN_PREFLIGHT: "1",
+        LECTERN_DATA_DIR: join(sandbox, "data"),
+        LECTERN_LECTURES_DIR: join(sandbox, "lectures"),
+        HOME: join(sandbox, "home"),
+        LECTERN_RESEND_CREDENTIALS_FILE: join(sandbox, "none.json"),
+        LECTERN_LOG_REQUESTS: "0",
+        GEMINI_API_KEY: "",
+        RESEND_API_KEY: "",
+        LECTERN_DEPLOY_TOKEN: "",
+      }
+    );
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+}
+
+/** The CD webhook's deploy: one at a time, against DEPLOY_REPO_DIR. */
+export async function pullLatestRelease(targetSha?: string | null): Promise<DeployOutcome> {
   if (!DEPLOY_REPO_DIR) {
     return {
       ok: false,
       error: "배포 대상 체크아웃(LECTERN_REPO_DIR)이 설정되지 않았습니다.",
       sha: resolveGitSha(),
+      steps: [],
     };
   }
   if (deployInProgress) {
-    return { ok: false, busy: true, error: "다른 배포가 진행 중입니다.", sha: resolveGitSha() };
+    return { ok: false, busy: true, error: "다른 배포가 진행 중입니다.", sha: resolveGitSha(), steps: [] };
   }
-  const repoDir = DEPLOY_REPO_DIR;
   deployInProgress = true;
-  const previousSha = resolveGitSha();
   try {
-    const steps: Array<[string, string[], number]> = [
-      ["git fetch", ["git", "fetch", "origin", "main"], 120_000],
-      ["git reset", ["git", "reset", "--hard", "origin/main"], 60_000],
-      ["bun install", ["bun", "install", "--frozen-lockfile"], 300_000],
-    ];
-    for (const [name, cmd, timeoutMs] of steps) {
-      const res = await runStep(repoDir, cmd, timeoutMs);
-      if (!res.ok) {
-        const error = `${name} failed: ${res.output}`;
-        lastDeploy = { ok: false, sha: resolveGitSha(), error, at: new Date().toISOString() };
-        return { ok: false, error, sha: lastDeploy.sha };
-      }
-    }
-    const sha = resolveGitSha();
-    lastDeploy = { ok: true, sha, error: null, at: new Date().toISOString() };
-    return { ok: true, sha, previousSha };
+    const outcome = await releaseCheckout({
+      repoDir: DEPLOY_REPO_DIR,
+      targetSha,
+      preflight: runPreflight,
+    });
+    lastDeploy = {
+      ok: outcome.ok,
+      sha: outcome.sha,
+      error: outcome.ok ? null : outcome.error,
+      at: new Date().toISOString(),
+    };
+    return outcome;
   } finally {
     deployInProgress = false;
   }

@@ -677,3 +677,73 @@ describe("Resend key from the credentials file", () => {
     if (created) deleteUserAndData(created.id);
   });
 });
+
+describe("CD release checkout", () => {
+  const sh = (cwd: string, ...cmd: string[]) => {
+    const res = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+    if (res.exitCode !== 0) throw new Error(`${cmd.join(" ")}: ${res.stderr.toString()}`);
+    return res.stdout.toString().trim();
+  };
+  const pass = async () => ({ ok: true, code: 0, output: "ok" });
+  const failPreflight = async () => ({ ok: false, code: 1, output: "/admin → 500" });
+
+  test("deploys the exact commit, never moves backwards, and rolls back a failed preflight", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { releaseCheckout } = await import("../src/ops.ts");
+    const root = mkdtempSync(join(tmpdir(), "lectern-cd-"));
+    try {
+      sh(root, "git", "init", "--quiet", "--bare", "-b", "main", "origin.git");
+      sh(root, "git", "clone", "--quiet", "origin.git", "work");
+      const work = join(root, "work");
+      sh(work, "git", "config", "user.email", "ci@example.test");
+      sh(work, "git", "config", "user.name", "ci");
+      const commit = (content: string) => {
+        writeFileSync(join(work, "app.txt"), content);
+        sh(work, "git", "add", "app.txt");
+        sh(work, "git", "commit", "--quiet", "-m", content);
+        sh(work, "git", "push", "--quiet", "origin", "HEAD:main");
+        return sh(work, "git", "rev-parse", "HEAD");
+      };
+      const c1 = commit("v1");
+      sh(root, "git", "clone", "--quiet", "origin.git", "deploy");
+      const deploy = join(root, "deploy");
+      const head = () => sh(deploy, "git", "rev-parse", "HEAD");
+      const c2 = commit("v2");
+
+      const first = await releaseCheckout({ repoDir: deploy, targetSha: c2, preflight: pass });
+      expect(first.ok && first.note).toBe("deployed");
+      expect(first.ok && first.restart).toBe(true);
+      expect(head()).toBe(c2);
+      expect(first.steps).toContain("bun install skipped (dependencies unchanged)");
+
+      const again = await releaseCheckout({ repoDir: deploy, targetSha: c2, preflight: pass });
+      expect(again.ok && again.note).toBe("already-deployed");
+      expect(again.ok && again.restart).toBe(false);
+
+      const older = await releaseCheckout({ repoDir: deploy, targetSha: c1, preflight: pass });
+      expect(older.ok && older.note).toBe("superseded");
+      expect(head()).toBe(c2);
+
+      const stranger = await releaseCheckout({ repoDir: deploy, targetSha: "f".repeat(40), preflight: pass });
+      expect(stranger.ok).toBe(false);
+      expect(head()).toBe(c2);
+
+      const malformed = await releaseCheckout({ repoDir: deploy, targetSha: "main; rm -rf /", preflight: pass });
+      expect(malformed.ok).toBe(false);
+
+      const c3 = commit("v3");
+      const broken = await releaseCheckout({ repoDir: deploy, targetSha: c3, preflight: failPreflight });
+      expect(broken.ok).toBe(false);
+      expect(!broken.ok && broken.rolledBack).toBe(true);
+      expect(!broken.ok && broken.error).toContain("preflight failed");
+      expect(head()).toBe(c2); // the running release's code is back in place
+
+      const latest = await releaseCheckout({ repoDir: deploy, preflight: pass });
+      expect(latest.ok && latest.sha).toBe(c3); // no SHA given: origin/main
+      expect(head()).toBe(c3);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

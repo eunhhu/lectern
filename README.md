@@ -87,7 +87,19 @@ The admin console at `/admin` (owner/admin accounts) shows jobs, storage, member
 
 Backups sit on the same disk as the database, so copy them off the host for disaster recovery.
 
-**Deploys and shutdown.** `POST /api/cd/deploy` runs `git fetch`, `git reset --hard origin/main` and `bun install --frozen-lockfile` in `LECTERN_REPO_DIR`. It then shuts down gracefully, and the process supervisor restarts it. On SIGTERM, the server waits up to `LECTERN_SHUTDOWN_GRACE_SEC` for running jobs and then exits. For systemd, use `Restart=always` and `TimeoutStopSec=` larger than the grace period.
+**Deploys.**
+CI deploys the server as soon as its typecheck and tests pass, and only when a push touches server code. It doesn't wait for the native client builds, and deploys run one at a time.
+
+`POST /api/cd/deploy`, sent with the tested commit in `X-Lectern-Deploy-Sha`, then:
+1. fetches `origin/main`, and accepts only commits that are on it;
+2. treats a commit that is already live, or older than the live one, as a no-op;
+3. runs `git reset --hard <sha>`;
+4. runs `bun install --frozen-lockfile`, but only when dependency files changed;
+5. runs `apps/server/src/preflight.ts`, which boots the new code against a throwaway data directory and answers a few requests in-process.
+
+If the install or the preflight fails, the checkout is reset to the previous commit and the running server is never restarted. When everything passes, the server shuts down gracefully, systemd restarts it, and CI waits for `/api/health` to report the new `gitSha`.
+
+**Shutdown.** On SIGTERM the server waits up to `LECTERN_SHUTDOWN_GRACE_SEC` for running jobs, then exits. For systemd, use `Restart=always` and a `TimeoutStopSec=` larger than the grace period.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

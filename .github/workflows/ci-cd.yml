@@ -7,8 +7,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A newer push to the same PR supersedes its running checks; runs on main are never cancelled.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Read-only by default; only the release job writes (to move the `latest` release).
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   core-and-server:
@@ -18,13 +24,88 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: "1.4.2" # same Bun as production
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
       - name: TypeScript strict typecheck
         run: bun run typecheck
       - name: Run Core & Server unit/E2E test suite
         run: bun test
+
+  # The server ships as soon as its own tests pass: it does not wait for (or depend on)
+  # the slower native client builds below.
+  deploy-server:
+    name: "Deploy server to lectern.qucord.com"
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [core-and-server]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decide whether the server changed
+        id: changes
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" != "push" ] || [ -z "${BEFORE}" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "${BEFORE}" "${GITHUB_SHA}")
+          echo "${CHANGED}"
+          if echo "${CHANGED}" | grep -Eq '^(apps/server/|packages/|package\.json$|bun\.lock$|bunfig\.toml$|tsconfig\.json$)'; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "No server-side changes in this push; skipping the deploy."
+          fi
+      - name: Release this commit on the server
+        if: steps.changes.outputs.deploy == 'true'
+        env:
+          DEPLOY_TOKEN: ${{ secrets.LECTERN_DEPLOY_TOKEN }}
+        run: |
+          # The server checks out exactly this commit (it must be on origin/main), runs
+          # `bun install` only when dependencies changed, boots the new code against a
+          # throwaway database, and rolls the checkout back on any failure before it ever
+          # restarts. A commit that is already live (or older than the live one) is a no-op.
+          RESP=$(curl -sS --max-time 300 -X POST https://lectern.qucord.com/api/cd/deploy \
+            -H "X-Lectern-Deploy-Token: ${DEPLOY_TOKEN}" \
+            -H "X-Lectern-Deploy-Sha: ${GITHUB_SHA}" \
+            -w '\n%{http_code}')
+          CODE=$(echo "${RESP}" | tail -n1)
+          BODY=$(echo "${RESP}" | sed '$d')
+          echo "CD response (${CODE}): ${BODY}"
+          if [ "${CODE}" != "200" ] || [ "$(echo "${BODY}" | jq -r .ok)" != "true" ]; then
+            echo "::error::Deploy webhook failed with HTTP ${CODE}"
+            exit 1
+          fi
+      - name: Verify the release is live
+        if: steps.changes.outputs.deploy == 'true'
+        run: |
+          # Running jobs get up to LECTERN_SHUTDOWN_GRACE_SEC (20s) before systemd restarts
+          # the server, so allow about 90s for the new commit to answer.
+          for i in $(seq 1 45); do
+            LIVE=$(curl -fsS --max-time 10 https://lectern.qucord.com/api/health | jq -r .gitSha 2>/dev/null || true)
+            if [ "${LIVE}" = "${GITHUB_SHA}" ]; then
+              echo "✅ Production is live at ${LIVE}"
+              exit 0
+            fi
+            if [ -n "${LIVE}" ] && [ "${LIVE}" != "null" ]; then
+              git fetch --quiet origin main || true
+              if git merge-base --is-ancestor "${GITHUB_SHA}" "${LIVE}" 2>/dev/null; then
+                echo "✅ A newer release (${LIVE}) that includes ${GITHUB_SHA} is live"
+                exit 0
+              fi
+            fi
+            echo "Attempt ${i}: live=${LIVE:-unreachable}"
+            sleep 2
+          done
+          echo "::error::Production did not come up at ${GITHUB_SHA}"
+          exit 1
 
   macos-native:
     name: "macOS Menu Bar App (Native SwiftUI/AppKit)"
@@ -79,57 +160,43 @@ jobs:
           name: LecternTray-win-x64
           path: apps/windows/LecternTray-win-x64.exe
 
-  release-and-cd:
-    name: "Publish GitHub Release & Deploy to lectern.qucord.com"
+  release-native-clients:
+    name: "Publish GitHub Release (native clients)"
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [core-and-server, macos-native, android-native, windows-native]
+    needs: [macos-native, android-native, windows-native]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-latest
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
-      - name: Publish or Update 'latest' GitHub Release with Native Binaries
+      - name: Publish or update the 'latest' release at this commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ls -lh release-assets/
+          NOTES="Automated multi-platform build from commit ${GITHUB_SHA}"
           if gh release view latest >/dev/null 2>&1; then
+            # Keep the tag (and so the source archives) on the commit these binaries came from.
+            git push --force origin "${GITHUB_SHA}:refs/tags/latest"
             gh release upload latest \
               release-assets/Lectern-macOS-arm64.zip \
               release-assets/Lectern-android-universal.apk \
               release-assets/LecternTray-win-x64.exe \
               --clobber
+            gh release edit latest --notes "${NOTES}"
           else
             gh release create latest \
               release-assets/Lectern-macOS-arm64.zip \
               release-assets/Lectern-android-universal.apk \
               release-assets/LecternTray-win-x64.exe \
+              --target "${GITHUB_SHA}" \
               --title "Lectern Native Clients & Core (Latest)" \
-              --notes "Automated multi-platform build from commit ${{ github.sha }}"
+              --notes "${NOTES}"
           fi
-      - name: Trigger Continuous Deployment on lectern.qucord.com
-        env:
-          DEPLOY_TOKEN: ${{ secrets.LECTERN_DEPLOY_TOKEN }}
-          EXPECTED_SHA: ${{ github.sha }}
-        run: |
-          echo "Triggering CD webhook on https://lectern.qucord.com/api/cd/deploy ..."
-          RESP=$(curl -fsSL -X POST https://lectern.qucord.com/api/cd/deploy \
-            -H "X-Lectern-Deploy-Token: ${DEPLOY_TOKEN}")
-          echo "CD response: ${RESP}"
-
-          # The server drains running jobs for up to LECTERN_SHUTDOWN_GRACE_SEC (20s) before
-          # systemd restarts it, so allow up to ~90s for the new SHA to come up.
-          echo "Waiting for systemd restart and verifying deployed gitSha == ${EXPECTED_SHA} ..."
-          for i in $(seq 1 45); do
-            sleep 2
-            HEALTH=$(curl -fsSL https://lectern.qucord.com/api/health || true)
-            echo "Attempt ${i}: ${HEALTH}"
-            if echo "${HEALTH}" | grep -q "${EXPECTED_SHA}"; then
-              echo "✅ Verified production deployment at commit ${EXPECTED_SHA}"
-              exit 0
-            fi
-          done
-          echo "❌ Production gitSha did not match ${EXPECTED_SHA}"
-          exit 1
