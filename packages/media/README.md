@@ -40,7 +40,12 @@ map.cuts.map(formatGapMarker); // ["[쉬는 시간: 50:12~1:02:40]", "[종료 �
 | `maxCutSpeechRatio` | 0.1 | 발화가 구간의 10% 이하일 때만 자른다(산발적 소음 허용) |
 | `cutPadMs` | 1.5초 | 지속 발화 옆에 남기는 무음 |
 
-- 무음 검출: 정규화된 파일에 `silencedetect=noise=-35dB:d=2`(`SILENCE_DEFAULTS`).
+- 무음 검출: 정규화된 파일에 `silencedetect=noise=-35dB:d=2`(`SILENCE_DEFAULTS`). 소음이 큰 방(피크 SNR 약 22dB 이하)에서는 쉼이 -35dBFS를 넘어 아무것도 검출되지 않는다. 그러면 자르는 구간도 없다.
+- 적응형 임계값(선택): `detectSilences(path, { noiseDb: "auto" })`. 100ms 창 피크 분포에서 임계값을 고른다(`AUTO_THRESHOLD_DEFAULTS`, `estimateSilenceThreshold`).
+  - 바닥 = 5번째 백분위(-80dBFS 이하 디지털 무음 제외), 발화 = 95번째 백분위.
+  - 임계값 = 바닥 + 6dB. 단 고정값(-35) 아래로 내리지 않고, -25dBFS와 발화 - 15dB를 넘기지 않는다.
+  - 창이 50개 미만이거나 발화와 바닥의 차가 15dB 미만이면(쉼을 음량으로 구분할 수 없음) 고정값을 쓴다. 깨끗한 녹음에서는 고정값과 결과가 같다.
+  - 결과의 `threshold`(`noise_db`, `adaptive`, `floor_db`, `speech_db`)를 로그와 메모 키에 넣는다. 평가 세트로 안전성을 확인하기 전까지 기본값은 고정값이다.
 - 지속 발화가 하나도 없으면 아무것도 자르지 않는다.
 - 사전 거부(`SCREEN_DEFAULTS`): 1초 미만·0바이트는 `empty`, 읽기 실패는 `corrupt`, 오디오 트랙 없음은 `no_audio_stream`, 허용 목록(`SUPPORTED_CODECS` + `pcm_*`·`adpcm_*`) 밖은 `unsupported_codec`, 최대 음량 -60dBFS 이하는 `silent`. 무음 판정은 전체 길이에 고르게 퍼진 12개 × 10초 표본으로 하고, 표본이 무음이면 전체 파일을 한 번 더 확인한 뒤에 거부한다.
 

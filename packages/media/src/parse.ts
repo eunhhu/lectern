@@ -32,6 +32,20 @@ export function parseSilenceDetect(log: string, durationMs: number): Interval[] 
   return normalizeIntervals(silences, durationMs);
 }
 
+/**
+ * Per-window peak levels (dBFS, in order) from `astats` metadata printed by
+ * `ametadata=print:key=lavfi.astats.Overall.Peak_level`. `-inf` (digital
+ * silence) becomes -Infinity.
+ */
+export function parseWindowPeaks(text: string): number[] {
+  const peaks: number[] = [];
+  for (const match of text.matchAll(/lavfi\.astats\.Overall\.Peak_level=(\S+)/g)) {
+    const db = parseDb(match[1]);
+    if (db !== null) peaks.push(db);
+  }
+  return peaks;
+}
+
 export interface VolumeStats {
   /** Peak sample level in dBFS; -Infinity for digital silence. */
   max_volume_db: number;

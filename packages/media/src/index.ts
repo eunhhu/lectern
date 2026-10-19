@@ -12,4 +12,5 @@ export * from "./probe.ts";
 export * from "./screen.ts";
 export * from "./normalize.ts";
 export * from "./silence.ts";
+export * from "./threshold.ts";
 export * from "./render.ts";

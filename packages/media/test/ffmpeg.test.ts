@@ -8,6 +8,7 @@ import {
   formatGapMarker,
   isFfmpegAvailable,
   measureLoudness,
+  measureWindowPeaks,
   normalizeAudio,
   planChunks,
   probeAudio,
@@ -170,6 +171,58 @@ describe.skipIf(!hasFfmpeg)("normalizeAudio", () => {
     near(silences[0]!.start_ms, 20 * S, 50);
     near(silences[0]!.end_ms, 50 * S, 50);
   });
+});
+
+describe.skipIf(!hasFfmpeg)("detectSilences noiseDb: \"auto\"", () => {
+  // 1 s gaps in the tone are short gaps (speech); the 30 s pause at 40–70 s is the one to find.
+  const muteWhen = `${talkGaps}+between(t,40,70)`;
+
+  test("a noisy room (22 dB peak SNR): the fixed threshold finds no pause, auto does", async () => {
+    const input = await synth("noisy.wav", { seconds: 110, noise: 0.01, muteWhen, args: ["-c:a", "pcm_s16le"] });
+    const normalized = await normalizeAudio(input, join(dir, "noisy.flac"));
+
+    const fixed = await detectSilences(normalized.path);
+    expect(fixed.silences).toEqual([]);
+    expect(fixed.threshold).toEqual({ noise_db: -35, adaptive: false, floor_db: null, speech_db: null });
+
+    const auto = await detectSilences(normalized.path, { noiseDb: "auto" });
+    expect(auto.threshold.adaptive).toBe(true);
+    expect(auto.threshold.noise_db).toBeGreaterThan(-35);
+    expect(auto.threshold.noise_db).toBeLessThanOrEqual(-25);
+    expect(auto.silences).toHaveLength(1);
+    near(auto.silences[0]!.start_ms, 39 * S, 60); // the tone's last 1 s gap runs into the pause
+    near(auto.silences[0]!.end_ms, 70 * S, 60);
+  });
+
+  test("a clean recording: auto is the fixed threshold", async () => {
+    const input = await synth("clean.wav", { seconds: 110, muteWhen, args: ["-c:a", "pcm_s16le"] });
+    const normalized = await normalizeAudio(input, join(dir, "clean.flac"));
+    const fixed = await detectSilences(normalized.path);
+    const auto = await detectSilences(normalized.path, { noiseDb: "auto" });
+    expect(auto.threshold).toMatchObject({ noise_db: -35, adaptive: false });
+    expect(auto.silences).toEqual(fixed.silences);
+  });
+
+  test("window peaks: one value per 100 ms", async () => {
+    const input = await synth("peaks.flac", { seconds: 10, args: ["-c:a", "flac"] });
+    const peaks = await measureWindowPeaks(input, 16000);
+    expect(peaks.length).toBeGreaterThanOrEqual(99);
+    expect(peaks.length).toBeLessThanOrEqual(101);
+    for (const db of peaks) near(db, -18, 0.5); // lavfi sine peaks at 1/8
+  });
+
+  test("in a noisy room only auto lets speech_map cut the break", async () => {
+    // Scaled down: 60 s talk, 60 s pause, 60 s talk; a break is anything >= 30 s here.
+    const talk = "gte(mod(t,5),4)+between(t,60,120)";
+    const input = await synth("noisy-break.wav", { seconds: 180, noise: 0.01, muteWhen: talk, args: ["-c:a", "pcm_s16le"] });
+    const normalized = await normalizeAudio(input, join(dir, "noisy-break.flac"));
+    const rules = { breakMinMs: 30 * S };
+    const fixedMap = buildSpeechMap(await detectSilences(normalized.path), rules);
+    const autoMap = buildSpeechMap(await detectSilences(normalized.path, { noiseDb: "auto" }), rules);
+    expect(fixedMap.cuts).toEqual([]);
+    expect(autoMap.cuts.map((c) => c.kind)).toEqual(["break"]);
+    near(autoMap.cut_duration_ms, 180 * S - 61 * S + 2 * autoMap.rules.cutPadMs, 100);
+  }, 30_000);
 });
 
 describe.skipIf(!hasFfmpeg)("pipeline: a recording with a 20-minute gap and a tail", () => {
