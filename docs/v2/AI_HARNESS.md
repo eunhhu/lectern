@@ -2,7 +2,7 @@
 
 > 상태: 설계 초안 (2026-10-19) · 관련: [ARCHITECTURE.md](ARCHITECTURE.md), [ROADMAP.md](ROADMAP.md) (P1)
 
-녹음(+PDF)을 받아 전사, 구조화 문서, 일정·할 일·질문을 만든다. 현재는 `distillLectureAudio()`가 오디오를 Gemini에 올리고 **한 번의 호출로 Markdown을 받는다.** 이 방식의 한계는 다음과 같다.
+녹음(+PDF)을 받아 전사, 구조화 문서, 일정·할 일을 만들고, 검색과 물어보기에 쓸 색인을 만든다. 현재는 `distillLectureAudio()`가 오디오를 Gemini에 올리고 **한 번의 호출로 Markdown을 받는다.** 이 방식의 한계는 다음과 같다.
 - 전사 데이터가 없다. 동기화도 검색도 근거 연결도 할 수 없다.
 - 결과를 검증하지 않는다. 타임스탬프나 날짜가 틀려도 그대로 저장된다.
 - 문서 형식만 바꾸고 싶어도 오디오를 다시 보내야 해서 비용이 다시 든다.
@@ -14,7 +14,7 @@ v2 하네스는 이를 **단계형 파이프라인 + 영속 작업 큐 + 결정�
 ## 1. 원칙
 
 1. **오디오는 한 번만 전사한다.** 그다음 단계는 모두 압축된 텍스트 전사로 일한다. 문서 형식이나 템플릿을 바꿔도 재전사하지 않는다.
-2. **모든 산출물에는 출처가 있다.** 문서 블록, 일정, 질문은 세그먼트 ID(시간 구간)나 PDF 페이지를 가리킨다. 출처가 확인되지 않는 항목은 버리거나 "낮은 신뢰"로 표시한다.
+2. **모든 산출물에는 출처가 있다.** 문서 블록, 일정, 할 일, 물어보기 답은 세그먼트 ID(시간 구간)나 PDF 페이지를 가리킨다. 출처가 확인되지 않는 항목은 버리거나 "낮은 신뢰"로 표시한다.
 3. **모델은 구조를 내고, 표현은 코드가 만든다.** 모델 출력은 JSON 스키마로 제한하고 Markdown/HTML은 결정적 렌더러가 만든다. 형식이 일관된 이유가 여기 있다.
 4. **검증은 코드로 한다.** 스키마, 참조, 날짜, 근거를 결정적으로 검사한다. 실패하면 오류를 넣어 1회 수리하고, 그래도 안 되면 그 항목만 버린다. LLM 판정(judge)은 평가에서만 쓰고 운영 경로에는 넣지 않는다.
 5. **모든 단계는 재개 가능하다.** 단계 결과를 저장한 다음에 상태를 바꾼다. 어느 지점에서 죽어도 마지막으로 끝난 단계부터 다시 시작한다.
@@ -37,11 +37,12 @@ flowchart TD
   G --> H[classify<br/>도메인·언어·제목·폴더]
   H --> I[structure<br/>템플릿 JSON 문서]
   Q --> I
-  H --> J[extract<br/>일정·할 일·질문·결정]
+  H --> J[extract<br/>일정·할 일·결정]
   Q --> J
   I --> K[verify<br/>결정적 검증·1회 수리]
   J --> K
-  K --> L[publish<br/>저장·색인·알림·일정 제안]
+  K --> L[publish<br/>저장·알림·일정 제안]
+  L --> X[index<br/>조각·FTS·임베딩]
   L --> M[compact_audio]
 ```
 
@@ -101,7 +102,7 @@ flowchart TD
 - `pdf_ingest`: 페이지별 텍스트 레이어를 추출하고(pdf.js 또는 poppler `pdftotext`), 목차와 페이지 수를 저장한다. **텍스트 레이어가 없는 페이지(스캔본)는 감지해서 사용자에게 비용 경고를 보여 준다.** 승인하면 모델 기반 OCR(PDF 네이티브 입력)을 쓰고, 조용히 OCR하지 않는다.
 - `align`: 전사 창(예: 2분 단위)과 PDF 페이지 텍스트 사이 BM25 유사도로 대응표를 만든다. **LLM 토큰을 쓰지 않는다.** 결과의 두 가지 쓰임은 다음과 같다.
   - (a) **구조화 문맥**: 문서 생성에 PDF 전체가 아니라 관련 페이지만 넣는다.
-  - (b) **질문 근거**: 질문의 출처 페이지를 후보 집합 안에서만 고르게 한다.
+  - (b) **페이지 출처**: 문서 블록의 출처 페이지를 후보 집합 안에서만 고르게 한다.
 - 페이지 출처를 만드는 경로는 두 가지이고, 평가에서 비교한다.
   - ① 위 정렬 + 모델이 고른 페이지 번호를 결정적으로 검증
   - ② PDF 네이티브 입력과 인용(citations)을 지원하는 공급자의 페이지 위치 인용
@@ -132,7 +133,7 @@ flowchart TD
 **extract**(한 번의 호출, 하나의 스키마)
 - `events`: `{title, kind, raw_expression: "다음 주 화요일 수업 전까지", model_resolution: {date, time?, all_day}, evidence: ["#311"], quote: "다음 주 화요일까지 제출", confidence}`
 - `action_items`: `{text, owner_name?, due_raw?, evidence}`(회의 위주)
-- `questions`: `{kind: recall|issue|discussion, prompt, answer, sources: {segments, pdf_pages}, difficulty}`. 강의는 Active Recall, 회의는 핵심 쟁점 Q&A다.
+- `questions`: **기본으로 끈다**([ADR-0009](../adr/0009-ask-rag.md)). 복습 기능은 범용 노트 앱에 맞지 않아 뺐고, 사용자가 원하는 질문과 답은 물어보기(§12)가 그때 만든다. 스키마(`{kind, prompt, answer, sources, difficulty}`)는 계약에 남아 있어, 템플릿이 `extract.questions`를 켤 때만 만든다.
 - `decisions`(회의), `glossary`(강의, 선택)
 - 도메인별로 항목을 켜고 끈다. 예를 들어 인터뷰에는 일정이 거의 없으니 events 스키마를 줄인다.
 
@@ -141,7 +142,7 @@ flowchart TD
 
 1. **스키마**: zod로 파싱한다. 실패하면 수리 대상이다.
 2. **참조**: 모든 `sources`, `evidence` 세그먼트 ID가 존재하는지, PDF 페이지가 범위 안인지 본다. 범위 표기(`#40-#44`)를 펼치고, 존재하지 않는 ID는 지운다. 출처가 하나도 남지 않은 블록은 수리 대상이다.
-3. **근거 일치**: `quote`가 해당 세그먼트 텍스트와 퍼지 매칭(정규화 후 문자 유사도 기준 이상)되는지 본다. 일치하지 않는 일정이나 질문은 버리거나 `low_confidence`로 표시한다.
+3. **근거 일치**: `quote`가 해당 세그먼트 텍스트와 퍼지 매칭(정규화 후 문자 유사도 기준 이상)되는지 본다. 일치하지 않는 일정이나 할 일은 버리거나 `low_confidence`로 표시한다.
 4. **날짜 해석**: `raw_expression`을 **녹음 시각(`recorded_at`, 사용자 시간대)** 기준으로 결정적 파서가 해석한다(§3.9.1). 모델의 해석과 비교해서
    - 일치하면 확정한다.
    - 다르면 결정적 결과를 쓰고 신뢰도를 낮춘다.
@@ -157,7 +158,8 @@ flowchart TD
 - 기준은 녹음 시각과 사용자 시간대(`users.timezone`, 기본 `Asia/Seoul`)다. 해석 결과에는 근거 규칙을 남긴다.
 
 ### 3.10 publish
-- 하나의 트랜잭션으로 문서 버전, 질문, 일정 제안, 할 일을 저장하고 FTS 색인을 갱신한다. 그 후 `job_events`로 SSE 알림을 보낸다.
+- 하나의 트랜잭션으로 문서 버전, 일정 제안, 할 일을 저장한다. 그 후 `job_events`로 SSE 알림을 보낸다.
+- 검색 색인은 `publish`가 하지 않는다. 다음 `index` 단계(§3.12)가 한다. 색인이 늦거나 실패해도 발행된 문서는 보인다.
 - 일정은 기본적으로 `suggested` 상태다. 워크스페이스가 자동 등록을 켜 두었으면 "명시적 날짜이면서 신뢰도가 기준 이상"인 것만 캘린더 동기화 작업을 큐에 넣는다(ARCHITECTURE §11).
 - P2 이전에는 렌더된 Markdown을 `lectures.markdown`에도 쓴다(브리지).
 
@@ -165,12 +167,36 @@ flowchart TD
 - `compact_audio`: 기존 storage.ts 압축을 이 큐의 단계로 옮긴다.
 - 산출물 보존: 청크 오디오와 중간 산출물은 발행하고 7일 뒤 정리한다. 전사, 문서, 검증 보고서, 비용 원장은 영구 보존한다.
 
+### 3.12 index — 검색 색인
+결정과 측정값은 [ADR-0009](../adr/0009-ask-rag.md)에 있다. 코드는 `packages/ask`의 `runIndexStage`다(하네스를 import하지 않고 `defineStage`로 감싼다).
+- **언제 도나**
+  - 전사를 먼저 공개할 때(§3.5)와 문서를 발행할 때 `publish` 뒤에 돈다.
+  - 사용자가 문서를 고칠 때와 레거시 노트를 백필할 때는 `job.kind = index` 작업으로 돈다.
+  - 입력에 들어 있는 종류만 바꾼다. 전사만 들어오면 문서 조각은 그대로 둔다.
+- **하는 일**
+  1. 결정적 청킹: 전사 창(약 350토큰, 화자 전환·쉼·휴식 경계), 문서 블록, 레거시 Markdown 문단, PDF 페이지
+  2. `search_chunk`와 FTS 행을 한 트랜잭션으로 차분 동기화한다. 조각 id가 내용에서 나오므로 바뀌지 않은 조각은 남는다.
+  3. 임베딩이 없는 내용만 100개씩 묶어 임베딩한다. 모든 호출은 `ctx.meter`를 거친다.
+- **메모이제이션 키**(§4.4)
+  - `inputs`: 녹음 id, 전사(세그먼트·화자) 해시, 문서 본문 해시, PDF 페이지 해시
+  - `config`: `CHUNKER_VERSION`, 청킹 규칙, 임베딩 차원
+  - `provider`/`model`: 임베딩 모델
+  - 임베딩 자체도 `(workspace, model, dim, content_sha256)`로 저장된다. 키가 빗나가도 같은 글은 다시 임베딩하지 않는다.
+- **실패**
+  - 임베딩 공급자 오류는 일시 오류로 재시도한다.
+  - 끝내 실패하면 BM25 색인만 남긴다(`embedding_skipped`). 다음 실행이 빠진 임베딩만 채운다.
+- **비용**
+  - 녹음 1시간에 약 1.4만 토큰이다. `gemini-embedding-2` 기준 $0.0028, 백필은 배치 API로 $0.0014다.
+- **삭제**
+  - 녹음을 지우면 `deleteRecordingIndex`가 조각, FTS 행, 다른 조각이 쓰지 않는 임베딩을 지운다.
+  - `deleteRecordingThreads`가 그 노트 범위의 물어보기 스레드를 지운다.
+
 ## 4. 실행 엔진: 영속 작업 큐
 
 ### 4.1 테이블
 | 테이블 | 용도 | 핵심 컬럼 |
 |---|---|---|
-| `job` | 녹음 하나의 처리 요청 | id, workspace_id, recording_id, kind(`process`/`regenerate`/`compact`/`calendar_sync`/`reminder`/`maintenance`), state(`queued`/`running`/`succeeded`/`failed`/`canceled`), priority, run_after, attempts, lease_owner, lease_until, budget_microusd, spent_microusd, idempotency_key, error_code |
+| `job` | 녹음 하나의 처리 요청 | id, workspace_id, recording_id, kind(`process`/`regenerate`/`compact`/`calendar_sync`/`reminder`/`maintenance`/`index`), state(`queued`/`running`/`succeeded`/`failed`/`canceled`), priority, run_after, attempts, lease_owner, lease_until, budget_microusd, spent_microusd, idempotency_key, error_code |
 | `stage_run` | 단계 실행 기록 | job_id, stage, chunk_index?, state, input_hash, output_artifact_ids, cache_hit, attempts, started_at, finished_at, error |
 | `artifact` | 단계 산출물 | id, kind, blob_key, sha256, bytes, produced_by_stage_run |
 | `ai_call` | 모델 호출 원장 | stage_run_id, provider, model, input_tokens, cached_tokens, output_tokens, audio_seconds, cost_microusd, latency_ms, status, request_id |
@@ -337,6 +363,26 @@ interface LlmProvider {
 - 작업마다 `budget_microusd`를 둔다(기본: 예상치의 2배). 넘으면 §4.5 "예산" 처리로 간다.
 - 관리자 콘솔에는 녹음별, 단계별, 모델별 비용과 시간당 비용 추세를 보여 준다.
 
+### 6.5 물어보기 비용
+물어보기는 녹음 처리와 따로 질문마다 든다. 근거와 수치는 [ADR-0009 §8](../adr/0009-ask-rag.md)에 있다.
+- 입력 약 4,000토큰(시스템 300 + 조각 3,500 + 이전 대화), 출력 평균 250토큰으로 잡았다.
+
+| 경우 | `gemini-3.5-flash-lite` | `claude-haiku-5-5` | `gemini-3.8-flash` (2027-01부터) |
+|---|---|---|---|
+| 검색 1회 호출 | $0.0018 | $0.0005 | $0.0039 ($0.0079) |
+| 노트 전체(입력 6,000) | $0.0024 | $0.0007 | $0.0054 |
+| 도구 1라운드 추가 | +$0.0022 | +$0.0006 | +$0.0049 |
+| 근거 없음, 캐시 적중 | $0 | $0 | $0 |
+
+- 질의 임베딩은 질문당 약 20토큰($0.000004)이다.
+- 통제 장치
+  - 질문 1회 상한 $0.02
+  - 워크스페이스 월 한도(ROADMAP D14)
+  - 근거가 없으면 모델을 부르지 않는다
+  - 같은 질문과 같은 조각이면 캐시로 답한다
+  - 도구 루프는 넓은 범위에서만, 최대 2회
+- 물어보기 호출도 `ai_call`에 남긴다. 작업이 없으므로 `job_id`는 null이고 `workspace_id`는 채운다. 턴의 합계는 `ask_turn.cost_microusd`에 있다.
+
 ## 7. 템플릿·프롬프트 시스템
 
 - 템플릿 하나 = `packages/harness/templates/<id>/`
@@ -345,7 +391,7 @@ interface LlmProvider {
   - `render.ts`: JSON → Markdown/HTML. 결정적이며 스냅샷 테스트로 고정한다.
   - `prompt.structure.md`, `prompt.extract.md`: 변수 자리표시자와 예시(few-shot은 꼭 필요할 때만)
 - 기본 템플릿
-  - `lecture`: 핵심 요약 → 시험·과제 포인트 → 주제별 상세(용어, 공식, 예시) → 주요 발언 → 질문
+  - `lecture`: 핵심 요약 → 시험·과제 포인트 → 주제별 상세(용어, 공식, 예시) → 주요 발언
   - `meeting`: 요약 → 결정 사항 → 할 일(담당·기한) → 논의 주제별 요점 → 미결 쟁점 → 다음 일정
   - `seminar`: 발표 요지 → 핵심 주장·근거 → Q&A → 참고 자료
   - `interview`: 인물·맥락 → 질문별 답변 요지 → 인용 → 후속 질문
@@ -362,6 +408,7 @@ interface LlmProvider {
 
 - **데이터셋**: `harness-eval/` 아래에 두고 저장소 밖(비공개 블롭)에 보관한다. 메타데이터만 커밋한다.
   - 녹음 10건 이상(P1), PDF 포함 5건(P3)
+  - 녹음마다 물어보기 질문 5~8개: 질문, 범위(노트·전체), 짧은 정답, 정답 근거(세그먼트 범위·블록 id). 그중 약 20%는 노트에 답이 없는 질문이다(ADR-0009 §10).
   - 녹음마다 참조 전사(일부 구간만이라도 사람이 교정), 일정·할 일 주석(정답 날짜 포함), 핵심 개념 목록(문서 커버리지 측정용)을 둔다.
   - 개인정보는 익명화하고, 녹음 당사자 동의를 받는다. **동의하지 않은 화자가 있는 녹음은 제외한다.** 그 결과 세트가 본인 강의 쪽으로 치우칠 수 있으므로 회의·인터뷰는 동의를 받은 녹음을 따로 모은다.
   - 주석 작업량(추정): 녹음 1시간당 참조 전사 교정 2~3시간(일부 구간만 교정하면 1시간), 일정·할 일·핵심 개념 주석 30분. 10건이면 사람 1명이 2~4일 걸린다. 도구는 교정한 전사 Markdown과 주석 스프레드시트(CSV)면 충분하다.
@@ -372,7 +419,7 @@ interface LlmProvider {
 | 전사 | CER(한국어), WER(영어), 타임스탬프 오차(참조 구간 경계 대비), 화자 혼동률, 누락·환각 구간 비율 |
 | 문서 | 스키마 유효율, 근거 연결률, 핵심 개념 커버리지(주석 목록 대비), 길이 대비 밀도 |
 | 추출 | 일정 정밀도·재현율, 날짜 정확도(일 단위 일치), 과추출률, 할 일 담당자 정확도 |
-| 질문 | 출처 유효율, 중복률, (표본) 사람 평가 점수 |
+| 물어보기 | 검색 재현율@12(BM25만 / 하이브리드), 인용 정밀도, 표지 규율, `unsupported` 비율, 답 없는 질문의 오답률, 답 있는 질문의 거절률, 질문당 비용·지연 |
 | 운영 | 녹음 1시간당 비용, 처리 시간 p50·p95, 재시도율, 부분 실패율 |
 
 - **실행**: `bun run harness eval --set v0 --routing <file>`은 공급자를 호출하므로 비용이 든다. 실행 전 예상 비용을 출력하고 확인을 받는다. 결과는 `harness-eval/runs/<date>-<routing>.json`과 비교 리포트로 남긴다.
@@ -409,9 +456,45 @@ interface LlmProvider {
 2. `packages/media`: normalize, speech_map, 시간 맵, chunk. 결정적이라 테스트로 고정한다.
 3. transcribe(Gemini 어댑터) → merge → speakers. 이 시점에 전사를 먼저 공개한다(동기화 UI는 P2).
 4. 평가 세트 v0와 CLI. 전사 지표로 기준선을 측정하고 D1 비교 실험을 한다.
-5. 템플릿 5종, structure, 렌더러, 브리지(`lectures.markdown`)
+5. 템플릿 5종, structure, 렌더러, 브리지(`lectures.markdown`), `index` 단계(§3.12)와 레거시 노트 색인 백필
 6. extract와 verify(날짜 파서 포함)
 7. 라우팅 실험(D3), 비용 최적화, 품질 게이트 확정 → 기능 플래그 전환
+
+## 12. 물어보기 실행 경로
+
+물어보기는 작업 큐를 거치지 않고 API 프로세스에서 요청마다 돈다. 사용자가 답을 기다리기 때문이다. 결정은 [ADR-0009](../adr/0009-ask-rag.md), 코드는 `packages/ask`의 `prepareAskTurn`·`runAskTurn`이다.
+
+```mermaid
+flowchart TD
+  Q[POST /ask/threads/:id/turns] --> P[prepare: 월 한도·진행 중 턴·Idempotency-Key]
+  P -->|429·409| E1[ApiError]
+  P --> S[범위 → 읽을 수 있는 녹음 목록]
+  S --> C{노트 하나가 6,000토큰 이하?}
+  C -->|예| F[노트 전체 = 조각]
+  C -->|아니오| R[하이브리드 검색 + 직전 인용 조각]
+  R --> G{근거 있음?}
+  G -->|아니오| N[모름, 비용 0]
+  G -->|예| K{같은 질문·같은 조각 캐시?}
+  F --> K
+  K -->|예| H[저장된 답 재생, 비용 0]
+  K -->|아니오| M[모델 스트리밍 + 표지 필터]
+  M -->|도구 호출, 넓은 범위만, 최대 2회| T[search_notes / read_more / list_items]
+  T --> M
+  M --> V[인용 검증: 참조·범위·뒷받침·좁히기]
+  V --> D[ask_turn 저장 → turn.completed]
+```
+
+- **모델 인터페이스**는 `AskModel.stream`이다.
+  - 입력: `system`, `context`(조각), `instruction`(이전 대화+질문), 이전 도구 교환, 도구 목록, 출력 상한
+  - 출력: `text`·`tool_call`·`done(usage, finish)` 이벤트
+  - Gemini 어댑터는 `streamGenerateContent`와 함수 호출을 쓴다. Claude 어댑터는 Messages 스트리밍과 tool use를 쓴다. 둘 다 하네스 공급자와 같은 곳에 두고, 사용량을 §5처럼 정규화한다.
+- **임베딩 인터페이스**는 `Embedder.embed(texts, "document" | "query")`다. `gemini-embedding-2`는 작업 유형 대신 텍스트 접두어로 질의와 문서를 구분한다.
+- **비용 기록**: 모델·임베딩 호출마다 `onModelCall`이 불린다. 운영에서는 `recordAiCall`로 `ai_call`에 남긴다(`job_id` null). 턴 합계는 `ask_turn`에 저장하고, 월 한도는 이 합계로 집행한다.
+- **실패**
+  - 공급자 오류와 상한 초과는 턴을 `failed`(`unavailable`·`budget_exceeded`)로 끝내고 `error` 이벤트를 보낸다. 그때까지 든 비용은 남긴다.
+  - 서버가 재시작해 `running`으로 남은 턴은 `failStaleTurns`가 정리한다.
+  - 클라이언트가 끊겨도 답은 끝까지 만들어 저장한다.
+- **평가**는 §8의 물어보기 지표로 한다. 프롬프트(`PROMPT_VERSION`)·모델·기준값을 바꾸는 PR은 평가 리포트를 붙인다.
 
 ## 출처 (2026-10-19 조회)
 - Gemini 모델·가격·변경 이력: ai.google.dev/gemini-api/docs/models · /pricing · /changelog
@@ -422,3 +505,4 @@ interface LlmProvider {
 - Claude 모델·가격·캐시·배치·PDF 인용: Anthropic API 문서(2026-10-06 기준 모델 표)
 - Google Calendar 범위·검증·할당량·확장 속성: developers.google.com/workspace/calendar/api/{auth,guides/quota,guides/extended-properties,v3/reference/events}, developers.google.com/identity/protocols/oauth2
 - pdf.js CSP: github.com/mozilla/pdf.js (v6.4.299, PR 21005)
+- 물어보기·검색(임베딩 가격과 차원, Gemini 캐시·함수 호출 스트리밍, Claude Haiku 5.5 가격, sqlite-vec, Bun SQLite, FTS5): [ADR-0009 메모](../adr/0009-ask-rag.md#메모)

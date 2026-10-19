@@ -10,12 +10,14 @@ Lectern을 "대학 강의 녹음 → 마크다운 요약" 앱에서 **녹음(+�
 **목표**
 - 어떤 도메인의 녹음이든 **일관된 형식의 문서**(강의 노트, 회의록, 세미나 요약, 인터뷰 기록)로 만든다. 문서의 모든 주장은 원문 구간(타임스탬프)이나 PDF 페이지로 되짚어 갈 수 있어야 한다.
 - 녹음 + PDF 업로드, 폴더·태그·워크스페이스 자동 분류, 일괄 정리를 **키보드만으로도 빠르게** 할 수 있게 한다.
-- 전사(Transcript)와 오디오 타임라인을 동기화하고, PDF 기반 질문 리스트, 일정 자동 추출과 캘린더 연동을 제공한다.
+- 전사(Transcript)와 오디오 타임라인을 동기화하고, 일정 자동 추출과 캘린더 연동을 제공한다.
+- **물어보기**: 노트 하나("이 노트에 물어보기")나 폴더·워크스페이스 전체("전반적으로 물어보기")에 질문하면, 노트에서만 근거를 찾아 출처를 인용해 답한다([§12](#12-검색물어보기), [ADR-0009](../adr/0009-ask-rag.md)).
 - AI 처리는 **재개 가능하고 검증되며 비용이 측정되는** 파이프라인으로 돌린다([AI_HARNESS.md](AI_HARNESS.md)).
 - 상용 서비스 수준의 계정·권한·쿼터·공유·어드민, 그리고 언제든 인계 가능한 코드·문서 구조를 갖춘다.
 
 **비목표 (v2 범위 밖, [ROADMAP.md](ROADMAP.md#보류-목록)의 보류 목록 참고)**
-- 서버 실시간(스트리밍) 전사, 벡터 검색/임베딩, 간격 반복(SRS) 스케줄러, 결제 연동, Postgres 전환. (iOS 네이티브 앱은 [ADR-0008](../adr/0008-apple-native-first-class.md)로 범위에 들어왔다. 녹음 중 자막은 기기에서 만든다.)
+- 서버 실시간(스트리밍) 전사, 결제 연동, Postgres 전환. (iOS 네이티브 앱은 [ADR-0008](../adr/0008-apple-native-first-class.md)로 범위에 들어왔다. 녹음 중 자막은 기기에서 만든다.)
+- 복습 기능(질문 카드, Active Recall, 간격 반복). 범용 노트 앱에 맞지 않아 뺐다. 필요한 질문은 물어보기가 그때그때 만든다([ADR-0009](../adr/0009-ask-rag.md)). 벡터 검색은 물어보기와 함께 범위에 들어왔다.
 
 ## 2. 현재 상태 (2026-10-19, `main` = `04394e5`)
 
@@ -125,7 +127,7 @@ AGENTS.md        # 사람/AI 에이전트 공통 작업 규칙 (CLAUDE.md는 이
 
 ### 5.1 명명 규칙
 - 녹음 단위는 **`recording`**(UI 표기: "녹음")이라 부른다. 로그인 세션 테이블 `sessions`와 겹치지 않게 하려는 것이다. 녹음 하나에 오디오 파트 여러 개와 PDF가 붙을 수 있다.
-- AI가 만든 결과물은 `document`(구조화 문서), `transcript`(전사), `question`, `event_candidate`, `action_item`으로 나눈다.
+- AI가 만든 결과물은 `document`(구조화 문서), `transcript`(전사), `event_candidate`, `action_item`으로 나눈다. `question`은 계약에 남아 있지만 새 녹음에는 만들지 않는다(폐기 예정, ADR-0009). 물어보기의 대화는 `ask_thread`·`ask_turn`, 검색 색인은 `search_chunk`다.
 - **모든 v2 테이블에 `workspace_id`를 둔다.** 권한 검사는 P2부터 워크스페이스 단위로 하고, 사용자마다 개인 워크스페이스를 자동으로 만든다. 팀 기능(초대·공유 UI)은 나중에 붙여도 되지만 컬럼은 처음부터 있어야 한다.
 - ID는 UUIDv7(시간 정렬)을 텍스트로 저장하고, 시각은 ISO-8601 UTC로 저장한다. 사용자 시간대는 `users.timezone`에 둔다.
 
@@ -154,6 +156,9 @@ erDiagram
   user ||--o{ auth_session : has
   user ||--o{ access_token : has
   user ||--o{ integration : has
+  recording ||--o{ search_chunk : indexed_as
+  workspace ||--o{ ask_thread : has
+  ask_thread ||--o{ ask_turn : has
 ```
 
 | 테이블 | 핵심 컬럼 | 비고 |
@@ -167,7 +172,7 @@ erDiagram
 | `transcript_segment` | recording_id, idx, start_ms, end_ms (**항상 원본 오디오 시간**), speaker_id, text, confidence, source_chunk | FTS5 가상 테이블 `transcript_fts` |
 | `speaker` | recording_id, label(`S1`), display_name, confidence | 사용자가 이름을 바꿀 수 있음 |
 | `document` / `document_version` | recording_id, template_id@version, body_json, rendered_md, created_by(`ai`/`user`), base_version | 문서 본문은 JSON 블록(출처 참조 포함)이고 Markdown/HTML은 렌더 결과물이다 |
-| `question` | recording_id, kind(`recall`/`issue`/`discussion`), prompt, answer, sources_json(segment ids, pdf pages), difficulty | 학습·검토 뷰 |
+| `question` | recording_id, kind(`recall`/`issue`/`discussion`), prompt, answer, sources_json(segment ids, pdf pages), difficulty | **폐기 예정**(ADR-0009). 새 녹음에는 만들지 않는다 |
 | `event_candidate` | recording_id, kind(`deadline`/`exam`/`meeting`/`task`/`other`), title, start_at, end_at, all_day, tz, raw_expression, confidence, evidence_json, status(`suggested`/`accepted`/`dismissed`/`synced`) | 캘린더 제안함 |
 | `action_item` | recording_id, text, owner_name, due_at, status, evidence_json | 회의록 할 일 |
 | `share_link` | workspace_id, target(recording/document), token_hash, scope, expires_at, password_hash | 링크 공유 |
@@ -176,6 +181,9 @@ erDiagram
 | `access_token` | user_id, name, prefix, token_hash, scopes, expires_at, last_used_at | 개인 액세스 토큰(PAT) |
 | `integration` | user_id, provider(`google`), scopes, token_enc, calendar_id, status | 토큰은 암호화 저장 |
 | `usage_ledger` | workspace_id, period, audio_ms, ai_cost_microusd, storage_bytes | 쿼터 집행 |
+| `search_chunk` (+ FTS5 `search_chunk_fts`, `search_chunk_fts_vocab`) | workspace_id, recording_id, kind(`transcript`/`document`/`pdf_page`), locator, text, content_sha256, 출처(세그먼트 범위·시각·`spans_json` / document·block·`sources_json` / asset·page) | 검색·물어보기 조각. 발행된 전사·문서에서 다시 만들 수 있다([§12](#12-검색물어보기)) |
+| `search_embedding` | workspace_id, content_sha256, model, dim, vector(int8), scale | 내용 해시 단위라 같은 글은 한 번만 임베딩 |
+| `ask_thread` / `ask_turn` | 스레드: workspace_id, user_id, scope_json. 턴: question, answer, citations_json, outcome, evidence_json, cache_key, 토큰·비용 | 물어보기 대화. 만든 사람만 본다 |
 | `audit_log` | (현행 유지) + workspace_id | |
 
 ### 5.3 기존 데이터 이전 (`lectures` → v2)
@@ -206,7 +214,7 @@ erDiagram
 - **업로드 계약에 `recorded_at` 추가**: 클라이언트가 녹음 시작 시각을 보낸다. 없으면 미디어 메타데이터(`creation_time`), 그것도 없으면 업로드 시각을 쓰고, 어디서 왔는지를 `recorded_at_source`에 남긴다. 일정 추출의 상대 날짜 해석이 이 값에 의존한다([AI_HARNESS.md §3.9](AI_HARNESS.md#39-verify--결정적-검증과-1회-수리)).
   - 현재 iOS 단축어(`X-Course`만 보냄)와 Android 타일(메타데이터 없음)은 녹음 시각을 보내지 않는다. 미디어 메타데이터도 없으면 v1 어댑터가 `recorded_at_source=upload`로 표시한다. 같은 강의라도 어느 클라이언트로 올렸느냐에 따라 상대 날짜 일정의 신뢰도가 달라지는 이유가 이것이다. P6에서 클라이언트들이 `recorded_at`을 보내게 한다.
 - **실시간 이벤트**: `GET /api/v2/events`(SSE). 녹음 상태, 단계 진행률, 문서 갱신, 일정 제안을 워크스페이스 단위로 보낸다. 재연결할 때는 `Last-Event-ID`로 놓친 이벤트를 다시 보낸다(`job_events` 테이블).
-- 주요 리소스: `workspaces`, `folders`, `tags`, `recordings`(+ `:id/transcript`, `:id/documents`, `:id/questions`, `:id/events`, `:id/action-items`, `:id/reprocess`), `uploads`, `search`, `calendar/suggestions`, `integrations/google`, `me`(+ `devices`, `tokens`), `share-links`, `admin/*`.
+- 주요 리소스: `workspaces`, `folders`, `tags`, `recordings`(+ `:id/transcript`, `:id/documents`, `:id/questions`(폐기 예정), `:id/events`, `:id/action-items`, `:id/reprocess`), `uploads`, `search`, `ask`(스레드, 질문 SSE 스트림, 사용량), `calendar/suggestions`, `integrations/google`, `me`(+ `devices`, `tokens`), `share-links`, `admin/*`.
 
 ## 7. 웹 앱 (`apps/web`)
 
@@ -215,8 +223,8 @@ erDiagram
 - **정보 구조**
   - **홈/수신함**: 처리 중인 녹음, 확인할 일정 제안, 최근 문서
   - **라이브러리**: 폴더 트리, 태그, 스마트 보기(필터 저장), 다중 선택과 일괄 이동·태그·삭제, 드래그 앤 드롭
-  - **녹음 상세**: 3열(왼쪽 전사 ⇄ 가운데 문서 ⇄ 오른쪽 PDF/질문)과 하단 고정 오디오 플레이어
-  - **복습**: 질문 카드(Active Recall), 회의 쟁점 Q&A
+  - **녹음 상세**: 3열(왼쪽 전사 ⇄ 가운데 문서 ⇄ 오른쪽 PDF/물어보기)과 하단 고정 오디오 플레이어
+  - **물어보기**: 녹음 상세의 "이 노트에 물어보기" 패널과 전역 "전반적으로 물어보기" 화면(폴더·워크스페이스 범위). 답은 스트리밍으로 보이고, `[c3]` 표지는 출처 칩이 되어 전사 구간·문서 블록·PDF 페이지로 이동한다
   - **일정**: 일정 제안함, 확정된 일정·할 일, 캘린더 연결 상태
   - **설정**: 계정, 기기, 토큰, 연동, 사용량
   - **관리자**: 현 Linear 콘솔을 React로 이식
@@ -227,7 +235,7 @@ erDiagram
   - 세그먼트를 클릭하거나 Enter를 누르면 해당 구간으로 이동한다.
   - 문서 블록의 출처 칩을 누르면 전사의 해당 구간이 강조되고 그 지점으로 이동한다.
   - 전문 검색은 서버 FTS5로 하고, 결과는 하이라이트 스니펫과 함께 타임스탬프로 바로 이동할 수 있게 한다.
-- **PDF 뷰어**: pdf.js(v6 이상, CVE-2024-4367 수정 이후 버전)를 직접 호스팅하고 지연 로드한다. 페이지 앵커를 두어 질문 출처를 누르면 해당 페이지로 이동한다. CSP는 다음과 같다.
+- **PDF 뷰어**: pdf.js(v6 이상, CVE-2024-4367 수정 이후 버전)를 직접 호스팅하고 지연 로드한다. 페이지 앵커를 두어 출처 칩(문서·물어보기)을 누르면 해당 페이지로 이동한다. CSP는 다음과 같다.
   - `worker-src 'self'`(모듈 워커, `blob:` 불필요)
   - `font-src 'self' data:`(또는 `disableFontFace`)
   - WebAssembly 디코더를 쓰려면 `script-src`에 `'wasm-unsafe-eval'`을 추가한다. 추가하지 않으려면 `useWasm: false`로 느린 JS 경로를 쓴다.
@@ -301,13 +309,56 @@ erDiagram
   - **갱신은 구독하는 쪽이 정한다.** Google은 반나절~하루가 걸릴 수 있어서 UI에 "베스트 에포트"로 안내한다. 실시간 동기화가 필요하면 Google 연동을 권한다.
 - **리마인더**: 워커가 스케줄러로 이메일(Resend)을 보낸다. 웹 푸시는 보류한다. 할 일과 마감의 기본 알림은 하루 전·1시간 전이고 사용자가 설정할 수 있다.
 
-## 12. 검색
+## 12. 검색·물어보기
 
-- SQLite FTS5에 `transcript_fts`(세그먼트), `document_fts`(블록 텍스트), `pdf_page_fts`(페이지 텍스트)를 둔다. 한국어는 `trigram` 토크나이저를 쓴다(형태소 분석기 없이도 부분 일치가 된다).
-  - 트레이드오프: 어간 처리가 없고, 3글자 미만 검색어는 색인을 쓰지 못한다(2글자 검색은 `LIKE` 보조 경로로 처리). 색인 크기는 원문의 약 3배다.
-  - 형태소 분석기(mecab-ko 등 외부 토크나이저)는 보류한다. 트리거는 "조사가 붙은 형태로 검색이 안 된다"는 피드백이다.
-- 결과는 워크스페이스 권한으로 거르고, 타임스탬프나 페이지 앵커로 바로 이동할 수 있다.
-- 의미 검색(임베딩)은 보류 목록에 있다. 트리거는 "FTS로 못 찾는다"는 피드백이 반복될 때다.
+결정과 근거, 측정값은 [ADR-0009](../adr/0009-ask-rag.md)에 있다. 코드는 `packages/ask`다(`@lectern/domain`과 `bun:sqlite`에만 의존한다).
+
+### 12.1 색인
+- 발행된 전사·문서·PDF를 조각(`search_chunk`)으로 나눈다.
+  - 전사 창은 약 350토큰이다. 화자가 바뀌거나 쉬는 곳에서 자르고, 잘린 휴식에서는 반드시 자른다.
+  - 문서는 블록 하나가 한 조각이다. 레거시 Markdown은 제목 단위로 나눈다.
+  - PDF는 페이지 단위다.
+- 조각마다 인용에 필요한 출처(세그먼트 범위와 원본 시각, 블록 id와 그 출처, 페이지)를 함께 둔다. 조각 id는 내용에서 나오므로 다시 색인해도 바뀌지 않은 조각은 그대로 남는다.
+- 하네스의 `index` 단계가 `publish` 뒤에 색인한다(AI_HARNESS §3.12). 사용자 문서 수정과 레거시 노트 백필(`job.kind = index`)도 같은 단계를 쓴다. 녹음을 지우면 조각·FTS 행·임베딩을 함께 지운다.
+- **FTS5는 `trigram` 대신 코드가 만든 문자 바이그램**을 `unicode61`로 색인한다.
+  - trigram은 `시험`, `과제` 같은 두 음절 질의를 찾지 못한다.
+  - 바이그램은 공백을 건너 이어 만들기 때문에 `운영모드`와 `운영 모드`가 서로 맞는다.
+  - 질의에서는 조사·어미를 떼고 의문사를 버린다.
+  - 녹음 20개 이하 범위는 그 조각만 코드에서 BM25로 채점한다.
+  - 넓은 범위는 드문 질의어부터 넣고, 순위를 매길 일치 조각이 2만 개를 넘지 않게 흔한 질의어를 뺀다(`fts5vocab`).
+  - 한 글자 질의는 `LIKE`로 찾는다.
+  - 색인은 contentless이고, 원문은 조각 행에만 있다.
+- 형태소 분석기는 보류한다. 다시 볼 신호는 평가에서 바이그램과 벡터로도 재현율이 모자랄 때다.
+
+### 12.2 검색
+- **하이브리드**: BM25(바이그램) 상위 40개와 벡터 상위 40개를 RRF(k=60)로 결합한다. 여러 녹음 범위에서는 녹음 하나에서 조각을 최대 3개만 쓴다.
+- **벡터**
+  - `gemini-embedding-2` 768차원을 int8로 `search_embedding`에 저장한다.
+  - 검색은 API 프로세스 안에서 전수 비교한다. 범위가 2만 개 이하면 int8로 정확히 비교하고, 넘으면 부호 비트 해밍으로 후보 400개를 고른 뒤 int8로 다시 채점한다.
+  - SQLite 확장을 쓰지 않으므로 Mac 테스트와 Pi 운영이 같은 코드다. 노트 1만 개(조각 40만) 기준 메모리는 38MB이고, 검색은 Pi에서 약 95ms(추정)다.
+- 임베딩이 없거나 실패하면 BM25만으로 동작한다.
+- `GET /api/v2/search`(검색 화면)도 같은 색인과 범위 필터를 쓴다. 결과는 타임스탬프·블록·페이지로 바로 이동한다.
+
+### 12.3 물어보기
+- **범위**: 스레드마다 녹음 하나, 폴더(하위 포함 여부), 워크스페이스 전체 중 하나로 고정한다.
+  - 사용자가 읽을 수 있는 녹음 목록을 먼저 만들고, 모든 검색을 `workspace_id`와 그 목록으로 거른다(기본 거부).
+  - 남의 `private` 녹음은 역할과 관계없이 빠진다.
+  - 물어보기는 `owner`·`admin`·`member`만 쓴다.
+- **문맥**
+  - 노트 하나가 6,000토큰 이하이면 통째로 넣는다. 그보다 길거나 범위가 넓으면 검색한 조각을 3,500토큰까지 넣는다.
+  - 후속 질문에는 직전 답의 인용 조각을 이어서 넣는다.
+  - 이전 대화는 최근 3턴, 800토큰까지다.
+- **근거가 없으면 모델을 부르지 않는다.** 어떤 조각도 질의어를 충분히 담지 않고 코사인도 낮으면 "모름"으로 답하며 비용은 0이다.
+- **인용**
+  - 조각은 `[c1]`처럼 짧은 표지로 넣고, 모델은 사실 문장마다 표지를 단다. 모를 때는 `[[모름]]`으로 시작한다.
+  - 서버가 결정적으로 검증한다: 준 표지인지, 범위 안인지, 문장과 조각이 얼마나 겹치는지(`supported`/`weak`). 전사 인용은 가장 맞는 세그먼트로 좁힌다.
+  - 인용이 하나도 남지 않으면 `unsupported`로 표시한다.
+- **에이전트**: 기본은 검색 한 번 + 모델 호출 한 번이다. 폴더·워크스페이스 범위에서만 `search_notes`·`read_more`·`list_items` 도구 루프를 최대 2회 연다.
+- **API**: `POST /ask/threads`, `GET /ask/threads[/{id}]`, `DELETE /ask/threads/{id}`, `POST /ask/threads/{id}/turns`(SSE), `GET /ask/usage`. 계약은 `packages/domain/src/api/ask.ts`다.
+- **비용**
+  - 질문 1회 상한은 $0.02이고, 워크스페이스 월 한도가 있다(기본 $2, ROADMAP D14).
+  - 같은 질문과 같은 조각 집합이면 캐시로 답한다(비용 0). 같은 키로 재전송해도 두 번 과금하지 않는다.
+  - 예상 비용은 `gemini-3.5-flash-lite` 기준 질문당 약 $0.0018이다(ADR-0009 §8).
 
 ## 13. 운영(Ops)·DX
 
@@ -344,5 +395,6 @@ erDiagram
 |---|---|
 | 동시 처리 대기열이 늘 쌓임 | 워커 동시성 상향 → 워커를 두 번째 호스트로 분리(같은 DB에 lease, 또는 Postgres 전환) |
 | 디스크 사용률 80% 초과 | `BlobStore`를 S3/R2로 교체(키 체계가 같아 이전이 단순) |
-| 쓰기 경합 또는 다중 노드 필요 | Drizzle 대상 DB를 Postgres로 바꾸고 FTS는 `pg_trgm`으로 전환 |
+| 쓰기 경합 또는 다중 노드 필요 | Drizzle 대상 DB를 Postgres로 바꾸고 FTS는 `pg_trgm`(또는 바이그램 `tsvector`), 벡터는 `pgvector`로 전환 |
+| Pi에서 벡터 검색 p95 > 150ms 또는 워크스페이스 조각 100만 개 초과 | `VectorIndex`를 sqlite-vec(1.0 이후) 또는 ANN 색인으로 교체 |
 | 팀 사용자 증가, 결제 필요 | 플랜·결제 연동(Stripe/Toss), 워크스페이스 단위 청구 |
