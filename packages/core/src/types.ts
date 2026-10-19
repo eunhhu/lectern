@@ -33,6 +33,16 @@ export interface PreparedAudio {
   isTemp: boolean;
 }
 
+/** `usageMetadata` of a generateContent response, as Gemini reports it. */
+export interface GeminiUsageMetadata {
+  promptTokenCount?: number;
+  cachedContentTokenCount?: number;
+  candidatesTokenCount?: number;
+  /** Thinking tokens, billed at the output rate. */
+  thoughtsTokenCount?: number;
+  totalTokenCount?: number;
+}
+
 export interface DistillationResult {
   markdown: string;
   title: string;
@@ -42,6 +52,12 @@ export interface DistillationResult {
   modelUsed: string;
   durationSec: number;
   sizeBytes: number;
+  /** Token usage of the generateContent call (for the cost ledger), when Gemini sent it. */
+  usage?: GeminiUsageMetadata;
+  /** Gemini's responseId, to correlate a ledger row with provider-side logs. */
+  requestId?: string;
+  /** Wall time of the generateContent request alone (audio prep and upload excluded). */
+  generateMs?: number;
 }
 
 export interface TocItem {

@@ -96,6 +96,11 @@ const ENV = {
     schema: int(60_000, 3_600_000, 900_000),
     description: "Deadline for one generateContent call",
   },
+  LECTERN_DISTILL_ENGINE: {
+    schema: z.enum(["legacy", "harness"]).default("legacy"),
+    description:
+      "legacy: the distill job calls packages/core directly; harness: the same Gemini call runs as one stage on packages/harness (stage_run, artifact and ai_call cost rows, resume without a second Gemini call)",
+  },
   LECTERN_OWNER_EMAIL: { schema: optionalString, description: "Bootstrap owner account email" },
   LECTERN_OWNER_NAME: { schema: optionalString, description: "Bootstrap owner display name" },
   LECTERN_OWNER_ALIASES: {
@@ -156,6 +161,8 @@ export interface Config {
   backupIntervalHours: number;
   trashDays: number;
   gemini: { model: string; allowedModels: string[]; timeoutMs: number };
+  /** Which code runs distill jobs (AI_HARNESS §11 step 1). */
+  distillEngine: "legacy" | "harness";
   owner: {
     email: string | null;
     name: string | null;
@@ -217,6 +224,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       allowedModels: list(p.LECTERN_GEMINI_ALLOWED_MODELS),
       timeoutMs: p.LECTERN_GEMINI_TIMEOUT_MS,
     },
+    distillEngine: p.LECTERN_DISTILL_ENGINE,
     owner: {
       email: p.LECTERN_OWNER_EMAIL?.toLowerCase() ?? null,
       name: p.LECTERN_OWNER_NAME ?? null,

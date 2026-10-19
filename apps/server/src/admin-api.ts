@@ -109,6 +109,14 @@ export interface MaintenanceResultDto {
   prunedJobEvents?: number;
   /** Finished job rows older than 30 days. */
   prunedJobs?: number;
+  /** packages/harness rows and blobs left by pruned jobs, crashes or deletions (retention.ts). */
+  harnessCleanup?: {
+    stageRuns: number;
+    artifacts: number;
+    detachedAiCalls: number;
+    blobs: number;
+    tmpFiles: number;
+  };
   /** pre-migrate-* and manual-* snapshots older than 7 days (privacy policy retention). */
   prunedSnapshots?: { count: number; bytes: number };
   orphanFiles: { count: number; bytes: number };

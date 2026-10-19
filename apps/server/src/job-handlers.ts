@@ -2,10 +2,19 @@
 // Like queue.ts, this module must not import index.ts.
 
 import { config } from "@lectern/config";
+import {
+  classifyGeminiError,
+  Harness,
+  HarnessError,
+  legacyDistillStage,
+  type LegacyDistillProvider,
+} from "@lectern/harness";
 import { distillLectureAudio } from "../../../packages/core/src/index.ts";
 import {
   completeLectureRecord,
+  db,
   failLectureRecord,
+  HARNESS_BLOB_DIR,
   getLectureById,
   getSystemSettings,
   type LectureRecord,
@@ -13,7 +22,8 @@ import {
 } from "./db.ts";
 import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
-import { enqueueJob, isLectureBusy, registerJobHandler, type LeasedJob } from "./queue.ts";
+import { logger } from "./log.ts";
+import { enqueueJob, isLectureBusy, registerJobHandler, type JobOutcome, type LeasedJob } from "./queue.ts";
 import { compactLectureAudio, isFfmpegAvailable } from "./storage.ts";
 
 export const LECTURE_GONE_MESSAGE = "강의가 삭제되어 작업을 중단했습니다.";
@@ -43,25 +53,10 @@ function emitProgress(ownerId: string, updated: LectureRecord | null): void {
  * Only transient failures are worth another attempt: network errors, timeouts, 429 and
  * 5xx from Gemini. Configuration problems, silent recordings, unreadable audio and other
  * 4xx answers fail the same way every time, so retrying them only burns a job slot.
+ * The classification lives in @lectern/harness, shared with the harness engine.
  */
 export function isRetryableDistillError(err: unknown): boolean {
-  const msg = String((err as any)?.message ?? err ?? "");
-  if (
-    msg.includes("GEMINI_API_KEY is not configured") ||
-    msg.includes("음성 신호가 감지되지 않았습니다") ||
-    msg.includes("Audio file not found") ||
-    msg.includes("ffmpeg transcoding failed") ||
-    // Gemini rejected this file itself; uploading it again ends the same way.
-    msg.includes("did not reach ACTIVE state (state=FAILED)")
-  ) {
-    return false;
-  }
-  const status = msg.match(/\((\d{3})\)/);
-  if (status) {
-    const code = Number(status[1]);
-    return code === 408 || code === 429 || code >= 500;
-  }
-  return true;
+  return classifyGeminiError(err).kind === "transient";
 }
 
 /**
@@ -96,7 +91,12 @@ export function enqueueDistillation(
   return queued;
 }
 
-async function runDistillation(job: LeasedJob) {
+/** Runs a distill job on the engine LECTERN_DISTILL_ENGINE selects (read per job). */
+export function runDistillation(job: LeasedJob): Promise<JobOutcome> {
+  return config().distillEngine === "harness" ? runDistillationOnHarness(job) : runLegacyDistillation(job);
+}
+
+async function runLegacyDistillation(job: LeasedJob): Promise<JobOutcome> {
   const id = job.subjectId!;
   const ownerId = job.ownerId;
   const input = job.payload as Omit<DistillInput, "apiKey">;
@@ -167,6 +167,104 @@ async function runDistillation(job: LeasedJob) {
   return { ok: false, error: errMsg };
 }
 
+let distillHarness: Harness | null = null;
+
+function defaultHarness(): Harness {
+  distillHarness ??= new Harness({ db, blobDir: HARNESS_BLOB_DIR, logger });
+  return distillHarness;
+}
+
+export interface HarnessDistillDeps {
+  harness?: Harness;
+  provider?: LegacyDistillProvider;
+}
+
+/**
+ * The same distillation as runLegacyDistillation, run as the single `legacy_distill` stage
+ * on @lectern/harness: same retries, progress events, lecture writes and SSE, plus
+ * stage_run/ai_call records, and a job resumed after a crash reuses a finished Gemini
+ * call instead of paying for it again. The stage output (the notes) is deleted when the
+ * job ends: `lectures` holds the published copy, and no third copy may outlive a deletion.
+ */
+export async function runDistillationOnHarness(job: LeasedJob, deps: HarnessDistillDeps = {}): Promise<JobOutcome> {
+  const id = job.subjectId!;
+  const ownerId = job.ownerId;
+  const input = job.payload as Omit<DistillInput, "apiKey">;
+  let apiKey: string | undefined;
+  try {
+    apiKey = job.secret();
+  } catch (err: any) {
+    const failed = failLectureRecord(id, err.message);
+    emitLectureEvent(ownerId, {
+      type: "error",
+      id,
+      error_message: err.message,
+      lecture: failed ? toLectureSummaryDto(failed) : undefined,
+    });
+    return { ok: false, error: err.message };
+  }
+
+  if (!getLectureById(id)) return { ok: false, error: LECTURE_GONE_MESSAGE };
+  const harness = deps.harness ?? defaultHarness();
+  const run = harness.job({
+    jobId: job.id,
+    scope: `owner:${ownerId}`,
+    onEvent: (ev) => {
+      if (ev.type !== "retry") return;
+      emitProgress(
+        ownerId,
+        updateLectureProgress(
+          id,
+          "retrying",
+          `일시적 네트워크/API 오류 자동 재시도 중 (${ev.attempt}/${ev.maxAttempts})...`,
+          15
+        )
+      );
+    },
+  });
+  try {
+    const { value } = await run.run(legacyDistillStage(deps.provider), {
+      audioPath: input.audioPath,
+      course: input.course,
+      model: input.model,
+      apiKey,
+      onProgress: (ev) => {
+        emitProgress(ownerId, updateLectureProgress(id, ev.stage, ev.message, ev.progress ?? 50));
+      },
+      beforeAttempt: () => {
+        if (!getLectureById(id)) throw new HarnessError("canceled", LECTURE_GONE_MESSAGE);
+      },
+    });
+    // Deleted while Gemini was working: don't write notes (or archive files) for it.
+    if (!getLectureById(id)) return { ok: false, error: LECTURE_GONE_MESSAGE };
+    const done = completeLectureRecord(id, { ...value, title: input.title?.trim() || value.title });
+    emitLectureEvent(ownerId, { type: "completed", id, lecture: toLectureSummaryDto(done) });
+    if (getSystemSettings().storage_auto_compact) {
+      scheduleCompaction(id, ownerId);
+    }
+    return { ok: true };
+  } catch (err: any) {
+    if (err instanceof HarnessError && err.kind === "canceled" && err.message === LECTURE_GONE_MESSAGE) {
+      return { ok: false, error: LECTURE_GONE_MESSAGE };
+    }
+    const errMsg = err?.message || String(err);
+    const failed = failLectureRecord(id, errMsg);
+    emitLectureEvent(ownerId, {
+      type: "error",
+      id,
+      error_message: errMsg,
+      lecture: failed ? toLectureSummaryDto(failed) : undefined,
+    });
+    return { ok: false, error: errMsg };
+  } finally {
+    try {
+      harness.deleteArtifactsForJob(job.id);
+    } catch (err) {
+      logger.error("could not delete distill artifacts", { job_id: job.id, err });
+    }
+  }
+}
+
 /**
  * Queues re-encoding of a finished lecture's audio (see storage.ts). Returns false when
  * compaction is unavailable (no ffmpeg) or the lecture already has one queued/running.
@@ -195,7 +293,13 @@ registerJobHandler("distill", runDistillation, {
   concurrency: config().maxConcurrentJobs,
   // Interrupted too many times (crashes or kills mid-run): leave a retryable error behind
   // instead of a lecture that says "processing" forever.
-  onLost: ({ subjectId, ownerId }) => {
+  onLost: ({ id, subjectId, ownerId }) => {
+    // The handler never reached its own cleanup (harness engine): drop the stage's copy of the notes.
+    try {
+      defaultHarness().deleteArtifactsForJob(id);
+    } catch (err) {
+      logger.error("could not delete distill artifacts", { job_id: id, err });
+    }
     if (!subjectId) return;
     const failed = failLectureRecord(
       subjectId,

@@ -16,10 +16,11 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { REPO_ROOT, config } from "@lectern/config";
+import { BlobStore, deleteArtifactsForJobs, sweepHarnessData, type HarnessSweepResult } from "@lectern/harness";
 import type { MaintenanceResultDto } from "./admin-api.ts";
 import { pruneLectureEvents } from "./events.ts";
 import { pruneFinishedJobs } from "./queue.ts";
-import { DATA_DIR, db, getSystemSettings } from "./db.ts";
+import { DATA_DIR, HARNESS_BLOB_DIR, db, getSystemSettings } from "./db.ts";
 import { ensurePrivateDir, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
 import {
@@ -293,6 +294,27 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
   // the admin "recent jobs" list and the 24h stats.
   const prunedJobEvents = step("job events", 0, () => pruneLectureEvents(24 * 3600_000, now));
   const prunedJobs = step("finished jobs", 0, () => pruneFinishedJobs(30 * 24 * 3600_000, now));
+  // After the job prune: stage runs of pruned jobs, orphaned artifacts and blobs, stale tmp files.
+  const harnessCleanup = step<HarnessSweepResult | null>("harness data", null, () => {
+    const blobs = new BlobStore(HARNESS_BLOB_DIR);
+    const swept = sweepHarnessData(db, blobs, { now });
+    // A stage that committed after its lecture was deleted (deleteLectureById already ran)
+    // leaves artifacts under a job that still exists, which the sweep does not see as
+    // orphaned: they go here instead of 30 days later with the job. Job subjects are
+    // lecture ids; follow the subject table here if that changes.
+    const gone = (
+      db
+        .query(
+          `SELECT id FROM job
+           WHERE subject_id IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM lectures WHERE lectures.id = job.subject_id)
+             AND EXISTS (SELECT 1 FROM artifact WHERE artifact.job_id = job.id)`
+        )
+        .all() as Array<{ id: string }>
+    ).map((r) => r.id);
+    const late = gone.length ? deleteArtifactsForJobs(db, blobs, gone) : { artifacts: 0, blobs: 0 };
+    return { ...swept, artifacts: swept.artifacts + late.artifacts, blobs: swept.blobs + late.blobs };
+  });
 
   const retentionOutcome = step<RetentionOutcome | null>("retention", null, () =>
     applyRetentionPolicies(settings, { dryRun: false, isBusy: options.isBusy, now })
@@ -320,6 +342,7 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
     prunedAuditLogs,
     prunedJobEvents,
     prunedJobs,
+    harnessCleanup: harnessCleanup ?? undefined,
     orphanFiles,
     tempFiles,
     retention: {

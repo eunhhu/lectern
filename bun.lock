@@ -17,6 +17,7 @@
         "@lectern/core": "workspace:*",
         "@lectern/db": "workspace:*",
         "@lectern/domain": "workspace:*",
+        "@lectern/harness": "workspace:*",
         "hono": "4.13.13",
         "zod": "4.6.7",
       },
@@ -74,6 +75,16 @@
       "name": "@lectern/domain",
       "version": "0.1.0",
       "dependencies": {
+        "zod": "4.6.7",
+      },
+    },
+    "packages/harness": {
+      "name": "@lectern/harness",
+      "version": "0.1.0",
+      "dependencies": {
+        "@lectern/core": "workspace:*",
+        "@lectern/db": "workspace:*",
+        "@lectern/domain": "workspace:*",
         "zod": "4.6.7",
       },
     },
@@ -148,6 +159,8 @@
     "@lectern/design-tokens": ["@lectern/design-tokens@workspace:packages/design-tokens"],
 
     "@lectern/domain": ["@lectern/domain@workspace:packages/domain"],
+
+    "@lectern/harness": ["@lectern/harness@workspace:packages/harness"],
 
     "@lectern/server": ["@lectern/server@workspace:apps/server"],
 

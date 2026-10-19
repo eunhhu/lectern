@@ -9,6 +9,7 @@
     "zod": "4.6.7",
     "@lectern/config": "workspace:*",
     "@lectern/db": "workspace:*",
-    "@lectern/domain": "workspace:*"
+    "@lectern/domain": "workspace:*",
+    "@lectern/harness": "workspace:*"
   }
 }

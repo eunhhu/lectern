@@ -40,7 +40,16 @@ export function startMaintenanceSchedule(): () => void {
   const run = () => {
     runMaintenanceNow()
       .then((r) => {
-        if (r.errors.length || r.orphanFiles.count || r.backup || r.retention.count || r.failedRetention.count) {
+        const harness = r.harnessCleanup;
+        const harnessChanged = harness ? Object.values(harness).some((n) => n > 0) : false;
+        if (
+          r.errors.length ||
+          r.orphanFiles.count ||
+          r.backup ||
+          r.retention.count ||
+          r.failedRetention.count ||
+          harnessChanged
+        ) {
           logger.info("maintenance", {
             expired_sessions: r.expiredSessions,
             expired_codes: r.expiredCodes,
@@ -52,6 +61,11 @@ export function startMaintenanceSchedule(): () => void {
             failed_retention: r.failedRetention.count,
             backup: r.backup?.file ?? null,
             pruned_snapshots: r.prunedSnapshots?.count ?? 0,
+            harness_stage_runs: harness?.stageRuns ?? 0,
+            harness_artifacts: harness?.artifacts ?? 0,
+            harness_blobs: harness?.blobs ?? 0,
+            harness_tmp_files: harness?.tmpFiles ?? 0,
+            detached_ai_calls: harness?.detachedAiCalls ?? 0,
             errors: r.errors.length,
           });
         }

@@ -1,0 +1,38 @@
+{
+  "as_of": "2026-10-19",
+  "unit": "USD per 1M tokens, which is the same number as microUSD per token",
+  "sources": ["https://ai.google.dev/gemini-api/docs/pricing"],
+  "notes": [
+    "Each entry applies from its `from` date (UTC) until the next entry for the same provider and model.",
+    "Audio input is billed at the text input rate for these models (docs/v2/AI_HARNESS.md §6.1).",
+    "Thinking tokens are billed as output.",
+    "Context-cache storage (per M tokens per hour) is not per call and is not covered here.",
+    "gemini-3.8-flash doubles on 2027-01-01. The doubled cached-input rate is an assumption; recheck before that date."
+  ],
+  "models": [
+    {
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "from": "2026-10-19",
+      "input": 0.75,
+      "cached_input": 0.075,
+      "output": 3.75
+    },
+    {
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "from": "2027-01-01",
+      "input": 1.5,
+      "cached_input": 0.15,
+      "output": 7.5
+    },
+    {
+      "provider": "gemini",
+      "model": "gemini-3.5-flash-lite",
+      "from": "2026-10-19",
+      "input": 0.3,
+      "cached_input": 0.03,
+      "output": 2.5
+    }
+  ]
+}
