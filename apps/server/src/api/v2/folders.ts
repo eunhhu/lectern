@@ -95,7 +95,7 @@ export const foldersRouter = defineRouter({
       db.query(`UPDATE folder SET parent_id = ?, name = ?, sort_key = ?, updated_at = ? WHERE id = ?`).run(
         parentId,
         name,
-        body.sort_key ?? (moved && body.sort_key === undefined ? appendSortKey(db, folder.workspace_id, parentId) : folder.sort_key),
+        body.sort_key ?? (moved ? appendSortKey(db, folder.workspace_id, parentId) : folder.sort_key),
         Date.now(),
         folder.id
       );

@@ -3,7 +3,7 @@
 // with a `lecture_id` also has processing state and audio on its lecture row.
 
 import { existsSync } from "node:fs";
-import { courseOf, lectureBlobKey, personalWorkspaceId, uuidv7 } from "@lectern/db";
+import { courseOf, personalWorkspaceId, uuidv7 } from "@lectern/db";
 import { db, getLectureById, mirrorRecordingToLecture, type LectureRecord } from "../../db.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
@@ -86,10 +86,9 @@ export function mirrorRecording(recording: RecordingRow, fields: { title?: strin
 }
 
 /** Tells v1 clients (and the v2 event stream) that these lectures changed. */
-export function announceLectures(lectureIds: Iterable<string>, type: "updated" | "deleted" = "updated"): void {
+export function announceLectures(lectureIds: Iterable<string>): void {
   for (const id of lectureIds) {
     try {
-      if (type === "deleted") continue;
       const lecture = getLectureById(id);
       if (lecture) emitLectureEvent(lecture.owner_id, { type: "updated", id, lecture: toLectureSummaryDto(lecture) });
     } catch (err) {
@@ -272,5 +271,3 @@ export async function recordingDetail(recording: RecordingRow) {
   };
 }
 
-/** The lecture row behind a recording's audio asset, for the blob key. */
-export const legacyAudioKey = lectureBlobKey;

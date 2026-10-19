@@ -3,7 +3,7 @@ import { lectureDocumentId, lectureRecordingId } from "@lectern/db";
 import { db } from "../../db.ts";
 import type { LectureEventPayload } from "../../events.ts";
 import { logger } from "../../log.ts";
-import { callerIn, can, requireWorkspace, type Caller } from "./access.ts";
+import { can, requireWorkspace, type Caller } from "./access.ts";
 import { apiError, defineRouter } from "./common.ts";
 import { iso, recordingDto, type RecordingRow } from "./rows.ts";
 import { activeJobRow } from "./store.ts";
@@ -185,7 +185,6 @@ export const eventsRouter = defineRouter({
     const lastEventId = req.headers[HEADER.lastEventId] as string | undefined;
     const resume = lastEventId === undefined ? null : parseEventId(lastEventId);
     if (lastEventId !== undefined && !resume) return apiError(req.c, 400, "bad_request", "Last-Event-ID 형식이 올바르지 않습니다.");
-    const caller2 = callerIn(req, workspace_id);
 
     const encoder = new TextEncoder();
     let unsubscribe: (() => void) | null = null;
@@ -216,7 +215,7 @@ export const eventsRouter = defineRouter({
         };
         const sendRows = (rows: EventRow[], skipThrough?: [number, number]) => {
           for (const row of rows) {
-            for (const message of translate(row, workspace_id, caller2)) {
+            for (const message of translate(row, workspace_id, caller)) {
               if (skipThrough && row.id === skipThrough[0]) {
                 const sub = message.id.includes("-") ? Number(message.id.split("-")[1]) : 0;
                 if (sub <= skipThrough[1]) continue;
@@ -238,7 +237,7 @@ export const eventsRouter = defineRouter({
         unsubscribe = subscribe({
           workspaceId: workspace_id,
           personalUserId,
-          caller: caller2,
+          caller,
           send: (rows) => sendRows(rows.filter((r) => r.id > replayedThrough)),
         });
         if (resume) {
@@ -259,7 +258,6 @@ export const eventsRouter = defineRouter({
         if (ping) clearInterval(ping);
       },
     });
-    void caller;
     return new Response(stream, {
       headers: {
         "Content-Type": "text/event-stream; charset=utf-8",

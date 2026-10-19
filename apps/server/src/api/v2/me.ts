@@ -1,6 +1,7 @@
 import { ensurePersonalWorkspace, personalWorkspaceId, sha256Hex } from "@lectern/db";
 import { extractAuthToken, isAdminUser } from "../../auth.ts";
 import { db, getUserById, updateUserProfile, type UserRecord } from "../../db.ts";
+import { roleIn } from "./access.ts";
 import { defineRouter, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
 import { iso } from "./rows.ts";
 
@@ -11,8 +12,8 @@ function systemRoleOf(user: UserRecord | null) {
 }
 
 function meOf(user: UserRecord) {
-  // Safety net for accounts created before P2 by code paths that bypass createUser().
-  ensurePersonalWorkspace(db, user.id, Date.parse(user.created_at) || Date.now());
+  // Safety net for accounts created by code paths that bypass createUser().
+  if (!roleIn(user.id, personalWorkspaceId(user.id))) ensurePersonalWorkspace(db, user.id, Date.parse(user.created_at) || Date.now());
   const name = (user.display_name || "").trim() || user.email.split("@")[0] || user.email;
   return {
     id: user.id,

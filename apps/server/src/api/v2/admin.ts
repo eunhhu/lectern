@@ -128,7 +128,8 @@ export const adminRouter = defineRouter({
     return ok(req, {
       job,
       stage_runs: runs.map((r) => stageRunDto(r, job.workspace_id)),
-      ai_calls: calls.map((a) => aiCallDto(a, job.workspace_id, job.recording_id)),
+      // A call of a system job has no workspace and no AiCall shape: left out.
+      ai_calls: calls.filter((a) => a.workspace_id ?? job.workspace_id).map((a) => aiCallDto(a, job.workspace_id, job.recording_id)),
     });
   },
   adminRetryJob: notImplemented,
