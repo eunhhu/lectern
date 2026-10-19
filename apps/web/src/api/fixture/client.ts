@@ -16,6 +16,7 @@ import type {
   CompleteUploadResponse,
   CreateUploadRequest,
   DocumentBlock,
+  DocumentBody,
   DocumentVersion,
   DocumentVersionId,
   EventCandidate,
@@ -629,12 +630,18 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
           throw new ApiClientError(412, "precondition_failed", "다른 곳에서 문서가 먼저 바뀌었습니다. 새로 고친 뒤 다시 저장하세요.");
         }
         const base = data.versions.find((v) => v.document_id === document.id && v.version === baseVersion)!;
+        // A structured edit sends `body`; a legacy-markdown note sends its Markdown.
+        const edit = body as { body?: DocumentBody; markdown?: string };
+        if (!edit.body === (edit.markdown === undefined)) {
+          throw new ApiClientError(400, "validation_failed", "본문(body)과 Markdown 중 하나만 보내야 합니다.");
+        }
         const version: DocumentVersion = {
           ...structuredClone(base),
           id: asId<DocumentVersionId>(newId("docv")),
           version: baseVersion + 1,
           base_version: baseVersion,
-          body: structuredClone(body.body),
+          body: edit.body ? structuredClone(edit.body) : null,
+          rendered_md: edit.markdown ?? base.rendered_md,
           created_by: "user",
           author_id: data.me.id,
           created_at: nowIso(),
