@@ -45,6 +45,8 @@ export const ESTIMATE_OVERLAP_SHARE = 0.07;
 
 export function estimateTranscriptionCost(provider: string, model: string, audioSeconds: number, items: number, at = Date.now()): CostEstimate {
   const price = priceFor(DEFAULT_PRICING, provider, model, at);
+  // An unpriced model would read as a free run right before asking to pay for it.
+  if (!price) throw new Error(`${provider}/${model} has no price in pricing.json: add it before a paid eval run`);
   const inputTokens = audioSeconds * (1 + ESTIMATE_OVERLAP_SHARE) * 32 + 600 * Math.ceil(audioSeconds / 360);
   const outputTokens = (audioSeconds / 60) * ESTIMATE_OUTPUT_TOKENS_PER_MIN;
   return {
@@ -52,7 +54,7 @@ export function estimateTranscriptionCost(provider: string, model: string, audio
     model,
     items,
     audio_seconds: audioSeconds,
-    max_microusd: price ? Math.round(inputTokens * price.input + outputTokens * price.output) : 0,
+    max_microusd: Math.round(inputTokens * price.input + outputTokens * price.output),
     assumptions: `audio 32 tokens/s +${Math.round(ESTIMATE_OVERLAP_SHARE * 100)}% overlap, ${ESTIMATE_OUTPUT_TOKENS_PER_MIN} output tokens/min, pricing.json as of ${DEFAULT_PRICING.as_of}`,
   };
 }

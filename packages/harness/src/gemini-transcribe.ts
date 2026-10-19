@@ -157,7 +157,7 @@ export class GeminiTranscriptionProvider implements TranscriptionProvider {
   async transcribe(chunk: RenderedChunk, opts: TranscribeOptions): Promise<TranscribeResult & ProviderCallResult> {
     const key = geminiKeyOrThrow(this.opts);
     if (chunk.bytes > this.maxInlineBytes) {
-      throw new HarnessError("config", `chunk ${chunk.index} is ${chunk.bytes} bytes, over the inline limit`, {
+      throw new HarnessError("config", `청크 ${chunk.index}(${chunk.bytes}바이트)가 인라인 전송 한도를 넘습니다.`, {
         code: "chunk_too_large",
       });
     }

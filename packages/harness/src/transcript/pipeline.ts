@@ -136,7 +136,7 @@ export async function runTranscriptPipeline(
   if (tooLong) {
     throw new HarnessError(
       "config",
-      `chunk ${tooLong.index} is ${Math.round((tooLong.end_ms - tooLong.start_ms) / 1000)} s, over ${provider.id}'s ${provider.maxChunkSeconds} s`,
+      `청크 ${tooLong.index}(${Math.round((tooLong.end_ms - tooLong.start_ms) / 1000)}초)가 전사 공급자 ${provider.id}의 한도(${provider.maxChunkSeconds}초)를 넘습니다.`,
       { code: "chunk_too_long" },
     );
   }
@@ -183,7 +183,7 @@ export async function runTranscriptPipeline(
   });
   if (results.every((r) => r === null)) {
     const first = outcomes[0] as HarnessError;
-    throw new HarnessError(first.kind, `no chunk could be transcribed: ${first.message}`, { cause: first, code: first.code });
+    throw new HarnessError(first.kind, `전사에 성공한 구간이 없습니다: ${first.message}`, { cause: first, code: first.code });
   }
 
   const merged = await step(mergeStage, { chunks: chunks.value, results, speechMap: speech.value.map });

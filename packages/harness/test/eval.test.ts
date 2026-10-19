@@ -158,6 +158,7 @@ describe("cost gate", () => {
     const input = 3600 * 1.07 * 32 + 600 * 10;
     expect(e.max_microusd).toBe(Math.round(input * price.input + 60 * 450 * price.output));
     expect(formatEstimate(e)).toContain("예상 비용 (상한): $0.1982");
+    expect(() => estimateTranscriptionCost("gemini", "gemini-9-unpriced", 3600, 1)).toThrow("no price in pricing.json");
     // From 2027-01-01 the same hour costs twice as much.
     expect(estimateTranscriptionCost("gemini", "gemini-3.8-flash", 3600, 1, Date.UTC(2027, 0, 2)).max_microusd).toBe(2 * e.max_microusd);
   });
