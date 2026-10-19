@@ -1,6 +1,6 @@
 # ADR-0005: 네이티브 우선순위 — macOS 우선, Android·Windows는 v1 어댑터 유지, iOS 보류
 
-- 상태: 채택 (ROADMAP D6, D7)
+- 상태: 대체됨(→ [ADR-0008](0008-apple-native-first-class.md))
 - 날짜: 2026-10-19
 - 관련: [ROADMAP.md D6·D7](../v2/ROADMAP.md#결정-필요-사항), [ARCHITECTURE.md §9](../v2/ARCHITECTURE.md#9-네이티브), [apple-developer-notarization 런북](../runbooks/apple-developer-notarization.md)
 

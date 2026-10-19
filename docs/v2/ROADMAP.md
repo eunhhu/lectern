@@ -13,7 +13,7 @@
 | **D3** | 텍스트 단계(구조화, 추출, 검증) 모델 라우팅 | **현행 Gemini를 기본으로 하고 P1 평가로 결정.** 후보: Gemini Flash 계열, Claude(Sonnet/Haiku/Opus). 비용·품질은 측정으로 정한다 | 시작은 막지 않음(공급자 추상화) | — | P1 종료 |
 | **D4** | 호스팅 | **P5까지 Raspberry Pi 단일 노드(SQLite + 로컬 디스크)를 유지**하고 이식성은 인터페이스로 확보한다 | 저장소·DB 선택이 흔들림 | P0 | P0 시작 |
 | **D5** | 팀 워크스페이스 범위 | **데이터 모델은 첫날부터 워크스페이스 단위**로 만들고 팀 UI(초대, 공유)는 P5 | 모든 테이블 마이그레이션을 다시 해야 함 | P2 | P0 종료 |
-| **D6** | 네이티브 우선순위 | **macOS 우선.** Android·Windows는 v1 어댑터로 유지하다 P6에 이전. iOS는 보류 | v1 엔드포인트를 언제까지 유지할지 불명 | P6 | P2 시작 |
+| **D6** | 네이티브 우선순위 | **iOS·macOS를 1급 클라이언트로 만들고 시스템 API를 최대한 쓴다**([ADR-0008](../adr/0008-apple-native-first-class.md), [NATIVE.md](NATIVE.md)). Android·Windows는 v1 어댑터로 유지하다 P6 뒤쪽에 이전 | v1 엔드포인트를 언제까지 유지할지 불명 | P6 | P2 시작 |
 | **D7** | Apple Developer ID(연 $99)로 공증 배포 | **예.** 지금은 ad-hoc 서명이라 Gatekeeper에 막히고 빌드마다 마이크 권한이 풀린다 | macOS 배포 품질 | P6 | P5 |
 | **D8** | Google OAuth 앱 검증 신청(캘린더 권한, Google 로그인) | **예, P0에 바로 신청.** 범위는 `calendar.app.created`로 최소화하고, Cloud Console에서 민감도 등급을 확인한다. 미검증 앱은 신규 사용자 100명이 상한이고, Testing 상태에서는 refresh token이 7일 뒤 만료된다 | P4 출시 지연 | P4 | P0 1주차 |
 | **D9** | 일정 자동 등록 기본값 | **제안만**(사용자가 확정). 자동 등록은 워크스페이스 설정으로 켠다 | — | P4 | P4 |
@@ -24,6 +24,7 @@
 **결정 기록**
 - 2026-10-19: D2(React + React Aria), D4(Pi 단일 노드 유지), D5(워크스페이스 데이터 모델), D6(macOS 우선)은 권장안대로 채택했다.
 - 2026-10-19: D7(Apple Developer ID)과 D8(Google OAuth 검증 신청)은 "예"로 정했다.
+- 2026-10-19: D6을 바꿨다. iOS 보류를 풀고 iOS·macOS를 시스템 API(Dynamic Island, Live Activity, 제어 센터, 시스템 오디오, 온디바이스 처리)를 최대한 쓰는 1급 클라이언트로 만든다([ADR-0008](../adr/0008-apple-native-first-class.md)).
 - 미정: D1·D3·D11(P1 평가로 결정), D9(P4), D10(보류), D12.
 
 ## 전체 일정
@@ -45,7 +46,8 @@ gantt
   P4 캘린더·리마인더            :p4, 10, 3
   P5 계정·멀티테넌시            :p5, 11, 4
   section 클라이언트
-  P6 네이티브                  :p6, 12, 5
+  P6 Apple 네이티브(iOS·macOS) :p6, 4, 12
+  P6 Android·Windows 이전      :p6b, 13, 3
   section 상시
   P7 하드닝·인계                :p7, 2, 16
 ```
@@ -58,7 +60,7 @@ P0이 끝나면 세 작업 흐름이 **독립적으로** 진행된다. 단, 그 
 - 작업 흐름
   1. **하네스**(P1): `packages/harness`, `packages/media`, `apps/worker`. 산출물을 v2 테이블과 레거시 `lectures.markdown` 브리지에 쓴다.
   2. **웹**(P2 프런트): `apps/web`, `packages/ui`, `packages/design-tokens`. 스텁과 픽스처로 먼저 만들고, 백엔드가 붙으면 실제 데이터로 바꾼다.
-  3. **네이티브 준비**(P6 앞당김 가능): OpenAPI 생성 클라이언트, Keychain 인증, 업로드 큐.
+  3. **Apple 네이티브**(P6, P2와 함께 4주차부터): `apps/apple`. 웹처럼 픽스처로 먼저 만들고, OpenAPI 생성 클라이언트·Keychain 인증·백그라운드 업로드 큐부터 시작한다([NATIVE.md §7](NATIVE.md#7-단계와-순서)).
 - 같은 파일을 두 흐름이 동시에 고치지 않는다. 경계 파일은 `packages/domain`뿐이고, 여기는 한 흐름만 소유한다.
 
 ## 단계별 계획
@@ -156,7 +158,7 @@ P0이 끝나면 세 작업 흐름이 **독립적으로** 진행된다. 단, 그 
 ### P5 — 계정·멀티테넌시
 
 산출물
-- Google 로그인, 기기·세션 관리 화면, PAT(범위·만료·해시), 네이티브용 refresh token
+- Google 로그인, Sign in with Apple(App Store 심사 지침 4.8), 기기·세션 관리 화면, PAT(범위·만료·해시), 네이티브용 refresh token
 - 워크스페이스 초대·역할, 공유 링크(만료·비밀번호·범위)
 - 쿼터와 사용량 화면(`usage_ledger`), 관리자 콘솔 React 이식
 - 데이터 내보내기, 계정 삭제
@@ -166,15 +168,27 @@ P0이 끝나면 세 작업 흐름이 **독립적으로** 진행된다. 단, 그 
 - 보안 리뷰(인증, 세션, 공유 링크, 업로드)에서 high 이상 0건
 - (Flash 의존 라우팅이면) 2027-01 단가로 라우팅 평가를 다시 돌려 D11 목표를 유지하는지 확인
 
-### P6 — 네이티브
+### P6 — Apple 네이티브 (iOS·macOS)
+
+**목표**: iOS·macOS가 시스템 표면에서 녹음부터 "문서 준비됨"까지 끝내는 1급 클라이언트가 된다. 세부 계획은 [NATIVE.md](NATIVE.md)다.
 
 산출물
-- macOS를 모듈로 재작성(OpenAPI 클라이언트, Keychain, 녹음, 토큰 기반 UI, VoiceOver), Developer ID 공증(D7)
+- N0(지금): macOS 토큰을 `UserDefaults`에서 Keychain으로 옮긴다.
+- N1 기반: `apps/apple` XcodeGen 프로젝트, `LecternKit`(OpenAPI 생성 클라이언트, Keychain, 백그라운드·재개 가능 업로드 큐), `RecorderKit`, `LecternUI`(토큰), `LecternIntents`, CI의 iOS·macOS 빌드
+- N2 iOS 녹음: `AudioRecordingIntent` + 녹음 Live Activity/Dynamic Island(타이머, 일시정지, 마커) + 제어 센터·동작 버튼 + 백그라운드 녹음 + 공유 확장 + 네이티브 문서 리더, TestFlight 배포
+- N3 macOS 재작성: 시스템 오디오 + 마이크 녹음, 회의 감지, `MenuBarExtra`, 메인 창, 로그인 시 실행, Sparkle, Developer ID 공증(D7)
+- N4 시스템 표면: 처리 진행 Live Activity(APNs 원격 업데이트, push-to-start), Spotlight·Siri·위젯, 유니버설 링크, Handoff, EventKit 일정 등록(P4와 함께)
+- N5 온디바이스(평가 게이트): `SpeechTranscriber` 자막, Vision OCR, Foundation Models 제안
+- 서버: APNs 발송기, 기기·활동 토큰 API, 녹음 마커, `apple-app-site-association`(모두 하위 호환 추가)
 - Android·Windows를 v2와 청크 업로드로 이전
 - v1 엔드포인트 폐기 일정 공지와 차단(사용 로그로 확인한 뒤)
 
 종료 기준
 - 각 클라이언트가 v2 계약 테스트를 통과하고, 녹음 → 업로드 → 문서 확인 전 과정을 수동으로 점검한다.
+- iOS: 잠금 화면에서 시작한 3시간 녹음이 화면을 끈 채로 끝까지 녹음·업로드되고, 앱을 열지 않고 Dynamic Island에서 "문서 준비됨"을 받는다.
+- macOS: 회의 앱 소리와 마이크를 함께 녹음하고, 업데이트 뒤에도 마이크·시스템 오디오 권한이 유지된다.
+- VoiceOver로 녹음 시작부터 문서 확인까지 할 수 있다.
+- App Store 공개는 P5(Sign in with Apple, 앱 내 계정 삭제) 뒤에 한다. 그 전에는 TestFlight로 배포한다.
 
 ### P7 — 하드닝·인계 (상시 + 마무리)
 
@@ -210,7 +224,6 @@ P0이 끝나면 세 작업 흐름이 **독립적으로** 진행된다. 단, 그 
 | 간격 반복(SRS) 스케줄러 | 복습 보기의 주간 활성 사용이 꾸준히 생김 |
 | 결제·플랜 연동 | 외부 유료 사용자 요청, 팀 워크스페이스 도입 |
 | Postgres 전환 | 다중 노드가 필요하거나 SQLite 쓰기 경합이 관측됨([ARCHITECTURE.md §15](ARCHITECTURE.md#15-확장-경로)) |
-| iOS 네이티브 앱 | 모바일 웹이나 단축어로 부족하다는 요구 |
-| 실시간(스트리밍) 전사 | 회의 중 실시간 자막 요구 |
+| 서버 실시간(스트리밍) 전사 | 기기 자막(NATIVE N5)으로 부족하다는 요구 |
 | 웹 푸시 알림, 패스키 | 리마인더 이메일 열람률이 낮거나 보안 요구가 생김 |
 | 영어 UI | 해외 사용자 유입 |

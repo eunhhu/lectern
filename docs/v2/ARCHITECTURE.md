@@ -15,7 +15,7 @@ Lectern을 "대학 강의 녹음 → 마크다운 요약" 앱에서 **녹음(+�
 - 상용 서비스 수준의 계정·권한·쿼터·공유·어드민, 그리고 언제든 인계 가능한 코드·문서 구조를 갖춘다.
 
 **비목표 (v2 범위 밖, [ROADMAP.md](ROADMAP.md#보류-목록)의 보류 목록 참고)**
-- 실시간(스트리밍) 전사, 벡터 검색/임베딩, 간격 반복(SRS) 스케줄러, 결제 연동, Postgres 전환, iOS 네이티브 앱 재작성.
+- 서버 실시간(스트리밍) 전사, 벡터 검색/임베딩, 간격 반복(SRS) 스케줄러, 결제 연동, Postgres 전환. (iOS 네이티브 앱은 [ADR-0008](../adr/0008-apple-native-first-class.md)로 범위에 들어왔다. 녹음 중 자막은 기기에서 만든다.)
 
 ## 2. 현재 상태 (2026-10-19, `main` = `04394e5`)
 
@@ -62,7 +62,7 @@ Lectern을 "대학 강의 녹음 → 마크다운 요약" 앱에서 **녹음(+�
 flowchart LR
   subgraph Clients
     W[Web SPA<br/>apps/web]
-    M[macOS<br/>apps/macos]
+    M[iOS · macOS<br/>apps/apple]
     A[Android / Windows<br/>v1 → v2]
   end
   subgraph Host["Raspberry Pi (systemd)"]
@@ -255,19 +255,20 @@ erDiagram
 
 ## 9. 네이티브
 
-- **macOS(우선)**: 단일 파일을 Swift Package 모듈로 나눈다.
-  - `LecternKit`: OpenAPI 생성 클라이언트, 모델, Keychain 인증, 업로드 큐
-  - `RecorderKit`: AVAudioEngine 녹음, 레벨 측정, 무음 경고
-  - `LecternUI`: SwiftUI + 토큰. 메뉴바 빠른 녹음과 메인 창(`NavigationSplitView`: 폴더 → 목록 → 상세(전사·문서·PDF))
+- **iOS·macOS**: 1급 클라이언트로 만들고 시스템 API를 최대한 쓴다([ADR-0008](../adr/0008-apple-native-first-class.md)). 기능 목록, 구조, 서버 요구, 단계는 [NATIVE.md](NATIVE.md)에 있다.
+  - `apps/apple/`에 XcodeGen 프로젝트 하나를 두고, 공유 Swift 패키지 `LecternKit`(OpenAPI 생성 클라이언트, Keychain 인증, 백그라운드 업로드 큐), `RecorderKit`(AVAudioEngine 녹음, 마커, macOS 시스템 오디오 탭), `LecternUI`(SwiftUI + 토큰, 문서·전사·PDF), `LecternIntents`(App Intents)를 iOS·macOS가 함께 쓴다.
+  - iOS: Dynamic Island·Live Activity(녹음과 처리 진행), 제어 센터·동작 버튼 녹음, 백그라운드 녹음·업로드, 공유 확장, 문서 스캔, Spotlight·Siri, 위젯, EventKit
+  - macOS: `MenuBarExtra` HUD, 시스템 오디오 + 마이크 녹음, 회의 감지, 메인 창(`NavigationSplitView`), 위젯, 로그인 시 실행, Developer ID 공증(D7)과 Sparkle 업데이트
+  - 서버 추가: APNs 발송기(Live Activity 원격 업데이트), 기기·활동 토큰 API, 녹음 마커, IETF 호환 재개 가능 업로드, `apple-app-site-association`, Sign in with Apple
   - 접근성: VoiceOver 레이블, 키보드 단축키, Dynamic Type 대응
-  - 배포: Developer ID 서명과 공증(D7)
-- **Android / Windows**: P6에서 v2 API와 청크 업로드로 옮긴다. 그 전까지는 v1 어댑터로 계속 동작한다. iOS는 보류 목록에 둔다.
+- **Android / Windows**: P6에서 v2 API와 청크 업로드로 옮긴다. 그 전까지는 v1 어댑터로 계속 동작한다.
 
 ## 10. 계정·인증·권한·쿼터·공유
 
 - **로그인 수단**
   - 이메일+비밀번호(현행)와 이메일 OTP
   - **Google 로그인(OIDC)**: 같은 연동에서 캘린더 권한을 점진적으로 추가 동의받는다
+  - **Sign in with Apple**: iOS 앱이 App Store에 나가려면 필요하다(심사 지침 4.8: 제3자 로그인을 넣으면 개인정보 보호 수준이 같은 로그인 옵션도 함께 둔다). 이메일 가리기(릴레이 주소)를 지원한다.
   - 패스키(WebAuthn)는 보류
 - **세션·기기**: `auth_session`에 기기 이름, UA, 마지막 접속을 기록한다. 설정 화면에서 기기 목록을 보고 개별 로그아웃할 수 있다.
   - 웹: 쿠키 세션을 유지한다.
