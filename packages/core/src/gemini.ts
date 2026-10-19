@@ -5,7 +5,30 @@ import { prepareAudio, cleanupPreparedAudio } from "./audio.ts";
 import { extractExcerpt } from "./markdown.ts";
 import type { DistillOptions, DistillationResult } from "./types.ts";
 
-export const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
+// Always a pinned model version: Google re-points `-latest` aliases without notice (in
+// Oct 2026 `gemini-flash-latest` was being auto-rerouted after 3.5 Flash's deprecation).
+// Changing it is a quality/cost decision, so it lives in config (LECTERN_GEMINI_MODEL).
+export const DEFAULT_GEMINI_MODEL = (process.env.LECTERN_GEMINI_MODEL || "gemini-3.8-flash").trim();
+
+// Models a request may ask for (X-Model header / `model` form field / CLI -m). Anything
+// else, including `-latest` aliases and pricier tiers, falls back to the default.
+// Extend with LECTERN_GEMINI_ALLOWED_MODELS (comma-separated) when evaluating a model.
+const ALLOWED_GEMINI_MODELS = new Set(
+  [
+    DEFAULT_GEMINI_MODEL,
+    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
+    ...(process.env.LECTERN_GEMINI_ALLOWED_MODELS || "").split(","),
+  ]
+    .map((m) => m.trim())
+    .filter(Boolean)
+);
+
+/** The model a distillation actually runs on for a requested id (see allowlist above). */
+export function resolveGeminiModel(requested?: string | null): string {
+  const id = (requested || "").trim();
+  return id && ALLOWED_GEMINI_MODELS.has(id) ? id : DEFAULT_GEMINI_MODEL;
+}
 
 export function resolveGeminiApiKey(explicitKey?: string): string {
   if (explicitKey && explicitKey.trim()) return explicitKey.trim();
@@ -262,7 +285,7 @@ export async function distillLectureAudio(
 ): Promise<DistillationResult> {
   const apiKey = resolveGeminiApiKey(opts.apiKey);
   const courseName = (opts.courseName || "대학교 전공 강의").trim();
-  const modelRequested = (opts.model || DEFAULT_GEMINI_MODEL).trim();
+  const modelRequested = resolveGeminiModel(opts.model);
 
   opts.onProgress?.({
     stage: "preparing",

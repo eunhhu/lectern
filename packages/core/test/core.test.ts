@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DEFAULT_GEMINI_MODEL,
   buildDistillationPrompt,
   extractExcerpt,
   parseTimeToSeconds,
   renderMarkdownToHtml,
+  resolveGeminiModel,
 } from "../src/index.ts";
 
 describe("@lectern/core markdown & distillation helpers", () => {
@@ -54,5 +56,15 @@ describe("@lectern/core markdown & distillation helpers", () => {
     expect(prompt).toContain("다형성, 인터페이스");
     expect(prompt).toContain("03:05");
     expect(prompt).toContain("절대 환각(Hallucination) 및 가상 창작 금지");
+  });
+
+  test("Gemini model is pinned and requests can only pick allowlisted versions", () => {
+    expect(DEFAULT_GEMINI_MODEL).toBe("gemini-3.8-flash");
+    expect(DEFAULT_GEMINI_MODEL).not.toContain("latest");
+    expect(resolveGeminiModel(undefined)).toBe(DEFAULT_GEMINI_MODEL);
+    expect(resolveGeminiModel("")).toBe(DEFAULT_GEMINI_MODEL);
+    expect(resolveGeminiModel("gemini-flash-latest")).toBe(DEFAULT_GEMINI_MODEL);
+    expect(resolveGeminiModel("gemini-4-argon")).toBe(DEFAULT_GEMINI_MODEL);
+    expect(resolveGeminiModel(" gemini-3.5-flash-lite ")).toBe("gemini-3.5-flash-lite");
   });
 });

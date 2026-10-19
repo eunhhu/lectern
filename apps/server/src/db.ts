@@ -212,8 +212,8 @@ db.exec(`
     audio_mime TEXT,
     audio_size INTEGER NOT NULL DEFAULT 0,
     duration_sec INTEGER NOT NULL DEFAULT 0,
-    model_requested TEXT NOT NULL DEFAULT 'gemini-flash-latest',
-    model_used TEXT NOT NULL DEFAULT 'gemini-flash-latest',
+    model_requested TEXT NOT NULL DEFAULT 'gemini-3.8-flash',
+    model_used TEXT NOT NULL DEFAULT 'gemini-3.8-flash',
     source_client TEXT NOT NULL DEFAULT 'web',
     error_message TEXT,
     md_source_path TEXT UNIQUE,
@@ -1085,7 +1085,7 @@ export async function syncLocalLecturesDir(ownerId?: string): Promise<void> {
             progress, markdown, excerpt, audio_path, audio_mime, audio_size,
             duration_sec, model_requested, model_used, source_client, md_source_path,
             created_at, updated_at
-          ) VALUES (?, ?, ?, 0, ?, ?, ?, 'done', 'done', '완료', 100, ?, ?, ?, ?, ?, ?, 'gemini-flash-latest', 'gemini-3.8-flash', 'local-sync', ?, ?, ?)`
+          ) VALUES (?, ?, ?, 0, ?, ?, ?, 'done', 'done', '완료', 100, ?, ?, ?, ?, ?, ?, 'gemini-3.8-flash', 'gemini-3.8-flash', 'local-sync', ?, ?, ?)`
         ).run(
           id,
           targetOwnerId,

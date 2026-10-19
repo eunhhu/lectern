@@ -1,7 +1,7 @@
 # 📚 Lectern
 
 **Zero-Overhead Cross-Platform Lecture Audio Recorder, Break/Noise Filter & Academic Markdown Distillation Engine**  
-Powered by **Bun + TypeScript** & **Gemini Flash (`gemini-flash-latest`)** · Live at **[https://lectern.qucord.com](https://lectern.qucord.com)**
+Powered by **Bun + TypeScript** & **Gemini Flash (`gemini-3.8-flash`, pinned)** · Live at **[https://lectern.qucord.com](https://lectern.qucord.com)**
 
 [![Lectern Multi-Platform CI/CD](https://github.com/eunhhu/lectern/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/eunhhu/lectern/actions/workflows/ci-cd.yml)
 
@@ -22,7 +22,7 @@ Powered by **Bun + TypeScript** & **Gemini Flash (`gemini-flash-latest`)** · Li
   - **Direct Passthrough & Smart HE-AAC Preprocessor**: Compact `.m4a`/`.mp3`/`.webm`/`.ogg` recordings bypass transcoding completely; oversized/uncompressed `.wav` files are converted via `ffmpeg` to 16kHz mono 32kbps HE-AAC.
   - **Chunked Resumable Upload**: Streams 8 MB zero-copy file slices (`Bun.file().slice()`) directly to the Gemini File API with near-zero RAM footprint.
   - **Automatic Break & Forgotten-Recording Filter**: Detects 5–15 min break times (`[쉬는 시간 생략: MM:SS ~ MM:SS]`), post-lecture forgotten recording tails (`[수업 종료 후 녹음 절단: MM:SS ~ 끝]`), and attendance roll calls automatically.
-  - **Future-Proof Model Alias**: Defaults to `gemini-flash-latest` (currently resolving to `gemini-3.8-flash`) with `-m / --model` override support.
+  - **Pinned Model Version**: Defaults to `gemini-3.8-flash` (`LECTERN_GEMINI_MODEL`). Requests may only pick models on a server-side allowlist (`LECTERN_GEMINI_ALLOWED_MODELS`); `-latest` aliases are never used because Google re-points them without notice.
 - **📖 Instant Markdown Reader & Web Recorder (`apps/server`)**:
   - Opens directly into your recorded lectures and structured Markdown notes.
   - **Interactive Timestamp Chips (`⏱ MM:SS`)**: Click any timestamp in the Markdown note to seek the synchronized audio player (`206 Partial Content` range streaming + `1.0x–2.0x` speed control).
@@ -48,7 +48,7 @@ bun test
 bun run start
 
 # 3. Run the CLI directly on any audio file
-bun run cli /path/to/lecture.m4a -c "정보보호개론" -m gemini-flash-latest
+bun run cli /path/to/lecture.m4a -c "정보보호개론" -m gemini-3.8-flash
 ```
 
 ---

@@ -747,3 +747,23 @@ describe("CD release checkout", () => {
     }
   });
 });
+
+describe("Gemini model selection on ingest", () => {
+  test("a requested model outside the allowlist is stored and run as the pinned default", async () => {
+    const member = memberToken();
+    const fd = new FormData();
+    fd.append("audio", new File([new Uint8Array(2048).fill(7)], "a.m4a", { type: "audio/mp4" }));
+    fd.append("model", "gemini-4-argon");
+    const res = await handleRequest(
+      new Request("http://localhost/api/lectures/ingest", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${member.token}`, "X-Model": "gemini-flash-latest" },
+        body: fd,
+      })
+    );
+    expect(res.status).toBe(200);
+    const { lecture }: any = await res.json();
+    expect(getLectureById(lecture.id)!.model_requested).toBe("gemini-3.8-flash");
+    deleteUserAndData(member.userId);
+  });
+});

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { resolve, extname, dirname, basename, join } from "node:path";
 import { writeFileSync } from "node:fs";
-import { distillLectureAudio, DEFAULT_GEMINI_MODEL } from "./gemini.ts";
+import { distillLectureAudio, DEFAULT_GEMINI_MODEL, resolveGeminiModel } from "./gemini.ts";
 
 function printHelp() {
   console.log(`Usage: lectern <audio_file> [options]
@@ -51,6 +51,12 @@ async function main() {
   if (!audioFile) {
     console.error("❌ 오디오 파일 경로를 지정해주세요.");
     process.exit(1);
+  }
+
+  if (resolveGeminiModel(model) !== model) {
+    console.warn(
+      `⚠️  '${model}'은 허용 목록에 없어 ${DEFAULT_GEMINI_MODEL}로 실행합니다. (LECTERN_GEMINI_ALLOWED_MODELS로 추가 가능)`
+    );
   }
 
   const absAudio = resolve(audioFile);

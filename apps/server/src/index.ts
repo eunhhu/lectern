@@ -5,6 +5,7 @@ import {
   distillLectureAudio,
   renderMarkdownToHtml,
   DEFAULT_GEMINI_MODEL,
+  resolveGeminiModel,
 } from "../../../packages/core/src/index.ts";
 import {
   DATA_DIR,
@@ -909,8 +910,7 @@ async function readIncomingAudio(
     decodeURIComponent(req.headers.get("x-course") || "").trim() ||
     "대학교 전공 강의";
   let title = decodeURIComponent(req.headers.get("x-title") || "").trim();
-  let model =
-    (req.headers.get("x-model") || "").trim() || DEFAULT_GEMINI_MODEL;
+  let model = resolveGeminiModel(req.headers.get("x-model"));
   let sourceClient = (req.headers.get("x-client") || "api").trim();
   const apiKey = (req.headers.get("x-gemini-key") || "").trim() || undefined;
   let idempotencyKey = (req.headers.get("x-idempotency-key") || "").trim();
@@ -925,7 +925,7 @@ async function readIncomingAudio(
     }
     if (form.get("course")) course = String(form.get("course")).trim() || course;
     if (form.get("title")) title = String(form.get("title")).trim() || title;
-    if (form.get("model")) model = String(form.get("model")).trim() || model;
+    if (form.get("model")) model = resolveGeminiModel(String(form.get("model")));
     if (form.get("source")) {
       sourceClient = String(form.get("source")).trim() || sourceClient;
     }
