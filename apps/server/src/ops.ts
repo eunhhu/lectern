@@ -28,8 +28,18 @@ export const BACKUP_DIR = resolve(DATA_DIR, "backups");
 const DB_PATH = resolve(DATA_DIR, "lectern.sqlite");
 const BACKUP_NAME_RE = /^lectern-\d{8}-\d{6}\.sqlite$/;
 
-/** Checkout the CD webhook updates. Defaults to the repo this file runs from. */
-export const REPO_DIR = resolve(process.env.LECTERN_REPO_DIR || join(import.meta.dir, "../../.."));
+/** The checkout this server runs from (its HEAD is the reported gitSha). */
+const RUNNING_REPO_DIR = resolve(process.env.LECTERN_REPO_DIR || join(import.meta.dir, "../../.."));
+
+// The checkout the CD webhook hard-resets to origin/main. It is never inferred from the
+// running code, so a deploy call against a developer's server cannot reset their working
+// tree: set LECTERN_REPO_DIR, or the legacy production path is used when it exists.
+const LEGACY_DEPLOY_DIR = "/home/eunhhu/work/lectern";
+export const DEPLOY_REPO_DIR: string | null = process.env.LECTERN_REPO_DIR
+  ? resolve(process.env.LECTERN_REPO_DIR)
+  : existsSync(LEGACY_DEPLOY_DIR)
+  ? LEGACY_DEPLOY_DIR
+  : null;
 
 // MARK: - Request counters
 
@@ -48,7 +58,7 @@ export function requestStats(): { total: number; errors5xx: number } {
 export function redactUrlForLog(url: URL): string {
   const params = new URLSearchParams(url.search);
   for (const key of ["token", "share", "key"]) {
-    if (params.has(key)) params.set(key, "…");
+    if (params.has(key)) params.set(key, "redacted");
   }
   const qs = params.toString();
   return qs ? `${url.pathname}?${qs}` : url.pathname;
@@ -289,7 +299,7 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
 export function resolveGitSha(): string {
   try {
     const res = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
-      cwd: REPO_DIR,
+      cwd: DEPLOY_REPO_DIR || RUNNING_REPO_DIR,
       stdout: "pipe",
       stderr: "ignore",
     });
@@ -300,10 +310,11 @@ export function resolveGitSha(): string {
 }
 
 async function runStep(
+  cwd: string,
   cmd: string[],
   timeoutMs: number
 ): Promise<{ ok: boolean; output: string }> {
-  const proc = Bun.spawn(cmd, { cwd: REPO_DIR, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
   const timer = setTimeout(() => proc.kill(), timeoutMs);
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -329,9 +340,17 @@ export function deployStatus() {
 export async function pullLatestRelease(): Promise<
   { ok: true; sha: string; previousSha: string } | { ok: false; busy?: boolean; error: string; sha: string }
 > {
+  if (!DEPLOY_REPO_DIR) {
+    return {
+      ok: false,
+      error: "배포 대상 체크아웃(LECTERN_REPO_DIR)이 설정되지 않았습니다.",
+      sha: resolveGitSha(),
+    };
+  }
   if (deployInProgress) {
     return { ok: false, busy: true, error: "다른 배포가 진행 중입니다.", sha: resolveGitSha() };
   }
+  const repoDir = DEPLOY_REPO_DIR;
   deployInProgress = true;
   const previousSha = resolveGitSha();
   try {
@@ -341,7 +360,7 @@ export async function pullLatestRelease(): Promise<
       ["bun install", ["bun", "install", "--frozen-lockfile"], 300_000],
     ];
     for (const [name, cmd, timeoutMs] of steps) {
-      const res = await runStep(cmd, timeoutMs);
+      const res = await runStep(repoDir, cmd, timeoutMs);
       if (!res.ok) {
         const error = `${name} failed: ${res.output}`;
         lastDeploy = { ok: false, sha: resolveGitSha(), error, at: new Date().toISOString() };

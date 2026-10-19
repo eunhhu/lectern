@@ -28,7 +28,7 @@ import {
   isFfmpegAvailable,
   purgeTrash,
 } from "../src/storage.ts";
-import { BACKUP_DIR } from "../src/ops.ts";
+import { BACKUP_DIR, DEPLOY_REPO_DIR, redactUrlForLog } from "../src/ops.ts";
 
 const hasFfmpeg = isFfmpegAvailable();
 const originalSettings: SystemSettings = getSystemSettings();
@@ -471,5 +471,38 @@ describe("admin lecture list", () => {
     const wild: any = await (await api(`/api/admin/lectures?q=${encodeURIComponent("%")}`, token)).json();
     expect(wild.lectures.some((l: any) => l.id === id)).toBe(false);
     deleteUserAndData(member.userId);
+  });
+});
+
+describe("deploy & logging safety", () => {
+  // Skipped wherever a deploy checkout exists, so this can never reset a real repo.
+  test.skipIf(DEPLOY_REPO_DIR !== null)(
+    "an authorized deploy refuses to run without an explicit checkout",
+    async () => {
+      process.env.LECTERN_DEPLOY_TOKEN = "deploy-secret-for-test";
+      try {
+        const res = await handleRequest(
+          new Request("http://localhost/api/cd/deploy", {
+            method: "POST",
+            headers: { "X-Lectern-Deploy-Token": "deploy-secret-for-test" },
+          })
+        );
+        expect(res.status).toBe(500);
+        const data: any = await res.json();
+        expect(data.ok).toBe(false);
+        expect(data.error).toContain("LECTERN_REPO_DIR");
+      } finally {
+        delete process.env.LECTERN_DEPLOY_TOKEN;
+      }
+    }
+  );
+
+  test("credential query parameters are redacted in request logs", () => {
+    const line = redactUrlForLog(
+      new URL("http://localhost/api/lectures/x/audio?token=lct_secret&share=abc&q=keep")
+    );
+    expect(line).not.toContain("lct_secret");
+    expect(line).not.toContain("share=abc");
+    expect(line).toContain("q=keep");
   });
 });
