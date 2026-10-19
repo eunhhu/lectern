@@ -17,6 +17,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
+import { config } from "@lectern/config";
 import { probeAudioDuration } from "../../../packages/core/src/index.ts";
 import type { AdminSettingsDto, AdminStorageDto } from "./admin-api.ts";
 import {
@@ -37,10 +38,7 @@ const DAY_MS = 24 * HOUR_MS;
 /** Unreferenced uploads younger than this may belong to an upload still in flight. */
 const ORPHAN_MIN_AGE_MS = HOUR_MS;
 const TEMP_FILE_MIN_AGE_MS = 6 * HOUR_MS;
-export const TRASH_RETENTION_DAYS = Math.max(
-  1,
-  Math.floor(Number(process.env.LECTERN_TRASH_DAYS ?? 7)) || 7
-);
+export const TRASH_RETENTION_DAYS = config().trashDays;
 /** A compacted copy is kept only if it is at most this fraction of the original. */
 const COMPACT_KEEP_RATIO = 0.85;
 

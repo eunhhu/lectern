@@ -20,7 +20,16 @@ import {
   updateSystemSettings,
   type SystemSettings,
 } from "../src/db.ts";
-import { enqueueJob, snapshotJobs } from "../src/jobs.ts";
+import {
+  JobWorker,
+  enqueueJob,
+  ensureEmbeddedWorker,
+  reclaimExpiredLeases,
+  registerJobHandler,
+  snapshotJobs,
+  waitForJob,
+} from "../src/queue.ts";
+import { PROCESS_ORIGIN, emitLectureEvent, tailForeignLectureEvents } from "../src/events.ts";
 import {
   TRASH_DIR,
   UPLOADS_DIR,
@@ -409,31 +418,134 @@ describe("maintenance", () => {
 });
 
 describe("job queue", () => {
-  test("respects concurrency, deduplicates per lecture, and retry answers 409 while busy", async () => {
-    const releases: Array<() => void> = [];
-    const blocker = () =>
-      new Promise<{ ok: boolean }>((resolve) => releases.push(() => resolve({ ok: true })));
-    const ids = [makeDoneLecture(null), makeDoneLecture(null), makeDoneLecture(null)];
-    const handles = ids.map((id) => enqueueJob("distill", id, blocker));
-    const dup = enqueueJob("distill", ids[0], blocker);
-    expect(dup.deduplicated).toBe(true);
+  // A test-only job kind whose jobs block until the test releases them.
+  const releases = new Map<string, () => void>();
+  const seenSecrets = new Map<string, string | undefined>();
+  registerJobHandler(
+    "test-block",
+    (job) =>
+      new Promise((resolve) => {
+        seenSecrets.set(job.id, job.secret());
+        releases.set(job.subjectId!, () => resolve({ ok: true, result: { echo: job.payload.echo ?? null } }));
+      }),
+    { concurrency: 2 }
+  );
+  const lost: string[] = [];
+  registerJobHandler("test-lost", async () => ({ ok: true }), {
+    concurrency: 1,
+    onLost: ({ subjectId }) => lost.push(subjectId!),
+  });
 
+  test("respects concurrency, deduplicates per lecture, and retry answers 409 while busy", async () => {
+    const ownerId = ensureBootstrapOwner().id;
+    const ids = [makeDoneLecture(null), makeDoneLecture(null), makeDoneLecture(null)];
+    const queued = ids.map((id) => enqueueJob({ kind: "test-block", ownerId, subjectId: id, payload: { echo: id } }));
+    expect(queued.every((q) => !q.deduplicated)).toBe(true);
+    const dup = enqueueJob({ kind: "test-block", ownerId, subjectId: ids[0] });
+    expect(dup.deduplicated).toBe(true);
+    expect(dup.jobId).toBe(queued[0].jobId);
+
+    await waitFor(() => releases.size === 2);
     const snap = snapshotJobs();
     const mine = (list: typeof snap.running) => list.filter((j) => ids.includes(j.lectureId));
-    expect(mine(snap.running).length).toBe(Math.min(3, snap.concurrency.distill));
-    expect(mine(snap.running).length + mine(snap.queued).length).toBe(3);
+    expect(mine(snap.running).length).toBe(2); // concurrency 2
+    expect(mine(snap.queued).length).toBe(1);
 
     // A lecture with a job in flight cannot be re-run concurrently.
     const token = ownerToken();
     const retry = await api(`/api/lectures/${ids[0]}/retry`, token, { method: "POST" });
     expect(retry.status).toBe(409);
 
-    while (releases.length) {
-      releases.shift()!();
-      await Bun.sleep(10);
+    for (const id of ids) {
+      await waitFor(() => releases.has(id));
+      releases.get(id)!();
     }
-    await Promise.all(handles.map((h) => h.done));
-    expect(snapshotJobs().running.filter((j) => ids.includes(j.lectureId)).length).toBe(0);
+    const results = await Promise.all(queued.map((q) => waitForJob(q.jobId, 10_000)));
+    expect(results.map((r) => r.state)).toEqual(["succeeded", "succeeded", "succeeded"]);
+    expect(results[1].result).toEqual({ echo: ids[1] });
+    // Finished jobs release their dedupe key: the same lecture can be queued again.
+    expect(enqueueJob({ kind: "test-block", ownerId, subjectId: ids[0] }).deduplicated).toBe(false);
+    await waitFor(() => releases.has(ids[0]));
+    releases.get(ids[0])!();
+  });
+
+  test("a sealed secret reaches the handler, is never stored in clear, and is cleared afterwards", async () => {
+    const ownerId = ensureBootstrapOwner().id;
+    const id = makeDoneLecture(null);
+    releases.delete(id);
+    const { jobId } = enqueueJob({ kind: "test-block", ownerId, subjectId: id, secret: "AIza-user-key-123" });
+    const stored = db.query(`SELECT sealed_secret FROM job WHERE id = ?`).get(jobId) as any;
+    expect(stored.sealed_secret).toStartWith("v1:");
+    expect(stored.sealed_secret).not.toContain("AIza-user-key-123");
+    await waitFor(() => releases.has(id));
+    expect(seenSecrets.get(jobId)).toBe("AIza-user-key-123");
+    releases.get(id)!();
+    await waitForJob(jobId, 5_000);
+    expect((db.query(`SELECT sealed_secret FROM job WHERE id = ?`).get(jobId) as any).sealed_secret).toBeNull();
+  });
+
+  test("expired leases are reclaimed, and jobs interrupted too often fail via onLost", () => {
+    const ownerId = ensureBootstrapOwner().id;
+    const subject = makeDoneLecture(null);
+    const now = Date.now();
+    db.query(
+      `INSERT INTO job (id, owner_id, kind, subject_id, state, priority, run_after, attempts, max_attempts,
+         lease_owner, lease_until, payload, idempotency_key, created_at, started_at)
+       VALUES (?, ?, 'test-lost', ?, 'running', 0, ?, 0, 2, 'dead-worker', ?, '{}', ?, ?, ?)`
+    ).run(`job_reclaim_${subject}`, ownerId, subject, now, now - 1, `test-lost:${subject}`, now, now);
+    // Keep the embedded worker from leasing it between the two steps.
+    db.query(`UPDATE job SET run_after = ? WHERE id = ?`).run(now + 60_000, `job_reclaim_${subject}`);
+    expect(reclaimExpiredLeases(now).requeued).toBeGreaterThanOrEqual(1);
+    let row = db.query(`SELECT state, attempts, lease_owner FROM job WHERE id = ?`).get(`job_reclaim_${subject}`) as any;
+    expect(row).toEqual({ state: "queued", attempts: 1, lease_owner: null });
+
+    db.query(`UPDATE job SET state = 'running', lease_owner = 'dead-worker', lease_until = ? WHERE id = ?`).run(
+      now - 1,
+      `job_reclaim_${subject}`
+    );
+    reclaimExpiredLeases(now);
+    row = db.query(`SELECT state, error_code, idempotency_key FROM job WHERE id = ?`).get(`job_reclaim_${subject}`) as any;
+    expect(row).toEqual({ state: "failed", error_code: "lease_lost", idempotency_key: null });
+    expect(lost).toContain(subject);
+  });
+
+  test("a worker that cannot finish in its drain window hands its jobs back immediately", async () => {
+    const ownerId = ensureBootstrapOwner().id;
+    const embedded = ensureEmbeddedWorker()!;
+    await embedded.drain(5_000); // only the worker under test may lease
+    try {
+      const worker = new JobWorker({ id: "drain-test-worker", pollMs: 20 });
+      const id = makeDoneLecture(null);
+      releases.delete(id);
+      const { jobId } = enqueueJob({ kind: "test-block", ownerId, subjectId: id });
+      worker.start();
+      await waitFor(() => releases.has(id));
+      expect(await worker.drain(50)).toBe(false);
+      const row = db.query(`SELECT state, lease_owner, attempts FROM job WHERE id = ?`).get(jobId) as any;
+      expect(row).toEqual({ state: "queued", lease_owner: null, attempts: 1 });
+      releases.get(id)!(); // the abandoned run resolves; its outcome must not overwrite the requeue
+      await Bun.sleep(30);
+      expect((db.query(`SELECT state FROM job WHERE id = ?`).get(jobId) as any).state).toBe("queued");
+      db.query(`UPDATE job SET state = 'canceled', idempotency_key = NULL, finished_at = ? WHERE id = ?`).run(Date.now(), jobId);
+    } finally {
+      embedded.start();
+    }
+  });
+
+  test("events from another process reach this process's listeners through the tail", async () => {
+    const got: any[] = [];
+    const stop = tailForeignLectureEvents((owner, payload) => got.push({ owner, payload }), { pollMs: 20 });
+    try {
+      emitLectureEvent("owner-local", { type: "updated", id: "local" }); // own origin: not tailed
+      db.query(
+        `INSERT INTO job_event (owner_id, subject_id, type, payload, origin, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run("owner-x", "lec-x", "completed", JSON.stringify({ type: "completed", id: "lec-x" }), "other-host:1:abc", Date.now());
+      await waitFor(() => got.length > 0, 2_000);
+      expect(got).toEqual([{ owner: "owner-x", payload: { type: "completed", id: "lec-x" } }]);
+      expect(PROCESS_ORIGIN).not.toBe("other-host:1:abc");
+    } finally {
+      stop();
+    }
   });
 
   test("only transient Gemini failures are retried", () => {

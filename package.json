@@ -5,14 +5,16 @@
   "description": "Zero-overhead cross-platform lecture audio recorder, noise/break filter, and academic Markdown distillation engine powered by Bun & Gemini Flash.",
   "workspaces": [
     "packages/*",
-    "apps/server"
+    "apps/server",
+    "apps/worker"
   ],
   "scripts": {
     "dev": "bun --watch apps/server/src/index.ts",
     "start": "bun apps/server/src/index.ts",
     "cli": "bun packages/core/src/cli.ts",
     "test": "bun test",
-    "typecheck": "bun x tsc --noEmit"
+    "typecheck": "bun x tsc --noEmit",
+    "config:docs": "bun packages/config/scripts/write-env-docs.ts"
   },
   "license": "MIT",
   "devDependencies": {
