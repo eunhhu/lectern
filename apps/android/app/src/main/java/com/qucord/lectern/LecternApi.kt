@@ -81,6 +81,7 @@ object LecternApi {
      * POST /api/ingest/shortcut?wait=false as multipart (course, idempotency_key, audio).
      * The same [idempotencyKey] is sent on every retry so the server deduplicates an upload whose
      * first response was lost and answers with the existing lecture id.
+     * The server keeps the filename's [extension] and the part's [mimeType], so both must describe the real file.
      */
     fun uploadAudio(
         serverBase: String,
@@ -88,7 +89,9 @@ object LecternApi {
         file: File,
         course: String,
         idempotencyKey: String,
-        client: String
+        client: String,
+        extension: String,
+        mimeType: String
     ): UploadResult {
         val boundary = "LecternBoundary-${UUID.randomUUID()}"
         val head = buildString {
@@ -99,8 +102,8 @@ object LecternApi {
             append("Content-Disposition: form-data; name=\"idempotency_key\"\r\n\r\n")
             append(idempotencyKey).append("\r\n")
             append("--$boundary\r\n")
-            append("Content-Disposition: form-data; name=\"audio\"; filename=\"lectern_$idempotencyKey.m4a\"\r\n")
-            append("Content-Type: audio/mp4\r\n\r\n")
+            append("Content-Disposition: form-data; name=\"audio\"; filename=\"lectern_$idempotencyKey.$extension\"\r\n")
+            append("Content-Type: $mimeType\r\n\r\n")
         }.toByteArray(Charsets.UTF_8)
         val tail = "\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8)
 

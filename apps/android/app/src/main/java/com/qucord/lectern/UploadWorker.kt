@@ -40,7 +40,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
         PendingUploads.update(ctx, id) { it.copy(status = PendingUpload.STATUS_UPLOADING) }
         when (val result = LecternApi.uploadAudio(
-            LecternSession.serverBase, token, item.file, item.course, item.id, item.client
+            LecternSession.serverBase, token, item.file, item.course, item.id, item.client, item.extension, item.mimeType
         )) {
             is UploadResult.Success -> {
                 PendingUploads.markCompleted(ctx, item, result.lectureId)

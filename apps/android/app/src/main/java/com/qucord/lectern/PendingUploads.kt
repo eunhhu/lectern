@@ -22,7 +22,10 @@ data class PendingUpload(
     /** Recordings made in the app keep their local original; tile recordings are deleted once uploaded. */
     val keepLocalCopy: Boolean,
     val status: String = STATUS_QUEUED,
-    val lastError: String? = null
+    val lastError: String? = null,
+    /** Sent as the multipart filename extension and part Content-Type; the server stores and transcribes by them. */
+    val extension: String = DEFAULT_EXTENSION,
+    val mimeType: String = DEFAULT_MIME_TYPE
 ) {
     val file: File get() = File(filePath)
 
@@ -31,6 +34,10 @@ data class PendingUpload(
         const val STATUS_UPLOADING = "uploading"
         /** Needs the user: a 4xx answer, missing login, or retries exhausted. */
         const val STATUS_FAILED = "failed"
+
+        /** What RecordingService writes (MPEG-4/AAC). */
+        const val DEFAULT_EXTENSION = "m4a"
+        const val DEFAULT_MIME_TYPE = "audio/mp4"
     }
 }
 
@@ -103,6 +110,8 @@ object PendingUploads {
                     .put("keepLocalCopy", it.keepLocalCopy)
                     .put("status", it.status)
                     .put("lastError", it.lastError ?: JSONObject.NULL)
+                    .put("extension", it.extension)
+                    .put("mimeType", it.mimeType)
             )
         }
         return arr.toString()
@@ -122,7 +131,10 @@ object PendingUploads {
                     createdAt = o.optLong("createdAt"),
                     keepLocalCopy = o.optBoolean("keepLocalCopy", true),
                     status = o.optString("status", PendingUpload.STATUS_QUEUED),
-                    lastError = if (o.isNull("lastError")) null else o.optString("lastError")
+                    lastError = if (o.isNull("lastError")) null else o.optString("lastError"),
+                    // Entries queued before these fields existed are app recordings.
+                    extension = o.optString("extension", PendingUpload.DEFAULT_EXTENSION),
+                    mimeType = o.optString("mimeType", PendingUpload.DEFAULT_MIME_TYPE)
                 )
             }
         } catch (_: Exception) {

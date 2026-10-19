@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // The server base is fixed at build time; intent extras are ignored because this activity is exported.
         if (savedInstanceState == null && isQuickRecord(intent)) quickRecordRequests++
+        if (savedInstanceState == null) handleShare(intent)
 
         setContent {
             MaterialTheme(
@@ -88,11 +89,26 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (isQuickRecord(intent)) quickRecordRequests++
+        handleShare(intent)
     }
 
     private fun isQuickRecord(intent: Intent?): Boolean =
-        intent?.action == ACTION_QUICK_RECORD &&
-            (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
+        intent?.action == ACTION_QUICK_RECORD && !launchedFromHistory(intent)
+
+    /** Reopening from recents replays the launch intent; it must not record or import a second time. */
+    private fun launchedFromHistory(intent: Intent): Boolean =
+        (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+
+    /** Share sheet target: audio shared from another app is copied and queued like a recording. */
+    private fun handleShare(intent: Intent?) {
+        if (intent == null || !SharedAudioImport.isAudioShare(intent) || launchedFromHistory(intent)) return
+        val shared = SharedAudioImport.fromIntent(intent)
+        if (shared == null) {
+            Toast.makeText(this, "공유된 오디오 파일을 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        SharedAudioImport.enqueue(this, shared, LecternSession.lastCourse(this))
+    }
 
     companion object {
         const val ACTION_QUICK_RECORD = "com.qucord.lectern.QUICK_RECORD"
