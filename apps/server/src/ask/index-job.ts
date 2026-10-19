@@ -8,7 +8,7 @@
 //   any change made while the flag was off), and drops index rows of lectures that are gone.
 // - Deleting a lecture deletes its index rows and note-scoped threads directly (db.ts).
 
-import { config } from "@lectern/config";
+import { config, readSecret } from "@lectern/config";
 import {
   chunkRecording,
   deleteRecordingIndex,
@@ -76,11 +76,19 @@ export async function indexLecture(
   }
 }
 
+/**
+ * The embedder to index with, or none (BM25 only) while no Gemini key is configured, so a
+ * missing key leaves a quiet lexical index instead of a failing job per lecture.
+ */
+function usableEmbedder(service: AskService): Embedder | undefined {
+  return service.embedder && readSecret("GEMINI_API_KEY") ? service.embedder : undefined;
+}
+
 async function runIndexJob(job: LeasedJob): Promise<JobOutcome> {
   const service = askService();
   if (!service) return { ok: true, result: { skipped: "LECTERN_ASK is off" } };
   try {
-    return await indexLecture(job.subjectId!, { jobId: job.id, embedder: service.embedder });
+    return await indexLecture(job.subjectId!, { jobId: job.id, embedder: usableEmbedder(service) });
   } catch (err: any) {
     logger.error("index job failed", { job_id: job.id, lecture_id: job.subjectId, err });
     return { ok: false, error: err?.message ?? String(err) };
@@ -103,7 +111,7 @@ onLectureContentChanged((lectureId, ownerId) => scheduleLectureIndex(lectureId, 
  */
 export function reconcileAskIndex(service: AskService | null = askService()): { queued: number; removed: number } {
   if (!service) return { queued: 0, removed: 0 };
-  const embedder = service.embedder;
+  const embedder = usableEmbedder(service);
   let queued = 0;
   const lectures = db
     .query(`SELECT id, owner_id, status, markdown, updated_at FROM lectures WHERE status = 'done'`)

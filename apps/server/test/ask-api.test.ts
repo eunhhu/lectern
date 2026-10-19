@@ -234,6 +234,23 @@ describe("ask routes", () => {
   });
 });
 
+test("replaying a failed question ends with an error event, not a completion", async () => {
+  const broken: AskModel = {
+    provider: "gemini",
+    model: "gemini-3.5-flash-lite",
+    // eslint-disable-next-line require-yield
+    async *stream() {
+      throw new Error("Gemini request failed (503): overloaded");
+    },
+  };
+  const svc = service(broken);
+  const thread = await newThread(svc, me, { kind: "recording", recording_id: lecture.id });
+  const first = await ask(svc, me, thread.id, "시험 범위는?", { "Idempotency-Key": "k-fail" });
+  expect(first.events.at(-1)).toMatchObject({ type: "error", error: { code: "unavailable" } });
+  const again = await ask(svc, me, thread.id, "시험 범위는?", { "Idempotency-Key": "k-fail" });
+  expect(again.events.map((e) => e.type)).toEqual(["turn.started", "error"]);
+});
+
 describe("index upkeep and deletion", () => {
   test("a Markdown edit notifies listeners; reconciliation queues stale lectures and drops orphans", async () => {
     const seen: string[] = [];

@@ -87,7 +87,7 @@ describe("GeminiAskModel", () => {
     expect(seen[0]!.body).toEqual({
       systemInstruction: { parts: [{ text: "규칙" }] },
       contents: [{ role: "user", parts: [{ text: "노트 조각:\n\n[c1] ECB는 위험" }, { text: "질문: ECB가 왜 위험해?" }] }],
-      generationConfig: { maxOutputTokens: 700, temperature: 0.2 },
+      generationConfig: { maxOutputTokens: 700 },
     });
   });
 

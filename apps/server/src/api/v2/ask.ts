@@ -199,7 +199,8 @@ export function createAskRouter(getService: () => AskService | null) {
         if (turn.status === "running") return apiError(req.c, 409, "conflict", "같은 질문을 아직 처리하고 있습니다.");
         return sseResponse(async (emit) => {
           emit({ type: "turn.started", thread_id: thread.id, turn_id: turn.id, idx: turn.idx, created_at: turn.created_at });
-          emit({ type: "turn.completed", turn: withAvailability([turn], user.id)[0]! });
+          if (turn.status === "failed" && turn.error) emit({ type: "error", error: turn.error });
+          else emit({ type: "turn.completed", turn: withAvailability([turn], user.id)[0]! });
         });
       }
       return sseResponse((emit) => runAskTurn(service.deps, { access, thread, turn }, emit));

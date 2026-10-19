@@ -178,7 +178,7 @@ curl -fsS http://127.0.0.1:18775/api/health | jq .checks.worker
 
 ### 3.8 밖에서만 접속이 안 됨 (프록시·Cloudflare·회선)
 
-1. 앞단 프록시 서비스 상태를 본다([host-setup.md §8](host-setup.md#8-운영-수칙과-현재-구성-메모)에 적어 둔 구성).
+1. 앞단 프록시 서비스 상태를 본다([host-setup.md §9](host-setup.md#9-운영-수칙과-현재-구성-메모)에 적어 둔 구성).
    ```bash
    systemctl list-units --type=service --no-pager | grep -Ei 'nginx|caddy|cloudflared|traefik|haproxy'
    ```

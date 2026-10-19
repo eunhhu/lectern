@@ -135,7 +135,8 @@ export function askRequestBody(req: AskModelRequest): Record<string, unknown> {
     systemInstruction: { parts: [{ text: req.system }] },
     contents,
     ...(req.tools.length ? { tools: declarations(req.tools), toolConfig: { functionCallingConfig: { mode: "AUTO" } } } : {}),
-    generationConfig: { maxOutputTokens: req.maxOutputTokens, temperature: 0.2 },
+    // Temperature stays at the model default: Gemini 3 guidance advises against lowering it.
+    generationConfig: { maxOutputTokens: req.maxOutputTokens },
   };
 }
 
