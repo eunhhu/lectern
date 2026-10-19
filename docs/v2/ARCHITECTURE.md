@@ -1,0 +1,326 @@
+# Lectern v2 — 시스템 아키텍처
+
+> 상태: 설계 초안 (2026-10-19) · 대상 독자: 이 저장소를 이어받는 개발자/에이전트
+> 관련 문서: [AI_HARNESS.md](AI_HARNESS.md) (AI 파이프라인 상세) · [ROADMAP.md](ROADMAP.md) (결정 사항·실행 계획)
+
+Lectern을 "대학 강의 녹음 → 마크다운 요약" 앱에서 **녹음(+참고 PDF) → 고밀도 구조화 문서** 플랫폼으로 바꾼다. 대상은 강의, 회의, 세미나, 인터뷰, 1:1, 통화처럼 말로 진행되고 문서로 남겨야 하는 모든 상황이다.
+
+## 1. 목표와 비목표
+
+**목표**
+- 어떤 도메인의 녹음이든 **일관된 형식의 문서**(강의 노트, 회의록, 세미나 요약, 인터뷰 기록)로 만든다. 문서의 모든 주장은 원문 구간(타임스탬프)이나 PDF 페이지로 되짚어 갈 수 있어야 한다.
+- 녹음 + PDF 업로드, 폴더·태그·워크스페이스 자동 분류, 일괄 정리를 **키보드만으로도 빠르게** 할 수 있게 한다.
+- 전사(Transcript)와 오디오 타임라인을 동기화하고, PDF 기반 질문 리스트, 일정 자동 추출과 캘린더 연동을 제공한다.
+- AI 처리는 **재개 가능하고 검증되며 비용이 측정되는** 파이프라인으로 돌린다([AI_HARNESS.md](AI_HARNESS.md)).
+- 상용 서비스 수준의 계정·권한·쿼터·공유·어드민, 그리고 언제든 인계 가능한 코드·문서 구조를 갖춘다.
+
+**비목표 (v2 범위 밖, [ROADMAP.md](ROADMAP.md#보류-목록)의 보류 목록 참고)**
+- 실시간(스트리밍) 전사, 벡터 검색/임베딩, 간격 반복(SRS) 스케줄러, 결제 연동, Postgres 전환, iOS 네이티브 앱 재작성.
+
+## 2. 현재 상태 (2026-10-19, `main` = `04394e5`)
+
+### 2.1 구성
+
+| 영역 | 위치 | 현황 |
+|---|---|---|
+| API + 웹 | `apps/server/src/index.ts` (약 2,900줄) | Bun.serve 하나와 `if` 체인 라우터. 인증, 강의 CRUD, 업로드, SSE, 관리자 API, CD 웹훅이 한 파일에 있다 |
+| DB | `apps/server/src/db.ts` (약 1,700줄) | `bun:sqlite`(WAL). 테이블: `users`, `sessions`(로그인), `lectures`, `system_settings`, `audit_logs`, `email_verifications`, `deleted_sources`. 마이그레이션은 `PRAGMA table_info`로 컬럼을 확인해 `ALTER`하는 방식 |
+| 웹 UI | `apps/server/src/ui.ts` (약 6,500줄) | 앱, 공유 페이지, 관리자 페이지 모두 TS 템플릿 문자열. 스크립트는 `/assets/*.js`로 분리(CSP `script-src 'self'`) |
+| AI | `packages/core/src/gemini.ts` | 오디오 → Gemini File API → **한 번의 호출로 Markdown 생성**. 타임스탬프는 Markdown 안의 `[MM:SS]` 텍스트뿐이고 구조화 데이터·전사·검증은 없다 |
+| 작업 | `apps/server/src/jobs.ts` | 인메모리 큐(분석 2, 압축 1 동시 실행). 재시작하면 `status='processing'`인 행을 다시 큐에 넣는다 |
+| 저장소 | `apps/server/src/storage.ts` | 로컬 디스크 `DATA_DIR/uploads`, AAC 압축, 휴지통, 보존 정책 |
+| 운영 | `apps/server/src/ops.ts` | 유지보수(만료 정리, 백업, WAL), CD(정확한 SHA 배포, 사전 부팅 점검, 롤백) |
+| 네이티브 | `apps/macos` (단일 `main.swift` 약 1,800줄), `apps/android`, `apps/windows`, `apps/ios`(빌드 안 되는 스텁) | 모두 v1 API(`/api/lectures`, `/api/ingest/shortcut`) 사용 |
+| 배포 | Raspberry Pi 5 (aarch64), systemd `lectern.service`, Cloudflare 경유 `lectern.qucord.com` | GitHub Actions → CD 웹훅 → 사전 점검 → 재시작 |
+
+**v1 API 목록**: `POST /api/auth/{login,logout,register,send-code,reset-password,password,rotate-token}`, `GET /api/auth/me`, `GET|POST /api/lectures`, `POST /api/lectures/{ingest,cleanup}`, `GET|PUT|DELETE /api/lectures/:id`, `/:id/{audio,markdown,visibility,retry}`, `POST /api/ingest/shortcut`, `GET /api/events`(SSE), `GET /s/:token`, `/api/admin/*`(overview, users, settings, ops, storage, lectures, audit, maintenance), `POST /api/cd/deploy`, `GET /api/health`.
+
+### 2.2 유지할 것 (이미 검증된 결정)
+- 비밀번호 저장(scrypt, `timingSafeEqual`), 이메일 코드 시도 제한, 인증 rate limit, 관리자 RBAC 검증
+- **쿠키 전용 웹 인증**(HttpOnly·Secure·SameSite=Lax), 네이티브는 헤더 토큰
+- 엄격한 CSP(`script-src 'self'`, 인라인 핸들러 금지, `data-action` 위임)
+- 업로드 MIME 화이트리스트, `nosniff`, 오디오는 확장자 기준 MIME으로 서빙
+- 저장소 운영: 압축(원본 아카이브는 하드링크), 휴지통(7일), 보존 정책, `VACUUM INTO` 백업
+- CD: 정확한 SHA 배포, 사전 부팅 점검(`preflight.ts`), 실패 시 롤백, 우아한 종료
+- Linear 스타일 관리자 콘솔의 정보 구조(보기 단위, 상세 패널, ⌘K)
+
+### 2.3 걷어낼 부채
+| 부채 | 대체 |
+|---|---|
+| `index.ts`의 `if` 체인 라우터 | Hono 라우터 + 모듈별 라우트, zod 검증, OpenAPI |
+| `ui.ts` 템플릿 문자열 UI | `apps/web` React SPA(타입 검사·린트 가능) |
+| 인메모리 작업 큐 | SQLite 기반 영속 큐 + 별도 워커 프로세스 |
+| 단일 호출 Markdown 생성 | 단계형 하네스(전사 → 구조화 JSON → 추출 → 검증) |
+| `PRAGMA table_info` 마이그레이션 | 버전 관리되는 SQL 마이그레이션(Drizzle) |
+| 운영 코드 안의 `test_`/`bun-test` 분기 | 테스트 샌드박스(이미 도입한 preload)로 일원화하고 분기 삭제 |
+| 하드코딩된 `/home/eunhhu/...` 경로 | 환경 변수 + 설정 모듈 |
+| 길게 사는 `lct_` API 토큰(평문 저장) | 해시 저장, 범위 지정 PAT, 네이티브는 refresh token |
+
+## 3. 전체 구조
+
+```mermaid
+flowchart LR
+  subgraph Clients
+    W[Web SPA<br/>apps/web]
+    M[macOS<br/>apps/macos]
+    A[Android / Windows<br/>v1 → v2]
+  end
+  subgraph Host["Raspberry Pi (systemd)"]
+    API[lectern-api<br/>Hono on Bun]
+    WK[lectern-worker<br/>harness runner]
+    DB[(SQLite WAL<br/>+ FTS5)]
+    BL[(Blob store<br/>DATA_DIR/blobs)]
+  end
+  subgraph Providers
+    STT[STT provider<br/>Gemini / dedicated]
+    LLM[LLM provider<br/>Gemini / Claude]
+    GC[Google Calendar]
+    RS[Resend email]
+  end
+  W -- cookie --> API
+  M -- bearer/refresh --> API
+  A -- bearer --> API
+  API <--> DB
+  API <--> BL
+  API -- enqueue --> DB
+  WK -- lease jobs --> DB
+  WK <--> BL
+  WK --> STT
+  WK --> LLM
+  WK --> GC
+  WK --> RS
+  API -- SSE events --> W
+```
+
+- **API와 워커를 분리한다.** ffmpeg와 AI 호출은 워커에서만 돌기 때문에 웹 응답 지연에 영향을 주지 않는다. 워커가 재시작되거나 죽어도 웹은 계속 동작한다. 둘은 같은 SQLite와 Blob 저장소를 공유하고, 진행 이벤트는 DB의 `job_events`를 통해 API의 SSE로 전달된다(같은 호스트라 폴링 간격 1초 이내).
+- **단일 노드를 전제로 하되 이식성은 확보한다.** Pi 한 대에서 SQLite + 로컬 디스크로 운영한다. 저장소는 `BlobStore` 인터페이스(로컬 → S3/R2), DB는 Drizzle(SQLite → Postgres) 뒤에 두어 이전 비용을 낮춘다([확장 경로](#15-확장-경로)).
+
+## 4. 모노레포 레이아웃
+
+```
+apps/
+  server/        # HTTP API (Hono). systemd ExecStart 경로 유지를 위해 이름 그대로 둔다
+  worker/        # 작업 러너: harness 단계, 압축, 유지보수, 리마인더, 캘린더 동기화
+  web/           # React SPA (Bun 번들러) → 정적 자산을 server가 서빙
+  macos/ android/ windows/ ios/
+packages/
+  domain/        # zod 스키마 = 단일 진실 공급원 (엔티티, API DTO, 이벤트, 템플릿 스키마)
+  db/            # Drizzle 스키마 + SQL 마이그레이션 + 리포지토리
+  harness/       # AI 파이프라인: 단계, 공급자 어댑터, 프롬프트, 템플릿, 검증기, 평가(eval)
+  media/         # ffmpeg/ffprobe 래퍼, VAD, 청크 분할, 시간 맵
+  design-tokens/ # tokens.json(DTCG) → CSS 변수 / Swift / Kotlin 생성
+  ui/            # React 컴포넌트 (React Aria Components + 토큰)
+  config/        # 환경 변수 스키마(zod), 기본값, 경로
+docs/
+  v2/            # 이 설계 문서들
+  adr/           # 아키텍처 결정 기록 (0001-...)
+  runbooks/      # 배포·롤백·백업 복원·시크릿 교체·장애 대응
+DESIGN.md        # 디자인 시스템 (P0 산출물)
+AGENTS.md        # 사람/AI 에이전트 공통 작업 규칙 (CLAUDE.md는 이 파일을 가리키게)
+```
+
+**의존 방향**: `apps/*` → `packages/{harness,db,media,ui}` → `packages/domain` → (없음). `packages/domain`은 런타임 의존성이 zod뿐이고 다른 패키지를 import하지 않는다. 그래야 웹·워커·네이티브 코드 생성이 같은 스키마를 공유하며 병렬로 진행될 수 있다([ROADMAP.md](ROADMAP.md#병렬화와-동결-지점)).
+
+## 5. 도메인 / 데이터 모델 v2
+
+### 5.1 명명 규칙
+- 녹음 단위는 **`recording`**(UI 표기: "녹음")이라 부른다. 로그인 세션 테이블 `sessions`와 겹치지 않게 하려는 것이다. 녹음 하나에 오디오 파트 여러 개와 PDF가 붙을 수 있다.
+- AI가 만든 결과물은 `document`(구조화 문서), `transcript`(전사), `question`, `event_candidate`, `action_item`으로 나눈다.
+- **모든 v2 테이블에 `workspace_id`를 둔다.** 권한 검사는 P2부터 워크스페이스 단위로 하고, 사용자마다 개인 워크스페이스를 자동으로 만든다. 팀 기능(초대·공유 UI)은 나중에 붙여도 되지만 컬럼은 처음부터 있어야 한다.
+- ID는 UUIDv7(시간 정렬)을 텍스트로 저장하고, 시각은 ISO-8601 UTC로 저장한다. 사용자 시간대는 `users.timezone`에 둔다.
+
+### 5.2 엔티티
+
+```mermaid
+erDiagram
+  workspace ||--o{ membership : has
+  user ||--o{ membership : has
+  workspace ||--o{ folder : has
+  workspace ||--o{ tag : has
+  workspace ||--o{ recording : has
+  folder ||--o{ recording : contains
+  recording ||--o{ recording_tag : tagged
+  recording ||--o{ asset : has
+  recording ||--o{ transcript_segment : has
+  recording ||--o{ speaker : has
+  recording ||--o{ document : has
+  document ||--o{ document_version : has
+  recording ||--o{ question : has
+  recording ||--o{ event_candidate : has
+  recording ||--o{ action_item : has
+  recording ||--o{ job : processed_by
+  job ||--o{ stage_run : has
+  stage_run ||--o{ ai_call : made
+  user ||--o{ auth_session : has
+  user ||--o{ access_token : has
+  user ||--o{ integration : has
+```
+
+| 테이블 | 핵심 컬럼 | 비고 |
+|---|---|---|
+| `workspace` | id, name, kind(`personal`/`team`), plan, settings_json | 사용자마다 personal 하나 |
+| `membership` | workspace_id, user_id, role(`owner`/`admin`/`member`/`viewer`) | 시스템 관리자(`users.role`)와 별개 |
+| `folder` | id, workspace_id, parent_id, name, sort_key | 계층형. "과목", "프로젝트" 같은 용도 |
+| `tag` / `recording_tag` | workspace_id, name, color | 자동 태그는 `source='ai'` |
+| `recording` | id, workspace_id, folder_id, title, domain(`lecture`/`meeting`/`seminar`/`interview`/`one_on_one`/`call`/`other`), template_id, language, recorded_at, recorded_at_source(`client`/`media`/`upload`), duration_ms, status, created_by, visibility | 화면의 중심 단위 |
+| `asset` | id, workspace_id, recording_id, kind(`audio`/`audio_normalized`/`audio_compact`/`pdf`/`image`), part_index, blob_key, sha256, bytes, mime, duration_ms, page_count, meta_json | 블롭은 sha256으로 주소 지정 |
+| `transcript_segment` | recording_id, idx, start_ms, end_ms (**항상 원본 오디오 시간**), speaker_id, text, confidence, source_chunk | FTS5 가상 테이블 `transcript_fts` |
+| `speaker` | recording_id, label(`S1`), display_name, confidence | 사용자가 이름을 바꿀 수 있음 |
+| `document` / `document_version` | recording_id, template_id@version, body_json, rendered_md, created_by(`ai`/`user`), base_version | 문서 본문은 JSON 블록(출처 참조 포함)이고 Markdown/HTML은 렌더 결과물이다 |
+| `question` | recording_id, kind(`recall`/`issue`/`discussion`), prompt, answer, sources_json(segment ids, pdf pages), difficulty | 학습·검토 뷰 |
+| `event_candidate` | recording_id, kind(`deadline`/`exam`/`meeting`/`task`/`other`), title, start_at, end_at, all_day, tz, raw_expression, confidence, evidence_json, status(`suggested`/`accepted`/`dismissed`/`synced`) | 캘린더 제안함 |
+| `action_item` | recording_id, text, owner_name, due_at, status, evidence_json | 회의록 할 일 |
+| `share_link` | workspace_id, target(recording/document), token_hash, scope, expires_at, password_hash | 링크 공유 |
+| `job` / `stage_run` / `artifact` / `ai_call` | [AI_HARNESS.md §4](AI_HARNESS.md#4-실행-엔진-영속-작업-큐) | 하네스 상태와 비용 원장 |
+| `auth_session` | (현 `sessions`를 확장) device_name, user_agent, ip_hash, last_seen_at, refresh_hash | 기기 관리 |
+| `access_token` | user_id, name, prefix, token_hash, scopes, expires_at, last_used_at | 개인 액세스 토큰(PAT) |
+| `integration` | user_id, provider(`google`), scopes, token_enc, calendar_id, status | 토큰은 암호화 저장 |
+| `usage_ledger` | workspace_id, period, audio_ms, ai_cost_microusd, storage_bytes | 쿼터 집행 |
+| `audit_log` | (현행 유지) + workspace_id | |
+
+### 5.3 기존 데이터 이전 (`lectures` → v2)
+- 강의 하나는 `recording`(domain=`lecture`) + `asset`(오디오) + `document`(template=`legacy-markdown@1`, `rendered_md`에 기존 Markdown)로 옮긴다. 공유 토큰과 공개 여부, `md_source_path` 아카이브 연결도 그대로 옮긴다.
+- 기존 강의에는 전사와 구조화 JSON이 **없다.** 세 가지 선택지 가운데 **기본값은 1번**이다.
+  1. 레거시 문서로 두고 "전사 없음 · 재처리 가능"으로 표시한다. 재처리는 녹음마다 **예상 비용을 보여 준 뒤 사용자가 직접** 실행한다.
+  2. 관리자 녹음만 일괄 재처리한다(비용 상한을 둔 관리자 액션).
+  3. 전체 백필(권장하지 않음. P2 첫날에 상한 없는 비용이 나간다).
+- 마이그레이션은 v1 테이블을 지우지 않는다. v1 API가 v2 테이블을 읽는 어댑터로 바뀌는 시점(P2 말)까지 두 모델을 함께 유지하고, 완전히 이전된 뒤 v1 테이블을 읽기 전용으로 동결한다.
+
+## 6. API v2
+
+- **Hono on Bun**을 쓰고, 경로는 `/api/v2/...`이다. 라우트는 모듈별 파일(`routes/recordings.ts` 등)로 나누고 요청·응답은 `packages/domain`의 zod 스키마로 검증한다. OpenAPI 문서는 스키마에서 생성하며(`/api/v2/openapi.json`), Swift·Kotlin 클라이언트를 여기서 코드로 생성한다.
+- **점진 이행**: 새 Hono 앱을 `fetch` 진입점으로 두고, 처리하지 못한 경로는 기존 라우터로 넘긴다. 엔드포인트를 하나씩 옮기고, v1 경로(`/api/lectures`, `/api/ingest/shortcut`)는 네이티브 클라이언트가 v2로 옮길 때까지 어댑터로 유지한다.
+- **공통 규약**
+  - 오류는 `{ error: { code, message, details? } }` 하나의 형태로 응답한다. `code`는 기계가 읽는 값(`quota_exceeded`, `not_found` 등)이다.
+  - 목록은 커서 페이지네이션(`?cursor=&limit=`)을 쓰고 `next_cursor`를 돌려준다.
+  - 변경 요청은 `Idempotency-Key` 헤더를 받는다(업로드·재처리 중복 방지).
+  - 동시 편집은 문서 버전의 `If-Match`로 낙관적 잠금한다.
+  - 권한은 미들웨어에서 워크스페이스 멤버십과 역할을 확인하고, 리소스 단위 정책 함수(`can(user, 'recording:update', rec)`)를 한곳에 모아 테스트한다.
+- **업로드**: 재개 가능한 청크 업로드
+  - `POST /uploads`(메타데이터, `recorded_at`, 파트 수) → `PUT /uploads/:id/parts/:n` → `POST /uploads/:id/complete`
+  - 파일을 메모리에 버퍼링하지 않고 스트리밍으로 디스크에 쓴다. 250MB 제한을 없애기 위한 것으로, 3시간 WAV를 보내는 Windows 클라이언트가 가장 먼저 필요하다.
+  - 오디오와 PDF를 한 번의 업로드 세션으로 묶을 수 있다.
+- **업로드 계약에 `recorded_at` 추가**: 클라이언트가 녹음 시작 시각을 보낸다. 없으면 미디어 메타데이터(`creation_time`), 그것도 없으면 업로드 시각을 쓰고, 어디서 왔는지를 `recorded_at_source`에 남긴다. 일정 추출의 상대 날짜 해석이 이 값에 의존한다([AI_HARNESS.md §3.9](AI_HARNESS.md#39-verify--결정적-검증과-1회-수리)).
+- **실시간 이벤트**: `GET /api/v2/events`(SSE). 녹음 상태, 단계 진행률, 문서 갱신, 일정 제안을 워크스페이스 단위로 보낸다. 재연결할 때는 `Last-Event-ID`로 놓친 이벤트를 다시 보낸다(`job_events` 테이블).
+- 주요 리소스: `workspaces`, `folders`, `tags`, `recordings`(+ `:id/transcript`, `:id/documents`, `:id/questions`, `:id/events`, `:id/action-items`, `:id/reprocess`), `uploads`, `search`, `calendar/suggestions`, `integrations/google`, `me`(+ `devices`, `tokens`), `share-links`, `admin/*`.
+
+## 7. 웹 앱 (`apps/web`)
+
+- **스택**: React 19 + TypeScript, TanStack Router(라우팅), TanStack Query(서버 상태), **React Aria Components**(접근성 기본 동작: 포커스, 키보드, 스크린리더, 한국어 IME), CSS Modules + 디자인 토큰 CSS 변수. Bun 번들러로 빌드하고 결과물은 `apps/server`가 정적으로 서빙한다(CSP `script-src 'self'` 유지, 런타임 CSS-in-JS 금지).
+  - 선택 이유: 인계와 채용 시장을 생각하면 React가 가장 무난하다. a11y는 React Aria가 Radix보다 깊다(ARIA 패턴, 국제화, 날짜 입력). 이 선택은 [ROADMAP.md](ROADMAP.md#결정-필요-사항) D2로 확정한다.
+- **정보 구조**
+  - **홈/수신함**: 처리 중인 녹음, 확인할 일정 제안, 최근 문서
+  - **라이브러리**: 폴더 트리, 태그, 스마트 보기(필터 저장), 다중 선택과 일괄 이동·태그·삭제, 드래그 앤 드롭
+  - **녹음 상세**: 3열(왼쪽 전사 ⇄ 가운데 문서 ⇄ 오른쪽 PDF/질문)과 하단 고정 오디오 플레이어
+  - **복습**: 질문 카드(Active Recall), 회의 쟁점 Q&A
+  - **일정**: 일정 제안함, 확정된 일정·할 일, 캘린더 연결 상태
+  - **설정**: 계정, 기기, 토큰, 연동, 사용량
+  - **관리자**: 현 Linear 콘솔을 React로 이식
+- **업로드 UX**: 오디오와 PDF를 한꺼번에 끌어다 놓으면 파일명·시각으로 자동으로 짝을 짓는다. 업로드하는 동안 도메인·폴더 추천을 보여 주고(분류 단계 결과로 갱신), 처리 진행은 단계별로 표시한다.
+- **전사 동기화**
+  - 긴 전사는 TanStack Virtual로 가상 스크롤한다.
+  - `requestAnimationFrame`으로 `currentTime`을 읽고, 정렬된 세그먼트 배열에서 이진 탐색으로 현재 구간을 찾아 `aria-current`로 표시한다. 사용자가 스크롤 중이면 자동 스크롤을 멈춘다.
+  - 세그먼트를 클릭하거나 Enter를 누르면 해당 구간으로 이동한다.
+  - 문서 블록의 출처 칩을 누르면 전사의 해당 구간이 강조되고 그 지점으로 이동한다.
+  - 전문 검색은 서버 FTS5로 하고, 결과는 하이라이트 스니펫과 함께 타임스탬프로 바로 이동할 수 있게 한다.
+- **PDF 뷰어**: pdf.js를 직접 호스팅하고 지연 로드한다. 워커는 `worker-src 'self'`로 허용한다. 페이지 앵커를 두어 질문 출처를 누르면 해당 페이지로 이동한다.
+- **접근성 기준 (WCAG 2.2 AA)**
+  - 모든 기능을 키보드로 쓸 수 있고, 포커스 링이 보이며, 모달은 포커스를 가두고 닫을 때 원래 위치로 되돌린다.
+  - 처리 진행과 토스트는 ARIA live region으로 알린다.
+  - 명도 대비는 본문 4.5:1, 큰 글자·UI 3:1 이상이다.
+  - `prefers-reduced-motion`을 지키고, 시맨틱 랜드마크와 skip link를 둔다.
+  - CI에서 Playwright + axe로 핵심 화면을 검사하고, 릴리스마다 VoiceOver로 수동 점검한다.
+
+## 8. 디자인 시스템 (`DESIGN.md`, P0 산출물)
+
+- **단일 진실 공급원**: `packages/design-tokens/tokens.json`(W3C DTCG 형식)이다. Style Dictionary로 `tokens.css`(웹), `Tokens.swift`(macOS/iOS), `Tokens.kt`(Android)를 생성한다. 손으로 쓴 색상값은 lint로 막는다.
+- **DESIGN.md 목차**
+  1. 원칙: 밀도 있지만 조용하게, 키보드 우선, 출처가 보이는 AI
+  2. 토큰: 색(중립 스케일, 강조색, 상태색, 라이트/다크), 타이포(Pretendard, 모노), 간격(4px 그리드), 반경, 그림자, 모션(지속 시간·이징), z-index
+  3. 컴포넌트 명세: 버튼, 입력, 목록 행, 상세 패널, 다이얼로그, 토스트, 명령 팔레트, 탭, 배지, 오디오 플레이어, 전사 세그먼트, 문서 블록, 출처 칩
+  4. 패턴: 빈 상태, 로딩 스켈레톤, 오류, 파괴적 작업 확인, 일괄 작업
+  5. 접근성 규칙과 점검표
+  6. 문구 규칙(한국어 UI 톤)
+  7. 플랫폼 대응표(CSS ↔ SwiftUI ↔ Compose)
+  8. 참고 원칙(Linear, Vercel Geist, Apple HIG): 화면을 베끼지 않고 원칙만 가져온다
+- 현재 관리자 콘솔에서 쓰는 다크/라이트 팔레트와 밀도를 출발점으로 삼는다.
+
+## 9. 네이티브
+
+- **macOS(우선)**: 단일 파일을 Swift Package 모듈로 나눈다.
+  - `LecternKit`: OpenAPI 생성 클라이언트, 모델, Keychain 인증, 업로드 큐
+  - `RecorderKit`: AVAudioEngine 녹음, 레벨 측정, 무음 경고
+  - `LecternUI`: SwiftUI + 토큰. 메뉴바 빠른 녹음과 메인 창(`NavigationSplitView`: 폴더 → 목록 → 상세(전사·문서·PDF))
+  - 접근성: VoiceOver 레이블, 키보드 단축키, Dynamic Type 대응
+  - 배포: Developer ID 서명과 공증(D7)
+- **Android / Windows**: P6에서 v2 API와 청크 업로드로 옮긴다. 그 전까지는 v1 어댑터로 계속 동작한다. iOS는 보류 목록에 둔다.
+
+## 10. 계정·인증·권한·쿼터·공유
+
+- **로그인 수단**
+  - 이메일+비밀번호(현행)와 이메일 OTP
+  - **Google 로그인(OIDC)**: 같은 연동에서 캘린더 권한을 점진적으로 추가 동의받는다
+  - 패스키(WebAuthn)는 보류
+- **세션·기기**: `auth_session`에 기기 이름, UA, 마지막 접속을 기록한다. 설정 화면에서 기기 목록을 보고 개별 로그아웃할 수 있다.
+  - 웹: 쿠키 세션을 유지한다.
+  - 네이티브: 수명이 짧은 액세스 토큰과 회전하는 refresh token을 쓴다. 기존의 오래 사는 `lct_` 토큰을 대체한다.
+- **PAT**: 이름, 범위(`recordings:write`, `recordings:read`), 만료를 둔다. 서버에는 해시만 저장하고 생성 시 한 번만 보여 준다. iOS 단축어와 스크립트 연동에 쓴다.
+- **권한**: 시스템 역할(운영자)과 워크스페이스 역할을 분리한다. 정책 함수 하나에 모으고 표 형태 테스트로 검증한다.
+- **쿼터**: 플랜별로 저장 용량, 월 오디오 분, 월 AI 비용 상한을 둔다. 녹음을 큐에 넣을 때 예상 비용으로 사전 검사하고, 처리 후 실제 비용을 `usage_ledger`에 기록한다. 결제 연동은 보류한다.
+- **공유**: 링크 공유(만료, 비밀번호, 범위: 문서만 / 전사 포함 / 오디오 포함)와 워크스페이스 멤버 초대.
+- **개인정보**
+  - 데이터 내보내기(zip)와 계정 삭제(30일 유예 후 영구 삭제)를 제공한다.
+  - 회의 녹음 동의 안내 문구를 둔다.
+  - AI 공급자는 데이터를 학습에 쓰지 않는 유료 계층만 사용한다.
+
+## 11. 캘린더·리마인더
+
+- 추출 단계가 `event_candidate`를 만든다. 근거 구간, 원문 표현, 신뢰도가 함께 저장된다. 기본 정책은 **제안만**이고, 사용자는 일정 제안함에서 한 번에 확정할 수 있다. 워크스페이스 설정으로 "명시적 날짜이면서 신뢰도 0.85 이상이면 자동 등록"을 켤 수 있다.
+- **Google Calendar**
+  - 앱이 **직접 만든 전용 캘린더**("Lectern")에만 쓴다. 사용자 기본 캘린더는 건드리지 않는다. 가장 좁은 권한으로도 동작하는 설계이고, 중복 방지와 "Lectern이 만든 일정 전부 지우기"가 간단해진다.
+  - 중복 방지 키는 `extendedProperties.private.lecternEventId`다. 일정이 수정·취소되면 동기화하고, 실패하면 재시도 큐로 보낸다.
+- **ICS 구독**: 사용자별 비밀 URL(`/ics/:token.ics`, 재발급 가능)을 제공한다. OAuth 없이 Apple·Outlook·Google에서 구독할 수 있지만, 갱신 주기는 구독하는 쪽이 정한다.
+- **리마인더**: 워커가 스케줄러로 이메일(Resend)을 보낸다. 웹 푸시는 보류한다. 할 일과 마감의 기본 알림은 하루 전·1시간 전이고 사용자가 설정할 수 있다.
+
+## 12. 검색
+
+- SQLite FTS5에 `transcript_fts`(세그먼트), `document_fts`(블록 텍스트), `pdf_page_fts`(페이지 텍스트)를 둔다. 한국어는 `trigram` 토크나이저를 쓴다(형태소 분석기 없이도 부분 일치가 된다).
+- 결과는 워크스페이스 권한으로 거르고, 타임스탬프나 페이지 앵커로 바로 이동할 수 있다.
+- 의미 검색(임베딩)은 보류 목록에 있다. 트리거는 "FTS로 못 찾는다"는 피드백이 반복될 때다.
+
+## 13. 운영(Ops)·DX
+
+- **프로세스**: systemd에서 `lectern.service`(API)와 `lectern-worker.service`(워커)를 따로 돌린다. 워커는 유지보수, 리마인더, 캘린더 동기화도 맡는다(타이머를 따로 두지 않는다).
+- **설정**: `packages/config`에서 zod로 환경 변수를 검증한다. 필수 값이 없으면 부팅에 실패해 사전 점검에서 걸린다.
+- **로깅**: JSON 한 줄 로그(`level`, `ts`, `msg`, `request_id`, `job_id`, `stage`, `user_id`)를 쓰고 토큰은 가린다. journald에서 `jq`로 조회한다.
+- **헬스**: `/api/health`(살아 있음 + DB·디스크)는 현행대로 두고, `/api/ready`(마이그레이션 완료, 워커 하트비트 60초 이내)를 추가한다. 외부 업타임 모니터를 붙인다.
+- **마이그레이션**: Drizzle로 SQL 파일을 생성하고 `schema_migrations`로 관리한다. **CD 사전 점검이 최신 백업 사본에 마이그레이션을 미리 적용해 보고**, 성공해야 재시작한다. 실제 적용 직전에는 자동 백업을 한 번 더 뜬다.
+- **CD**: 현행(정확한 SHA, 사전 점검, 롤백)을 유지한다. 워커도 같은 체크아웃을 쓰므로 재시작만 추가한다.
+- **테스트**
+  - `bun test`: 단위·API 계약(OpenAPI 스냅샷)
+  - 하네스 평가(유료, 수동이나 야간 실행): [AI_HARNESS.md §8](AI_HARNESS.md#8-평가eval와-품질-게이트)
+  - Playwright e2e + axe
+  - 마이그레이션 테스트: 직전 스키마 스냅샷에서 올라오는지 확인
+- **로컬 개발**: `bun run dev` 하나로 api, worker, web을 함께 띄운다. 임시 `DATA_DIR`과 시드 데이터(샘플 녹음, 전사 픽스처)를 쓰고, 공급자 호출은 녹화·재생 픽스처로 대체한다.
+- **인계 문서**
+  - `docs/v2/*`, `docs/adr/*`(결정마다 하나), `docs/runbooks/*`(배포·롤백·백업 복원·시크릿 교체·장애 대응·공급자 장애 시 전환)
+  - 환경 변수 레퍼런스(`packages/config`에서 생성)
+  - `AGENTS.md`(작업 규칙, 테스트 실행법, 금지 사항)
+
+## 14. 보안·프라이버시
+
+- 기존 보안 수정(CSP, MIME, RBAC, rate limit, 코드 시도 제한)을 회귀 테스트로 고정한 상태로 유지한다.
+- 공급자 API 키와 OAuth 토큰은 서버에만 둔다. OAuth 토큰은 앱 키로 AES-GCM 암호화해 DB에 저장한다.
+- 공유 링크 토큰, PAT, refresh token은 해시로만 저장한다.
+- 오디오와 PDF 같은 사용자 데이터는 워크스페이스 밖으로 새지 않는다. 블롭 접근은 항상 API 권한 검사를 거쳐 서빙한다.
+- 운영 시크릿은 systemd `EnvironmentFile`(권한 600)에 두고, 교체 런북을 둔다.
+- 오너 계정 기본 비밀번호 이력 문제처럼 공개 저장소 이력에 남은 시크릿은 모두 교체된 것으로 간주한다.
+
+## 15. 확장 경로
+
+| 신호 | 대응 |
+|---|---|
+| 동시 처리 대기열이 늘 쌓임 | 워커 동시성 상향 → 워커를 두 번째 호스트로 분리(같은 DB에 lease, 또는 Postgres 전환) |
+| 디스크 사용률 80% 초과 | `BlobStore`를 S3/R2로 교체(키 체계가 같아 이전이 단순) |
+| 쓰기 경합 또는 다중 노드 필요 | Drizzle 대상 DB를 Postgres로 바꾸고 FTS는 `pg_trgm`으로 전환 |
+| 팀 사용자 증가, 결제 필요 | 플랜·결제 연동(Stripe/Toss), 워크스페이스 단위 청구 |
