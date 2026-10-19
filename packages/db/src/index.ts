@@ -1,7 +1,7 @@
 // Migrations and ORM access for the v2 tables (see schema.ts for the v1/v2 boundary).
 
 import type { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
@@ -73,9 +73,13 @@ export function runMigrations(
 
   let backup: string | null = null;
   if (hasUserData(sqlite)) {
-    mkdirSync(options.backupDir, { recursive: true });
+    // Owner-only, like the rest of the data dir: a snapshot holds every account and note.
+    mkdirSync(options.backupDir, { recursive: true, mode: 0o700 });
     backup = join(options.backupDir, `pre-migrate-${stamp(options.now ?? new Date())}.sqlite`);
-    if (!existsSync(backup)) sqlite.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+    if (!existsSync(backup)) {
+      sqlite.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+      chmodSync(backup, 0o600);
+    }
     const old = readdirSync(options.backupDir)
       .filter((f) => PRE_MIGRATE_RE.test(f))
       .sort()

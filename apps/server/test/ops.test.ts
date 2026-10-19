@@ -220,6 +220,7 @@ describe("audio compaction", () => {
       expect(rec.audio_compact_state).toBe("compacted");
       expect(rec.audio_original_size).toBe(originalSize);
       expect(rec.audio_size).toBe(statSync(rec.audio_path!).size);
+      expect(statSync(rec.audio_path!).mode & 0o777).toBe(0o600);
       expect(rec.audio_size).toBeLessThan(originalSize / 5);
       expect(rec.audio_sha256).toBe(sha); // upload idempotency key is preserved
       expect(existsSync(wav)).toBe(false);
@@ -405,6 +406,9 @@ describe("maintenance", () => {
     expect(result.backup?.file).toMatch(/^lectern-\d{8}-\d{6}\.sqlite$/);
     expect(existsSync(join(BACKUP_DIR, result.backup.file))).toBe(true);
     expect(readdirSync(BACKUP_DIR).length).toBeGreaterThanOrEqual(1);
+    // A snapshot holds every account: owner-only, like the database itself.
+    expect(statSync(BACKUP_DIR).mode & 0o777).toBe(0o700);
+    expect(statSync(join(BACKUP_DIR, result.backup.file)).mode & 0o777).toBe(0o600);
     expect(
       (db.query(`SELECT COUNT(*) AS n FROM sessions WHERE token = ?`).get(member.token) as any).n
     ).toBe(0);

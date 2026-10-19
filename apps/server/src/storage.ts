@@ -8,7 +8,6 @@
 
 import {
   existsSync,
-  mkdirSync,
   readdirSync,
   renameSync,
   statSync,
@@ -20,6 +19,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { config } from "@lectern/config";
 import { probeAudioDuration } from "../../../packages/core/src/index.ts";
 import type { AdminSettingsDto, AdminStorageDto } from "./admin-api.ts";
+import { ensurePrivateDir, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
 import {
   DATA_DIR,
@@ -212,6 +212,7 @@ export async function compactLectureAudio(
     return { ok: true, state: "skipped", savedBytes: 0 };
   }
 
+  makePrivate(partial);
   renameSync(partial, target);
   const res = db
     .query(
@@ -293,7 +294,7 @@ export function scanOrphanUploads(now = Date.now()): FileEntry[] {
 /** Moves files into the trash folder; they are deleted after TRASH_RETENTION_DAYS. */
 export function moveToTrash(files: FileEntry[]): number {
   if (files.length === 0) return 0;
-  mkdirSync(TRASH_DIR, { recursive: true });
+  ensurePrivateDir(TRASH_DIR);
   const now = new Date();
   let moved = 0;
   for (const file of files) {

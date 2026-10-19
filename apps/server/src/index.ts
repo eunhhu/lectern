@@ -98,6 +98,7 @@ import { emitLectureEvent, onLectureEvent, tailForeignLectureEvents, type Lectur
 import { toLectureSummaryDto } from "./dto.ts";
 import { emitRetentionOutcome, runMaintenanceNow, startMaintenanceSchedule } from "./maintenance.ts";
 import { liveWorkers, publishApiRelease } from "./coordination.ts";
+import { makePrivate } from "./fsperm.ts";
 import { createHttpApp } from "./http.ts";
 import { logger } from "./log.ts";
 
@@ -762,6 +763,7 @@ async function readIncomingAudio(
 async function storeIncomingAudio(incoming: IncomingAudio): Promise<string> {
   const audioPath = join(DATA_DIR, "uploads", `${generateId("aud")}${incoming.ext}`);
   await Bun.write(audioPath, incoming.data);
+  makePrivate(audioPath);
   return audioPath;
 }
 

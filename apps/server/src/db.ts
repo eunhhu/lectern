@@ -18,6 +18,7 @@ import {
 } from "../../../packages/core/src/index.ts";
 import { config, readSecret } from "@lectern/config";
 import { runMigrations } from "@lectern/db";
+import { ensurePrivateDir, hardenPrivateTree, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
 
 export const USER_ROLES = ["owner", "admin", "member", "viewer"] as const;
@@ -158,11 +159,19 @@ export interface LectureRecord {
 const DATA_DIR = config().dataDir;
 const LECTURES_ROOT = config().lecturesDir;
 
-mkdirSync(DATA_DIR, { recursive: true });
-mkdirSync(join(DATA_DIR, "uploads"), { recursive: true });
+// Owner-only from the first write (see fsperm.ts); files left readable by older releases
+// are fixed here, before the database and its -wal/-shm files are opened.
+ensurePrivateDir(DATA_DIR);
+ensurePrivateDir(join(DATA_DIR, "uploads"));
+const tightened = hardenPrivateTree(DATA_DIR);
+if (tightened.changed || tightened.failed) {
+  logger.info("restricted data dir permissions to the owner", { path: DATA_DIR, ...tightened });
+}
 
 const dbPath = join(DATA_DIR, "lectern.sqlite");
 export const db = new Database(dbPath, { create: true });
+// A new database file gets the process umask; SQLite then gives -wal/-shm the same mode.
+makePrivate(dbPath);
 
 db.exec(`
   PRAGMA journal_mode = WAL;

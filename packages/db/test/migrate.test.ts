@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pendingMigrations, runMigrations } from "../src/index.ts";
@@ -38,6 +38,8 @@ describe("@lectern/db migrations", () => {
       const res = runMigrations(sqlite, { backupDir: join(dir, "backups"), now: new Date("2026-10-19T01:02:03Z") });
       expect(res.backup).toBe(join(dir, "backups", "pre-migrate-20261019-010203.sqlite"));
       expect(readdirSync(join(dir, "backups"))).toEqual(["pre-migrate-20261019-010203.sqlite"]);
+      expect(statSync(join(dir, "backups")).mode & 0o777).toBe(0o700);
+      expect(statSync(res.backup!).mode & 0o777).toBe(0o600);
       const snap = new Database(res.backup!);
       expect((snap.query(`SELECT COUNT(*) AS n FROM users`).get() as any).n).toBe(1);
       expect(snap.query(`SELECT 1 FROM sqlite_master WHERE name='job'`).get()).toBeNull(); // pre-migration state

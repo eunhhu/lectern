@@ -19,6 +19,7 @@ import type { MaintenanceResultDto } from "./admin-api.ts";
 import { pruneLectureEvents } from "./events.ts";
 import { pruneFinishedJobs } from "./queue.ts";
 import { DATA_DIR, db, getSystemSettings } from "./db.ts";
+import { ensurePrivateDir, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
 import {
   applyRetentionPolicies,
@@ -167,11 +168,12 @@ function backupStamp(d: Date): string {
  * serving: readers continue, writers wait for the copy) and keeps the newest BACKUP_KEEP.
  */
 export function backupDatabase(now = new Date()): { file: string; sizeBytes: number } {
-  mkdirSync(BACKUP_DIR, { recursive: true });
+  ensurePrivateDir(BACKUP_DIR);
   const file = `lectern-${backupStamp(now)}.sqlite`;
   const target = join(BACKUP_DIR, file);
   if (!existsSync(target)) {
     db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+    makePrivate(target);
   }
   for (const old of listBackups().slice(BACKUP_KEEP)) {
     try {

@@ -1,6 +1,6 @@
 import "./preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
 import { beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   getClientIp,
@@ -1187,6 +1187,7 @@ describe("security regressions", () => {
     // Accepted uploads store the extension-derived type, not the client's
     expect(rec.audio_path?.endsWith(".m4a")).toBe(true);
     expect(rec.audio_mime).toBe("audio/mp4");
+    expect(statSync(rec.audio_path!).mode & 0o777).toBe(0o600);
 
     deleteUserAndData(user.id);
   });
