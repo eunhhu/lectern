@@ -6,7 +6,7 @@ import type { IconName } from "../ui/Icon.tsx";
 export interface ShortcutInfo {
   keys: string[];
   label: string;
-  group: "이동" | "명령" | "목록" | "녹음 상세";
+  group: "이동" | "명령" | "목록" | "폴더·태그" | "녹음 상세" | "복습";
 }
 
 export const SHORTCUTS: ShortcutInfo[] = [
@@ -23,11 +23,18 @@ export const SHORTCUTS: ShortcutInfo[] = [
   { keys: ["Space"], label: "선택하거나 선택 해제", group: "목록" },
   { keys: ["⌘A"], label: "모두 선택", group: "목록" },
   { keys: ["Esc"], label: "선택 해제, 닫기", group: "목록" },
+  { keys: ["F2"], label: "폴더 이름 바꾸기", group: "폴더·태그" },
+  { keys: ["Delete"], label: "폴더 삭제", group: "폴더·태그" },
+  { keys: ["⇧F10"], label: "폴더 메뉴 열기 (오른쪽 클릭과 같음)", group: "폴더·태그" },
   { keys: ["Space"], label: "재생, 일시정지 (본문에 포커스가 있을 때)", group: "녹음 상세" },
   { keys: ["←", "→"], label: "5초 뒤로, 앞으로", group: "녹음 상세" },
   { keys: ["⇧←", "⇧→"], label: "30초 뒤로, 앞으로", group: "녹음 상세" },
   { keys: ["[", "]"], label: "재생 속도 낮추기, 높이기", group: "녹음 상세" },
   { keys: ["Enter"], label: "전사 구간으로 이동", group: "녹음 상세" },
+  { keys: ["Space"], label: "정답 보기", group: "복습" },
+  { keys: ["1"], label: "다시 볼래요", group: "복습" },
+  { keys: ["2"], label: "알았어요", group: "복습" },
+  { keys: ["←", "→"], label: "이전 카드, 다음 카드", group: "복습" },
 ];
 
 export const GO_KEYS: Record<string, "/" | "/library" | "/review" | "/calendar" | "/settings"> = {

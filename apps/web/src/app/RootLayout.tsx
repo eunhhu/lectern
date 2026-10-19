@@ -16,10 +16,11 @@ import {
   Header,
   Separator,
 } from "react-aria-components";
-import { useApi, useRecordings, useSuggestions } from "../api/queries.ts";
+import { useApi, useMe, useRecordings, useSuggestions } from "../api/queries.ts";
 import { Icon } from "../ui/Icon.tsx";
 import { Button, Kbd, uiStyles } from "../ui/controls.tsx";
-import { LiveRegion, Toasts } from "../ui/toast.tsx";
+import { LiveRegion, showToast, Toasts } from "../ui/toast.tsx";
+import { Avatar } from "../ui/Avatar.tsx";
 import { formatShortcut } from "../lib/keyboard.ts";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { NAV_ITEMS } from "./commands.ts";
@@ -27,6 +28,7 @@ import { GlobalShortcuts } from "./GlobalShortcuts.tsx";
 import { ShortcutSheet } from "./ShortcutSheet.tsx";
 import { UploadDialog } from "./upload/UploadDialog.tsx";
 import { openOverlay, useOverlay } from "./overlays.ts";
+import { cycleTheme } from "./preferences.ts";
 import { useWorkspace, WorkspaceProvider } from "./workspace.tsx";
 import s from "./layout.module.css";
 
@@ -53,7 +55,7 @@ function Frame() {
       return;
     }
     mainRef.current?.focus({ preventScroll: true });
-    mainRef.current?.scrollTo?.({ top: 0 });
+    if (!window.location.hash) mainRef.current?.scrollTo?.({ top: 0 });
   }, [pathname]);
 
   return (
@@ -133,11 +135,6 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         ))}
       </nav>
       <div className={s.sidebarFooter}>
-        <AriaButton className={s.quickButton} onPress={() => openOverlay("shortcuts")} aria-keyshortcuts="Shift+?">
-          <Icon name="keyboard" />
-          <span className={s.quickLabel}>단축키</span>
-          <Kbd keys={["?"]} />
-        </AriaButton>
         {api.mode === "fixture" && (
           <p className={s.previewNote}>
             <Icon name="info" />
@@ -148,6 +145,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </span>
           </p>
         )}
+        <UserMenu onNavigate={onNavigate} />
       </div>
     </div>
   );
@@ -216,4 +214,59 @@ export function usePageTitle(title: string) {
   useEffect(() => {
     document.title = title ? `${title} · Lectern` : "Lectern";
   }, [title]);
+}
+
+function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
+  const me = useMe().data;
+  const api = useApi();
+  const { current } = useWorkspace();
+  const navigate = useNavigate();
+  if (!me) return null;
+  return (
+    <MenuTrigger>
+      <AriaButton className={s.userButton}>
+        <Avatar id={me.id} name={me.display_name} />
+        <span className={s.userText}>
+          <span className={s.userName}>{me.display_name}</span>
+          <span className={s.userMeta}>{current?.workspace.name} · {current?.role === "owner" ? "Owner" : current?.role === "admin" ? "Admin" : current?.role === "viewer" ? "Viewer" : "Member"}</span>
+        </span>
+        <Icon name="more" />
+      </AriaButton>
+      <Popover className={uiStyles.popover} placement="top start">
+        <Menu
+          className={uiStyles.menu}
+          onAction={(key) => {
+            onNavigate?.();
+            if (key === "profile") void navigate({ to: "/settings", hash: "account" });
+            else if (key === "settings") void navigate({ to: "/settings" });
+            else if (key === "shortcuts") openOverlay("shortcuts");
+            else if (key === "theme") cycleTheme();
+            else if (key === "logout") {
+              if (api.mode === "fixture") showToast({ title: "미리보기에서는 로그아웃할 세션이 없습니다.", description: "실제 서버에 연결되면 이 메뉴로 로그아웃합니다.", tone: "info" });
+            }
+          }}
+        >
+          <MenuSection>
+            <Header className={uiStyles.menuHeader}>{me.email}</Header>
+            <MenuItem id="profile" className={uiStyles.menuItem} textValue="프로필과 계정">
+              <Icon name="user" /> 프로필과 계정
+            </MenuItem>
+            <MenuItem id="settings" className={uiStyles.menuItem} textValue="설정">
+              <Icon name="settings" /> 설정
+            </MenuItem>
+            <MenuItem id="shortcuts" className={uiStyles.menuItem} textValue="단축키">
+              <Icon name="keyboard" /> 단축키 <kbd className={s.menuKey}>?</kbd>
+            </MenuItem>
+            <MenuItem id="theme" className={uiStyles.menuItem} textValue="테마 전환">
+              <Icon name="sun" /> 테마 전환
+            </MenuItem>
+          </MenuSection>
+          <Separator className={uiStyles.menuSeparator} />
+          <MenuItem id="logout" className={uiStyles.menuItem} textValue="로그아웃">
+            <Icon name="logout" /> 로그아웃
+          </MenuItem>
+        </Menu>
+      </Popover>
+    </MenuTrigger>
+  );
 }

@@ -3,7 +3,16 @@
 
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { useDecideSuggestion, useJobProgress, useRecording, useRecordings, useSuggestions } from "../../api/queries.ts";
+import {
+  useConfirmedEvents,
+  useDecideSuggestion,
+  useJobProgress,
+  useRecording,
+  useRecordings,
+  useSuggestions,
+  useWorkspaceActionItems,
+  useWorkspaceQuestions,
+} from "../../api/queries.ts";
 import type { EventCandidate, RecordingListItem } from "../../api/types.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { DOMAIN_LABEL, STATUS, stageLabel } from "../../app/labels.ts";
@@ -97,30 +106,40 @@ export function InboxPage() {
           </section>
         )}
 
-        <section className={`${s.card} ${s.wide}`} aria-labelledby="inbox-recent">
-          <h2 id="inbox-recent" className={s.cardTitle}>
+        <UpcomingCard now={now} />
+        <ReviewCard />
+      </div>
+
+      <section className={s.recentSection} aria-labelledby="inbox-recent">
+        <div className={s.sectionHead}>
+          <h2 id="inbox-recent" className={s.sectionTitle}>
             최근 문서
           </h2>
-          {recent.length === 0 ? (
-            <EmptyState icon="audio" title="아직 문서가 없습니다.">
-              파일을 끌어다 놓거나 ‘녹음 올리기’를 누르세요.
-            </EmptyState>
-          ) : (
-            <ul className={s.recent} role="list">
-              {recent.map((r) => (
-                <li key={r.id}>
-                  <Link to="/recordings/$recordingId" params={{ recordingId: r.id }} className={s.recentItem}>
-                    <span className={s.recentTitle}>{r.title}</span>
-                    <span className={s.rowMeta} title={formatDateTime(r.recorded_at, now)}>
-                      {DOMAIN_LABEL[r.domain]} · {formatRelative(r.recorded_at, now)} · {r.duration_ms ? formatDuration(r.duration_ms) : ""}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+          <Link to="/library" className={s.more}>
+            라이브러리 전체 보기 <Icon name="chevronRight" size={14} />
+          </Link>
+        </div>
+        {recent.length === 0 ? (
+          <EmptyState icon="audio" title="아직 문서가 없습니다.">
+            파일을 끌어다 놓거나 ‘녹음 올리기’를 누르세요.
+          </EmptyState>
+        ) : (
+          <ul className={s.recent} role="list">
+            {recent.map((r) => (
+              <li key={r.id}>
+                <Link to="/recordings/$recordingId" params={{ recordingId: r.id }} className={s.recentItem}>
+                  <span className={s.recentKind}>{DOMAIN_LABEL[r.domain]}</span>
+                  <span className={s.recentTitle}>{r.title}</span>
+                  <span className={s.rowMeta} title={formatDateTime(r.recorded_at, now)}>
+                    {formatRelative(r.recorded_at, now)}
+                    {r.duration_ms ? ` · ${formatDuration(r.duration_ms)}` : ""}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
@@ -198,4 +217,81 @@ function SuggestionRow({ event, recording, now }: { event: EventCandidate; recor
       </div>
     </li>
   );
+}
+
+function UpcomingCard({ now }: { now: Date }) {
+  const { workspaceId } = useWorkspace();
+  const events = useConfirmedEvents(workspaceId).data ?? [];
+  const items = useWorkspaceActionItems(workspaceId).data ?? [];
+  const upcoming = [
+    ...events.filter((e) => new Date(e.start_at) >= startOfDay(now)).map((e) => ({ key: e.id, at: e.start_at, title: e.title, kind: EVENT_KIND[e.kind] ?? "일정", allDay: e.all_day })),
+    ...items
+      .filter(({ item }) => item.status === "open" && item.due_at && new Date(item.due_at) >= startOfDay(now))
+      .map(({ item }) => ({ key: item.id, at: item.due_at!, title: item.text, kind: "할 일", allDay: false })),
+  ]
+    .sort((a, b) => (a.at < b.at ? -1 : 1))
+    .slice(0, 5);
+  return (
+    <section className={s.card} aria-labelledby="inbox-upcoming">
+      <div className={s.cardHead}>
+        <h2 id="inbox-upcoming" className={s.cardTitle}>
+          다가오는 일정
+        </h2>
+        <Link to="/calendar" className={s.more}>
+          일정 보기 <Icon name="chevronRight" size={14} />
+        </Link>
+      </div>
+      {upcoming.length === 0 ? (
+        <EmptyState icon="calendar" title="다가오는 일정이 없습니다." />
+      ) : (
+        <ul className={s.rows} role="list">
+          {upcoming.map((u) => (
+            <li key={u.key} className={s.row}>
+              <span className={s.when}>
+                <span className={s.whenDay}>{formatDate(u.at, now)}</span>
+                <span className={s.whenTime}>{u.allDay ? "하루 종일" : formatTimeOfDay(u.at)}</span>
+              </span>
+              <div className={s.rowMain}>
+                <p className={s.rowTitle}>{u.title}</p>
+              </div>
+              <Badge>{u.kind}</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ReviewCard() {
+  const { workspaceId } = useWorkspace();
+  const questions = useWorkspaceQuestions(workspaceId).data ?? [];
+  const recall = questions.filter(({ question }) => question.kind === "recall").length;
+  const issues = questions.length - recall;
+  return (
+    <section className={s.card} aria-labelledby="inbox-review">
+      <div className={s.cardHead}>
+        <h2 id="inbox-review" className={s.cardTitle}>
+          복습
+        </h2>
+        <Link to="/review" className={s.more}>
+          복습 시작 <Icon name="chevronRight" size={14} />
+        </Link>
+      </div>
+      <div className={s.reviewStats}>
+        <p className={s.stat}>
+          <span className={s.statValue}>{recall}</span>
+          <span className={s.statLabel}>강의 질문 카드</span>
+        </p>
+        <p className={s.stat}>
+          <span className={s.statValue}>{issues}</span>
+          <span className={s.statLabel}>회의 쟁점·토론</span>
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }

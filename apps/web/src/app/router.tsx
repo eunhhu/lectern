@@ -6,7 +6,10 @@ import { RootLayout } from "./RootLayout.tsx";
 import { InboxPage } from "../routes/inbox/InboxPage.tsx";
 import { LibraryPage } from "../routes/library/LibraryPage.tsx";
 import { RecordingPage } from "../routes/recording/RecordingPage.tsx";
-import { CalendarPage, NotFoundPage, ReviewPage, SettingsPage } from "../routes/placeholders.tsx";
+import { CalendarPage } from "../routes/calendar/CalendarPage.tsx";
+import { NotFoundPage } from "../routes/placeholders.tsx";
+import { ReviewPage } from "../routes/review/ReviewPage.tsx";
+import { SettingsPage } from "../routes/settings/SettingsPage.tsx";
 
 export interface LibrarySearch {
   /** Folder id, or "none" for recordings outside any folder. */

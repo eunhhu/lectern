@@ -11,6 +11,7 @@ import { formatDuration } from "../../lib/format.ts";
 import { Button, CheckboxField, ModalDialog, SelectField, uiStyles } from "../../ui/controls.tsx";
 import { announce, showToast } from "../../ui/toast.tsx";
 import { folderOptions, folderPath } from "./folders.ts";
+import { useTagEditing } from "./TagList.tsx";
 import s from "./library.module.css";
 
 export type BulkAction = { kind: "move" | "tag" | "delete"; ids: string[] } | null;
@@ -117,7 +118,20 @@ function TagDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClose: 
   const recordings = useRecordings(workspaceId).data ?? [];
   const update = useBulkUpdate(workspaceId);
   const [changes, setChanges] = useState<Record<string, boolean>>({});
+  const [newName, setNewName] = useState("");
+  const tagEditing = useTagEditing();
   const targets = recordings.filter((r) => ids?.includes(r.id));
+
+  const createTag = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    const tag = await tagEditing.create(name);
+    if (tag) {
+      setNewName("");
+      setChanges((prev) => ({ ...prev, [tag.id]: true }));
+      announce(`‘${tag.name}’ 태그를 만들었습니다. 적용하면 붙습니다.`);
+    }
+  };
 
   const stateOf = (tagId: string) => {
     if (tagId in changes) return { selected: changes[tagId]!, indeterminate: false };
@@ -127,6 +141,7 @@ function TagDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClose: 
 
   const close = () => {
     setChanges({});
+    setNewName("");
     onClose();
   };
 
@@ -192,6 +207,25 @@ function TagDialog({ ids, onClose, onFailed }: { ids: string[] | null; onClose: 
           );
         })}
       </fieldset>
+      <div className={s.newTag}>
+        <TextField
+          className={uiStyles.field}
+          value={newName}
+          onChange={setNewName}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void createTag();
+            }
+          }}
+        >
+          <Label className={uiStyles.label}>새 태그</Label>
+          <Input className={uiStyles.input} placeholder="이름을 입력하세요" />
+        </TextField>
+        <Button icon="plus" onPress={createTag} isDisabled={!newName.trim()}>
+          만들기
+        </Button>
+      </div>
       {targets.length > 1 && <p className={uiStyles.hint}>일부에만 붙은 태그는 가운데 줄로 표시됩니다. 누르면 모두에 붙이거나 모두에서 뗍니다.</p>}
     </ModalDialog>
   );

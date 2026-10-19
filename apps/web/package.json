@@ -9,6 +9,7 @@
     "e2e": "bun scripts/build.ts && playwright test"
   },
   "dependencies": {
+    "@internationalized/date": "3.12.4",
     "@lectern/design-tokens": "workspace:*",
     "@lectern/domain": "workspace:*",
     "@tanstack/react-query": "5.104.1",

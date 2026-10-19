@@ -4,7 +4,18 @@
 // fixtures (./fixture/client.ts); the real /api/v2 client replaces it in ./index.ts.
 
 import type {
+  ActionItem,
   ActionItemPage,
+  UpdateActionItemRequest,
+  CreateFolderRequest,
+  CreateTagRequest,
+  DevicePage,
+  Folder,
+  Tag,
+  UpdateFolderRequest,
+  UpdateMeRequest,
+  UpdateTagRequest,
+  WorkspaceMemberPage,
   CompleteUploadResponse,
   CreateUploadRequest,
   DocumentWithVersion,
@@ -49,9 +60,24 @@ export interface ApiClient {
   readonly mode: "fixture" | "http";
 
   getMe(): Promise<Me>;
+  updateMe(body: UpdateMeRequest): Promise<Me>;
+  listDevices(): Promise<DevicePage>;
+  /** Signs a device out (DELETE /me/devices/{id}). */
+  revokeDevice(deviceId: string): Promise<void>;
   listWorkspaces(): Promise<MyWorkspacePage>;
+  listMembers(workspaceId: WorkspaceId): Promise<WorkspaceMemberPage>;
+
   listFolders(workspaceId: WorkspaceId): Promise<FolderPage>;
+  createFolder(body: CreateFolderRequest): Promise<Folder>;
+  /** Rename, move (parent_id) or reorder (sort_key). */
+  updateFolder(folderId: string, body: UpdateFolderRequest): Promise<Folder>;
+  /** Recordings in the folder move to its parent (packages/domain deleteFolder). */
+  deleteFolder(folderId: string): Promise<void>;
+
   listTags(workspaceId: WorkspaceId): Promise<TagPage>;
+  createTag(body: CreateTagRequest): Promise<Tag>;
+  updateTag(tagId: string, body: UpdateTagRequest): Promise<Tag>;
+  deleteTag(tagId: string): Promise<void>;
 
   listRecordings(query: ListRecordingsParams): Promise<RecordingPage>;
   getRecording(recordingId: string): Promise<RecordingDetail>;
@@ -61,6 +87,7 @@ export interface ApiClient {
   listQuestions(recordingId: string): Promise<QuestionPage>;
   listRecordingEvents(recordingId: string): Promise<EventCandidatePage>;
   listActionItems(recordingId: string): Promise<ActionItemPage>;
+  updateActionItem(actionItemId: string, body: UpdateActionItemRequest): Promise<ActionItem>;
   getDocument(documentId: string): Promise<DocumentWithVersion>;
 
   listCalendarSuggestions(query: ListSuggestionsParams): Promise<EventCandidatePage>;

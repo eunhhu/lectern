@@ -42,6 +42,8 @@ import type {
   Workspace,
   WorkspaceId,
   ActionItemId,
+  Device,
+  WorkspaceMember,
 } from "../api/types.ts";
 import { DEFAULT_TIME_ZONE, zonedTimeToUtc } from "../lib/format.ts";
 import { DocBuilder, renderMarkdown } from "./doc-builder.ts";
@@ -80,6 +82,8 @@ export interface FixtureData {
   actionItems: ActionItem[];
   jobs: Job[];
   progress: Map<JobId, JobProgress>;
+  members: WorkspaceMember[];
+  devices: Device[];
 }
 
 // ---------------------------------------------------------------------------
@@ -557,7 +561,46 @@ export function buildFixtureData(now = new Date()): FixtureData {
     actionItems: [],
     jobs: [],
     progress: new Map(),
+    members: [],
+    devices: [],
   };
+
+  // Team members (synthetic names, example.com addresses) and this user's devices.
+  const person = (id: string, name: string, email: string, ws: WorkspaceId, role: MembershipRole): WorkspaceMember => ({
+    workspace_id: ws,
+    user_id: id as UserId,
+    role,
+    display_name: name,
+    email,
+    created_at: createdAt,
+    updated_at: createdAt,
+  });
+  data.members.push(
+    person(ME_ID, me.display_name, me.email, PERSONAL_WS, "owner"),
+    person(TEAMMATE_ID, "한지민", "jimin@example.com", TEAM_WS, "owner"),
+    person("usr_fixture_sehun", "오세훈", "sehun@example.com", TEAM_WS, "admin"),
+    person(ME_ID, me.display_name, me.email, TEAM_WS, "member"),
+    person("usr_fixture_seoa", "윤서아", "seoa@example.com", TEAM_WS, "member"),
+    person("usr_fixture_dohyun", "최도현", "dohyun@example.com", TEAM_WS, "member"),
+  );
+  const device = (id: string, client: "web" | "native", name: string, agent: string, lastSeen: string, current = false): Device => ({
+    id,
+    workspace_id: PERSONAL_WS,
+    user_id: ME_ID,
+    client,
+    device_name: name,
+    user_agent: agent,
+    created_at: createdAt,
+    last_seen_at: lastSeen,
+    expires_at: new Date(now.getTime() + 30 * 86_400_000).toISOString(),
+    revoked_at: null,
+    current,
+  });
+  data.devices.push(
+    device("ses_fixture_web", "web", "이 브라우저", "Mozilla/5.0 (Macintosh) Safari", new Date(now.getTime() - 60_000).toISOString(), true),
+    device("ses_fixture_mac", "native", "Lectern for Mac", "Lectern/2.0 macOS", clock.at(1, 18)),
+    device("ses_fixture_android", "native", "Android 빠른 녹음", "Lectern/1.6 Android", clock.at(4, 9)),
+  );
 
   const anchorsById = new Map<string, GeneratedTranscript["anchors"]>();
   const pdfById = new Map<string, AssetId>();
@@ -687,54 +730,63 @@ function addExtractedItems(
 ) {
   const rec = (id: string) => data.recordings.find((r) => r.id === id)!;
   const src = (id: string, ...keys: string[]): SourceRef[] =>
-    keys.map((k) => ({ kind: "transcript" as const, ...anchorsById.get(id)![k]! }));
+    keys.map((k) => {
+      const range = anchorsById.get(id)?.[k];
+      if (!range) throw new Error(`fixture anchor not found: ${id}/${k}`);
+      return { kind: "transcript" as const, ...range };
+    });
   const page = (id: string, p: number): SourceRef => ({ kind: "pdf_page", asset_id: pdfById.get(id)!, page: p });
   const stamp = (id: string) => rec(id).updated_at;
 
-  const questions: [string, string, string, string[], "easy" | "medium" | "hard", SourceRef[]?][] = [
-    ["rec_os07", "FCFS에서 호위 효과가 생기는 이유는?", "실행 시간이 긴 프로세스가 먼저 CPU를 잡으면 비선점이라 뒤의 짧은 프로세스들이 모두 기다려야 하기 때문이다.", ["convoy"], "easy"],
-    ["rec_os07", "SJF가 최적이면서도 그대로 쓰기 어려운 이유는?", "다음 CPU 버스트 길이를 미리 알 수 없기 때문이다. 그래서 지수 평균으로 예측한다.", ["sjf_optimal", "sjf_predict"], "medium"],
-    ["rec_os07", "라운드 로빈에서 타임 퀀텀이 너무 크면 어떻게 되는가?", "사실상 FCFS와 같아진다.", ["rr_quantum_large"], "easy"],
-    ["rec_os07", "타임 퀀텀을 정하는 경험 규칙은?", "CPU 버스트의 80%가 한 퀀텀 안에 끝나도록 잡는다.", ["rr_rule"], "medium"],
-    ["rec_os07", "기아 상태와 그 해결책을 설명하라.", "낮은 우선순위 프로세스가 계속 실행되지 못하는 상태이며, 기다린 시간에 따라 우선순위를 올리는 에이징으로 해결한다.", ["starvation", "aging"], "medium"],
-    ["rec_os07", "프로세서 친화성과 부하 분산은 왜 부딪히는가?", "부하 분산은 프로세스를 다른 코어로 옮기지만, 옮기면 캐시를 다시 채워야 해서 친화성의 이점을 잃는다.", ["affinity"], "hard"],
-    ["rec_ds05", "배열로 힙을 만드는 시간 복잡도는?", "아래에서부터 내리면 O(n)이다.", ["heap_build"], "medium"],
-    ["rec_ds05", "힙 정렬의 최악 시간 복잡도는?", "O(n log n)", ["heapsort"], "easy"],
-    ["rec_econ04", "소비자 균형의 조건은?", "한계대체율이 두 재화의 가격비와 같다.", ["optimum"], "medium"],
+  // --- Questions: recall cards for lectures, issues and discussion prompts for meetings.
+  type Q = [id: string, kind: Question["kind"], prompt: string, answer: string | null, keys: string[], difficulty: Question["difficulty"], extra?: { pages?: number[]; flags?: Question["flags"] }];
+  const questions: Q[] = [
+    ["rec_os07", "recall", "FCFS에서 호위 효과가 생기는 이유는?", "실행 시간이 긴 프로세스가 먼저 CPU를 잡으면 비선점이라 뒤의 짧은 프로세스들이 모두 기다려야 하기 때문이다.", ["convoy"], "easy"],
+    ["rec_os07", "recall", "SJF가 최적이면서도 그대로 쓰기 어려운 이유는?", "다음 CPU 버스트 길이를 미리 알 수 없기 때문이다. 그래서 지수 평균으로 예측한다.", ["sjf_optimal", "sjf_predict"], "medium"],
+    ["rec_os07", "recall", "라운드 로빈에서 타임 퀀텀이 너무 크면 어떻게 되는가?", "사실상 FCFS와 같아진다.", ["rr_quantum_large"], "easy", { pages: [12] }],
+    ["rec_os07", "recall", "타임 퀀텀을 정하는 경험 규칙은?", "CPU 버스트의 80%가 한 퀀텀 안에 끝나도록 잡는다.", ["rr_rule"], "medium"],
+    ["rec_os07", "recall", "기아 상태와 그 해결책을 설명하라.", "낮은 우선순위 프로세스가 계속 실행되지 못하는 상태이며, 기다린 시간에 따라 우선순위를 올리는 에이징으로 해결한다.", ["starvation", "aging"], "medium"],
+    ["rec_os07", "recall", "프로세서 친화성과 부하 분산은 왜 부딪히는가?", "부하 분산은 프로세스를 다른 코어로 옮기지만, 옮기면 캐시를 다시 채워야 해서 친화성의 이점을 잃는다.", ["affinity"], "hard", { flags: ["low_confidence"] }],
+    ["rec_os07", "recall", "다단계 피드백 큐가 대화형 작업에 유리한 이유는?", "CPU를 오래 쓰는 작업은 아래 큐로 내려가므로 짧은 대화형 작업이 위쪽 큐에서 빨리 응답받는다.", ["mlfq"], "medium", { pages: [16] }],
+    ["rec_os06", "recall", "같은 프로세스의 스레드끼리 공유하지 않는 것은?", "스택과 레지스터(프로그램 카운터 포함)는 스레드마다 따로 있다.", ["thread_share"], "easy"],
+    ["rec_os06", "recall", "PCB에 들어가는 정보를 세 가지 이상 말하라.", "프로세스 상태, 프로그램 카운터, 레지스터 값, 메모리 관리 정보 등.", ["pcb"], "easy", { pages: [3] }],
+    ["rec_os06", "recall", "일대일 스레드 모델의 장점과 단점은?", "병렬성이 좋지만 사용자 스레드마다 커널 스레드를 만들어야 해서 비용이 크다.", ["one_to_one"], "medium"],
+    ["rec_ds05", "recall", "배열로 힙을 만드는 시간 복잡도는?", "아래에서부터 내리면 O(n)이다.", ["heap_build"], "medium"],
+    ["rec_ds05", "recall", "힙 정렬의 최악 시간 복잡도는?", "O(n log n)", ["heapsort"], "easy"],
+    ["rec_ds05", "recall", "우선순위 큐의 두 연산은?", "원소 넣기와, 우선순위가 가장 높은 원소 꺼내기.", ["pq_def"], "easy"],
+    ["rec_ds04", "recall", "이진 탐색 트리를 중위 순회하면 어떤 순서가 나오는가?", "키가 정렬된 순서.", ["inorder_bst"], "easy"],
+    ["rec_ds04", "recall", "레벨 순회에 쓰는 자료구조는?", "큐.", ["level_queue"], "easy"],
+    ["rec_econ04", "recall", "소비자 균형의 조건은?", "한계대체율이 두 재화의 가격비와 같다.", ["optimum"], "medium", { pages: [8] }],
+    ["rec_econ04", "recall", "예산선의 기울기는 무엇으로 정해지는가?", "두 재화의 가격비(−P1/P2).", ["budget_slope"], "easy"],
+    ["rec_econ04", "recall", "한계대체율의 정의는?", "같은 효용을 유지하면서 한 재화를 한 단위 더 얻으려고 포기하는 다른 재화의 양.", ["mrs"], "medium"],
+    ["rec_sem01", "recall", "한국어 음성 인식 평가에 CER을 주 지표로 쓰자는 이유는?", "띄어쓰기가 흔들려 단어 단위 WER이 불안정하기 때문이다.", ["cer"], "medium", { pages: [4] }],
+    ["rec_sem01", "recall", "청크 경계에서 화자 번호가 바뀌는 문제는 어떻게 풀었나?", "겹치는 구간을 두고 양쪽 화자 번호를 다시 맞췄다.", ["chunk_speaker"], "hard"],
+    ["rec_tw42", "issue", "연간 요금제를 결제 화면 앞에 계속 둘 것인가?", null, ["pricing_open"], null],
+    ["rec_tw42", "issue", "온보딩 이탈은 어디서 가장 많이 생기는가?", "권한 요청 화면. 그래서 가입 직후 바로 올리기 화면으로 보내기로 했다.", ["onboarding_decision"], null],
+    ["rec_tw42", "discussion", "학생 할인을 따로 떼어 분석해야 할까?", null, ["pricing_open"], null],
+    ["rec_ui12", "issue", "참여자가 녹음을 다시 듣지 않는 이유는?", "녹음은 쌓이지만 필요한 부분을 찾을 수 없어서.", ["pain"], null],
+    ["rec_ui12", "discussion", "요약을 믿고 쓰려면 무엇이 필요하다고 했나?", "요약 문장마다 원래 녹음 위치가 붙어 있어야 한다.", ["sources"], null],
   ];
-  questions.forEach(([id, prompt, answer, keys, difficulty], i) => {
-    const sources = [...src(id, ...keys), ...(id === "rec_os07" && i === 2 ? [page(id, 12)] : [])];
+  questions.forEach(([id, kind, prompt, answer, keys, difficulty, extra], i) => {
     data.questions.push({
       id: `q_${id}_${i}` as QuestionId,
       workspace_id: rec(id).workspace_id,
       recording_id: rec(id).id,
-      kind: "recall",
+      kind,
       prompt,
       answer,
-      sources,
+      sources: [...src(id, ...keys), ...(extra?.pages ?? []).map((p) => page(id, p))],
       difficulty,
-      flags: i === 5 ? ["low_confidence"] : [],
+      flags: extra?.flags ?? [],
       created_at: stamp(id),
       updated_at: stamp(id),
     });
   });
-  data.questions.push({
-    id: "q_rec_tw42_0" as QuestionId,
-    workspace_id: TEAM_WS,
-    recording_id: rec("rec_tw42").id,
-    kind: "issue",
-    prompt: "연간 요금제를 결제 화면 앞에 계속 둘 것인가?",
-    answer: null,
-    sources: src("rec_tw42", "pricing_open"),
-    difficulty: null,
-    flags: [],
-    created_at: stamp("rec_tw42"),
-    updated_at: stamp("rec_tw42"),
-  });
 
+  // --- Events found in recordings: confirmed ones fill the calendar, suggested ones wait in the inbox.
+  let n = 0;
   const event = (
     id: string,
-    n: number,
     e: Pick<EventCandidate, "kind" | "title" | "start_at" | "end_at" | "all_day" | "raw_expression" | "confidence" | "status"> & {
       rule: string | null;
       keys: string[];
@@ -743,7 +795,7 @@ function addExtractedItems(
     },
   ) => {
     data.events.push({
-      id: `ev_${id}_${n}` as EventCandidateId,
+      id: `ev_${id}_${n++}` as EventCandidateId,
       workspace_id: rec(id).workspace_id,
       recording_id: rec(id).id,
       kind: e.kind,
@@ -762,64 +814,33 @@ function addExtractedItems(
       updated_at: stamp(id),
     });
   };
-  const os = rec("rec_os07").recorded_at;
-  event("rec_os07", 0, {
-    kind: "deadline",
-    title: "운영체제 과제 3 제출",
-    start_at: clock.nextWeekday(os, 2, 1, 23, 59),
-    end_at: null,
-    all_day: false,
-    raw_expression: "다음 주 화요일 밤 11시 59분까지",
-    confidence: 0.93,
-    status: "suggested",
-    rule: "next_week_weekday",
-    keys: ["assignment"],
-    quote: "다음 주 화요일 밤 11시 59분까지 제출하세요",
-  });
-  event("rec_os07", 1, {
-    kind: "exam",
-    title: "운영체제 중간고사",
-    start_at: clock.nextWeekday(os, 3, 1, 10, 0),
-    end_at: clock.nextWeekday(os, 3, 1, 11, 15),
-    all_day: false,
-    raw_expression: "다음 주 수요일 수업 시간에",
-    confidence: 0.71,
-    status: "suggested",
-    rule: "next_week_weekday",
-    keys: ["midterm"],
-    quote: "중간고사는 다음 주 수요일 수업 시간에 봅니다",
-    flags: ["needs_review"],
-  });
-  event("rec_econ04", 0, {
-    kind: "exam",
-    title: "미시경제학 쪽지 시험",
-    start_at: clock.nextWeekday(rec("rec_econ04").recorded_at, 4, 1, 15, 0),
-    end_at: null,
-    all_day: false,
-    raw_expression: "다음 주 목요일에",
-    confidence: 0.88,
-    status: "accepted",
-    rule: "next_week_weekday",
-    keys: ["quiz"],
-    quote: "다음 주 목요일에 이 단원으로 쪽지 시험을 봅니다",
-  });
-  event("rec_tw42", 0, {
-    kind: "meeting",
-    title: "출시 점검 회의",
-    start_at: clock.nextWeekday(rec("rec_tw42").recorded_at, 4, 1, 14, 0),
-    end_at: clock.nextWeekday(rec("rec_tw42").recorded_at, 4, 1, 15, 0),
-    all_day: false,
-    raw_expression: "다음 주 목요일 오후 2시에",
-    confidence: 0.95,
-    status: "suggested",
-    rule: "next_week_weekday_time",
-    keys: ["release_date"],
-    quote: "출시 점검 회의는 다음 주 목요일 오후 2시에 하겠습니다",
-  });
+  const at = (id: string) => rec(id).recorded_at;
+  const wk = clock.nextWeekday;
+  event("rec_os07", { kind: "deadline", title: "운영체제 과제 3 제출", start_at: wk(at("rec_os07"), 2, 1, 23, 59), end_at: null, all_day: false, raw_expression: "다음 주 화요일 밤 11시 59분까지", confidence: 0.93, status: "suggested", rule: "next_week_weekday", keys: ["assignment"], quote: "다음 주 화요일 밤 11시 59분까지 제출하세요" });
+  event("rec_os07", { kind: "exam", title: "운영체제 중간고사", start_at: wk(at("rec_os07"), 3, 1, 10, 0), end_at: wk(at("rec_os07"), 3, 1, 11, 15), all_day: false, raw_expression: "다음 주 수요일 수업 시간에", confidence: 0.71, status: "suggested", rule: "next_week_weekday", keys: ["midterm"], quote: "중간고사는 다음 주 수요일 수업 시간에 봅니다", flags: ["needs_review"] });
+  event("rec_os06", { kind: "deadline", title: "운영체제 과제 2 제출", start_at: wk(at("rec_os06"), 5, 0, 23, 59), end_at: null, all_day: false, raw_expression: "이번 주 금요일 밤 11시 59분까지", confidence: 0.94, status: "synced", rule: "this_week_weekday", keys: ["hw2"], quote: "과제 2는 이번 주 금요일 밤 11시 59분까지 제출하세요" });
+  event("rec_os06", { kind: "meeting", title: "운영체제 실습 보충", start_at: wk(at("rec_os06"), 4, 1, 19, 0), end_at: wk(at("rec_os06"), 4, 1, 20, 30), all_day: false, raw_expression: "다음 주 목요일 저녁 7시에", confidence: 0.9, status: "accepted", rule: "next_week_weekday_time", keys: ["lab"], quote: "다음 주 목요일 저녁 7시에 실습 보충 시간을 엽니다" });
+  event("rec_ds05", { kind: "exam", title: "자료구조 힙 구현 퀴즈", start_at: wk(at("rec_ds05"), 1, 1, 13, 0), end_at: wk(at("rec_ds05"), 1, 1, 13, 30), all_day: false, raw_expression: "다음 주 월요일 수업 시작할 때", confidence: 0.86, status: "accepted", rule: "next_week_weekday", keys: ["heap_quiz"], quote: "다음 주 월요일 수업 시작할 때 힙 구현 퀴즈를 봅니다" });
+  event("rec_econ04", { kind: "exam", title: "미시경제학 쪽지 시험", start_at: wk(at("rec_econ04"), 4, 1, 15, 0), end_at: wk(at("rec_econ04"), 4, 1, 15, 30), all_day: false, raw_expression: "다음 주 목요일에", confidence: 0.88, status: "accepted", rule: "next_week_weekday", keys: ["quiz"], quote: "다음 주 목요일에 이 단원으로 쪽지 시험을 봅니다" });
+  event("rec_sem01", { kind: "meeting", title: "연구실 세미나", start_at: wk(at("rec_sem01"), 4, 2, 17, 0), end_at: wk(at("rec_sem01"), 4, 2, 18, 30), all_day: false, raw_expression: "2주 뒤 목요일 오후 5시에", confidence: 0.84, status: "synced", rule: "weeks_ahead_weekday_time", keys: ["next_seminar"], quote: "다음 세미나는 2주 뒤 목요일 오후 5시에 하겠습니다" });
+  event("rec_adv", { kind: "deadline", title: "대학원 원서 접수 마감", ...allDay(at("rec_adv"), 11, 28), raw_expression: "11월 28일까지", confidence: 0.97, status: "accepted", rule: "absolute_date", keys: ["deadline"], quote: "대학원 원서 접수는 11월 28일까지예요" });
+  event("rec_call", { kind: "other", title: "치과 예약", start_at: wk(at("rec_call"), 5, 1, 16, 0), end_at: wk(at("rec_call"), 5, 1, 16, 30), all_day: false, raw_expression: "다음 주 금요일 오후 4시로", confidence: 0.96, status: "synced", rule: "next_week_weekday_time", keys: ["new_time"], quote: "다음 주 금요일 오후 4시로 옮겨 드릴게요" });
+  event("rec_tw42", { kind: "meeting", title: "출시 점검 회의", start_at: wk(at("rec_tw42"), 4, 1, 14, 0), end_at: wk(at("rec_tw42"), 4, 1, 15, 0), all_day: false, raw_expression: "다음 주 목요일 오후 2시에", confidence: 0.95, status: "suggested", rule: "next_week_weekday_time", keys: ["release_date"], quote: "출시 점검 회의는 다음 주 목요일 오후 2시에 하겠습니다" });
+  event("rec_tw42", { kind: "meeting", title: "사용자 인터뷰 2건", start_at: wk(at("rec_tw42"), 3, 1, 15, 0), end_at: wk(at("rec_tw42"), 3, 1, 17, 0), all_day: false, raw_expression: "다음 주 수요일 오후 3시에", confidence: 0.89, status: "accepted", rule: "next_week_weekday_time", keys: ["interview_plan"], quote: "사용자 인터뷰는 다음 주 수요일 오후 3시에 두 명 더 잡겠습니다" });
+  event("rec_ui12", { kind: "meeting", title: "후속 인터뷰 (#12)", start_at: wk(at("rec_ui12"), 2, 1, 10, 0), end_at: wk(at("rec_ui12"), 2, 1, 11, 0), all_day: false, raw_expression: "다음 주 화요일 오전 10시에", confidence: 0.82, status: "suggested", rule: "next_week_weekday_time", keys: ["follow_up"], quote: "다음 주 화요일 오전 10시에 한 번 더 이야기 나눌 수 있을까요?" });
 
-  const item = (id: string, n: number, text: string, owner: string | null, due: string | null, raw: string | null, keys: string[], status: ActionItem["status"] = "open") => {
+  function allDay(fromIso: string, month: number, day: number) {
+    let year = new Date(fromIso).getUTCFullYear();
+    let start = zonedTimeToUtc({ year, month, day, hour: 0, minute: 0 });
+    if (start.getTime() < new Date(fromIso).getTime()) start = zonedTimeToUtc({ year: ++year, month, day, hour: 0, minute: 0 });
+    return { start_at: start.toISOString(), end_at: new Date(start.getTime() + 86_400_000).toISOString(), all_day: true };
+  }
+
+  // --- Action items.
+  let m = 0;
+  const item = (id: string, text: string, owner: string | null, due: string | null, raw: string | null, keys: string[], status: ActionItem["status"] = "open") => {
     data.actionItems.push({
-      id: `ai_${id}_${n}` as ActionItemId,
+      id: `ai_${id}_${m++}` as ActionItemId,
       workspace_id: rec(id).workspace_id,
       recording_id: rec(id).id,
       text,
@@ -833,9 +854,16 @@ function addExtractedItems(
       updated_at: stamp(id),
     });
   };
-  const tw = rec("rec_tw42").recorded_at;
-  item("rec_tw42", 0, "QA 체크리스트 정리", "윤서아", clock.nextWeekday(tw, 3, 0, 18, 0), "수요일까지", ["qa_owner"]);
-  item("rec_tw42", 1, "릴리스 노트 초안 작성", "최도현", clock.nextWeekday(tw, 5, 0, 18, 0), "금요일까지", ["notes_owner"]);
-  item("rec_tw42", 2, "가입 직후 올리기 화면으로 이동", "한지민", null, null, ["onboarding_decision"], "done");
-  item("rec_adv", 0, "추천 논문 세 편 읽고 요약", "나", null, "다음 면담 전까지", ["reading"]);
+  item("rec_os07", "스케줄링 시뮬레이터 구현 (과제 3)", "나", wk(at("rec_os07"), 2, 1, 23, 59), "다음 주 화요일까지", ["assignment"]);
+  item("rec_os06", "과제 2 제출", "나", wk(at("rec_os06"), 5, 0, 23, 59), "이번 주 금요일까지", ["hw2"], "done");
+  item("rec_ds05", "힙 삽입·삭제 직접 구현해 올리기", "나", wk(at("rec_ds05"), 1, 1, 13, 0), "다음 수업 전까지", ["heap_hw"]);
+  item("rec_econ04", "교재 연습문제 3–7번 풀기", "나", null, null, ["econ_hw"]);
+  item("rec_sem01", "강의실 녹음 세 시간으로 평가 세트 만들기", "발표자", wk(at("rec_sem01"), 4, 2, 17, 0), "다음 발표 전까지", ["eval_set"]);
+  item("rec_adv", "추천 논문 세 편 읽고 요약", "나", null, "다음 면담 전까지", ["reading"]);
+  item("rec_call", "지난번 엑스레이 사진 챙기기", "나", wk(at("rec_call"), 5, 1, 16, 0), "예약 날", ["bring"]);
+  const tw = at("rec_tw42");
+  item("rec_tw42", "QA 체크리스트 정리", "윤서아", wk(tw, 3, 0, 18, 0), "수요일까지", ["qa_owner"]);
+  item("rec_tw42", "릴리스 노트 초안 작성", "최도현", wk(tw, 5, 0, 18, 0), "금요일까지", ["notes_owner"]);
+  item("rec_tw42", "가입 직후 올리기 화면으로 이동", "한지민", null, null, ["onboarding_decision"], "done");
+  item("rec_ui12", "인터뷰 내용 정리해 팀 채널에 공유", "진행자", null, null, ["share_notes"]);
 }

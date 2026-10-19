@@ -89,7 +89,16 @@ export type UploadSession = In<typeof D.UploadSession>;
 export type UploadPartReceipt = In<typeof D.UploadPartReceipt>;
 export type CompleteUploadResponse = In<typeof D.CompleteUploadResponse>;
 
+export type Device = In<typeof D.DeviceDto>;
+export type WorkspaceMember = In<typeof D.WorkspaceMember>;
+
 // Requests
+export type UpdateMeRequest = In<typeof D.UpdateMeRequest>;
+export type UpdateActionItemRequest = In<typeof D.UpdateActionItemRequest>;
+export type CreateFolderRequest = In<typeof D.CreateFolderRequest>;
+export type UpdateFolderRequest = In<typeof D.UpdateFolderRequest>;
+export type CreateTagRequest = In<typeof D.CreateTagRequest>;
+export type UpdateTagRequest = In<typeof D.UpdateTagRequest>;
 export type UpdateRecordingRequest = In<typeof D.UpdateRecordingRequest>;
 export type UpdateEventCandidateRequest = In<typeof D.UpdateEventCandidateRequest>;
 export type CreateUploadRequest = In<typeof D.CreateUploadRequest>;
@@ -108,6 +117,8 @@ export type QuestionPage = Page<Question>;
 export type EventCandidatePage = Page<EventCandidate>;
 export type ActionItemPage = Page<ActionItem>;
 export type SearchHitPage = Page<SearchHit>;
+export type DevicePage = Page<Device>;
+export type WorkspaceMemberPage = Page<WorkspaceMember>;
 
 // Enums are typed correctly in the domain; only ids need the workaround.
 export type {

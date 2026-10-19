@@ -24,6 +24,7 @@
       "name": "@lectern/web",
       "version": "0.1.0",
       "dependencies": {
+        "@internationalized/date": "3.12.4",
         "@lectern/design-tokens": "workspace:*",
         "@lectern/domain": "workspace:*",
         "@tanstack/react-query": "5.104.1",

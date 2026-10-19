@@ -5,7 +5,22 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect } from "react";
 import { ApiClientError, type ApiClient } from "./client.ts";
-import type { JobId, RecordingListItem, ServerEvent, StageName, UpdateRecordingRequest, WorkspaceId } from "./types.ts";
+import type {
+  ActionItem,
+  CreateFolderRequest,
+  CreateTagRequest,
+  EventCandidate,
+  JobId,
+  Question,
+  RecordingListItem,
+  ServerEvent,
+  StageName,
+  UpdateFolderRequest,
+  UpdateMeRequest,
+  UpdateRecordingRequest,
+  UpdateTagRequest,
+  WorkspaceId,
+} from "./types.ts";
 
 export const ApiContext = createContext<ApiClient | null>(null);
 
@@ -29,6 +44,11 @@ export const queryKeys = {
   actionItems: (id: string) => ["action-items", id] as const,
   suggestions: (ws: string) => ["suggestions", ws] as const,
   jobProgress: (jobId: string) => ["job-progress", jobId] as const,
+  members: (ws: string) => ["members", ws] as const,
+  devices: ["devices"] as const,
+  workspaceQuestions: (ws: string) => ["workspace-questions", ws] as const,
+  workspaceActionItems: (ws: string) => ["workspace-action-items", ws] as const,
+  calendar: (ws: string) => ["calendar", ws] as const,
 };
 
 /** Follows `next_cursor` until the last page (lists in the shell are small). */
@@ -220,6 +240,135 @@ export function useDecideSuggestion(ws: WorkspaceId) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: "accepted" | "dismissed" }) => api.updateCalendarSuggestion(id, { status }),
-    onSettled: () => void qc.invalidateQueries({ queryKey: queryKeys.suggestions(ws) }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.suggestions(ws) });
+      void qc.invalidateQueries({ queryKey: queryKeys.calendar(ws) });
+    },
+  });
+}
+
+// --- account ----------------------------------------------------------------
+
+export function useMembers(ws: WorkspaceId) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.members(ws), queryFn: () => allPages(() => api.listMembers(ws)) });
+}
+
+export function useDevices() {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.devices, queryFn: () => allPages(() => api.listDevices()) });
+}
+
+export function useUpdateMe() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UpdateMeRequest) => api.updateMe(body),
+    onSuccess: (me) => {
+      qc.setQueryData(queryKeys.me, me);
+      void qc.invalidateQueries({ queryKey: ["members"] });
+    },
+  });
+}
+
+// --- folders and tags -------------------------------------------------------
+
+function useOrganise<TArgs, TResult>(ws: WorkspaceId, run: (args: TArgs) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.folders(ws) });
+      void qc.invalidateQueries({ queryKey: queryKeys.tags(ws) });
+      void qc.invalidateQueries({ queryKey: queryKeys.recordings(ws) });
+      void qc.invalidateQueries({ queryKey: ["recording"] });
+    },
+  });
+}
+
+export function useFolderActions(ws: WorkspaceId) {
+  const api = useApi();
+  return {
+    create: useOrganise(ws, (body: Omit<CreateFolderRequest, "workspace_id">) => api.createFolder({ ...body, workspace_id: ws })),
+    update: useOrganise(ws, ({ id, body }: { id: string; body: UpdateFolderRequest }) => api.updateFolder(id, body)),
+    remove: useOrganise(ws, (id: string) => api.deleteFolder(id)),
+  };
+}
+
+export function useTagActions(ws: WorkspaceId) {
+  const api = useApi();
+  return {
+    create: useOrganise(ws, (body: Omit<CreateTagRequest, "workspace_id">) => api.createTag({ ...body, workspace_id: ws })),
+    update: useOrganise(ws, ({ id, body }: { id: string; body: UpdateTagRequest }) => api.updateTag(id, body)),
+    remove: useOrganise(ws, (id: string) => api.deleteTag(id)),
+  };
+}
+
+// --- review and calendar ----------------------------------------------------
+// There are no workspace-level lists for questions and action items yet (README
+// "domain 요청"), so these gather the per-recording lists of processed recordings.
+
+const PROCESSED = new Set(["ready", "partial"]);
+
+export function useWorkspaceQuestions(ws: WorkspaceId) {
+  const api = useApi();
+  const recordings = useRecordings(ws).data;
+  return useQuery({
+    queryKey: [...queryKeys.workspaceQuestions(ws), recordings?.map((r) => r.id).join(",")],
+    enabled: Boolean(recordings),
+    queryFn: async (): Promise<{ question: Question; recording: RecordingListItem }[]> => {
+      const done = (recordings ?? []).filter((r) => PROCESSED.has(r.status));
+      const lists = await Promise.all(done.map((r) => allPages(() => api.listQuestions(r.id))));
+      return lists.flatMap((qs, i) => qs.map((question) => ({ question, recording: done[i]! })));
+    },
+  });
+}
+
+export function useWorkspaceActionItems(ws: WorkspaceId) {
+  const api = useApi();
+  const recordings = useRecordings(ws).data;
+  return useQuery({
+    queryKey: [...queryKeys.workspaceActionItems(ws), recordings?.map((r) => r.id).join(",")],
+    enabled: Boolean(recordings),
+    queryFn: async (): Promise<{ item: ActionItem; recording: RecordingListItem }[]> => {
+      const done = (recordings ?? []).filter((r) => PROCESSED.has(r.status));
+      const lists = await Promise.all(done.map((r) => allPages(() => api.listActionItems(r.id))));
+      return lists.flatMap((items, i) => items.map((item) => ({ item, recording: done[i]! })));
+    },
+  });
+}
+
+/** Events the user confirmed (accepted, or already synced to their calendar). */
+export function useConfirmedEvents(ws: WorkspaceId) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.calendar(ws),
+    queryFn: async (): Promise<EventCandidate[]> => {
+      const [accepted, synced] = await Promise.all(
+        (["accepted", "synced"] as const).map((status) => allPages((cursor) => api.listCalendarSuggestions({ workspace_id: ws, status, cursor }))),
+      );
+      return [...accepted!, ...synced!].sort((a, b) => (a.start_at < b.start_at ? -1 : 1));
+    },
+  });
+}
+
+export function useUpdateActionItem(ws: WorkspaceId) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: "open" | "done" | "dismissed" }) => api.updateActionItem(id, { status }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.workspaceActionItems(ws) });
+      void qc.invalidateQueries({ queryKey: ["action-items"] });
+    },
+  });
+}
+
+export function useRevokeDevice() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.revokeDevice(id),
+    onSettled: () => void qc.invalidateQueries({ queryKey: queryKeys.devices }),
   });
 }

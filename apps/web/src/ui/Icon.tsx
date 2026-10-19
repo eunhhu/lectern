@@ -38,11 +38,20 @@ const PATHS = {
   spark: "M8 2v3M8 11v3M2 8h3M11 8h3",
   user: "M8 2.5a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6ZM2.8 13.5c.6-2.6 2.7-4 5.2-4s4.6 1.4 5.2 4",
   quote: "M3 9.5h3v3H3zM3 9.5c0-3 1-4.5 3-5M9.5 9.5h3v3h-3zM9.5 9.5c0-3 1-4.5 3-5",
+  plus: "M8 3v10M3 8h10",
+  pencil: "M10.5 2.8 13.2 5.5 6 12.7l-3.2.5.5-3.2zM9.2 4.1l2.7 2.7",
+  clock: "M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2ZM8 4.8V8l2.2 1.6",
+  users: "M6 3a2.3 2.3 0 1 0 0 4.6A2.3 2.3 0 0 0 6 3ZM1.8 13c.4-2.2 2.1-3.4 4.2-3.4s3.8 1.2 4.2 3.4M11 3.3a2.2 2.2 0 0 1 0 4.2M12.2 9.8c1.2.4 2 1.4 2.2 3",
+  book: "M2.5 3.5h4a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 0-1.5-1.5h-4zM13.5 3.5h-4A1.5 1.5 0 0 0 8 5v8a1.5 1.5 0 0 1 1.5-1.5h4z",
+  logout: "M6.5 13.5h-3v-11h3M10 5l3 3-3 3M13 8H6.5",
+  move: "M2 4.5V12.5h12V5.5H7.5L6 3.5H2zM6.5 9h4M9 7l1.5 2L9 11",
+  chevronLeft: "M10 3.5 5.5 8l4.5 4.5",
+  flip: "M3 6h8.5a2 2 0 0 1 0 4H4M5.5 4 3 6l2.5 2M10.5 12 13 10",
 } as const;
 
 export type IconName = keyof typeof PATHS;
 
-export function Icon({ name, size = 16, ...rest }: { name: IconName; size?: number } & SVGProps<SVGSVGElement>) {
+export function Icon({ name, size = 18, ...rest }: { name: IconName; size?: number } & SVGProps<SVGSVGElement>) {
   return (
     <svg
       width={size}

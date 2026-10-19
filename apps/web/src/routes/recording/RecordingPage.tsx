@@ -5,7 +5,7 @@
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Menu, MenuItem, MenuTrigger, Popover, Tab, TabList, TabPanel, Tabs } from "react-aria-components";
-import { useApi, useDocument, useFolders, useJobProgress, useRecording, useTranscript } from "../../api/queries.ts";
+import { useApi, useDocument, useFolders, useJobProgress, useRecording, useTags, useTranscript } from "../../api/queries.ts";
 import { ApiClientError } from "../../api/client.ts";
 import type { RecordingDetail } from "../../api/types.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
@@ -81,6 +81,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const transcript = useTranscript(rec.id, hasTranscript);
   const doc = useDocument(detail.documents[0]?.id);
   const folders = useFolders(rec.workspace_id).data ?? [];
+  const tags = useTags(rec.workspace_id).data ?? [];
   const [action, setAction] = useState<BulkAction>(null);
   const wide = useMediaQuery(WIDE);
   const now = useMemo(() => new Date(), []);
@@ -153,6 +154,20 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
         <span className={s.status}>
           <Dot tone={status.tone} live={status.busy} />
           {status.label}
+        </span>
+        <span className={s.headerTags}>
+          {detail.tags
+            .map((rt) => tags.find((t) => t.id === rt.tag_id))
+            .filter((t): t is NonNullable<typeof t> => Boolean(t))
+            .map((t) => (
+              <span key={t.id} className={s.headerTag}>
+                <span className={s.tagDot} data-color={t.color} aria-hidden="true" />
+                {t.name}
+              </span>
+            ))}
+          <Button size="sm" variant="ghost" icon="tag" onPress={() => setAction({ kind: "tag", ids: [rec.id] })}>
+            {detail.tags.length ? "태그 편집" : "태그 붙이기"}
+          </Button>
         </span>
       </p>
     </header>

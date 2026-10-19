@@ -250,6 +250,15 @@ export const OS_THREADS: Script = {
       ],
       anchors: [{ key: "one_to_one", text: "일대일 모델은 병렬성이 좋지만 커널 스레드를 많이 만들어야 합니다." }],
     },
+    {
+      key: "notice",
+      weight: 1,
+      lines: ["질문은 강의 게시판에 남겨 주세요.", "오늘은 여기까지 하겠습니다.", "다음 시간에는 CPU 스케줄링을 합니다."],
+      anchors: [
+        { key: "hw2", text: "과제 2는 이번 주 금요일 밤 11시 59분까지 제출하세요." },
+        { key: "lab", text: "다음 주 목요일 저녁 7시에 실습 보충 시간을 엽니다." },
+      ],
+    },
   ],
 };
 
@@ -299,6 +308,15 @@ export const DS_HEAP: Script = {
       weight: 3,
       lines: ["힙 정렬은 힙에서 하나씩 꺼내면 끝입니다.", "제자리 정렬이지만 안정 정렬은 아니에요."],
       anchors: [{ key: "heapsort", text: "힙 정렬은 최악에도 O(n log n)이라 퀵 정렬보다 예측이 쉽습니다." }],
+    },
+    {
+      key: "notice",
+      weight: 1,
+      lines: ["오늘 내용은 시험에도 나옵니다.", "코드는 강의 저장소에 올려 두겠습니다."],
+      anchors: [
+        { key: "heap_quiz", text: "다음 주 월요일 수업 시작할 때 힙 구현 퀴즈를 봅니다." },
+        { key: "heap_hw", text: "힙 삽입과 삭제를 직접 구현해서 다음 수업 전까지 올려 주세요." },
+      ],
     },
   ],
 };
@@ -372,6 +390,7 @@ export const ECON_CHOICE: Script = {
       anchors: [
         { key: "optimum", text: "최적 선택에서는 한계대체율이 가격비와 같습니다." },
         { key: "quiz", text: "다음 주 목요일에 이 단원으로 쪽지 시험을 봅니다." },
+        { key: "econ_hw", text: "교재 연습문제 3번부터 7번까지 풀어 오세요." },
       ],
     },
   ],
@@ -413,7 +432,10 @@ export const SEMINAR_ASR: Script = {
       weight: 3,
       lines: ["평가 세트는 몇 시간 정도면 충분할까요?", "녹음 환경이 다양해야 합니다.", "강의실 잔향이 꽤 영향을 줍니다."],
       turns: { S1: 3, S2: 3, S3: 2 },
-      anchors: [{ key: "eval_set", text: "다음 발표 전까지 강의실 녹음 세 시간으로 평가 세트를 만들기로 하죠.", speaker: "S2" }],
+      anchors: [
+        { key: "eval_set", text: "다음 발표 전까지 강의실 녹음 세 시간으로 평가 세트를 만들기로 하죠.", speaker: "S2" },
+        { key: "next_seminar", text: "다음 세미나는 2주 뒤 목요일 오후 5시에 하겠습니다.", speaker: "S2" },
+      ],
     },
   ],
 };
@@ -526,7 +548,10 @@ export const TEAM_WEEKLY: Script = {
         "인터뷰에서도 비슷한 얘기가 나왔어요.",
         "실험은 일주일만 돌려도 충분할 것 같아요.",
       ],
-      anchors: [{ key: "onboarding_decision", text: "그럼 가입 직후 바로 올리기 화면으로 보내는 걸로 정하죠.", speaker: "S1" }],
+      anchors: [
+        { key: "onboarding_decision", text: "그럼 가입 직후 바로 올리기 화면으로 보내는 걸로 정하죠.", speaker: "S1" },
+        { key: "interview_plan", text: "사용자 인터뷰는 다음 주 수요일 오후 3시에 두 명 더 잡겠습니다.", speaker: "S3" },
+      ],
     },
     {
       key: "pricing",
@@ -594,6 +619,15 @@ export const USER_INTERVIEW: Script = {
         "틀린 요약을 시험 공부에 쓰면 큰일이니까요.",
       ],
       anchors: [{ key: "sources", text: "요약 문장마다 원래 녹음 위치가 붙어 있으면 믿고 쓸 것 같아요.", speaker: "S2" }],
+    },
+    {
+      key: "wrap",
+      weight: 1,
+      lines: ["오늘 시간 내 주셔서 감사합니다.", "궁금한 점 있으면 메일 주세요."],
+      anchors: [
+        { key: "follow_up", text: "다음 주 화요일 오전 10시에 한 번 더 이야기 나눌 수 있을까요?", speaker: "S1" },
+        { key: "share_notes", text: "오늘 내용은 정리해서 팀 채널에 공유하겠습니다.", speaker: "S1" },
+      ],
     },
   ],
 };

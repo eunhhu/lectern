@@ -22,6 +22,15 @@ import type {
   Transcript,
   UpdateEventCandidateRequest,
   UpdateRecordingRequest,
+  CreateFolderRequest,
+  CreateTagRequest,
+  Folder,
+  Tag,
+  UpdateFolderRequest,
+  UpdateMeRequest,
+  UpdateTagRequest,
+  ActionItem,
+  UpdateActionItemRequest,
   UploadId,
   UploadPartReceipt,
   UploadSession,
@@ -141,6 +150,44 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
   const role = (ws: WorkspaceId) => data.workspaces.find((w) => w.workspace.id === ws)?.role ?? "viewer";
   const tagIdsOf = (id: string) => data.recordingTags.filter((t) => t.recording_id === id).map((t) => t.tag_id);
 
+  const folderName = (raw: string) => {
+    const name = raw.trim();
+    if (!name || name.length > 200) throw new ApiClientError(400, "validation_failed", "폴더 이름은 1자 이상 200자 이하로 입력하세요.");
+    return name;
+  };
+  const tagName = (raw: string) => {
+    const name = raw.trim();
+    if (!name || name.length > 64) throw new ApiClientError(400, "validation_failed", "태그 이름은 1자 이상 64자 이하로 입력하세요.");
+    return name;
+  };
+  const assertUniqueFolderName = (ws: string, parent: string | null, name: string, except: string | null) => {
+    const clash = data.folders.some((f) => f.workspace_id === ws && f.parent_id === parent && f.id !== except && f.name === name);
+    if (clash) throw new ApiClientError(409, "conflict", "같은 위치에 이름이 같은 폴더가 있습니다. 다른 이름을 쓰세요.");
+  };
+  const assertUniqueTagName = (ws: string, name: string, except: string | null) => {
+    const clash = data.tags.some((t) => t.workspace_id === ws && t.id !== except && t.name.toLowerCase() === name.toLowerCase());
+    if (clash) throw new ApiClientError(409, "conflict", "이름이 같은 태그가 있습니다. 다른 이름을 쓰세요.");
+  };
+  const nextSortKey = (ws: string, parent: string | null) => {
+    const keys = data.folders.filter((f) => f.workspace_id === ws && f.parent_id === parent).map((f) => f.sort_key).sort();
+    const last = keys.at(-1);
+    return last ? `${last}m` : "m";
+  };
+  const descendantsOf = (id: string) => {
+    const ids = new Set([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const f of data.folders) {
+        if (f.parent_id && ids.has(f.parent_id) && !ids.has(f.id)) {
+          ids.add(f.id);
+          grew = true;
+        }
+      }
+    }
+    return ids;
+  };
+
   // Slowly advance the long-running fixture jobs while someone is listening, so the
   // inbox shows live progress. They hold at 95% and never finish.
   const startTicker = () => {
@@ -210,12 +257,128 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
 
     getMe: () => wait(() => structuredClone(data.me)),
 
+    updateMe: (body: UpdateMeRequest) =>
+      wait(() => {
+        if (body.display_name !== undefined) {
+          const name = body.display_name.trim();
+          if (!name || name.length > 100) throw new ApiClientError(400, "validation_failed", "이름은 1자 이상 100자 이하로 입력하세요.");
+          data.me.display_name = name;
+          for (const m of data.members) if (m.user_id === data.me.id) m.display_name = name;
+        }
+        if (body.timezone !== undefined) data.me.timezone = body.timezone;
+        return structuredClone(data.me);
+      }),
+
+    listDevices: () => wait(() => page(data.devices, undefined, MAX_PAGE)),
+
+    revokeDevice: (id) =>
+      wait(() => {
+        const device = data.devices.find((d) => d.id === id);
+        if (!device) throw notFound("기기");
+        if (device.current) throw new ApiClientError(409, "conflict", "지금 쓰는 기기는 여기서 로그아웃할 수 없습니다.");
+        data.devices = data.devices.filter((d) => d.id !== id);
+      }),
+
     listWorkspaces: () => wait(() => page(data.workspaces, undefined, MAX_PAGE)),
+
+    listMembers: (ws) => wait(() => page(data.members.filter((m) => m.workspace_id === ws), undefined, MAX_PAGE)),
 
     listFolders: (ws) =>
       wait(() => page([...data.folders.filter((f) => f.workspace_id === ws)].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1)), undefined, MAX_PAGE)),
 
+    createFolder: (body: CreateFolderRequest) =>
+      wait((): Folder => {
+        const ws = body.workspace_id;
+        if (role(ws) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        const name = folderName(body.name);
+        const parent = body.parent_id ?? null;
+        if (parent && !data.folders.some((f) => f.id === parent && f.workspace_id === ws)) throw notFound("상위 폴더");
+        assertUniqueFolderName(ws, parent, name, null);
+        const stamp = nowIso();
+        const folder: Folder = {
+          id: newId("fld") as FolderId,
+          workspace_id: ws,
+          parent_id: parent,
+          name,
+          sort_key: body.sort_key ?? nextSortKey(ws, parent),
+          created_at: stamp,
+          updated_at: stamp,
+        };
+        data.folders.push(folder);
+        return structuredClone(folder);
+      }),
+
+    updateFolder: (id, body: UpdateFolderRequest) =>
+      wait((): Folder => {
+        const folder = data.folders.find((f) => f.id === id);
+        if (!folder) throw notFound("폴더");
+        if (role(folder.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        const parent = body.parent_id === undefined ? folder.parent_id : body.parent_id;
+        if (parent) {
+          if (!data.folders.some((f) => f.id === parent && f.workspace_id === folder.workspace_id)) throw notFound("상위 폴더");
+          if (descendantsOf(folder.id).has(parent)) throw new ApiClientError(409, "conflict", "폴더를 자기 자신이나 그 안의 폴더로 옮길 수 없습니다.");
+        }
+        const name = body.name === undefined ? folder.name : folderName(body.name);
+        if (body.name !== undefined || body.parent_id !== undefined) assertUniqueFolderName(folder.workspace_id, parent, name, folder.id);
+        folder.name = name;
+        if (body.parent_id !== undefined) {
+          folder.parent_id = parent;
+          if (body.sort_key === undefined) folder.sort_key = nextSortKey(folder.workspace_id, parent);
+        }
+        if (body.sort_key !== undefined) folder.sort_key = body.sort_key;
+        folder.updated_at = nowIso();
+        return structuredClone(folder);
+      }),
+
+    deleteFolder: (id) =>
+      wait(() => {
+        const folder = data.folders.find((f) => f.id === id);
+        if (!folder) throw notFound("폴더");
+        if (role(folder.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        // packages/domain: "recordings move to the parent". Subfolders move up as well.
+        for (const child of data.folders.filter((f) => f.parent_id === id)) child.parent_id = folder.parent_id;
+        for (const rec of data.recordings.filter((r) => r.folder_id === id)) {
+          rec.folder_id = folder.parent_id;
+          rec.updated_at = nowIso();
+          emit(rec.workspace_id, rec.id, { type: "recording.updated", payload: { recording: structuredClone(rec) } } as never);
+        }
+        data.folders = data.folders.filter((f) => f.id !== id);
+      }),
+
     listTags: (ws) => wait(() => page(data.tags.filter((t) => t.workspace_id === ws), undefined, MAX_PAGE)),
+
+    createTag: (body: CreateTagRequest) =>
+      wait((): Tag => {
+        if (role(body.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        const name = tagName(body.name);
+        assertUniqueTagName(body.workspace_id, name, null);
+        const stamp = nowIso();
+        const tag: Tag = { id: newId("tag") as TagId, workspace_id: body.workspace_id, name, color: body.color, created_at: stamp, updated_at: stamp };
+        data.tags.push(tag);
+        return structuredClone(tag);
+      }),
+
+    updateTag: (id, body: UpdateTagRequest) =>
+      wait((): Tag => {
+        const tag = data.tags.find((t) => t.id === id);
+        if (!tag) throw notFound("태그");
+        if (body.name !== undefined) {
+          const name = tagName(body.name);
+          assertUniqueTagName(tag.workspace_id, name, tag.id);
+          tag.name = name;
+        }
+        if (body.color !== undefined) tag.color = body.color;
+        tag.updated_at = nowIso();
+        return structuredClone(tag);
+      }),
+
+    deleteTag: (id) =>
+      wait(() => {
+        const tag = data.tags.find((t) => t.id === id);
+        if (!tag) throw notFound("태그");
+        data.recordingTags = data.recordingTags.filter((rt) => rt.tag_id !== id);
+        data.tags = data.tags.filter((t) => t.id !== id);
+      }),
 
     listRecordings: (q: ListRecordingsParams) =>
       wait(() => {
@@ -316,6 +479,14 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     listQuestions: (id) => wait(() => (recording(id), page(data.questions.filter((q) => q.recording_id === id), undefined, MAX_PAGE))),
     listRecordingEvents: (id) => wait(() => (recording(id), page(data.events.filter((e) => e.recording_id === id), undefined, MAX_PAGE))),
     listActionItems: (id) => wait(() => (recording(id), page(data.actionItems.filter((a) => a.recording_id === id), undefined, MAX_PAGE))),
+
+    updateActionItem: (id, body: UpdateActionItemRequest) =>
+      wait((): ActionItem => {
+        const item = data.actionItems.find((a) => a.id === id);
+        if (!item) throw notFound("할 일");
+        Object.assign(item, Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)), { updated_at: nowIso() });
+        return structuredClone(item);
+      }),
 
     getDocument: (documentId) =>
       wait(() => {

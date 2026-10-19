@@ -668,3 +668,44 @@
 .skip:focus-visible {
   transform: none;
 }
+
+/* In-place rename field */
+.inlineName {
+  flex: 1;
+  min-width: 0;
+  height: var(--size-control-sm);
+  padding: 0 var(--space-6);
+  border: 1px solid var(--color-accent-solid);
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
+  outline: 3px solid var(--color-bg-selected);
+}
+
+/* Avatar (DESIGN.md §3.9); the background colour is set from code. */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-solid);
+  color: var(--color-text-on-solid);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+
+.avatar[data-size="sm"] {
+  width: 24px;
+  height: 24px;
+  font-size: var(--font-size-xs);
+}
+
+.avatar[data-size="lg"] {
+  width: 48px;
+  height: 48px;
+  font-size: var(--font-size-lg);
+}

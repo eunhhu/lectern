@@ -63,8 +63,8 @@ th {
   word-break: keep-all;
 }
 
-ul[role="list"],
-ol[role="list"] {
+/* :where() keeps this reset at zero specificity so component classes can add padding. */
+:where(ul[role="list"], ol[role="list"]) {
   list-style: none;
   padding: 0;
 }

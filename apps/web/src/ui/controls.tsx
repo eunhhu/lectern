@@ -42,7 +42,7 @@ export interface ButtonProps extends Omit<AriaButtonProps, "className" | "childr
 export function Button({ variant = "secondary", size = "md", icon, iconOnly, className, children, ...rest }: ButtonProps) {
   return (
     <AriaButton {...rest} className={cx(s.button, s[variant], size !== "md" && s[size], iconOnly && s.iconOnly, className)}>
-      {icon && <Icon name={icon} size={size === "sm" ? 14 : 16} />}
+      {icon && <Icon name={icon} size={size === "sm" ? 16 : 18} />}
       {iconOnly ? null : children}
     </AriaButton>
   );

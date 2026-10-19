@@ -849,3 +849,49 @@
     flex-basis: 100%;
   }
 }
+
+.headerTags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+.headerTag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  color: var(--color-text-secondary);
+}
+
+.tagDot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--color-text-tertiary);
+}
+
+.tagDot[data-color="red"] {
+  background: var(--color-status-danger-ui);
+}
+
+.tagDot[data-color="orange"] {
+  background: var(--color-status-severe-ui);
+}
+
+.tagDot[data-color="yellow"] {
+  background: var(--color-status-attention-ui);
+}
+
+.tagDot[data-color="green"] {
+  background: var(--color-status-success-ui);
+}
+
+.tagDot[data-color="blue"] {
+  background: var(--color-status-info-ui);
+}
+
+.tagDot[data-color="indigo"] {
+  background: var(--color-accent-solid);
+}
