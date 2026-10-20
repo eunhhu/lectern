@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { LectureRecord } from "../src/db.ts";
 import { PAGE_SCRIPTS, renderAdminPageHtml, renderAppHtml, renderSharePageHtml } from "../src/ui.ts";
 
@@ -188,5 +190,42 @@ describe("@lectern/server web UI client script", () => {
     expect(relTime(new Date(Date.now() - 3 * 60_000).toISOString())).toBe("3분 전");
     expect(relTime(new Date(Date.now() - 5 * 3_600_000).toISOString())).toBe("5시간 전");
     expect(relTime(null)).toBe("—");
+  });
+});
+
+describe("@lectern/server public homepage (logged-out /)", () => {
+  // Google OAuth brand verification needs a public homepage that says what the app does and
+  // links the privacy policy (docs/runbooks/google-oauth-verification.md §1). The auth gate is
+  // what a logged-out visitor sees before any script runs, and it is hidden once logged in.
+  const appHtml = PAGES.app;
+  const gateStart = appHtml.indexOf('<div class="auth-gate" id="auth-gate">');
+  const gate = appHtml.slice(gateStart, appHtml.indexOf('<div class="app-shell">'));
+  const about = gate.match(/<section class="auth-about" id="auth-about"[\s\S]*?<\/section>/)?.[0] ?? "";
+
+  test("the auth gate describes Lectern next to the login form", () => {
+    expect(gateStart).toBeGreaterThan(-1);
+    expect(about).not.toBe("");
+    expect(gate).toContain('id="auth-form"');
+    expect(about).toContain("Lectern");
+    for (const phrase of ["녹음", "PDF", "전사", "노트", "마감", "시험", "회의", "Lectern 전용 Google 캘린더"]) {
+      expect(about, phrase).toContain(phrase);
+    }
+    expect(appHtml).toMatch(/<meta name="description" content="[^"]*Google 캘린더[^"]*" \/>/);
+  });
+
+  test("the intro links the privacy policy, the terms and a contact", () => {
+    expect(about).toContain('<a href="/privacy">개인정보처리방침</a>');
+    expect(about).toContain('<a href="/terms">이용약관</a>');
+    expect(about).toMatch(/문의: <a href="\/privacy#contact">/);
+    // The contact link lands on the policy's contact section, which carries the address.
+    const privacy = readFileSync(join(import.meta.dir, "../static/legal/privacy.html"), "utf8");
+    expect(privacy).toContain('id="contact"');
+  });
+
+  test("the intro is static markup with no inline styles, actions or template placeholders", () => {
+    expect(about).toContain("</section>");
+    expect(about).not.toContain("style=");
+    expect(about).not.toContain("data-action=");
+    expect(about).not.toContain("{{");
   });
 });
