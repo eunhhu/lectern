@@ -21,6 +21,7 @@ import { DOMAIN_LABEL } from "../labels.ts";
 import { useOverlay } from "../overlays.ts";
 import { useWorkspace } from "../workspace.tsx";
 import { folderOptions } from "../../routes/library/folders.ts";
+import { MicRecorder } from "./MicRecorder.tsx";
 import { uploadGroup } from "./upload.ts";
 import s from "./upload.module.css";
 
@@ -41,6 +42,7 @@ export function UploadDialog() {
   const [files, setFiles] = useState<File[]>([]);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [recordingActive, setRecordingActive] = useState(false);
 
   const reset = () => {
     setFiles([]);
@@ -52,14 +54,14 @@ export function UploadDialog() {
       isOpen={isOpen}
       onOpenChange={(open) => {
         if (open) return setOpen(true);
-        if (busy) return;
+        if (busy || recordingActive) return;
         if (files.length && !confirmDiscard) return setConfirmDiscard(true);
         reset();
         setOpen(false);
       }}
       title="녹음 올리기"
       size="wide"
-      isDismissable={!busy}
+      isDismissable={!busy && !recordingActive}
     >
       {isOpen && (
         <UploadBody
@@ -67,6 +69,8 @@ export function UploadDialog() {
           setFiles={setFiles}
           busy={busy}
           setBusy={setBusy}
+          recordingActive={recordingActive}
+          setRecordingActive={setRecordingActive}
           confirmDiscard={confirmDiscard}
           onKeep={() => setConfirmDiscard(false)}
           onClose={() => {
@@ -84,6 +88,8 @@ function UploadBody({
   setFiles,
   busy,
   setBusy,
+  recordingActive,
+  setRecordingActive,
   confirmDiscard,
   onKeep,
   onClose,
@@ -92,6 +98,8 @@ function UploadBody({
   setFiles: (f: File[]) => void;
   busy: boolean;
   setBusy: (b: boolean) => void;
+  recordingActive: boolean;
+  setRecordingActive: (a: boolean) => void;
   confirmDiscard: boolean;
   onKeep: () => void;
   onClose: () => void;
@@ -207,11 +215,13 @@ function UploadBody({
           {!files.length && <p className={uiStyles.hint}>같은 강의의 파일은 이름과 날짜를 보고 자동으로 짝을 짓습니다.</p>}
         </div>
         <FileTrigger allowsMultiple acceptedFileTypes={ACCEPTED} onSelect={(list) => list && addFiles([...list])}>
-          <Button variant={files.length ? "secondary" : "primary"} icon="folderOpen" isDisabled={busy}>
+          <Button variant={files.length ? "secondary" : "primary"} icon="folderOpen" isDisabled={busy || recordingActive}>
             파일 선택
           </Button>
         </FileTrigger>
       </DropZone>
+
+      <MicRecorder disabled={busy} onRecorded={(file) => addFiles([file])} onActiveChange={setRecordingActive} />
 
       {pairing.groups.length > 0 && (
         <section aria-labelledby="up-groups" className={s.section}>
@@ -335,10 +345,10 @@ function UploadBody({
       )}
 
       <div className={s.footer}>
-        <Button variant="ghost" onPress={onClose} isDisabled={busy}>
+        <Button variant="ghost" onPress={onClose} isDisabled={busy || recordingActive}>
           취소
         </Button>
-        <Button variant="primary" icon="upload" onPress={start} isDisabled={busy || pairing.groups.length === 0}>
+        <Button variant="primary" icon="upload" onPress={start} isDisabled={busy || recordingActive || pairing.groups.length === 0}>
           {busy ? "올리는 중…" : pairing.groups.length ? `녹음 ${pairing.groups.length}개 올리기` : "올리기"}
         </Button>
       </div>

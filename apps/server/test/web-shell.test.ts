@@ -113,11 +113,16 @@ describe("web shell at /app", () => {
     expect(await res.text()).toContain("bun run web:build");
   });
 
-  test("does not shadow neighbouring paths", async () => {
+  test("does not shadow neighbouring paths, while / redirects to /app unless ?legacy=1", async () => {
     legacyCalls.length = 0;
     const app = createHttpApp(legacy, { webShellDistDir: dist });
+    const rootRes = await get(app, "/");
+    expect(rootRes.status).toBe(302);
+    expect(rootRes.headers.get("Location")).toBe("/app");
+    const legacyRoot = await get(app, "/?legacy=1");
+    expect(await legacyRoot.text()).toBe("legacy");
     await get(app, "/apple");
     await get(app, "/application/x.js");
-    expect(legacyCalls).toEqual(["/apple", "/application/x.js"]);
+    expect(legacyCalls).toEqual(["/", "/apple", "/application/x.js"]);
   });
 });

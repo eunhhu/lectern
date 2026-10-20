@@ -736,6 +736,9 @@
 .segmented {
   display: inline-flex;
   flex: none;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
   gap: 2px;
   padding: 2px;
   border-radius: var(--radius-sm);
@@ -744,6 +747,7 @@
 
 .segment {
   display: inline-flex;
+  flex: 1 1 auto;
   align-items: center;
   justify-content: center;
   gap: var(--space-6);

@@ -543,7 +543,7 @@
   gap: var(--space-8);
 }
 
-.scope > div {
+.scope > div:not([role="radiogroup"]) {
   min-width: 200px;
 }
 

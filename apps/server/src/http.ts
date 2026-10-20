@@ -59,9 +59,14 @@ export function createHttpApp(legacy: (req: Request) => Promise<Response>, optio
     });
   }
 
-  // The v2 web app (apps/web). Off by default; the legacy UI at / is unaffected.
+  // The v2 web app (apps/web). When enabled, / redirects to /app unless ?legacy=1 is set.
   const webShellDistDir = options.webShellDistDir;
   if (webShellDistDir) {
+    app.get("/", async (c) => {
+      const url = new URL(c.req.url);
+      if (url.searchParams.get("legacy") === "1") return legacy(c.req.raw);
+      return c.redirect(`${WEB_SHELL_BASE}${url.search}`, 302);
+    });
     for (const path of [WEB_SHELL_BASE, `${WEB_SHELL_BASE}/*`]) {
       app.get(path, (c) => webShellResponse(new URL(c.req.url).pathname, webShellDistDir) ?? c.notFound());
     }

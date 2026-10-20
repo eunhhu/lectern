@@ -94,7 +94,7 @@ export function LoginPage() {
           <p className={s.note}>미리보기에는 서버가 없습니다. 예시 사용자의 이메일과 아무 비밀번호로 들어갑니다.</p>
         ) : (
           <p className={s.note}>
-            계정 만들기와 비밀번호 찾기는 <a href="/">기존 화면</a>에서 할 수 있습니다.
+            계정 만들기와 비밀번호 찾기는 <a href="/?legacy=1">기존 화면</a>에서 할 수 있습니다.
           </p>
         )}
       </div>

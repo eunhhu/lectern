@@ -4204,10 +4204,10 @@ ${ADMIN_THEME_CSS}
     .sw-row .sw-text { flex: 1; min-width: 0; }
     .sw-list { border: 1px solid var(--border); border-radius: 8px; padding: 2px 12px; margin-bottom: 14px; background: var(--hover); }
     .sw-list .sw-row + .sw-row { border-top: 1px solid var(--border); }
-    .seg { display: inline-flex; padding: 2px; border-radius: 7px; background: var(--active); gap: 2px; max-width: 100%; }
-    .seg label { position: relative; display: inline-flex; }
+    .seg { display: inline-flex; align-self: flex-start; width: fit-content; padding: 2px; border-radius: 7px; background: var(--active); gap: 2px; max-width: 100%; }
+    .seg label { position: relative; display: inline-flex; flex: 1 1 auto; }
     .seg input { position: absolute; opacity: 0; pointer-events: none; }
-    .seg span { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 5px; color: var(--text-2); cursor: pointer; font-size: 12.5px; white-space: nowrap; }
+    .seg span { display: inline-flex; align-items: center; justify-content: center; width: 100%; gap: 6px; height: 24px; padding: 0 10px; border-radius: 5px; color: var(--text-2); cursor: pointer; font-size: 12.5px; white-space: nowrap; }
     .seg input:checked + span { background: var(--seg-on); color: var(--text); box-shadow: var(--shadow-sm); }
     .seg input:focus-visible + span { outline: 2px solid var(--color-border-focus); }
     .form-err { color: var(--red-text); font-size: 12px; margin: 4px 0 10px; }
