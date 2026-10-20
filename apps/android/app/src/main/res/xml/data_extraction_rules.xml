@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ backup and device-to-device transfer rules.
+  allowBackup="false" already disables cloud backup, but device transfer still runs unless excluded here.
+  SharedPreferences hold the account API token and the pending-upload list; the database holds
+  WorkManager jobs that point at those entries. None of it should leave this device.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="database" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="database" path="." />
+    </device-transfer>
+</data-extraction-rules>
