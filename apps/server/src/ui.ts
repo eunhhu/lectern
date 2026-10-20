@@ -502,6 +502,7 @@ export function renderAppHtml(): string {
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#F8F6FF" />
   <title>Lectern — 강의 녹음 증류 & 마크다운 리더</title>
+  <meta name="description" content="Lectern은 강의와 회의 녹음(과 강의 자료 PDF)을 AI로 전사해 구조화된 노트로 정리하고, 녹음에서 찾은 마감·시험·회의 일정을 Lectern 전용 Google 캘린더에 추가할 수 있게 해 주는 워크스페이스입니다." />
   <link rel="manifest" href="/manifest.json" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <style>
@@ -1449,6 +1450,7 @@ export function renderAppHtml(): string {
       align-items: center;
       justify-content: center;
       padding: var(--elysium-space-24);
+      overflow-y: auto;
     }
     .auth-gate.hidden { display: none; }
     .auth-card {
@@ -1482,6 +1484,89 @@ export function renderAppHtml(): string {
       border-bottom-color: var(--elysium-action-primary);
     }
 
+    /* Public intro beside the login card: the logged-out / doubles as the homepage that
+       Google OAuth verification requires (what the app does + privacy/terms links).
+       margin:auto centres the layout without clipping its top when the gate scrolls. */
+    .auth-layout {
+      margin: auto;
+      width: 100%;
+      max-width: 1000px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--elysium-space-48);
+    }
+    .auth-layout .auth-card { flex: 0 1 440px; }
+    .auth-about {
+      flex: 1 1 0;
+      min-width: 0;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      gap: var(--elysium-space-20);
+      word-break: keep-all;
+    }
+    .auth-about-title {
+      margin: 0;
+      font: 700 30px/40px var(--elysium-font-sans);
+      letter-spacing: -0.02em;
+      color: var(--elysium-text-primary);
+    }
+    .auth-about-lead {
+      margin: 0;
+      font: 400 16px/26px var(--elysium-font-sans);
+      color: var(--elysium-text-secondary);
+    }
+    .auth-about-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: var(--elysium-space-12);
+    }
+    .auth-about-list li {
+      padding: var(--elysium-space-16) var(--elysium-space-20);
+      border-radius: var(--elysium-radius-16);
+      background: var(--elysium-surface-default);
+      border: 1px solid var(--elysium-border-subtle);
+      font: 400 15px/23px var(--elysium-font-sans);
+      color: var(--elysium-text-secondary);
+    }
+    .auth-about-list strong {
+      display: block;
+      margin-bottom: var(--elysium-space-4);
+      font-weight: 600;
+      color: var(--elysium-text-primary);
+    }
+    .auth-about-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--elysium-space-8) var(--elysium-space-20);
+      font: 600 14px/20px var(--elysium-font-sans);
+    }
+    .auth-about-links a, .auth-about-contact a {
+      color: var(--elysium-text-brand);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .auth-about-contact {
+      margin: 0;
+      font: 400 14px/22px var(--elysium-font-sans);
+      color: var(--elysium-text-secondary);
+    }
+    @media (max-width: 900px) {
+      .auth-layout {
+        flex-direction: column;
+        align-items: stretch;
+        max-width: 440px;
+        gap: var(--elysium-space-32);
+      }
+      .auth-layout .auth-card { flex: none; }
+      .auth-about { max-width: none; gap: var(--elysium-space-16); }
+      .auth-about-title { font-size: 24px; line-height: 32px; }
+    }
+
     @media print {
       html, body { height: auto; overflow: visible; background: #fff !important; color: #19181E !important; }
       .sidebar, .reader-toolbar, .audio-bar, .toc-rail, .mobile-tabbar, .modal-backdrop { display: none !important; }
@@ -1492,6 +1577,20 @@ export function renderAppHtml(): string {
 <body>
   <!-- Account Authentication Gate -->
   <div class="auth-gate" id="auth-gate">
+    <div class="auth-layout">
+      <section class="auth-about" id="auth-about" aria-labelledby="auth-about-title">
+        <h1 class="auth-about-title" id="auth-about-title">녹음을 전사와 정리된 노트로, Lectern</h1>
+        <p class="auth-about-lead">Lectern은 강의와 회의 녹음을 AI로 전사하고 다시 보기 쉬운 노트로 정리해 주는 개인 워크스페이스입니다.</p>
+        <ul class="auth-about-list">
+          <li><strong>녹음 → 전사·노트</strong>녹음 파일을 올리면(강의 자료 PDF도 함께 올릴 수 있습니다) 전사본과 목차가 있는 구조화된 노트를 만듭니다.</li>
+          <li><strong>일정 → Google 캘린더</strong>녹음에서 찾은 과제 마감, 시험, 회의 일정을 확인한 뒤 Lectern 전용 Google 캘린더에 추가할 수 있습니다. 캘린더 연결은 선택이며, Lectern은 직접 만든 "Lectern" 캘린더에만 일정을 쓰고 다른 캘린더는 읽지도 쓰지도 않습니다.</li>
+        </ul>
+        <nav class="auth-about-links" aria-label="정책 문서">
+          <a href="/privacy">개인정보처리방침</a>
+          <a href="/terms">이용약관</a>
+        </nav>
+        <p class="auth-about-contact">문의: <a href="/privacy#contact">개인정보처리방침의 문의처</a>로 이메일을 보내 주세요.</p>
+      </section>
     <div class="auth-card">
       <div>
         <div class="brand" style="margin-bottom:8px;">
@@ -1533,6 +1632,7 @@ export function renderAppHtml(): string {
         <div id="auth-error" style="display:none;padding:12px 16px;border-radius:var(--elysium-radius-12);background:var(--elysium-status-danger-surface);color:var(--elysium-status-danger-text);font:600 14px/20px var(--elysium-font-sans);"></div>
         <button type="submit" class="btn btn-primary btn-lg" id="auth-submit-btn" style="width:100%;margin-top:4px;">내 워크스페이스 열기</button>
       </form>
+    </div>
     </div>
   </div>
 
