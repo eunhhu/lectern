@@ -154,8 +154,7 @@ async function runLegacyDistillation(job: LeasedJob): Promise<JobOutcome> {
       if (!getLectureById(id)) return { ok: false, error: LECTURE_GONE_MESSAGE };
       const done = completeLectureRecord(id, res);
       emitLectureEvent(ownerId, { type: "completed", id, lecture: toLectureSummaryDto(done) });
-      afterDistillPublished(done, apiKey !== undefined);
-      return { ok: true };
+      return afterDistillPublished(done, apiKey !== undefined);
     } catch (err: any) {
       lastErr = err;
       if (!isRetryableDistillError(err)) break;
@@ -245,8 +244,7 @@ export async function runDistillationOnHarness(job: LeasedJob, deps: HarnessDist
     if (!getLectureById(id)) return { ok: false, error: LECTURE_GONE_MESSAGE };
     const done = completeLectureRecord(id, { ...value, title: input.title?.trim() || value.title });
     emitLectureEvent(ownerId, { type: "completed", id, lecture: toLectureSummaryDto(done) });
-    afterDistillPublished(done, apiKey !== undefined);
-    return { ok: true };
+    return afterDistillPublished(done, apiKey !== undefined);
   } catch (err: any) {
     if (err instanceof HarnessError && err.kind === "canceled" && err.message === LECTURE_GONE_MESSAGE) {
       return { ok: false, error: LECTURE_GONE_MESSAGE };
@@ -270,15 +268,17 @@ export async function runDistillationOnHarness(job: LeasedJob, deps: HarnessDist
 }
 
 /**
- * After a distillation published its notes: the v2 transcript pipeline when
- * LECTERN_TRANSCRIPT_ENGINE asks for it (transcript-job.ts), which reads the original audio
- * and so schedules the compaction itself when it ends; otherwise compaction as before.
+ * The distill job's outcome once its notes are published, with what follows: the v2
+ * transcript pipeline when LECTERN_TRANSCRIPT_ENGINE asks for it (transcript-job.ts), which
+ * reads the original audio and so schedules the compaction itself when it ends; otherwise
+ * the auto-compaction. That one is queued from followUp, after the distill job's row is
+ * finished: queued from inside the handler, the embedded worker leases it at once and
+ * runCompaction still finds the lecture busy with this distillation.
  */
-function afterDistillPublished(lecture: LectureRecord, userKey: boolean): void {
-  if (enqueueTranscriptAfterDistill(lecture, { userKey })) return;
-  if (getSystemSettings().storage_auto_compact) {
-    scheduleCompaction(lecture.id, lecture.owner_id);
-  }
+function afterDistillPublished(lecture: LectureRecord, userKey: boolean): JobOutcome {
+  if (enqueueTranscriptAfterDistill(lecture, { userKey })) return { ok: true };
+  if (!getSystemSettings().storage_auto_compact) return { ok: true };
+  return { ok: true, followUp: () => void scheduleCompaction(lecture.id, lecture.owner_id) };
 }
 
 /** The compaction a transcribe job held back (afterDistillPublished), once it is over. */

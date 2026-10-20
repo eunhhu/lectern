@@ -17,7 +17,8 @@ import {
   updateSystemSettings,
 } from "../src/db.ts";
 import { LECTURE_GONE_MESSAGE, runDistillation, runDistillationOnHarness } from "../src/job-handlers.ts";
-import type { LeasedJob } from "../src/queue.ts";
+import { waitForJob, type LeasedJob } from "../src/queue.ts";
+import { isFfmpegAvailable } from "../src/storage.ts";
 
 const originalSettings = getSystemSettings();
 beforeAll(() => {
@@ -31,10 +32,10 @@ afterAll(() => {
 });
 
 /** A lecture in 'processing' with an audio file, and the running job that distills it. */
-function pendingLecture(course = "정보보호") {
+function pendingLecture(course = "정보보호", audio?: string) {
   const id = generateId("lec");
-  const audioPath = join(DATA_DIR, "uploads", `${id}.m4a`);
-  writeFileSync(audioPath, `audio for ${id}`);
+  const audioPath = audio ?? join(DATA_DIR, "uploads", `${id}.m4a`);
+  if (!audio) writeFileSync(audioPath, `audio for ${id}`);
   const ownerId = ensureBootstrapOwner().id;
   createPendingLecture({
     id,
@@ -197,6 +198,47 @@ describe("distill on the harness (LECTERN_DISTILL_ENGINE=harness)", () => {
     expect(getLectureById(id)).toBeNull();
     expect(events(id).filter((e) => e.type !== "deleted")).toEqual([]);
   });
+
+  // Embedded worker: a compaction queued from inside the handler was leased at once and
+  // refused, because the distill job still held the lecture ("distill:<id>").
+  test.skipIf(!isFfmpegAvailable())(
+    "auto-compaction is queued only once the distill job's row is finished, and then runs",
+    async () => {
+      // 95 s like the recorded distillation's durationSec: compaction checks the length.
+      const wav = join(DATA_DIR, "uploads", `${generateId("aud")}.wav`);
+      const ffmpeg = Bun.spawnSync(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=95:sample_rate=16000", "-ac", "1", "-c:a", "pcm_s16le", wav],
+        { stdout: "ignore", stderr: "pipe" }
+      );
+      expect(ffmpeg.exitCode).toBe(0);
+      const { id, job } = pendingLecture("정보보호", wav);
+      // The queue's dedupe key, held while the job runs: isLectureBusy(id, "distill").
+      db.query(`UPDATE job SET idempotency_key = ? WHERE id = ?`).run(`distill:${id}`, job.id);
+      const compactions = () =>
+        db.query(`SELECT id FROM job WHERE kind = 'compact' AND subject_id = ?`).all(id) as Array<{ id: string }>;
+
+      updateSystemSettings({ storage_auto_compact: true });
+      try {
+        const outcome = await runDistillationOnHarness(job, { provider: fakeGemini().provider, harness: testHarness() });
+        expect(outcome.ok).toBe(true);
+        expect(compactions()).toEqual([]);
+
+        // What JobWorker.execute does after the handler: finish the row, then the follow-up.
+        db.query(`UPDATE job SET state = 'succeeded', idempotency_key = NULL, finished_at = ? WHERE id = ?`).run(
+          Date.now(),
+          job.id
+        );
+        outcome.followUp!();
+        const [compact] = compactions();
+        const done = await waitForJob(compact!.id, 30_000);
+        expect(done).toMatchObject({ state: "succeeded", error: null });
+        expect(getLectureById(id)!.audio_compact_state).toBe("compacted");
+      } finally {
+        updateSystemSettings({ storage_auto_compact: false });
+      }
+    },
+    60_000
+  );
 
   test("the flag picks the engine; both fail a keyless distillation the same way, offline", async () => {
     // The sandbox has no Gemini key: the real provider fails before any network access.
