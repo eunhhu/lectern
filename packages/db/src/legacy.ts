@@ -254,6 +254,7 @@ interface RecordingRow {
   source_client: string | null;
   failure_code: string | null;
   failure_message: string | null;
+  created_at: number;
   updated_at: number;
 }
 
@@ -372,14 +373,15 @@ function projectLectureTx(sqlite: Database, lectureId: string, options: ProjectO
     rec.status !== status ||
     rec.duration_ms !== durationMs ||
     rec.failure_code !== failureCode ||
-    rec.failure_message !== failureMessage
+    rec.failure_message !== failureMessage ||
+    rec.created_at !== createdMs
   ) {
     sqlite
       .query(
         `UPDATE recording SET folder_id = ?, title = ?, status = ?, duration_ms = ?, failure_code = ?,
-           failure_message = ?, updated_at = ? WHERE id = ?`
+           failure_message = ?, created_at = ?, updated_at = ? WHERE id = ?`
       )
-      .run(folderId, l.title, status, durationMs, failureCode, failureMessage, Math.max(updatedMs, rec.updated_at), rec.id);
+      .run(folderId, l.title, status, durationMs, failureCode, failureMessage, createdMs, Math.max(updatedMs, rec.updated_at), rec.id);
     changed = true;
   }
 
