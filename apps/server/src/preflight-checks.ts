@@ -10,6 +10,8 @@ export function buildPreflightChecks(webShell: boolean, pageScripts: string[]): 
     ["/", webShell ? 302 : 200],
     ["/admin", 200],
     ["/s/preflight-missing-token", 404],
+    ["/share-assets/share.js", 200],
+    ["/share-assets/share.css", 200],
     ["/api/lectures", 401],
     ["/api/v2/me", 401],
     ["/api/v2/openapi.json", 200],

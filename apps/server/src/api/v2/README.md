@@ -1,6 +1,6 @@
 # API v2 (`/api/v2`)
 
-`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 뒤 단계(P4·P5) 기능 9개만 아직 `501 not_implemented`다.
+`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 뒤 단계(P4·P5) 기능 4개만 아직 `501 not_implemented`다.
 
 ## 요청 처리 순서
 
@@ -105,8 +105,8 @@
 | `GET /integrations` | `listIntegrations` | 실제 | P4 전까지 비어 있음 |
 | `POST /integrations/google` | `startGoogleIntegration` | 501 | P4 |
 | `DELETE /integrations/{integration_id}` | `disconnectIntegration` | 501 | P4 |
-| `GET /share-links` | `listShareLinks` | 실제 | 공개된 v1 강의의 링크. 회수된(비공개) 링크는 빠진다 |
-| `POST/PATCH/DELETE /share-links…` | `createShareLink` 등 3개 | 501 | P5. 지금은 v1 `PATCH /api/lectures/{id}/visibility` |
+| `GET /share-links` | `listShareLinks` | 실제 | v2에서 만든 링크와 공개된 v1 강의의 링크. 회수된(비공개) 링크는 빠진다 |
+| `POST/PATCH/DELETE /share-links…` | `createShareLink` 등 3개 | 실제 | 녹음 `recording:update`와 공유 권한(관리자, 또는 `can_share`이고 viewer가 아님). 토큰은 만들 때 한 번만 보여 주고 SHA-256만 저장. v1 링크를 회수하면 강의도 비공개로. 공개 페이지는 `share-page.ts`의 `/s/:token`(범위 밖 전사·오디오는 마크업에 없음, 비밀번호는 폼 + 링크 전용 쿠키, 링크·IP별 분당 10회) |
 | `GET /events` | `streamEvents` | 실제 | SSE. 아래 참고 |
 | `GET /admin/jobs` | `adminListJobs` | 실제 | 운영자 전용 |
 | `GET /admin/jobs/{job_id}` | `adminGetJob` | 실제 | 단계·모델 호출 포함 |

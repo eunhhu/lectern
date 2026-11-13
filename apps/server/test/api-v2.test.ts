@@ -23,15 +23,12 @@ import { handleRequest } from "../src/index.ts";
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/** Routes of later phases (P4 calendar sync, P5 tokens and sharing, the harness's cancel). */
+/** Routes of later phases (P4 calendar sync, P5 tokens). */
 const NOT_YET = new Set([
   "createAccessToken",
   "revokeAccessToken",
   "startGoogleIntegration",
   "disconnectIntegration",
-  "createShareLink",
-  "updateShareLink",
-  "revokeShareLink",
 ]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";

@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { API_BASE_PATH, createApiV2App } from "./api/v2/index.ts";
 import { LEGAL_PAGES, legalPageHtml } from "./legal.ts";
+import { createShareRouter } from "./share-page.ts";
 import { logger } from "./log.ts";
 import { WEB_SHELL_BASE, webShellResponse } from "./web-shell.ts";
 
@@ -71,6 +72,10 @@ export function createHttpApp(legacy: (req: Request) => Promise<Response>, optio
       app.get(path, (c) => webShellResponse(new URL(c.req.url).pathname, webShellDistDir) ?? c.notFound());
     }
   }
+
+  // Share links (D-P2-3): /s/:token from share_link rows. Unknown and revoked tokens fall
+  // through to the v1 handler below, which keeps its 404/403 sentences.
+  app.route("/", createShareRouter());
 
   // v2 routes go above this line.
   app.all("*", (c) => legacy(c.req.raw));
