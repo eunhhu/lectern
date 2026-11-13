@@ -6,7 +6,7 @@ import { DEFAULT_GEMINI_MODEL } from "../../../../../packages/core/src/index.ts"
 import { db, deleteLectureById, getLectureById, getUserById, resetLectureForRetry } from "../../db.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
-import { enqueueDistillation } from "../../job-handlers.ts";
+import { enqueueRecordingProcessing } from "../../process-job.ts";
 import { isLectureBusy } from "../../queue.ts";
 import { callerIn, can, loadRecording, requireWorkspace, VISIBLE_RECORDING_SQL } from "./access.ts";
 import { apiError, defineRouter, notFound, ok, okPage, pageBounds, pageFrom, type Handler, type V2Request } from "./common.ts";
@@ -396,7 +396,7 @@ export const recordingsRouter = defineRouter({
         lecture: toLectureSummaryDto(reset),
       });
     }
-    const { jobId } = enqueueDistillation(lecture.id, lecture.owner_id, {
+    const { jobId } = enqueueRecordingProcessing(lecture.id, lecture.owner_id, {
       audioPath: lecture.audio_path,
       course: lecture.course,
       title: lecture.title,

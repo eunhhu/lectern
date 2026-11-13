@@ -4,6 +4,7 @@
 
 import { existsSync } from "node:fs";
 import { courseOf, personalWorkspaceId, uuidv7 } from "@lectern/db";
+import { StageName } from "@lectern/domain";
 import { db, getLectureById, mirrorRecordingToLecture, type LectureRecord } from "../../db.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
@@ -221,12 +222,18 @@ export function activeJobRow(recording: RecordingRow): QueueJobRow | null {
   );
 }
 
+/** A lecture stage the harness names (domain StageName); v1 distill stages are `legacy_distill`. */
+export function stageNameOf(stage: unknown): StageName {
+  const parsed = StageName.safeParse(stage);
+  return parsed.success ? parsed.data : "legacy_distill";
+}
+
 export function progressOf(recording: RecordingRow, job: QueueJobRow | null, lecture: LectureRecord | null) {
   if (!job) return null;
   return {
     job_id: job.id,
     state: job.state === "running" ? ("running" as const) : ("queued" as const),
-    stage: "legacy_distill",
+    stage: stageNameOf(lecture?.stage),
     stage_state: job.state === "running" ? "running" : "pending",
     progress: lecture ? Math.min(1, Math.max(0, lecture.progress / 100)) : null,
     message: lecture?.stage_message || null,
