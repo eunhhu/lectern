@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { createContext, useContext, useEffect } from "react";
 import { ApiClientError, type ApiClient } from "./client.ts";
 import { errorMessage } from "./errors.ts";
-import { askSuggestions } from "../lib/ask-suggestions.ts";
+import { askSuggestions, pickSuggestions } from "../lib/ask-suggestions.ts";
 import type {
   AskScope,
   ActionItem,
@@ -479,8 +479,58 @@ const PROCESSED_STATUSES = new Set(["ready", "partial"]);
 
 /** Chips under the composer, from the notes the screen already loaded. */
 export function useAskSuggestions(ws: WorkspaceId, scope: AskScope): string[] {
+  const api = useApi();
   const recordings = (useRecordings(ws).data ?? []).filter((r) => PROCESSED_STATUSES.has(r.status));
   const recordingId = scope.kind === "recording" ? scope.recording_id : "";
   const questions = useQuestions(recordingId, scope.kind === "recording").data;
-  return askSuggestions({ scope, recordings, questions: questions ?? [] });
+  const fallback = askSuggestions({ scope, recordings, questions: questions ?? [] });
+  const scopeId = scope.kind === "recording" ? scope.recording_id : scope.kind === "folder" ? scope.folder_id : "";
+  // The server's list (D-P2-4) first; any error (501 included) quietly keeps the fallback.
+  const remote = useQuery({
+    queryKey: ["ask-suggestions", ws, scope.kind, scopeId] as const,
+    queryFn: () =>
+      api
+        .listAskSuggestions({ workspace_id: ws, scope_type: scope.kind, ...(scopeId ? { scope_id: scopeId } : {}) })
+        .then((r) => r.suggestions),
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  return pickSuggestions(remote.data, fallback);
+}
+
+/** The dry-run estimate shown before a reprocess is confirmed; never cached. */
+export function useReprocessEstimate(recordingId: string, mode: "full" | "document", enabled: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["reprocess-estimate", recordingId, mode] as const,
+    queryFn: () => api.reprocessRecording(recordingId, { mode, dry_run: true }),
+    enabled,
+    retry: false,
+    gcTime: 0,
+    staleTime: 0,
+  });
+}
+
+export function useReprocess(recordingId: string, ws: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mode: "full" | "document") => api.reprocessRecording(recordingId, { mode }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.recording(recordingId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.recordings(ws) });
+    },
+  });
+}
+
+export function useDeleteAudio(recordingId: string, ws: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.deleteRecordingAudio(recordingId),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.recording(recordingId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.recordings(ws) });
+    },
+  });
 }

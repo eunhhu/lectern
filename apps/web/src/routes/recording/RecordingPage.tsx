@@ -6,7 +6,7 @@
 
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Menu, MenuItem, MenuTrigger, Popover, Tab, TabList, TabPanel, Tabs, ToggleButton } from "react-aria-components";
+import { Menu, MenuItem, MenuTrigger, Popover, Separator, Tab, TabList, TabPanel, Tabs, ToggleButton, type Key } from "react-aria-components";
 import { useApi, useDocument, useFolders, useLiveProgress, useRecording, useTags, useTranscript } from "../../api/queries.ts";
 import { ApiClientError } from "../../api/client.ts";
 import type { AskScope, RecordingDetail } from "../../api/types.ts";
@@ -14,19 +14,23 @@ import { usePageTitle } from "../../app/RootLayout.tsx";
 import { setPreferences, usePreferences, type RecordingPanel } from "../../app/preferences.ts";
 import { DOMAIN_LABEL, partialNote, progressLabel, STATUS } from "../../app/labels.ts";
 import { primaryDocument } from "../../lib/documents.ts";
+import { saveBlob } from "../../lib/download.ts";
 import { formatDateTime, formatDuration } from "../../lib/format.ts";
 import { createAudioClock, SimulatedClock, type AudioPart, type MediaClock } from "../../lib/media-clock.ts";
 import { Icon, type IconName } from "../../ui/Icon.tsx";
 import { Badge, Button, Dot, EmptyState, ErrorBox, Progress, Segmented, Spinner, uiStyles } from "../../ui/controls.tsx";
 import { BulkDialogs, type BulkAction } from "../library/BulkDialogs.tsx";
+import { toastError } from "../library/organise.ts";
 import { ShareDialog } from "../share/ShareDialog.tsx";
 import { folderPath } from "../library/folders.ts";
 import { useAskSession } from "../ask/session.ts";
 import { AskPanel } from "./AskPanel.tsx";
 import { AudioPlayer } from "./AudioPlayer.tsx";
+import { DeleteAudioDialog } from "./DeleteAudioDialog.tsx";
 import { DocumentPane } from "./DocumentPane.tsx";
 import { DocumentEditor } from "./edit/DocumentEditor.tsx";
 import { PlaybackProvider, type SidePanel } from "./playback.tsx";
+import { ReprocessDialog, type ReprocessMode } from "./ReprocessDialog.tsx";
 import { SidePane } from "./SidePane.tsx";
 import { TranscriptPane } from "./TranscriptPane.tsx";
 import s from "./recording.module.css";
@@ -111,7 +115,9 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const navigate = useNavigate();
   const search = useSearch({ from: "/_authed/recordings/$recordingId" });
   const rec = detail.recording;
-  const hasTranscript = rec.status === "ready" || rec.status === "partial" || (rec.status === "processing" && detail.documents.length > 0);
+  // A reprocess keeps the old document on screen while it is queued or running.
+  const hasTranscript =
+    rec.status === "ready" || rec.status === "partial" || ((rec.status === "processing" || rec.status === "queued") && detail.documents.length > 0);
   const transcript = useTranscript(rec.id, hasTranscript);
   const primary = primaryDocument(detail.documents);
   const doc = useDocument(primary?.id);
@@ -119,6 +125,10 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const tags = useTags(rec.workspace_id).data ?? [];
   const [action, setAction] = useState<BulkAction>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  // Reprocess, audio deletion and export (D-P2-4).
+  const [reprocess, setReprocess] = useState<ReprocessMode | null>(null);
+  const [lastReprocess, setLastReprocess] = useState<ReprocessMode>("full");
+  const [deleteAudio, setDeleteAudio] = useState(false);
   const wide = useMediaQuery(WIDE);
   const now = useMemo(() => new Date(), []);
   const prefs = usePreferences();
@@ -198,6 +208,36 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const path = folderPath(folders, rec.folder_id);
   const pdfs = detail.assets.filter((a) => a.kind === "pdf");
 
+  const hasAudio = detail.assets.some((a) => a.kind.startsWith("audio"));
+  const busy = rec.status === "processing" || rec.status === "queued";
+  const disabledKeys = [
+    ...(hasAudio ? [] : ["delete-audio", "reprocess"]),
+    ...(detail.documents.length ? [] : ["export", "regenerate"]),
+    ...(busy ? ["reprocess", "regenerate"] : []),
+  ];
+  const exportMarkdown = async () => {
+    const target = primary ?? detail.documents[0];
+    if (!target) return;
+    try {
+      const { blob, filename } = await api.exportDocument(target.id);
+      saveBlob(blob, filename);
+    } catch (err) {
+      toastError("내려받지 못했습니다.", err);
+    }
+  };
+  const openReprocess = (mode: ReprocessMode) => {
+    setLastReprocess(mode);
+    setReprocess(mode);
+  };
+  const onMenuAction = (key: Key) => {
+    if (key === "share") setShareOpen(true);
+    else if (key === "reprocess") openReprocess("full");
+    else if (key === "regenerate") openReprocess("document");
+    else if (key === "delete-audio") setDeleteAudio(true);
+    else if (key === "export") void exportMarkdown();
+    else setAction({ kind: key as "move" | "tag" | "delete", ids: [rec.id] });
+  };
+
   const header = (
     <header className={s.header}>
       <nav aria-label="이동 경로" className={s.breadcrumbs}>
@@ -218,10 +258,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
         <MenuTrigger>
           <Button variant="ghost" icon="more" iconOnly aria-label="녹음 작업" />
           <Popover className={uiStyles.popover} placement="bottom end">
-            <Menu
-              className={uiStyles.menu}
-              onAction={(key) => (key === "share" ? setShareOpen(true) : setAction({ kind: key as "move" | "tag" | "delete", ids: [rec.id] }))}
-            >
+            <Menu className={uiStyles.menu} onAction={onMenuAction} disabledKeys={disabledKeys}>
               <MenuItem id="move" className={uiStyles.menuItem}>
                 <Icon name="folder" /> 폴더로 이동…
               </MenuItem>
@@ -231,6 +268,20 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
               <MenuItem id="share" className={uiStyles.menuItem}>
                 <Icon name="send" /> 공유…
               </MenuItem>
+              <Separator className={uiStyles.menuSeparator} />
+              <MenuItem id="reprocess" className={uiStyles.menuItem}>
+                <Icon name="forward" /> 다시 처리…
+              </MenuItem>
+              <MenuItem id="regenerate" className={uiStyles.menuItem}>
+                <Icon name="spark" /> 문서만 다시 만들기
+              </MenuItem>
+              <MenuItem id="delete-audio" className={uiStyles.menuItem}>
+                <Icon name="trash" /> 오디오만 삭제…
+              </MenuItem>
+              <MenuItem id="export" className={uiStyles.menuItem}>
+                Markdown 내려받기
+              </MenuItem>
+              <Separator className={uiStyles.menuSeparator} />
               <MenuItem id="delete" className={uiStyles.menuItem}>
                 <Icon name="trash" /> 삭제…
               </MenuItem>
@@ -288,6 +339,8 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
         onFailed={() => {}}
       />
       <ShareDialog recording={rec} isOpen={shareOpen} onOpenChange={setShareOpen} />
+      <ReprocessDialog recording={rec} mode={reprocess ?? lastReprocess} isOpen={reprocess !== null} onOpenChange={(open) => !open && setReprocess(null)} />
+      <DeleteAudioDialog recording={rec} isOpen={deleteAudio} onOpenChange={setDeleteAudio} />
     </>
   );
 
@@ -446,7 +499,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
             </TabPanel>
           </Tabs>
         )}
-        <AudioPlayer />
+        <AudioPlayer audioDeleted={!hasAudio} />
         {dialogs}
       </div>
     </PlaybackProvider>

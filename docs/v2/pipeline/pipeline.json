@@ -26,7 +26,7 @@
     {"id":"P2-03","title":"웹: 회원가입, 이메일 인증, 비밀번호 재설정","deps":["P0-01"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P2-04","title":"웹: 문서 편집","deps":["P0-01"],"owns":["apps/web/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P2-05","title":"웹: 공유 UI","deps":["P2-02"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"merged"},
-    {"id":"P2-06","title":"웹: 재처리, 오디오 삭제, Markdown 내려받기, 추천 질문","deps":["P2-01","P1-13"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"todo"},
+    {"id":"P2-06","title":"웹: 재처리, 오디오 삭제, Markdown 내려받기, 추천 질문","deps":["P2-01","P1-13"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P2-07","title":"웹: Pretendard 직접 호스팅","deps":["P0-01"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P2-08","title":"v1 화면 기능 대조표와 e2e","deps":["P2-03","P2-04","P2-05","P2-06"],"owns":["apps/web/","docs/v2/pipeline/PARITY.md"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P2-09","title":"LECTERN_WEB_SHELL 기본값을 켬으로","deps":["P2-08","P2-07"],"owns":["packages/config/","docs/env.md","deploy/systemd/","apps/server/","docs/runbooks/","AGENTS.md"],"tier":"careful","gate":"full","status":"todo"},

@@ -110,6 +110,19 @@ export function routeUrl(route: Pick<RouteDef, "path">, params: Params = {}, que
 }
 
 /** The ApiClientError for a non-2xx response (v2 or v1 error body, or just the status). */
+/** The file name in a Content-Disposition header (`filename*=UTF-8''…` first), or `note.md`. */
+export function fileNameFrom(disposition: string | null): string {
+  const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded.trim());
+    } catch {
+      // A malformed escape: fall through to the plain name.
+    }
+  }
+  return disposition?.match(/filename="([^"]+)"/i)?.[1] ?? "note.md";
+}
+
 export async function errorFrom(res: Response): Promise<ApiClientError> {
   const requestId = res.headers.get("X-Request-Id");
   let json: unknown = null;
@@ -289,6 +302,24 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
       call("listShareLinks", { query: { workspace_id: ws, ...(targetId ? { target_id: targetId } : {}), limit: 200 } }),
     createShareLink: (body) => call("createShareLink", { body }),
     revokeShareLink: (id) => call("revokeShareLink", { params: { share_link_id: id } }),
+
+    deleteRecordingAudio: (id) => call("deleteRecordingAudio", { params: { recording_id: id } }),
+    // 200 (dry run) and 202 (queued) both parse as ReprocessResponse.
+    reprocessRecording: (id, body) => call("reprocessRecording", { params: { recording_id: id }, body }),
+    listAskSuggestions: (query) => call("listAskSuggestions", { query }),
+    // Not JSON: the Markdown file itself, named by Content-Disposition.
+    async exportDocument(documentId) {
+      const res = await send(routeUrl(ROUTES_BY_OPERATION.exportDocument!, { document_id: documentId }, { format: "md" }), {
+        method: "GET",
+        headers: { Accept: "text/markdown" },
+      });
+      if (!res.ok) {
+        const error = await errorFrom(res);
+        if (res.status === 401) signalUnauthorized();
+        throw error;
+      }
+      return { filename: fileNameFrom(res.headers.get("Content-Disposition")), blob: await res.blob() };
+    },
     listCalendarSuggestions: (query) => call("listCalendarSuggestions", { query }),
     updateCalendarSuggestion: (id, body) => call("updateCalendarSuggestion", { params: { event_candidate_id: id }, body }),
 

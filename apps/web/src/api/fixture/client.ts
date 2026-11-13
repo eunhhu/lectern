@@ -26,6 +26,7 @@ import type {
   RecordingDetail,
   RecordingId,
   SearchHit,
+  ReprocessResponse,
   ShareLinkDto,
   ServerEvent,
   TagId,
@@ -766,6 +767,65 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
         if (!link) throw notFound("공유 링크");
         link.revoked_at = nowIso() as ShareLinkDto["revoked_at"];
       }),
+
+    deleteRecordingAudio: (id) =>
+      wait(() => {
+        recording(id);
+        data.assets = data.assets.filter((a) => a.recording_id !== id || !a.kind.startsWith("audio"));
+      }),
+
+    reprocessRecording: (id, body) =>
+      wait((): ReprocessResponse => {
+        const rec = recording(id);
+        if (body.mode === "document" && !data.transcripts.has(rec.id)) {
+          throw new ApiClientError(409, "conflict", "전사가 없는 녹음이라 문서만 다시 만들 수 없습니다. 전체 재처리를 선택하세요.");
+        }
+        const full = body.mode === "full";
+        const estimate = {
+          estimated_microusd: full ? Math.ceil(((rec.duration_ms ?? 0) / 3_600_000) * 120_000) : 2_000,
+          audio_ms: full ? (rec.duration_ms ?? 0) : 0,
+          within_quota: true,
+        } as ReprocessResponse["estimate"];
+        if (body.dry_run) return { estimate, job: null };
+        const stamp = nowIso() as Recording["updated_at"];
+        const job = {
+          id: newId("job_re") as JobId,
+          workspace_id: rec.workspace_id,
+          recording_id: rec.id,
+          kind: "process" as const,
+          state: "queued" as const,
+          priority: 0,
+          run_after: stamp,
+          attempts: 0,
+          lease_owner: null,
+          lease_until: null,
+          budget_microusd: 400_000,
+          spent_microusd: 0,
+          idempotency_key: null,
+          error_code: null,
+          created_at: stamp,
+          updated_at: stamp,
+        };
+        data.jobs.push(job);
+        rec.status = "queued";
+        rec.updated_at = stamp;
+        emit(rec.workspace_id, rec.id, { type: "recording.updated", payload: { recording: structuredClone(rec) } } as never);
+        return structuredClone({ estimate, job }) as ReprocessResponse;
+      }),
+
+    exportDocument: (documentId) =>
+      wait(() => {
+        const document = data.documents.find((d) => d.id === documentId);
+        if (!document) throw notFound("문서");
+        const version = data.versions.find((v) => v.document_id === documentId && v.version === document.current_version)!;
+        const title = data.recordings.find((r) => r.id === document.recording_id)?.title ?? "note";
+        return { filename: `${title}.md`, blob: new Blob([`${version.rendered_md}\n`], { type: "text/markdown" }) };
+      }),
+
+    // The fixture keeps the screen's own rule (lib/ask-suggestions.ts): no server list.
+    listAskSuggestions: () => wait((): never => {
+      throw new ApiClientError(501, "not_implemented", "아직 준비 중인 기능입니다.");
+    }),
 
     listCalendarSuggestions: (q: ListSuggestionsParams) =>
       wait(() => {
