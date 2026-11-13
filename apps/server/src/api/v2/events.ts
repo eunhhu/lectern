@@ -6,7 +6,7 @@ import { logger } from "../../log.ts";
 import { can, requireWorkspace, type Caller } from "./access.ts";
 import { apiError, defineRouter } from "./common.ts";
 import { iso, recordingDto, type RecordingRow } from "./rows.ts";
-import { activeJobRow } from "./store.ts";
+import { activeJobRow, stageNameOf } from "./store.ts";
 
 // GET /api/v2/events (SSE, ARCHITECTURE §6). Every process that changes a lecture appends
 // to `job_event` (events.ts), so tailing that table serves changes from the API and from an
@@ -24,7 +24,7 @@ const RECONNECT_MS = 5_000;
 const PING_MS = 15_000;
 const POLL_MS = 1_000;
 
-interface EventRow {
+export interface EventRow {
   id: number;
   workspace_id: string | null;
   owner_id: string;
@@ -49,8 +49,8 @@ function recordingOfLecture(lectureId: string): RecordingRow | null {
   return db.query(`SELECT * FROM recording WHERE lecture_id = ? OR id = ? LIMIT 1`).get(lectureId, lectureId) as RecordingRow | null;
 }
 
-/** The ServerEvents one job_event row stands for, for this caller. */
-function translate(row: EventRow, workspaceId: string, caller: Caller): Message[] {
+/** The ServerEvents one job_event row stands for, for this caller (exported for tests). */
+export function translate(row: EventRow, workspaceId: string, caller: Caller): Message[] {
   let payload: LectureEventPayload;
   try {
     payload = JSON.parse(row.payload);
@@ -85,7 +85,7 @@ function translate(row: EventRow, workspaceId: string, caller: Caller): Message[
             type: "job.progress",
             payload: {
               job_id: job.id,
-              stage: "legacy_distill",
+              stage: stageNameOf(payload.stage),
               state: job.state === "running" ? "running" : "pending",
               progress: typeof payload.progress === "number" ? Math.min(1, Math.max(0, payload.progress / 100)) : null,
               chunk_index: null,

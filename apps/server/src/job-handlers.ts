@@ -23,6 +23,8 @@ import {
 import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
+import { emitProgress, type DistillInput } from "./distill-queue.ts";
+import { defaultProcessHarness, PROCESS_JOB_KIND, runProcessJob, type ProcessJobDeps } from "./process-job.ts";
 import { enqueueJob, isLectureBusy, registerJobHandler, type JobOutcome, type LeasedJob } from "./queue.ts";
 import { compactLectureAudio, isFfmpegAvailable } from "./storage.ts";
 import {
@@ -34,28 +36,9 @@ import {
 } from "./transcript-job.ts";
 import "./ask/index-job.ts"; // registers the ask `index` job handler and the lecture-change hook
 
+export { enqueueDistillation, type DistillInput } from "./distill-queue.ts";
+
 export const LECTURE_GONE_MESSAGE = "강의가 삭제되어 작업을 중단했습니다.";
-
-export interface DistillInput {
-  audioPath: string;
-  course: string;
-  title: string;
-  model: string;
-  /** A key the user sent with the upload; sealed in the job row, never stored in clear. */
-  apiKey?: string;
-}
-
-function emitProgress(ownerId: string, updated: LectureRecord | null): void {
-  if (!updated) return;
-  emitLectureEvent(ownerId, {
-    type: "progress",
-    id: updated.id,
-    stage: updated.stage,
-    stage_message: updated.stage_message,
-    progress: updated.progress,
-    lecture: toLectureSummaryDto(updated),
-  });
-}
 
 /**
  * Only transient failures are worth another attempt: network errors, timeouts, 429 and
@@ -65,38 +48,6 @@ function emitProgress(ownerId: string, updated: LectureRecord | null): void {
  */
 export function isRetryableDistillError(err: unknown): boolean {
   return classifyGeminiError(err).kind === "transient";
-}
-
-/**
- * Queues the distillation of a lecture whose row is already 'processing'. A lecture with
- * a distillation already queued or running is not queued twice (the existing job is
- * returned). Lectures that have to wait get a "queued" progress message.
- */
-export function enqueueDistillation(
-  id: string,
-  ownerId: string,
-  input: DistillInput
-): { jobId: string; deduplicated: boolean; position: number } {
-  const { apiKey, ...payload } = input;
-  const queued = enqueueJob({
-    kind: "distill",
-    ownerId,
-    subjectId: id,
-    payload: { ...payload },
-    secret: apiKey,
-  });
-  if (!queued.deduplicated && queued.position > 0) {
-    emitProgress(
-      ownerId,
-      updateLectureProgress(
-        id,
-        "queued",
-        `분석 대기열 ${queued.position}번째 — 앞선 작업이 끝나면 자동으로 시작됩니다.`,
-        5
-      )
-    );
-  }
-  return queued;
 }
 
 /** Runs a distill job on the engine LECTERN_DISTILL_ENGINE selects (read per job). */
@@ -281,7 +232,7 @@ function afterDistillPublished(lecture: LectureRecord, userKey: boolean): JobOut
   return { ok: true, followUp: () => void scheduleCompaction(lecture.id, lecture.owner_id) };
 }
 
-/** The compaction a transcribe job held back (afterDistillPublished), once it is over. */
+/** The compaction a transcribe or process job held back, once it is over. */
 function compactAfterTranscript(lectureId: string, ownerId: string): void {
   if (getSystemSettings().storage_auto_compact && getLectureById(lectureId)?.status === "done") {
     scheduleCompaction(lectureId, ownerId);
@@ -299,8 +250,9 @@ export function scheduleCompaction(id: string, ownerId: string): boolean {
 
 async function runCompaction(job: LeasedJob) {
   const id = job.subjectId!;
-  // A transcribe job reads the original audio, which compaction replaces.
-  if (isLectureBusy(id, "distill") || isLectureBusy(id, TRANSCRIBE_JOB_KIND)) {
+  // Transcribe, process and regenerate jobs read the original audio (or its transcript
+  // stages' memo), which compaction replaces.
+  if (["distill", TRANSCRIBE_JOB_KIND, PROCESS_JOB_KIND, "regenerate"].some((kind) => isLectureBusy(id, kind))) {
     return { ok: false, error: "분석 작업이 진행 중인 강의입니다." };
   }
   const res = await compactLectureAudio(id, getSystemSettings().storage_compact_bitrate_kbps);
@@ -374,3 +326,51 @@ export function registerTranscriptJobHandler(deps: TranscriptJobDeps = {}): void
 }
 
 registerTranscriptJobHandler();
+
+/**
+ * Registers the `process` handler (process-job.ts, LECTERN_PIPELINE=v2). `deps` replace the
+ * providers or the harness, e.g. a worker that runs on recorded answers.
+ *
+ * One job at a time, like `transcribe`: ffmpeg over the whole recording on a Raspberry Pi.
+ * The compaction starts after the job's row is finished (followUp), so it does not find
+ * the job still busy.
+ */
+export function registerProcessJobHandler(deps: ProcessJobDeps = {}): void {
+  registerJobHandler(
+    PROCESS_JOB_KIND,
+    async (job) => {
+      const outcome = await runProcessJob(job, deps);
+      return {
+        ...outcome,
+        followUp: () => {
+          outcome.followUp?.();
+          compactAfterTranscript(job.subjectId!, job.ownerId);
+        },
+      };
+    },
+    {
+      concurrency: 1,
+      // Interrupted too many times: leave a retryable error behind instead of a recording
+      // that says "processing" forever.
+      onLost: ({ id, subjectId, ownerId }) => {
+        try {
+          (deps.harness ?? defaultProcessHarness()).deleteArtifactsForJob(id);
+        } catch (err) {
+          logger.error("could not delete process artifacts", { job_id: id, err });
+        }
+        if (!subjectId) return;
+        const failed = failLectureRecord(subjectId, "처리 중 서버 프로세스가 여러 번 중단되었습니다. 다시 시도해주세요.");
+        if (failed) {
+          emitLectureEvent(ownerId, {
+            type: "error",
+            id: subjectId,
+            error_message: failed.error_message,
+            lecture: toLectureSummaryDto(failed),
+          });
+        }
+      },
+    }
+  );
+}
+
+registerProcessJobHandler();

@@ -16,7 +16,7 @@ import {
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
 import { ensurePrivateDir, makePrivate } from "../../fsperm.ts";
-import { enqueueDistillation } from "../../job-handlers.ts";
+import { enqueueRecordingProcessing } from "../../process-job.ts";
 import { logger } from "../../log.ts";
 import { AUDIO_EXT_BY_MIME, AUDIO_MIME_BY_EXT } from "../../media-files.ts";
 import { isLectureBusy } from "../../queue.ts";
@@ -334,7 +334,7 @@ export const uploadsRouter = defineRouter({
         let jobId: string | null = null;
         if (existing.status === "error" && existing.audio_path && existsSync(existing.audio_path) && !isLectureBusy(existing.id)) {
           resetLectureForRetry(existing.id);
-          jobId = enqueueDistillation(existing.id, user.id, {
+          jobId = enqueueRecordingProcessing(existing.id, user.id, {
             audioPath: existing.audio_path,
             course: existing.course,
             title: existing.title,
@@ -369,7 +369,7 @@ export const uploadsRouter = defineRouter({
         const course = getLectureById(lectureId)!.course;
         const lecture = getLectureById(lectureId)!;
         announce.push(() => emitLectureEvent(user.id, { type: "created", id: lectureId, lecture: toLectureSummaryDto(lecture) }));
-        const { jobId } = enqueueDistillation(lectureId, user.id, {
+        const { jobId } = enqueueRecordingProcessing(lectureId, user.id, {
           audioPath: audio!.path,
           course,
           title: hints.title ?? "",
