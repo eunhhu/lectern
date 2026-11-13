@@ -12,7 +12,8 @@ import { ApiClientError } from "../../api/client.ts";
 import type { AskScope, RecordingDetail } from "../../api/types.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { setPreferences, usePreferences, type RecordingPanel } from "../../app/preferences.ts";
-import { DOMAIN_LABEL, progressLabel, STATUS } from "../../app/labels.ts";
+import { DOMAIN_LABEL, partialNote, progressLabel, STATUS } from "../../app/labels.ts";
+import { primaryDocument } from "../../lib/documents.ts";
 import { formatDateTime, formatDuration } from "../../lib/format.ts";
 import { createAudioClock, SimulatedClock, type AudioPart, type MediaClock } from "../../lib/media-clock.ts";
 import { Icon, type IconName } from "../../ui/Icon.tsx";
@@ -108,7 +109,8 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const rec = detail.recording;
   const hasTranscript = rec.status === "ready" || rec.status === "partial" || (rec.status === "processing" && detail.documents.length > 0);
   const transcript = useTranscript(rec.id, hasTranscript);
-  const doc = useDocument(detail.documents[0]?.id);
+  const primary = primaryDocument(detail.documents);
+  const doc = useDocument(primary?.id);
   const folders = useFolders(rec.workspace_id).data ?? [];
   const tags = useTags(rec.workspace_id).data ?? [];
   const [action, setAction] = useState<BulkAction>(null);
@@ -270,7 +272,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
     );
   }
 
-  if (transcript.isPending || (detail.documents[0] && doc.isPending)) {
+  if (transcript.isPending || (primary && doc.isPending)) {
     return (
       <div className={s.page}>
         {header}
@@ -375,7 +377,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
         {rec.status === "partial" && (
           <p className={s.partialNote} role="note">
             <Icon name="alert" />
-            일부 구간을 전사하지 못했습니다. 빠진 구간은 전사와 문서에 표시됩니다.
+            {partialNote(detail.failure)}
           </p>
         )}
         {wide ? (
