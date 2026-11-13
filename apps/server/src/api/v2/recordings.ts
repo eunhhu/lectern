@@ -11,7 +11,7 @@ import { enqueueRecordingProcessing } from "../../process-job.ts";
 import { enqueueRegenerate } from "../../regenerate-job.ts";
 import { isLectureBusy } from "../../queue.ts";
 import { callerIn, can, loadRecording, requireWorkspace, VISIBLE_RECORDING_SQL } from "./access.ts";
-import { apiError, defineRouter, notFound, ok, okPage, pageBounds, pageFrom, type Handler, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, notImplemented, ok, okPage, pageBounds, pageFrom, type Handler, type V2Request } from "./common.ts";
 import {
   actionItemDto,
   eventCandidateDto,
@@ -406,6 +406,9 @@ export const recordingsRouter = defineRouter({
     const job = db.query(`SELECT * FROM job WHERE id = ?`).get(jobId) as Parameters<typeof toJob>[0] | null;
     return ok(req, { estimate, job: job ? toJob(job) : null }, { status: 202 });
   }, "recording:update"),
+
+  // Deleting only the audio (D-P2-4) comes with P2-01.
+  deleteRecordingAudio: notImplemented,
 });
 
 /**

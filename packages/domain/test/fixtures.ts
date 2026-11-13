@@ -887,6 +887,11 @@ export const API_CASES: Record<string, Case> = {
     ],
     invalid: [{ workspace_id: ID.workspace, period: "2026-13", turn_count: 0, spent_microusd: 0, limit_microusd: null, per_turn_cap_microusd: 0 }],
   },
+  AskSuggestions: {
+    schema: D.AskSuggestions,
+    valid: [{ suggestions: [] }, { suggestions: ["핵심 요약은?"] }],
+    invalid: [{ suggestions: [""] }, { suggestions: ["a", "b", "c", "d", "e", "f", "g"] }],
+  },
   AskStreamEvent: {
     schema: D.AskStreamEvent,
     valid: askStreamEvents,

@@ -2290,6 +2290,42 @@
         }
       }
     },
+    "/recordings/{recording_id}/audio": {
+      "delete": {
+        "operationId": "deleteRecordingAudio",
+        "summary": "Delete the audio, keep the notes",
+        "tags": [
+          "recordings"
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/RecordingId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done. No body."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
     "/assets/{asset_id}/content": {
       "get": {
         "operationId": "getAssetContent",
@@ -2583,6 +2619,62 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/documents/{document_id}/export": {
+      "get": {
+        "operationId": "exportDocument",
+        "summary": "Download the current version as Markdown",
+        "tags": [
+          "documents"
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/DocumentId"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "md"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A Markdown attachment.",
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "text/markdown"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -3238,6 +3330,76 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/ask/suggestions": {
+      "get": {
+        "operationId": "listAskSuggestions",
+        "summary": "Suggested questions for a scope",
+        "tags": [
+          "ask"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          },
+          {
+            "name": "scope_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "recording",
+                "folder",
+                "workspace"
+              ]
+            }
+          },
+          {
+            "name": "scope_id",
+            "in": "query",
+            "required": false,
+            "description": "Recording or folder id; omitted for `workspace`.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Up to 6 questions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskSuggestions"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           },
           "default": {
             "$ref": "#/components/responses/UnexpectedError"
@@ -5060,6 +5222,24 @@
             "error": "#/components/schemas/AskErrorEvent"
           }
         }
+      },
+      "AskSuggestions": {
+        "type": "object",
+        "properties": {
+          "suggestions": {
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        },
+        "required": [
+          "suggestions"
+        ],
+        "description": "Suggested questions for a scope. Built by rules, no model call."
       },
       "AskThread": {
         "type": "object",
