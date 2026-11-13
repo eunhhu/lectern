@@ -10,7 +10,7 @@ GitHub Actions에 새 Apple 앱의 게이트(`apps/apple/scripts/gate.sh`)를 �
 ## 2. 먼저 읽을 것
 
 - 계약: `CONTRACTS.md` D-0-11(`main` = 운영 배포), D-P6-9
-- 코드: `.github/workflows/ci-cd.yml` 전체 — 작업 `core-and-server`, `web`, `deploy-server`(`needs: [core-and-server]`), `macos-native`(`runs-on: macos-14`), `android-native`, `windows-native`, `release-native-clients`(`needs: [macos-native, android-native, windows-native]`), 그리고 맨 위의 `on:`·`concurrency:`·`permissions:`
+- 코드: `.github/workflows/ci-cd.yml` 전체 — 작업 `core-and-server`, `web`, `deploy-server`(`needs: [core-and-server]`), `macos-native`(`runs-on: macos-15`), `android-native`, `windows-native`, `release-native-clients`(`needs: [macos-native, android-native, windows-native]`), 그리고 맨 위의 `on:`·`concurrency:`·`permissions:`
 - 코드: `apps/apple/scripts/gate.sh`(P6-A1), `apps/apple/README.md`
 - 문서: `AGENTS.md`의 CI·배포 절
 

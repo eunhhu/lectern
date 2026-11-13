@@ -159,7 +159,7 @@ API 키를 만들 수 없으면 대안으로 Apple 계정 + 앱 암호를 쓴다
   # release-native-clients는 이 잡의 산출물(Lectern-macOS-arm64)을 받도록 needs를 바꾼다.
   macos-signed:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: macos-14
+    runs-on: macos-15
     environment: macos-signing
     steps:
       - uses: actions/checkout@v4
