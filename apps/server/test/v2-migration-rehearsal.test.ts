@@ -30,6 +30,12 @@ function preP2Copy(): { dir: string; path: string } {
   };
   const p2 = journal.entries.find((e) => e.tag === "0003_v2_entities")!;
   copy.query(`DELETE FROM __drizzle_migrations WHERE created_at >= ?`).run(p2.when);
+  // Later migrations are rewound too, so their columns must go or re-applying them fails.
+  try {
+    copy.exec(`ALTER TABLE job DROP COLUMN cancel_requested_at`);
+  } catch {
+    /* column absent */
+  }
   copy.close();
   return { dir, path };
 }
@@ -70,7 +76,7 @@ describe("v2 migration rehearsal", () => {
       expect(report.mismatches).toEqual([]);
       expect(report.rows.failures).toEqual([]);
       expect(report.ok).toBe(true);
-      expect(report.migrations).toEqual(["0003_v2_entities"]);
+      expect(report.migrations).toEqual(["0003_v2_entities", "0004_p1_pipeline"]);
       expect(report.idempotent).toBe(true);
       expect(report.v1_unchanged).toBe(true);
       expect(report.checksums.v1).toBe(report.checksums.v2);

@@ -42,6 +42,8 @@ export const job = sqliteTable(
     createdAt: integer("created_at").notNull(),
     startedAt: integer("started_at"),
     finishedAt: integer("finished_at"),
+    /** Set by cancelJob (CONTRACTS D-P1-8); the running handler stops at its next check. */
+    cancelRequestedAt: integer("cancel_requested_at"),
   },
   (t) => [
     index("idx_job_lease").on(t.state, t.runAfter, t.priority),
