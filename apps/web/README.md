@@ -165,7 +165,7 @@ e2e/       Playwright (*.e2e.ts: bun test가 집어 가지 않도록 .spec이 �
 ## 지시와 다르게 한 부분과 이유
 
 - **`packages/ui`를 만들지 않았다.** 공용 컨트롤은 `src/ui`에 있다. 지금 소비자가 이 앱 하나뿐이라 패키지 경계와 CSS Modules 교차 번들링 비용만 생긴다. 관리자 콘솔을 React로 옮길 때(P5) 분리한다.
-- **Pretendard를 싣지 않았다.** `main`에는 직접 호스팅한 글꼴이 없고(jsDelivr CDN만 있음, 직접 호스팅은 미병합 브랜치 `claude/xenodochial-hamilton-b49ae7`의 `apps/server/assets/pretendard`), CDN은 금지라서 토큰의 시스템 글꼴 대체(`-apple-system`, `Apple SD Gothic Neo` 등)로 보인다. 그 브랜치가 들어오면 `@font-face`로 같은 경로를 가리키면 된다. CDN 링크를 다시 넣지 않는다.
+- **Pretendard는 직접 호스팅한다.** `apps/web/src/styles/fonts/pretendard/`(OFL 라이선스 포함)의 woff2를 빌드(`scripts/build.ts`의 `emitFonts`)가 해시 이름으로 `dist/assets`에 넣고, 그 파일을 가리키는 `@font-face` 스타일시트(`pretendard-<해시>.css`)를 `index.html`에 건다. CDN을 쓰지 않는다. Bun의 CSS 번들러는 CSS `url()`의 글꼴을 `data:`로 넣어 버려서(약 4MB) `global.css`에서 `@import`하지 않는다.
 - **진행 막대는 React Aria `Slider`가 아니라 기본 `<input type="range">`다.** DESIGN §3.10이 요구하는 `aria-valuetext`("12분 30초 / 1시간 23분 45초")를 React Aria Slider에서는 지정할 수 없다.
 - **출처 칩의 접근 가능한 이름은 "출처 12:30, 김 교수"다.** DESIGN §3.13은 "출처: 12분 30초, 화자 1"을 예로 들지만, 그러면 보이는 글자("12:30")가 이름에 들어가지 않아 음성 입력 사용자가 칩을 부를 수 없다(WCAG 2.5.3 이름 안의 레이블). 화자 이름은 그대로 붙인다.
 - **출처는 ms가 아니라 domain 계약의 전사 idx 범위로 저장된다.** domain이 동결됐고 `SourceRef`가 idx 범위라서 그대로 따랐다. 화면에서는 구간의 원본 오디오 ms로 바꿔 쓰므로 결과는 지시와 같다.
@@ -252,6 +252,6 @@ P2 백엔드를 병합한 뒤 실제 서버로 다시 확인했다.
 6. **실제 전사**: 지금 처리는 v1 파이프라인이라 새 녹음도 전사 구간이 없다. P1 전사 파이프라인이 v2 표에 쓰기 시작하면 전사 패널이 채워진다(웹은 이미 그 모양을 읽는다).
 7. **물어보기 켜기**(운영 `LECTERN_ASK=0`), **CD**: `/`를 바꾸는 배포에서 `LECTERN_WEB_SHELL=1`과 함께.
 8. P2 domain 추가 중 아직 쓰지 않는 것: 저장한 보기(`/views`, 지금은 클라이언트 상수), 서버 목록 필터(라이브러리는 폴더 개수 때문에 전부 받아 거른다), 블록 `edited` 표시, 구간 `lang`, `TagColorName`.
-9. Pretendard 직접 호스팅 병합 후 `@font-face`, pdf.js 뷰어(P3).
+9. pdf.js 뷰어(P3).
 
 참고: 이 변경으로 `bun.lock`에 React, React Aria, TanStack, Playwright가 들어가므로 다음 운영 배포에서 Pi가 `bun install --frozen-lockfile`을 돌린다(`ops.ts`의 `DEPENDENCY_FILES`). `playwright@1.63.0`과 `playwright-core`에는 설치 스크립트가 없어 브라우저를 내려받지 않는다.
