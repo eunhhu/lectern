@@ -3,21 +3,28 @@
 //   bun run harness eval [--set example|<dir>] [--provider scripted|gemini] [--model <id>]
 //                        [--noise <0..1>] [--drift <rate>] [--fail-chunks 1,2] [--chunk-target <s>]
 //                        [--out <dir>] [--cache <dir>] [--baseline <run.json>] [--label <name>] [--yes]
+//   bun run harness eval --notes [--set …] [--provider scripted|gemini] [--model <id>]
+//                        [--drop-rate <0..1>] [--wrong-date-rate <0..1>] [--extra-rate <0..1>] [...]
 //
 // The default is the bundled synthetic set with the scripted provider: no recordings, no
 // cost. `--provider gemini` calls Gemini (cost): the estimate is printed first and the run
-// stops unless `--yes` is given (AI_HARNESS §8).
+// stops unless `--yes` is given (AI_HARNESS §8). `--notes` runs the notes pipeline on the
+// reference transcripts and scores it against annotations.csv instead of transcribing.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { formatEstimate, formatReport } from "./eval/report.ts";
-import { runEval, type EvalProviderName, type EvalRun } from "./eval/run.ts";
+import { runNotesEval, type NotesEvalRun } from "./eval/notes-run.ts";
+import { formatEstimate, formatNotesReport, formatReport } from "./eval/report.ts";
+import { runEval, type CostEstimate, type EvalProviderName, type EvalRun } from "./eval/run.ts";
 import { EXAMPLE_SET_DIR, loadEvalSet } from "./eval/set.ts";
 
 const USAGE = `usage: bun run harness eval [--set example|<dir>] [--provider scripted|gemini] [--model <id>]
          [--noise <0..1>] [--drift <rate>] [--fail-chunks 1,2] [--chunk-target <seconds>]
+         [--out <dir>] [--cache <dir>] [--baseline <run.json>] [--label <name>] [--yes]
+       bun run harness eval --notes [--set example|<dir>] [--provider scripted|gemini] [--model <id>]
+         [--drop-rate <0..1>] [--wrong-date-rate <0..1>] [--extra-rate <0..1>]
          [--out <dir>] [--cache <dir>] [--baseline <run.json>] [--label <name>] [--yes]`;
 
 /** harness-eval/sets/<name> keeps runs and the cache beside sets/ (§8); any other set dir keeps them inside. */
@@ -48,6 +55,10 @@ async function evalCommand(argv: string[]): Promise<number> {
       label: { type: "string" },
       yes: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
+      notes: { type: "boolean", default: false },
+      "drop-rate": { type: "string" },
+      "wrong-date-rate": { type: "string" },
+      "extra-rate": { type: "string" },
     },
   });
   if (values.help) {
@@ -67,6 +78,43 @@ async function evalCommand(argv: string[]): Promise<number> {
   const cacheDir = values.cache ? resolve(values.cache) : join(root, ".cache", example ? "" : set.id);
   const outDir = values.out ? resolve(values.out) : join(root, "runs");
   const number = (v: string | undefined) => (v === undefined ? undefined : Number(v));
+  const confirm = (estimate: CostEstimate) => {
+    console.error(formatEstimate(estimate));
+    if (!values.yes) console.error("실제 호출은 비용이 듭니다. 진행하려면 --yes를 붙여 다시 실행하세요.");
+    return values.yes === true;
+  };
+
+  if (values.notes) {
+    const notesRun: NotesEvalRun | null = await runNotesEval({
+      set,
+      provider,
+      model: values.model,
+      oracle:
+        provider === "scripted"
+          ? { dropRate: number(values["drop-rate"]), wrongDateRate: number(values["wrong-date-rate"]), extraRate: number(values["extra-rate"]) }
+          : undefined,
+      cacheDir,
+      label: values.label,
+      log: (line) => console.error(line),
+      confirm,
+    }).catch((err) => {
+      console.error(String(err?.message ?? err));
+      return null;
+    });
+    if (!notesRun) return 2;
+    mkdirSync(outDir, { recursive: true });
+    const file = nextFree(outDir, `${notesRun.created_at.slice(0, 10)}-notes-${notesRun.label.replace(/[^\w.-]+/g, "_")}`);
+    writeFileSync(file, JSON.stringify(notesRun, null, 2) + "\n");
+    const baseline = values.baseline ? (JSON.parse(readFileSync(values.baseline, "utf8")) as NotesEvalRun) : undefined;
+    try {
+      console.log(formatNotesReport(notesRun, baseline));
+    } catch (err) {
+      console.error(String((err as Error).message));
+      return 2;
+    }
+    console.log(`\n결과: ${file}`);
+    return notesRun.items.some((i) => i.status === "failed") ? 1 : 0;
+  }
 
   const run: EvalRun = await runEval({
     set,
