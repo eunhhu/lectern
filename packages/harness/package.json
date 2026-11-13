@@ -6,7 +6,8 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./pricing.json": "./pricing.json"
+    "./pricing.json": "./pricing.json",
+    "./routing.json": "./routing.json"
   },
   "dependencies": {
     "@lectern/ask": "workspace:*",
