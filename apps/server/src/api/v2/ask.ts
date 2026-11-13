@@ -223,5 +223,8 @@ export function createAskRouter(getService: () => AskService | null) {
         per_turn_cap_microusd: service.deps.limits?.perTurnCapMicrousd ?? ASK_LIMITS.perTurnCapMicrousd,
       });
     },
+
+    // Rule-built suggestions (D-P2-4) come with P2-01.
+    listAskSuggestions: notImplemented,
   });
 }

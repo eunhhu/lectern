@@ -446,6 +446,7 @@ export const JobParams = z.object({ job_id: JobId });
 
 export const DocumentParams = z.object({ document_id: DocumentId });
 export const DocumentVersionParams = DocumentParams.extend({ version: z.coerce.number().int().min(1) });
+export const ExportDocumentQuery = z.object({ format: z.literal("md") });
 export const DocumentPage = pageOf("DocumentPage", Document);
 
 export const DocumentWithVersion = named(

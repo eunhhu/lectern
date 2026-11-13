@@ -498,6 +498,16 @@ export const ROUTES: RouteDef[] = [
     },
     errors: [400, 403, 404, 409, 429],
   },
+  {
+    method: "delete",
+    path: "/recordings/{recording_id}/audio",
+    operationId: "deleteRecordingAudio",
+    summary: "Delete the audio, keep the notes",
+    tag: "recordings",
+    params: R.RecordingParams,
+    responses: { 204: noContent },
+    errors: [403, 404],
+  },
 
   // assets -------------------------------------------------------------------
   {
@@ -557,6 +567,17 @@ export const ROUTES: RouteDef[] = [
     body: { schema: R.CreateDocumentVersionRequest },
     responses: { 201: { ...json(DocumentVersion, "The new version."), headers: etagHeader } },
     errors: [400, 403, 404, 412, 428],
+  },
+  {
+    method: "get",
+    path: "/documents/{document_id}/export",
+    operationId: "exportDocument",
+    summary: "Download the current version as Markdown",
+    tag: "documents",
+    params: R.DocumentParams,
+    query: R.ExportDocumentQuery,
+    responses: { 200: { description: "A Markdown attachment.", contentType: "text/markdown" } },
+    errors: [400, 403, 404],
   },
 
   // action items ---------------------------------------------------------------
@@ -685,6 +706,16 @@ export const ROUTES: RouteDef[] = [
     query: WorkspaceQuery,
     responses: { 200: json(A.AskUsage, "Usage for the current month.") },
     errors: [400, 403],
+  },
+  {
+    method: "get",
+    path: "/ask/suggestions",
+    operationId: "listAskSuggestions",
+    summary: "Suggested questions for a scope",
+    tag: "ask",
+    query: A.ListAskSuggestionsQuery,
+    responses: { 200: json(A.AskSuggestions, "Up to 6 questions.") },
+    errors: [400, 403, 404],
   },
 
   // calendar -------------------------------------------------------------------

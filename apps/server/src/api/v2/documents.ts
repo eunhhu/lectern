@@ -2,7 +2,7 @@ import { documentVersionId, LEGACY_TEMPLATE_ID } from "@lectern/db";
 import { HEADER, parseVersionETag, versionETag, type DocumentBody } from "@lectern/domain";
 import { db, getLectureById, updateLectureMarkdown } from "../../db.ts";
 import { loadRecording } from "./access.ts";
-import { apiError, defineRouter, notFound, ok, okPage, type Handler, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, notImplemented, ok, okPage, type Handler, type V2Request } from "./common.ts";
 import {
   documentDto,
   documentVersionDto,
@@ -123,4 +123,7 @@ export const documentsRouter = defineRouter({
       headers: { [HEADER.etag]: versionETag(result.version) },
     });
   }, "recording:update"),
+
+  // The Markdown download (D-P2-4) comes with P2-01.
+  exportDocument: notImplemented,
 });

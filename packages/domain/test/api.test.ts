@@ -6,6 +6,7 @@ import {
   parseVersionETag,
   partCount,
   ROUTES,
+  ROUTES_BY_OPERATION,
   toHonoPath,
   versionETag,
 } from "../src/index.ts";
@@ -92,5 +93,20 @@ describe("conventions", () => {
     for (const sub of ["transcript", "documents", "questions", "events", "action-items", "reprocess"]) {
       expect(recordingSubresources, sub).toContain(sub);
     }
+  });
+});
+
+describe("D-P2-4 routes", () => {
+  test("audio delete, Markdown export and ask suggestions are in the table", () => {
+    const at = (id: string) => {
+      const route = ROUTES_BY_OPERATION[id];
+      return route ? `${route.method} ${route.path}` : undefined;
+    };
+    expect(at("deleteRecordingAudio")).toBe("delete /recordings/{recording_id}/audio");
+    expect(at("exportDocument")).toBe("get /documents/{document_id}/export");
+    expect(at("listAskSuggestions")).toBe("get /ask/suggestions");
+    const exportQuery = ROUTES_BY_OPERATION.exportDocument!.query!;
+    expect(exportQuery.safeParse({ format: "md" }).success).toBe(true);
+    expect(exportQuery.safeParse({ format: "pdf" }).success).toBe(false);
   });
 });

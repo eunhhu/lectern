@@ -20,7 +20,7 @@
     {"id":"P1-14","title":"여러 오디오 파트","deps":["P1-12"],"owns":["apps/server/","packages/media/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P1-15","title":"평가: 문서·추출 지표","deps":["P1-09"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"merged"},
     {"id":"P1-16","title":"웹: v2 처리 상태와 server e2e","deps":["P1-13"],"owns":["apps/web/"],"tier":"careful","gate":"full","status":"merged"},
-    {"id":"P2-C","title":"계약: 오디오 삭제, 문서 내보내기, 추천 질문 라우트","deps":["P1-C"],"owns":["packages/domain/","apps/server/"],"tier":"careful","gate":"full","status":"todo"},
+    {"id":"P2-C","title":"계약: 오디오 삭제, 문서 내보내기, 추천 질문 라우트","deps":["P1-C"],"owns":["packages/domain/","apps/server/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P2-01","title":"서버: 오디오 삭제, 문서 내보내기, 추천 질문","deps":["P2-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P2-02","title":"서버: 공유 링크와 공개 페이지","deps":["P2-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P2-03","title":"웹: 회원가입, 이메일 인증, 비밀번호 재설정","deps":["P0-01"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"todo"},
