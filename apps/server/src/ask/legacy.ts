@@ -15,7 +15,7 @@ import { personalWorkspaceId } from "./workspace.ts";
 export { personalWorkspaceId };
 
 // The id rules are shared with the P2 migration (@lectern/db ids.ts).
-import { courseFolderId, lectureDocumentId } from "@lectern/db";
+import { courseFolderId, lectureDocumentId, lectureRecordingId } from "@lectern/db";
 export { courseFolderId, lectureDocumentId };
 
 interface RecordingRow {
@@ -54,15 +54,32 @@ export interface IndexableLecture {
   updated_at: string;
 }
 
-/** What the index stage reads for a lecture: its Markdown as a legacy document. */
+/** The published transcript of a lecture's recording (transcript-publish.ts), if any. */
+function transcriptOf(lectureId: string): RecordingSources["transcript"] | null {
+  const recordingId = lectureRecordingId(lectureId);
+  const segments = db
+    .query(`SELECT idx, start_ms, end_ms, speaker_id, text FROM transcript_segment WHERE recording_id = ? ORDER BY idx`)
+    .all(recordingId) as Array<{ idx: number; start_ms: number; end_ms: number; speaker_id: string | null; text: string }>;
+  if (segments.length === 0) return null;
+  const speakerRows = db
+    .query(`SELECT id, label, display_name FROM speaker WHERE recording_id = ?`)
+    .all(recordingId) as Array<{ id: string; label: string; display_name: string | null }>;
+  const speakers = new Map(speakerRows.map((row) => [row.id, row.display_name || row.label] as const));
+  return { segments, speakers };
+}
+
+/** What the index stage reads for a lecture: its Markdown as a legacy document, plus its transcript once published. */
 export function lectureSources(lecture: IndexableLecture): RecordingSources {
-  return {
-    workspaceId: personalWorkspaceId(lecture.owner_id),
-    recordingId: lecture.id,
-    document: { kind: "markdown", documentId: lectureDocumentId(lecture.id), version: 1, markdown: lecture.markdown },
-  };
+  const sources: RecordingSources = { workspaceId: personalWorkspaceId(lecture.owner_id), recordingId: lecture.id };
+  const transcript = transcriptOf(lecture.id);
+  if (transcript) sources.transcript = transcript;
+  if (lecture.markdown.trim() !== "") {
+    sources.document = { kind: "markdown", documentId: lectureDocumentId(lecture.id), version: 1, markdown: lecture.markdown };
+  }
+  return sources;
 }
 
 export function isIndexable(lecture: IndexableLecture): boolean {
-  return lecture.status === "done" && lecture.markdown.trim() !== "";
+  if (lecture.status === "done" && lecture.markdown.trim() !== "") return true;
+  return db.query(`SELECT 1 FROM transcript_segment WHERE recording_id = ? LIMIT 1`).get(lectureRecordingId(lecture.id)) !== null;
 }
