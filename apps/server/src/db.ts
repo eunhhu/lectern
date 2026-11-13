@@ -23,6 +23,7 @@ import {
   drainLectureSync,
   ensurePersonalWorkspace,
   installLectureSyncTriggers,
+  lectureRecordingId,
   projectLecture,
   runMigrations,
   verifyLegacy,
@@ -1800,6 +1801,19 @@ export function deleteLectureById(id: string): boolean {
         unlinkSync(rec.audio_path);
       } catch {
         // ignore
+      }
+    }
+    // The other parts of a multi-part recording (D-P1-9) are files of their own.
+    const parts = db
+      .query(`SELECT blob_key FROM asset WHERE recording_id = ? AND kind = 'audio' AND blob_key LIKE 'file:%'`)
+      .all(lectureRecordingId(id)) as Array<{ blob_key: string }>;
+    for (const { blob_key } of parts) {
+      const path = blob_key.slice("file:".length);
+      if (!path.startsWith(join(DATA_DIR, "uploads"))) continue;
+      try {
+        unlinkSync(path);
+      } catch {
+        // already gone
       }
     }
   }

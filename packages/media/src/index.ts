@@ -14,3 +14,4 @@ export * from "./normalize.ts";
 export * from "./silence.ts";
 export * from "./threshold.ts";
 export * from "./render.ts";
+export * from "./concat.ts";
