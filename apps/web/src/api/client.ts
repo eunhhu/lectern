@@ -20,7 +20,9 @@ import type {
   CompleteUploadResponse,
   CreateAskThreadRequest,
   CreateDocumentVersionRequest,
+  CreatedShareLink,
   CreateFolderRequest,
+  CreateShareLinkRequest,
   CreateTagRequest,
   CreateUploadRequest,
   DevicePage,
@@ -42,6 +44,7 @@ import type {
   SearchHitPage,
   SearchParams,
   ServerEvent,
+  ShareLinkPage,
   Tag,
   TagPage,
   Transcript,
@@ -151,6 +154,13 @@ export interface ApiClient {
    * `precondition_failed`.
    */
   createDocumentVersion(documentId: string, body: CreateDocumentVersionRequest, baseVersion: number): Promise<DocumentVersion>;
+
+  // --- share links (D-P2-3) -------------------------------------------------------
+  /** Links that are not revoked, optionally for one recording or document. */
+  listShareLinks(workspaceId: WorkspaceId, targetId?: string): Promise<ShareLinkPage>;
+  /** The link and its URL; the URL (with the token) is in this response only. */
+  createShareLink(body: CreateShareLinkRequest): Promise<CreatedShareLink>;
+  revokeShareLink(shareLinkId: string): Promise<void>;
 
   listCalendarSuggestions(query: ListSuggestionsParams): Promise<EventCandidatePage>;
   updateCalendarSuggestion(eventCandidateId: string, body: UpdateEventCandidateRequest): Promise<EventCandidate>;

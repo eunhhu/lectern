@@ -26,6 +26,16 @@ export const test = base.extend<{ problems: string[]; axe: (page: Page, label: s
   ],
   axe: async ({}, use) => {
     await use(async (page, label) => {
+      // Let colour transitions (a theme switch, a hover) end first, or axe reads a colour
+      // half-way between two themes. Endless animations (a live status dot) are skipped.
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+            .map((a) => a.finished.catch(() => undefined)),
+        ),
+      );
       const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
       const summary = results.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
       expect(summary, `axe violations on ${label}`).toEqual([]);

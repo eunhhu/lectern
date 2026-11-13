@@ -6,7 +6,7 @@
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Form, Input, Label, Radio, RadioGroup, TextField } from "react-aria-components";
-import { useDevices, useMe, useMembers, useRevokeDevice, useUpdateMe } from "../../api/queries.ts";
+import { useDevices, useMe, useMembers, useRecordings, useRevokeDevice, useShareLinks, useUpdateMe } from "../../api/queries.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { setPreferences, usePreferences, type ThemeChoice } from "../../app/preferences.ts";
 import { useWorkspace } from "../../app/workspace.tsx";
@@ -16,7 +16,9 @@ import { Icon } from "../../ui/Icon.tsx";
 import { Badge, Button, SelectField, SwitchField, uiStyles } from "../../ui/controls.tsx";
 import { showToast } from "../../ui/toast.tsx";
 import { toastError } from "../library/organise.ts";
+import { ShareLinkRow } from "../share/ShareLinkRow.tsx";
 import layout from "../../app/layout.module.css";
+import shareStyles from "../share/share.module.css";
 import s from "./settings.module.css";
 
 const ROLE: Record<string, string> = { owner: "Owner", admin: "Admin", member: "Member", viewer: "Viewer" };
@@ -31,6 +33,7 @@ const TIME_ZONES = [
 const SECTIONS = [
   { id: "account", label: "프로필" },
   { id: "workspace", label: "워크스페이스" },
+  { id: "share-links", label: "공유 링크" },
   { id: "devices", label: "기기" },
   { id: "integrations", label: "연동" },
   { id: "browser", label: "이 브라우저" },
@@ -60,6 +63,7 @@ export function SettingsPage() {
         </header>
         <Profile />
         <WorkspaceSection />
+        <ShareLinks />
         <Devices />
         <Integrations />
         <BrowserOptions />
@@ -177,6 +181,32 @@ function WorkspaceSection() {
         ))}
       </ul>
       {current.workspace.kind === "team" && <p className={uiStyles.hint}>멤버 초대와 역할 변경은 팀 기능과 함께 추가됩니다.</p>}
+    </section>
+  );
+}
+
+// Every live share link in the workspace (D-P2-3), with what it points at and 회수.
+function ShareLinks() {
+  const { workspaceId } = useWorkspace();
+  const links = useShareLinks(workspaceId);
+  const recordings = useRecordings(workspaceId).data ?? [];
+  const titleOf = (targetType: string, targetId: string) =>
+    targetType === "recording" ? (recordings.find((r) => r.id === targetId)?.title ?? "녹음") : "문서 링크";
+  return (
+    <section id="share-links" className={s.section} aria-labelledby="set-share-links">
+      <h2 id="set-share-links" className={s.heading}>
+        공유 링크
+      </h2>
+      <p className={s.muted}>링크 주소는 만든 직후에만 볼 수 있습니다.</p>
+      {links.data && links.data.length > 0 ? (
+        <ul className={shareStyles.list}>
+          {links.data.map((link) => (
+            <ShareLinkRow key={link.id} link={link} ws={workspaceId} title={titleOf(link.target_type, link.target_id)} />
+          ))}
+        </ul>
+      ) : (
+        <p className={s.muted}>{links.isPending ? "불러오는 중…" : "만든 공유 링크가 없습니다."}</p>
+      )}
     </section>
   );
 }
