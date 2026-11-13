@@ -138,7 +138,8 @@ function providerFor(options: EvalRunOptions, item: EvalItem): { provider: Trans
   };
 }
 
-function openCache(dir: string): { db: Database; harness: Harness } {
+/** The eval SQLite file and blob store in `dir` (migrated; never the server's database). */
+export function openCache(dir: string): { db: Database; harness: Harness } {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const db = new Database(join(dir, "eval.sqlite"), { create: true });
   db.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`);
