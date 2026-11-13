@@ -15,6 +15,7 @@ export * from "./retention.ts";
 export * from "./routing.ts";
 export * from "./runner.ts";
 export * from "./stage.ts";
+export * from "./templates.ts";
 export * from "./legacy/distill.ts";
 export * from "./eval/metrics.ts";
 export * from "./eval/report.ts";
