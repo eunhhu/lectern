@@ -1,6 +1,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, unlinkSync, writeSync } from "node:fs";
 import { extname, join } from "node:path";
-import { lectureRecordingId, personalWorkspaceId, uuidv7 } from "@lectern/db";
+import { config } from "@lectern/config";
+import { lectureRecordingId, personalWorkspaceId, sha256Hex, uuidv7 } from "@lectern/db";
 import { HEADER, partCount, type CreateUploadRequest, type UploadFile } from "@lectern/domain";
 import { DEFAULT_GEMINI_MODEL } from "../../../../../packages/core/src/index.ts";
 import {
@@ -38,6 +39,8 @@ import { getFolderRow, getRecordingRow, sha256OfFile, toJob, transact } from "./
 /** Bytes per part (the client sends parts of exactly this size, the last one shorter). */
 export const PART_SIZE = 8 * 1024 * 1024;
 const MAX_FILE_BYTES = 4 * 1024 * 1024 * 1024;
+/** Audio files one new recording may have (part 1, part 2, …), joined by the process job. */
+const MAX_AUDIO_PARTS = 8;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 const UPLOAD_ROOT = join(DATA_DIR, "uploads", "v2");
@@ -178,8 +181,11 @@ export const uploadsRouter = defineRouter({
       const recording = loadRecording(req, body.recording_id, "recording:update");
       if (recording instanceof Response) return recording;
       if (audio.length) return apiError(req.c, 400, "bad_request", "이미 있는 녹음에 오디오를 더 붙이는 것은 아직 지원하지 않습니다.");
-    } else if (audio.length !== 1) {
+    } else if (audio.length === 0 || (audio.length > 1 && config().pipeline !== "v2")) {
+      // Several parts of one recording (D-P1-9) need the v2 pipeline, which joins them.
       return apiError(req.c, 400, "bad_request", "새 녹음에는 오디오 파일이 하나 있어야 합니다.");
+    } else if (audio.length > MAX_AUDIO_PARTS) {
+      return apiError(req.c, 400, "bad_request", `오디오는 최대 ${MAX_AUDIO_PARTS}개까지 올릴 수 있습니다.`);
     }
     for (const file of body.files) {
       const ext = storedExtension(file);
@@ -316,7 +322,10 @@ export const uploadsRouter = defineRouter({
 
     const meta = JSON.parse(upload.recording_json ?? "{}") as { hints?: CreateUploadRequest["recording"] | null };
     const hints = meta.hints ?? {};
-    const audio = stored.find((s) => s.file.kind === "audio");
+    // Parts in upload order (D-P1-9); the first is the lecture's audio, the rest are assets.
+    const audios = stored.filter((s) => s.file.kind === "audio");
+    const audio = audios[0];
+    const dedupeKey = audios.length > 1 ? sha256Hex(audios.map((a) => a.sha256).join("\n")) : audio?.sha256;
     const now = Date.now();
     let result: UploadResult;
     const announce: Array<() => void> = [];
@@ -328,9 +337,9 @@ export const uploadsRouter = defineRouter({
       result = { recording_id: recording.id, job_id: null, deduplicated: false };
     } else {
       // Same dedupe as v1 ingest: this account already uploaded this audio.
-      const existing = getLectureByAudioSha256(user.id, audio!.sha256);
+      const existing = getLectureByAudioSha256(user.id, dedupeKey!);
       if (existing) {
-        rmSync(audio!.path, { force: true });
+        for (const a of audios) rmSync(a.path, { force: true });
         let jobId: string | null = null;
         if (existing.status === "error" && existing.audio_path && existsSync(existing.audio_path) && !isLectureBusy(existing.id)) {
           resetLectureForRetry(existing.id);
@@ -352,7 +361,7 @@ export const uploadsRouter = defineRouter({
           audioPath: audio!.path,
           audioMime: AUDIO_MIME_BY_EXT[extname(audio!.path)] ?? "application/octet-stream",
           audioSize: audio!.file.bytes,
-          dedupeKey: audio!.sha256,
+          dedupeKey: dedupeKey!,
           sha256: audio!.sha256,
           title: hints.title ?? "",
           folderId: hints.folder_id ?? null,
@@ -364,8 +373,10 @@ export const uploadsRouter = defineRouter({
           language: hints.language ?? null,
           tagIds: hints.tag_ids,
         });
-        const extra = stored.filter((s) => s !== audio);
-        if (extra.length) transact(() => insertDocumentAssets(getRecordingRow(lectureRecordingId(lectureId))!, extra, now));
+        const recordingRow = getRecordingRow(lectureRecordingId(lectureId))!;
+        if (audios.length > 1) transact(() => insertAudioPartAssets(recordingRow, audios.slice(1), now));
+        const extra = stored.filter((s) => s.file.kind !== "audio");
+        if (extra.length) transact(() => insertDocumentAssets(recordingRow, extra, now));
         const course = getLectureById(lectureId)!.course;
         const lecture = getLectureById(lectureId)!;
         announce.push(() => emitLectureEvent(user.id, { type: "created", id: lectureId, lecture: toLectureSummaryDto(lecture) }));
@@ -401,6 +412,30 @@ export const uploadsRouter = defineRouter({
     return req.c.body(null, 204);
   },
 });
+
+/**
+ * Audio parts after the first (D-P1-9): `part_index` 1.. in upload order. Their durations
+ * are filled by the process job when it joins them (concatAudio).
+ */
+function insertAudioPartAssets(recording: RecordingRow, parts: Array<{ file: UploadFile; path: string; sha256: string }>, now: number): void {
+  parts.forEach((s, i) => {
+    db.query(
+      `INSERT INTO asset (id, workspace_id, recording_id, kind, part_index, blob_key, sha256, bytes, mime, duration_ms, page_count, meta_json, created_at)
+       VALUES (?, ?, ?, 'audio', ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`
+    ).run(
+      uuidv7(now),
+      recording.workspace_id,
+      recording.id,
+      i + 1,
+      `file:${s.path}`,
+      s.sha256,
+      s.file.bytes,
+      AUDIO_MIME_BY_EXT[extname(s.path)] ?? "application/octet-stream",
+      JSON.stringify({ filename: s.file.filename, path: s.path }),
+      now
+    );
+  });
+}
 
 /** PDF and image files of an upload become assets of the recording. */
 function insertDocumentAssets(recording: RecordingRow, stored: Array<{ file: UploadFile; path: string; sha256: string }>, now: number): void {

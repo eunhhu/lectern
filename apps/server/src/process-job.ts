@@ -8,7 +8,7 @@
 // deploy) runs again with the same job id and resumes: finished stages and chunks are not
 // redone or paid for again.
 
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { config, readSecret } from "@lectern/config";
 import { DEFAULT_GEMINI_MODEL } from "../../../packages/core/src/index.ts";
@@ -32,8 +32,8 @@ import {
   type TranscriptionProvider,
   type TranscriptPipelineOptions,
 } from "@lectern/harness";
-import { isFfmpegAvailable } from "@lectern/media";
-import { announceLectures } from "./api/v2/store.ts";
+import { concatAudio, isFfmpegAvailable, readStreamInfo } from "@lectern/media";
+import { announceLectures, assetPath } from "./api/v2/store.ts";
 import { scheduleLectureIndex } from "./ask/index-job.ts";
 import { DATA_DIR, db, failLectureRecord, getLectureById, syncPendingLectures, updateLectureProgress } from "./db.ts";
 import { announceQueued, emitProgress, enqueueDistillation, type DistillInput } from "./distill-queue.ts";
@@ -485,14 +485,39 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
     return { ok: false, canceled: true, error: JOB_CANCELED_MESSAGE };
   };
 
+  // D-P1-9: a recording uploaded in several audio parts is transcribed as one timeline, the
+  // parts joined in order. The joined file stays when the job fails (a retry reuses it).
+  const parts = db
+    .query(`SELECT id, blob_key, duration_ms FROM asset WHERE recording_id = ? AND kind = 'audio' ORDER BY part_index`)
+    .all(recordingId) as Array<{ id: string; blob_key: string; duration_ms: number | null }>;
+  const joined = parts.length > 1 ? join(DATA_DIR, "work", `${job.id}-joined.flac`) : null;
+  let keepJoined = false;
+
   try {
     // 1. Transcript. Nothing is published when it fails, so the recording fails.
     let transcript: Transcript;
     let summary: Record<string, unknown>;
     try {
+      let transcriptInput = audioPath;
+      if (joined) {
+        const paths = parts.map((part) => assetPath(part));
+        if (paths.some((path) => path === null)) throw new HarnessError("config", "오디오 파트 파일을 찾을 수 없습니다.");
+        if (!existsSync(joined)) {
+          mkdirSync(join(DATA_DIR, "work"), { recursive: true });
+          const result = await concatAudio(paths as string[], joined, { signal: controller.signal });
+          result.parts.forEach((part, i) => db.query(`UPDATE asset SET duration_ms = ? WHERE id = ?`).run(part.duration_ms, parts[i]!.id));
+        } else {
+          for (const [i, part] of parts.entries()) {
+            if (part.duration_ms !== null) continue;
+            const info = await readStreamInfo(paths[i]!, { signal: controller.signal });
+            db.query(`UPDATE asset SET duration_ms = ? WHERE id = ?`).run(info.duration_ms, part.id);
+          }
+        }
+        transcriptInput = joined;
+      }
       const result = await runTranscriptPipeline(
         run,
-        { audioPath, language: recording.language ?? undefined },
+        { audioPath: transcriptInput, language: recording.language ?? undefined },
         {
           ...deps.pipeline,
           provider:
@@ -528,6 +553,7 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
         return { ok: false, error: err.message };
       }
       const message = transcriptFailureMessage(err);
+      keepJoined = true;
       logger.warn("process transcript failed", {
         ...fields,
         error_kind: err instanceof HarnessError ? err.kind : undefined,
@@ -556,6 +582,7 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
       syncPendingLectures();
     } catch (err) {
       logger.error("could not publish transcript", { ...fields, err });
+      keepJoined = true;
       const message = "전사를 저장하지 못했습니다.";
       const failed = failLectureRecord(lectureId, message);
       emitLectureEvent(ownerId, { type: "error", id: lectureId, error_message: message, lecture: failed ? toLectureSummaryDto(failed) : undefined });
@@ -572,6 +599,7 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
       const early = stopped();
       if (early) return early;
       const message = err?.message || String(err);
+      keepJoined = true;
       logger.warn("process notes stopped", { ...fields, error: message });
       return { ok: false, error: message };
     }
@@ -588,5 +616,6 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
     return { ok: true, result: outcome };
   } finally {
     cancel.stop();
+    if (joined && !keepJoined) rmSync(joined, { force: true });
   }
 }
