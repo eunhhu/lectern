@@ -11,7 +11,7 @@ import type { AssetDto, DocumentBlock, DocumentWithVersion, SourceRef } from "..
 import { formatTimestamp } from "../../lib/format.ts";
 import { resolveSourceRange } from "../../lib/segments.ts";
 import { Icon } from "../../ui/Icon.tsx";
-import { Badge, uiStyles } from "../../ui/controls.tsx";
+import { Badge, Button, uiStyles } from "../../ui/controls.tsx";
 import { LegacyDocument } from "./LegacyDocument.tsx";
 import { usePlayback } from "./playback.tsx";
 import s from "./recording.module.css";
@@ -42,7 +42,21 @@ function numberSources(body: DocumentWithVersion["version"]["body"]): Map<Source
   return numbers;
 }
 
-export function DocumentPane({ doc, pdfs, headingId }: { doc: DocumentWithVersion; pdfs: AssetDto[]; headingId: string }) {
+export function DocumentPane({
+  doc,
+  pdfs,
+  headingId,
+  onEdit,
+  editButtonId,
+}: {
+  doc: DocumentWithVersion;
+  pdfs: AssetDto[];
+  headingId: string;
+  /** Shows "편집" (D-P2-2). */
+  onEdit?: () => void;
+  /** The edit button's id, so focus can come back to it when the editor closes. */
+  editButtonId?: string;
+}) {
   const body = doc.version.body;
   const numbers = useMemo(() => numberSources(body), [body]);
   return (
@@ -52,6 +66,11 @@ export function DocumentPane({ doc, pdfs, headingId }: { doc: DocumentWithVersio
           <Badge>{TEMPLATE_NAME[doc.document.template_id] ?? doc.document.template_id}</Badge>
           {doc.document.user_edited ? <Badge tone="accent">직접 수정</Badge> : <Badge>AI 생성</Badge>}
           <span className={s.docVersion}>버전 {doc.version.version}</span>
+          {onEdit && (
+            <Button id={editButtonId} size="sm" variant="ghost" icon="pencil" onPress={onEdit}>
+              편집
+            </Button>
+          )}
         </div>
         {!body ? (
           <LegacyDocument markdown={doc.version.rendered_md} />

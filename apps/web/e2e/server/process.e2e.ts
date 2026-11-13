@@ -2,7 +2,7 @@
 // LECTERN_PIPELINE=v2 and a job worker turned on through the e2e-only control route, an
 // uploaded recording is transcribed and turned into a structured document by the fake
 // Gemini, and a source chip in that document jumps the player to the cited transcript.
-// It runs after the rest of the server suite (playwright.config.ts `server-v2`), so the
+// It runs after the rest of the server suite (playwright.config.ts `server-late`), so the
 // pipeline switch never touches the other tests.
 
 import type { Page } from "@playwright/test";

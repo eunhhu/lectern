@@ -7,13 +7,15 @@
 // - server (e2e/server/*.e2e.ts): the production build (dist) served by the real Lectern
 //   server on a throwaway database with LECTERN_ASK=1 and a fake Gemini
 //   (e2e/server/start.ts): login → list → detail → 물어보기 over real HTTP.
-// - server-v2 (e2e/server/process.e2e.ts): after `server`, the same server switched to
-//   LECTERN_PIPELINE=v2 with a job worker: upload → transcript → document → source jump.
+// - server-late (e2e/server/process.e2e.ts, e2e/server/zz-*.e2e.ts): after `server`, the
+//   tests that change what the others read: the v2 pipeline switch (upload → transcript →
+//   document → source jump) and edits to the seeded notes.
 
 import { defineConfig, devices } from "@playwright/test";
 import { E2E_PORT } from "./e2e/server/accounts.ts";
 
 const FIXTURE_PORT = 4174;
+const LATE_SERVER_SPECS = ["server/process.e2e.ts", "server/zz-*.e2e.ts"];
 const desktop = { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } };
 
 export default defineConfig({
@@ -49,15 +51,16 @@ export default defineConfig({
     {
       name: "server",
       testMatch: "server/**/*.e2e.ts",
-      testIgnore: "server/process.e2e.ts",
+      testIgnore: LATE_SERVER_SPECS,
       fullyParallel: false,
       use: { ...desktop, baseURL: `http://127.0.0.1:${E2E_PORT}` },
     },
-    // The v2 pipeline flow switches the shared server to LECTERN_PIPELINE=v2 and starts a job
-    // worker, so it runs only after the rest of the server suite has finished.
+    // These switch the shared server to LECTERN_PIPELINE=v2 (with a job worker) or change the
+    // seeded notes, so they run only after the rest of the server suite has finished.
     {
-      name: "server-v2",
-      testMatch: "server/process.e2e.ts",
+      name: "server-late",
+      testMatch: LATE_SERVER_SPECS,
+      fullyParallel: false,
       dependencies: ["server"],
       use: { ...desktop, baseURL: `http://127.0.0.1:${E2E_PORT}` },
     },

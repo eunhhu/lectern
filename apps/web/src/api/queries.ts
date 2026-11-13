@@ -14,6 +14,7 @@ import type {
   RecordingProgress,
   CreateFolderRequest,
   CreateTagRequest,
+  DocumentBody,
   EventCandidate,
   JobId,
   RecordingListItem,
@@ -111,6 +112,20 @@ export function useDocument(documentId: string | undefined) {
     queryKey: queryKeys.document(documentId ?? "none"),
     queryFn: () => api.getDocument(documentId!),
     enabled: Boolean(documentId),
+  });
+}
+
+/** Saves a user edit as a new version (If-Match on `baseVersion`): a structured `body` or a legacy note's Markdown. */
+export function useSaveDocument(documentId: string, recordingId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { body?: DocumentBody; markdown?: string; baseVersion: number }) =>
+      api.createDocumentVersion(documentId, v.body !== undefined ? { body: v.body } : { markdown: v.markdown! }, v.baseVersion),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.document(documentId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.recording(recordingId) });
+    },
   });
 }
 
