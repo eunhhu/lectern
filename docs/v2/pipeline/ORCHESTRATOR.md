@@ -26,7 +26,7 @@ bun run pipeline check
 bun run pipeline status
 ```
 
-- 작업 트리가 깨끗하고, 현재 브랜치가 `pipeline.json`의 `integration_branch`이고, `check`가 `OK`여야 한다. 아니면 멈추고 보고한다.
+- 작업 트리가 깨끗하고, 현재 브랜치가 `pipeline.json`의 `integration_branch`이고, `check`가 `OK`여야 한다. 아니면 멈추고 보고한다. `check`는 그래프뿐 아니라 각 명세의 머리 줄(등급·게이트·의존·소유)이 `pipeline.json`과 같은지도 본다.
 - `status`에 `RUNNING`이 있으면 지난 세션이 중간에 끊긴 것이다. 그 WP의 작업 브랜치(`wp/<ID>`)가 있으면 2단계의 "확인"부터 이어서 하고, 없으면 `bun run pipeline reset <ID>`로 되돌린다.
 
 ## 1. 고르기
@@ -43,6 +43,8 @@ bun run pipeline next
 | `DONE …` | 6단계(보고)로 |
 
 병렬로 돌리려면 `bun run pipeline next --parallel`을 쓴다. 나온 WP마다 2~4단계를 따로 한다. 잘 모르겠으면 직렬로 한다.
+
+`pipeline status`의 `LAST` 줄(P7-05)은 다른 작업이 모두 합쳐졌거나 막힌 뒤에야 `READY`로 나온다. 순서를 손으로 당기지 않는다.
 
 ## 2. 맡기기
 
@@ -82,13 +84,22 @@ cd .claude/worktrees/wp-<ID> && bun install --frozen-lockfile
 cd .claude/worktrees/wp-<ID> && bash scripts/pipeline/gate.sh <게이트>
 ```
 
+게이트가 `apple`·`android`·`windows`면 `gate.sh`가 아니라 PIPELINE.md 표의 명령을 돌린다.
+
+- `apple`: `bash apps/apple/scripts/gate.sh`. **P6-A0만** `cd apps/macos && swift build && swift test`다(CONTRACTS S-24).
+- `android`: `cd apps/android && ./gradlew testDebugUnitTest assembleDebug`.
+- `windows`: 로컬에서 돌지 않는다. 명세 7절의 정적 확인 명령을 직접 돌려 기대와 같으면 통과로 보고 합친다. CI(`.github/workflows/ci-cd.yml`)는 `main`으로 가는 PR이 열려 있을 때만 통합 브랜치의 push에서 돈다(CONTRACTS S-32).
+  - PR이 있으면: push한 뒤 `gh pr checks <PR 번호>`에서 `windows-native`를 본다. 빨가면 병합 커밋을 `git revert -m 1 <병합 커밋>`으로 되돌리고 `bun run pipeline block <ID> "windows-native CI 실패: <오류 한 줄>"`을 한다.
+  - PR이 없으면: PR을 **만들지 않는다**(사용자가 정한다). `STATUS.md`의 "실측 필요"에 "<ID>: Windows CI 미확인"을 적는다.
+  - 같은 규칙이 P6-CI(Apple CI 작업의 첫 실행)와 P7-03(시간 예산의 CI 보정)에도 적용된다: PR이 없으면 확인하지 못한 것으로 적는다.
+
 통합 브랜치의 작업 디렉터리에서 소유 경로를 검사한다.
 
 ```bash
 bun run pipeline verify <ID>
 ```
 
-워커가 테스트를 지우거나 약하게 만들지 않았는지 본다. 아래 명령의 출력에 지워진 테스트 파일이나 `skip`·`todo`·`failing`으로 바뀐 줄이 있으면 실패로 본다.
+워커가 테스트를 지우거나 약하게 만들지 않았는지 본다. 아래 명령의 출력에 지워진 테스트 파일이나 `skip`·`todo`·`failing`으로 바뀐 줄이 있으면 실패로 본다. **예외**: 그 WP의 명세(`wp/<ID>.md`)가 그 파일과 테스트 이름을 적어 지시한 것은 통과다(CONTRACTS S-31. 예: P1-16의 `test.skip(true, "ffmpeg가 없어 …")`). 명세에 없는 것은 예외가 아니다.
 
 ```bash
 git diff --stat <통합 브랜치>...wp/<ID> -- '*.test.ts' '*.e2e.ts'

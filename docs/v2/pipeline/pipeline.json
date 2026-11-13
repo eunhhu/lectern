@@ -56,7 +56,7 @@
     {"id":"P5-03","title":"네이티브 토큰 쌍","deps":["P5-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P5-04","title":"Google 로그인","deps":["P5-C","P4-02"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P5-05","title":"Sign in with Apple","deps":["P5-04"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
-    {"id":"P5-06","title":"초대, 역할, 팀 업로드","deps":["P5-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
+    {"id":"P5-06","title":"초대, 역할, 팀 업로드","deps":["P5-C","P4-05"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P5-07","title":"쿼터와 사용량","deps":["P5-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P5-08","title":"데이터 내보내기","deps":["P5-C"],"owns":["apps/server/","apps/worker/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P5-09","title":"계정 삭제","deps":["P5-08"],"owns":["apps/server/","apps/worker/"],"tier":"careful","gate":"full","status":"todo"},
@@ -86,10 +86,10 @@
     {"id":"P6-CI","title":"CI: Apple 빌드 작업","deps":["P6-A1"],"owns":[".github/"],"tier":"careful","gate":"quick","status":"todo"},
     {"id":"P6-D1","title":"Android: v2 파트 업로드","deps":["P1-12"],"owns":["apps/android/"],"tier":"careful","gate":"android","status":"todo"},
     {"id":"P6-W1","title":"Windows: v2 파트 업로드","deps":["P1-12"],"owns":["apps/windows/"],"tier":"careful","gate":"windows","status":"todo","needs_user":"Windows 빌드 환경(또는 PR의 Windows CI)이 있어야 검증할 수 있다"},
-    {"id":"P7-01","title":"부하 시험 스크립트","deps":["P1-12"],"owns":["scripts/load/","docs/runbooks/"],"tier":"basic","gate":"unit","status":"todo"},
-    {"id":"P7-02","title":"복원·장애 리허설","deps":["P1-12"],"owns":["scripts/rehearse/","docs/runbooks/","apps/server/test/"],"tier":"basic","gate":"full","status":"todo"},
+    {"id":"P7-01","title":"부하 시험 스크립트","deps":["P1-12","P1-16"],"owns":["scripts/load/","docs/runbooks/"],"tier":"basic","gate":"unit","status":"todo"},
+    {"id":"P7-02","title":"복원·장애 리허설","deps":["P1-12","P1-16"],"owns":["scripts/rehearse/","docs/runbooks/","apps/server/test/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P7-03","title":"성능 예산","deps":["P3-10","P2-09"],"owns":["apps/web/","scripts/bench/",".github/"],"tier":"careful","gate":"full","status":"todo"},
-    {"id":"P7-04","title":"접근성 점검","deps":["P5-13"],"owns":["apps/web/","docs/v2/pipeline/A11Y-AUDIT.md"],"tier":"basic","gate":"full","status":"todo"},
-    {"id":"P7-05","title":"인계 문서 맞추기","deps":["P7-01","P7-02"],"owns":["AGENTS.md","docs/","README.md"],"tier":"basic","gate":"quick","status":"todo"}
+    {"id":"P7-04","title":"접근성 점검","deps":["P5-13","P2-03","P2-05"],"owns":["apps/web/","docs/v2/pipeline/A11Y-AUDIT.md"],"tier":"basic","gate":"full","status":"todo"},
+    {"id":"P7-05","title":"인계 문서 맞추기","deps":["P7-01","P7-02"],"owns":["AGENTS.md","docs/","README.md"],"tier":"basic","gate":"quick","status":"todo","last":true}
   ]
 }

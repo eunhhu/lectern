@@ -80,7 +80,7 @@ command -v actionlint || echo "actionlint: none"
 bash scripts/pipeline/gate.sh quick
 ```
 ```bash
-git diff .github/workflows/ci-cd.yml | grep -c '^-[^-]'
+git diff .github/workflows/ci-cd.yml | grep -c '^-[^-]' || true
 ```
 
 ## 8. 하지 않는 것

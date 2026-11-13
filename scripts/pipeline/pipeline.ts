@@ -2,7 +2,7 @@
 // Build pipeline helper (docs/v2/pipeline/PIPELINE.md). The orchestrator never decides what
 // runs next by reading prose: it asks this script. State lives in docs/v2/pipeline/pipeline.json.
 //
-//   bun run pipeline check              validate the graph (ids, deps, cycles, spec files)
+//   bun run pipeline check              validate the graph (ids, deps, cycles, spec files and their header lines)
 //   bun run pipeline status             counts per phase, what is running or blocked
 //   bun run pipeline next [--parallel]  the work package(s) that may start now
 //   bun run pipeline start <id>         mark in_progress and print the worktree commands
@@ -31,6 +31,8 @@ interface WorkPackage {
   status: Status;
   /** Set when the package cannot start until the user does or decides something. */
   needs_user?: string;
+  /** Runs after everything else: ready only when no other package is running or can still start. */
+  last?: boolean;
   note?: string;
 }
 
@@ -79,9 +81,42 @@ function find(p: Pipeline, id: string | undefined): WorkPackage {
 const overlaps = (a: WorkPackage, b: WorkPackage) =>
   a.owns.some((x) => b.owns.some((y) => x.startsWith(y) || y.startsWith(x)));
 
+/** A package that is running, or that will become ready once packages that can still run are merged. */
+function canStillRun(p: Pipeline, wp: WorkPackage, seen = new Map<string, boolean>()): boolean {
+  const known = seen.get(wp.id);
+  if (known !== undefined) return known;
+  seen.set(wp.id, false); // a cycle (rejected by check) counts as "cannot run"
+  let result = false;
+  if (wp.status === "in_progress") result = true;
+  else if (wp.status === "todo" && !wp.needs_user) {
+    result = wp.deps.every((dep) => {
+      const other = find(p, dep);
+      return other.status === "merged" || canStillRun(p, other, seen);
+    });
+  }
+  seen.set(wp.id, result);
+  return result;
+}
+
 function isReady(p: Pipeline, wp: WorkPackage): boolean {
   if (wp.status !== "todo" || wp.needs_user) return false;
-  return wp.deps.every((dep) => find(p, dep).status === "merged");
+  if (!wp.deps.every((dep) => find(p, dep).status === "merged")) return false;
+  // A `last` package waits until every other package is merged, blocked, or stuck behind one that is.
+  if (wp.last) return !p.packages.some((other) => other !== wp && !other.last && canStillRun(p, other));
+  return true;
+}
+
+/** Tier, gate, deps and owns as written on a spec's header line ("> 등급: … · 게이트: … · 의존: … · 소유: …"). */
+function specHeader(id: string): { tier: string; gate: string; deps: string[]; owns: string[] } | null {
+  const path = join(BUILD_DIR, "wp", `${id}.md`);
+  if (!existsSync(path)) return null;
+  const line = readFileSync(path, "utf8")
+    .split("\n")
+    .find((l) => l.startsWith("> 등급"));
+  const m = line?.match(/등급: `([a-z]+)` · 게이트: `([a-z]+)` · 의존: (.*?) · 소유: (.*)$/);
+  if (!m) return null;
+  const ticks = (s: string) => [...s.matchAll(/`([^`]+)`/g)].map((x) => x[1]!);
+  return { tier: m[1]!, gate: m[2]!, deps: ticks(m[3]!), owns: ticks(m[4]!) };
 }
 
 function check(p: Pipeline): string[] {
@@ -92,7 +127,21 @@ function check(p: Pipeline): string[] {
     ids.add(wp.id);
     if (!/^[A-Z0-9]+-[A-Z0-9]+$/.test(wp.id)) problems.push(`${wp.id}: id must look like P1-03`);
     if (wp.owns.length === 0) problems.push(`${wp.id}: owns is empty`);
-    if (!existsSync(join(BUILD_DIR, "wp", `${wp.id}.md`))) problems.push(`${wp.id}: missing spec docs/v2/pipeline/wp/${wp.id}.md`);
+    if (!existsSync(join(BUILD_DIR, "wp", `${wp.id}.md`))) {
+      problems.push(`${wp.id}: missing spec docs/v2/pipeline/wp/${wp.id}.md`);
+      continue;
+    }
+    // The spec's header line is a copy of this entry; a worker reads the spec, the orchestrator reads the JSON.
+    const header = specHeader(wp.id);
+    if (!header) {
+      problems.push(`${wp.id}: spec has no "> 등급: … · 게이트: … · 의존: … · 소유: …" header line`);
+      continue;
+    }
+    const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+    if (header.tier !== wp.tier) problems.push(`${wp.id}: spec says tier ${header.tier}, pipeline.json says ${wp.tier}`);
+    if (header.gate !== wp.gate) problems.push(`${wp.id}: spec says gate ${header.gate}, pipeline.json says ${wp.gate}`);
+    if (!same(header.deps, wp.deps)) problems.push(`${wp.id}: spec deps [${header.deps.join(", ")}] differ from pipeline.json [${wp.deps.join(", ")}]`);
+    if (!same(header.owns, wp.owns)) problems.push(`${wp.id}: spec owns [${header.owns.join(", ")}] differ from pipeline.json [${wp.owns.join(", ")}]`);
   }
   for (const wp of p.packages) {
     for (const dep of wp.deps) if (!ids.has(dep)) problems.push(`${wp.id}: unknown dep ${dep}`);
@@ -160,6 +209,7 @@ switch (command) {
       if (wp.status === "in_progress") console.log(`RUNNING ${wp.id} ${wp.title}`);
       if (wp.status === "blocked") console.log(`BLOCKED ${wp.id} ${wp.title}: ${wp.note ?? ""}`);
       if (wp.status === "todo" && wp.needs_user) console.log(`NEEDS_USER ${wp.id} ${wp.title}: ${wp.needs_user}`);
+      if (wp.status === "todo" && wp.last) console.log(`LAST ${wp.id} ${wp.title}: starts when nothing else can still start`);
     }
     break;
   }

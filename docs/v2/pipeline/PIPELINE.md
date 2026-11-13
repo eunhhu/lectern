@@ -42,6 +42,8 @@ todo ──start──▶ in_progress ──게이트 통과 + 병합──▶ m
 - **기본은 직렬이다.** `bun run pipeline next`는 `pipeline.json`의 순서에서 의존이 모두 `merged`인 첫 WP 하나를 준다. 직렬이면 병합 충돌이 생기지 않는다.
 - 병렬(`next --parallel`)은 선택이다. 의존이 끝났고 **소유 경로가 서로 겹치지 않는** WP를 최대 `max_parallel`(3)개까지 준다. 서버(`apps/server/`), 웹(`apps/web/`), 하네스(`packages/harness/`), Apple(`apps/apple/`) 작업이 서로 다른 줄로 나란히 간다.
 - 계약 WP(`*-C`)는 `packages/db/`, `packages/domain/`, `packages/config/`를 소유하므로 서로 겹쳐 항상 하나씩 돈다. 마이그레이션 번호가 꼬이지 않는다.
+- **마지막 작업**: `pipeline.json`에서 `"last": true`인 WP(P7-05 인계 문서)는 의존이 끝났더라도, 다른 WP가 모두 `merged`·`blocked`이거나 막힌 WP 뒤에 서 있을 때만 `next`가 내준다. `needs_user`로 멈춘 WP는 기다리지 않는다.
+- `bun run pipeline check`는 그래프(id, 의존, 순환, 명세 파일)와 함께 **각 명세의 머리 줄이 `pipeline.json`과 같은지** 본다. 의존이나 소유를 바꿀 때는 `pipeline.json`, `CATALOG.md`, 명세의 머리 줄 세 곳을 같이 고친다.
 
 ## 게이트
 
@@ -52,9 +54,9 @@ WP는 자기 게이트를 통과해야 합쳐진다. 게이트는 실제 공급�
 | `quick` | `bash scripts/pipeline/gate.sh quick` | 설치(잠금 파일 고정), 타입 검사 |
 | `unit` | `bash scripts/pipeline/gate.sh unit` | `quick` + `bun test` |
 | `full` | `bash scripts/pipeline/gate.sh full` | `unit` + 웹 e2e(Playwright + axe) + preflight 두 번(플래그 끔, `flags-on.env` 전부 켬) |
-| `apple` | `bash apps/apple/scripts/gate.sh` (P6-A1이 만든다. P6-A0은 `cd apps/macos && swift build`) | XcodeGen, 시뮬레이터·macOS 빌드, 패키지 단위 테스트 |
+| `apple` | `bash apps/apple/scripts/gate.sh` (P6-A1이 만든다. P6-A0은 `cd apps/macos && swift build && swift test`) | XcodeGen, 시뮬레이터·macOS 빌드, 패키지 단위 테스트 |
 | `android` | `cd apps/android && ./gradlew testDebugUnitTest assembleDebug` | 단위 테스트와 빌드 |
-| `windows` | 로컬에서 못 돈다. PR의 Windows CI 작업으로만 확인한다 | — |
+| `windows` | 로컬에서 못 돈다. 명세의 정적 확인으로 합친다. `main`으로 가는 PR이 열려 있으면 push 뒤 CI의 `windows-native` 작업으로 확인하고, 빨가면 되돌리고 `block`한다. PR이 없으면 "확인 못 함"으로 STATUS에 적는다(ORCHESTRATOR 3절) | — |
 
 준비(처음 한 번)
 

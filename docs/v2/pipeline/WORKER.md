@@ -21,7 +21,7 @@
 | 2 | 명세의 **소유** 경로 밖 파일 고치기 | 다른 작업과 충돌한다. 필요하면 멈추고 보고한다 |
 | 3 | 실제 외부 호출(Gemini, Google, Apple, Resend 등), `~/local.env` 읽기, 실제 API 키 쓰기 | 비용과 개인정보. 테스트는 가짜로 한다(RECIPES R7, R12) |
 | 4 | 기본 데이터 디렉터리로 서버 띄우기 | 기본 경로는 실제 DB다. 서버를 띄워야 하면 `LECTERN_DATA_DIR`, `LECTERN_LECTURES_DIR`, `HOME`을 임시 디렉터리로 준다 |
-| 5 | 기존 테스트를 지우기, `skip`/`todo`/`failing`으로 바꾸기, 기대값을 느슨하게 고치기 | 게이트를 속이는 것이다. 테스트가 틀렸다고 생각하면 멈추고 보고한다 |
+| 5 | 기존 테스트를 지우기, `skip`/`todo`/`failing`으로 바꾸기, 기대값을 느슨하게 고치기 | 게이트를 속이는 것이다. 테스트가 틀렸다고 생각하면 멈추고 보고한다. **예외는 하나다**: 명세가 파일과 테스트 이름을 적어 지시한 변경·삭제·`skip`(CONTRACTS S-31) |
 | 6 | 운영 코드에 테스트 전용 분기 넣기 | AGENTS.md 규칙 |
 | 7 | `docs/v2/pipeline/CONTRACTS.md`, `CATALOG.md`, `pipeline.json`, 다른 WP의 명세 고치기 | 설계는 워커가 바꾸지 않는다 |
 | 8 | 명세에 없는 의존성 추가(`bun add`), `bun.lock` 변경 | 계약 WP만 한다 |

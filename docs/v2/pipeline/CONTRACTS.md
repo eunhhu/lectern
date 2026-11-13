@@ -470,3 +470,61 @@ v2 파트 업로드로 옮긴다(`createUpload` → `putUploadPart` → `complet
 | D-P7-2 | 성능 예산은 CI 테스트로 고정한다: 웹 초기 JS(gzip) 상한, 전사 3,000구간 스크롤의 프레임 드롭, `GET /search` p95(로컬 합성 1,000건). 수치는 첫 측정값의 1.2배로 정하고 문서에 적는다. |
 | D-P7-3 | 백업 복원 리허설과 공급자 장애 리허설은 스크립트 + 런북이다. 스크립트는 사본에서만 돈다. |
 | D-P7-4 | 인계 점검표: 처음 온 사람이 `AGENTS.md`와 런북만으로 로컬 실행·테스트·배포·롤백을 할 수 있는지 항목별로 확인한 기록을 `docs/runbooks/handover-checklist.md`에 남긴다. |
+
+---
+
+## 8. 보충 — 명세를 쓰며 정한 것
+
+위의 결정이 말하지 않았거나 실제 코드와 부딪혀서, 작업 명세(`wp/<ID>.md`)를 쓰는 동안 정한 것이다. 계약과 같은 효력이 있다. 번호는 `S-n`이고, 자세한 근거는 각 명세의 10절에 있다. 이 절과 명세가 다르면 이 절이 맞다.
+
+### P1 ~ P3
+
+| 번호 | 결정 | 명세 |
+|---|---|---|
+| S-1 | 전사 발행(`on`)을 넣으면서 `apps/server/test/transcript-job.test.ts`의 `on` 모드 기대값 한 줄을 바꾼다. 명세가 파일과 줄을 적어 지시한 기존 테스트 변경은 WORKER 금지 5의 예외다(S-31). | P1-10 |
+| S-2 | `apps/server/src/ask/legacy.ts`의 `lectureSources`·`isIndexable`은 구조화 문서(`body_json`)와 발행된 전사를 색인 대상으로 넓힌다. | P1-10, P1-12 |
+| S-3 | D-P1-3에 더해: `recording.status = partial`은 다음 투영에서 `ready`로 덮이지 않는다. `verifyLegacy`는 구조화 문서가 있는 녹음을 정규화해 비교한다. 오디오 자산이 여럿이면 `projectAudio`가 `duration_ms`를 첫 자산의 길이로 덮어쓰지 않는다. | P1-11, P1-14 |
+| S-4 | `publishNotes`에 선택 필드 `keepTitle`을 둔다(다시 만들기에서 사용자가 정한 제목을 지킨다). | P1-11, P1-13 |
+| S-5 | 사용자가 고친 할 일은 `updated_at != created_at`으로 판정한다. 다시 만들 때 고치지 않은 열린 항목만 지운다. | P1-11 |
+| S-6 | `process` 작업은 서버 키만 쓴다. 키가 없으면 `distill`로 떨어진다. 취소된 `process`의 녹음은 `failed`다. | P1-12 |
+| S-7 | `deleteLectureById`는 덧붙인 오디오 파트의 파일도 지운다. | P1-14 |
+| S-8 | 평가 지표의 정의(P1-15)와 e2e 가짜 Gemini의 JSON 모양(P1-16)은 명세 작성자의 선택이다. 실제 평가 세트와 실제 응답이 생기면 그것에 맞춘다. | P1-15, P1-16 |
+| S-9 | 웹 셸이 꺼져 있고(`LECTERN_WEB_SHELL=0`) 옛 화면이 삭제된 뒤에는 `/`와 `/admin`이 503을 준다. | P2-10, P5-14 |
+| S-10 | PDF 정렬 결과는 하네스 산출물과 별도로 `DATA_DIR/pdf-align/<recording_id>.json`에 한 벌 더 쓰고 `getRecordingAlignment`가 그것을 읽는다(산출물 blob은 작업이 끝나면 지워질 수 있다). | P3-04 |
+
+### P4 ~ P5
+
+| 번호 | 결정 | 명세 |
+|---|---|---|
+| S-11 | 리마인더 메일의 수신자는 녹음을 만든 사람(`recording.created_by`)이다. | P4-05 |
+| S-12 | 메일 발송 모듈 `apps/server/src/mail.ts`는 P4-05가 만들고 P5-06(초대 메일)이 쓴다. 그래서 P5-06은 P4-05에 의존한다. | P4-05, P5-06 |
+| S-13 | 자동 수락은 이미 지난 일정을 건너뛴다. | P4-04 |
+| S-14 | `updateWorkspace`의 `settings`는 얕게 병합한다. 값이 `null`인 키는 지운다. | P4-04 |
+| S-15 | PAT: 저장하는 접두는 앞 12자다(`lct_pat_`가 8자라 앞 8자는 모두 같다). 워크스페이스 범위는 `scopes_json` 안에 둔다(열을 더하지 않는다). PAT와 네이티브 토큰은 v1 API에서 받지 않는다. | P5-02, P5-03 |
+| S-16 | Apple 로그인 콜백(`form_post`)은 교차 사이트 `POST`라 `SameSite=Lax` 쿠키가 실리지 않는다. 한 번만 쓰는 `state`로만 보호하고, 응답은 303이다. | P5-05 |
+| S-17 | 네이티브 토큰을 회전하면 옛 refresh와 옛 access가 함께 무효가 된다. 푸시 기기의 `{device_id}`는 클라이언트가 만든다. | P5-03, P6-01 |
+| S-18 | 사용량의 기간은 Asia/Seoul 기준의 달이다. | P5-07 |
+| S-19 | 내보내기 zip은 압축하지 않고 ZIP64를 쓰지 않는다(4 GiB 한도). `include_audio`면 PDF도 넣는다. | P5-08 |
+| S-20 | 계정 삭제: 팀 워크스페이스의 비공개 녹음은 지우고, 공개(`workspace`) 녹음은 남기되 `created_by`를 그 워크스페이스의 owner로 바꾼다. | P5-09 |
+
+### P6
+
+| 번호 | 결정 | 명세 |
+|---|---|---|
+| S-21 | Android·Windows의 v2 업로드: §6.3의 "같은 `Idempotency-Key`로 재개"는 세션이 살아 있는 동안이다. 세션이 만료·취소됐거나 본문이 달라져 409 `idempotency_conflict`가 오면 키에 세대 번호(`<키>-g<n>`)를 붙여 새 세션을 만든다. v1의 `course`는 같은 이름의 최상위 폴더로 옮긴다(없으면 만든다). `recorded_at`은 보내지 않는다. Windows의 키는 파일 이름의 SHA-256 앞 32자다(헤더에 ASCII만 쓴다). 테스트의 가짜 서버는 기존 방식(`ServerSocket`)이고 MockWebServer를 넣지 않는다. | P6-D1, P6-W1 |
+| S-22 | v1 차단(`LECTERN_V1_BLOCK`)의 대상은 `/api/lectures*`, `/api/ingest/`, `/api/events`, `/api/clients/`다. `/api/auth/`, `/api/admin/`, `/api/cd/`, `/api/health`는 막지 않는다(새 웹 앱·관리자 콘솔·배포가 쓴다). 집계에는 모두 들어간다. 클라이언트 분류는 기존 `X-Client` 헤더를 먼저 보고, 없으면 User-Agent를 본다. | P6-03 |
+| S-23 | push-to-start 페이로드의 `attributes-type`은 `ProcessingActivityAttributes`다. 서버(P6-02)와 앱(P6-A11)의 타입 이름이 같아야 한다. 앱의 디코딩 테스트는 서버의 픽스처(`apps/server/test/fixtures/apns/*.json`)를 그대로 읽는다. | P6-02, P6-A11 |
+| S-24 | P6-A0(옛 `apps/macos`)의 `apple` 게이트는 `cd apps/macos && swift build && swift test`다. 그 밖의 Apple 작업은 `bash apps/apple/scripts/gate.sh`이고, 이 스크립트는 `scripts/pre-gate-*.sh` 훅을 먼저 돌린다. | P6-A0, P6-A1 |
+
+### P7과 파이프라인
+
+| 번호 | 결정 | 명세 |
+|---|---|---|
+| S-25 | 서버에는 디스크가 부족할 때 업로드를 거절하는 규칙이 없다. `scripts/load/disk-full.ts`는 그 상태에서 서버가 살아 있는지와 잃은 녹음이 없는지를 **관찰**해 기록한다. 거절 규칙이 필요하면 새 작업으로 만든다. | P7-01 |
+| S-26 | 로드맵의 "공급자 장애 시 전환 리허설"은, 공급자가 Gemini 하나이므로, "장애 때 작업이 끝나고(`failed` 또는 `partial`) 장애가 끝난 뒤 다시 시도하면 된다"는 것을 테스트로 고정하는 것으로 읽는다. | P7-02 |
+| S-27 | D-P7-2의 예산 가운데 기계마다 달라지는 것(스크롤 프레임 시간, 검색 p95)은 CI에서 잰 값으로 보정된 뒤에만 실패 조건이 된다(`timing_calibrated_on`, `calibrated_on`이 `"ci"`). 그 전에는 측정값을 보고만 한다. 기계와 무관한 것(초기 JS 크기, 그려진 항목 수)은 항상 강제한다. | P7-03 |
+| S-28 | D-P7-4의 "명령 확인"은 세 부류로 나눈다: 로컬에서 실행할 수 있는 것은 실행한다 / 운영 호스트 명령은 유닛·경로·환경 변수 이름을 저장소와 대조만 한다 / 비용이 들거나 바깥에 영향을 주는 것은 실행하지 않는다. 실행하지 않은 수를 점검표에 적는다. | P7-05 |
+| S-29 | P7-05는 `pipeline.json`에서 `"last": true`다. 다른 작업이 모두 `merged`·`blocked`이거나 막힌 작업 뒤에 서 있을 때만 시작한다. | P7-05 |
+| S-30 | `scripts/` 아래의 테스트(`*.test.ts`)도 `bun test`가 돌리고, 루트 `tsconfig.json`이 `scripts/**/*.ts`를 타입 검사한다. | P3-10, P7-01, P7-02, P7-03 |
+| S-31 | WORKER 금지 5(기존 테스트를 지우거나 약하게 만들지 않는다)의 예외는 하나다: 명세가 **파일과 테스트 이름을 적어** 지시한 변경·삭제·`skip`. 오케스트레이터는 그 명세를 보고 확인한다. | WORKER, ORCHESTRATOR |
+| S-32 | `windows` 게이트는 로컬에서 돌지 않는다. 오케스트레이터는 명세 7절의 정적 확인으로 합친다. CI는 `main` push와 `main`으로 가는 PR에서만 돌므로, 그런 PR이 열려 있을 때만 `windows-native` 결과를 볼 수 있다(빨가면 되돌리고 `block`). PR이 없으면 "확인 못 함"으로 STATUS에 남긴다. 오케스트레이터는 PR을 스스로 만들지 않는다. P6-CI의 첫 실행과 P7-03의 CI 보정도 같다. | P6-W1, P6-CI, P7-03, ORCHESTRATOR |

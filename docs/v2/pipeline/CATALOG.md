@@ -316,7 +316,7 @@ P1 후반 ~ P7을 작업 패키지(WP)로 나눈 목록이다. 순서·의존·�
 - 수용: 가짜 Apple로 로그인·연결, 키 파일이 없으면 501, `nonce` 불일치 거절.
 
 ### P5-06 초대, 역할, 팀 업로드
-- 의존: P5-C · 소유: `apps/server/` · careful · full
+- 의존: P5-C, P4-05(초대 메일이 `mail.ts`를 쓴다) · 소유: `apps/server/` · careful · full
 - 만들 것: D-P5-6, D-P2-8. 초대 라우트와 메일, `acceptInvite`, `updateMember`·`removeMember`, `LECTERN_TEAMS=1`에서 팀 워크스페이스 업로드, 권한 표 테스트(`api-v2-access.test.ts`)를 역할 × 행동 × 리소스 전체로 확장.
 - 수용: 만료·회수된 초대 거절, 다른 이메일로 로그인한 사람의 수락 거절, 마지막 owner 보호(409), viewer는 업로드 불가, 팀 녹음의 `private`·`workspace` 가시성 표.
 
@@ -464,7 +464,7 @@ P1 후반 ~ P7을 작업 패키지(WP)로 나눈 목록이다. 순서·의존·�
 ### P6-D1 Android: v2 파트 업로드
 - 의존: P1-12 · 소유: `apps/android/` · careful · android
 - 만들 것: §6.3. `LecternApi`에 v2 업로드, `UploadWorker`가 파트 단위로 재개, v1 경로는 설정으로 남김.
-- 수용: `./gradlew testDebugUnitTest assembleDebug`, MockWebServer로 3파트 업로드와 재개 테스트.
+- 수용: `./gradlew testDebugUnitTest assembleDebug`, 로컬 가짜 서버(기존 테스트처럼 `ServerSocket`. 새 의존성을 넣지 않는다)로 3파트 업로드와 재개 테스트. 세션이 만료·취소됐으면 키에 세대 번호를 붙여 새 세션을 만든다(CONTRACTS S-21).
 
 ### P6-W1 Windows: v2 파트 업로드
 - 의존: P1-12 · 소유: `apps/windows/` · careful · windows · **사용자 필요(Windows 빌드 환경)**
@@ -478,26 +478,26 @@ P1 후반 ~ P7을 작업 패키지(WP)로 나눈 목록이다. 순서·의존·�
 계약: [CONTRACTS §7](CONTRACTS.md#7-p7--하드닝).
 
 ### P7-01 부하 시험 스크립트
-- 의존: P1-12 · 소유: `scripts/load/`, `docs/runbooks/` · basic · unit
+- 의존: P1-12, P1-16(가짜 AI로 처리까지 도는 e2e 서버를 쓴다) · 소유: `scripts/load/`, `docs/runbooks/` · basic · unit
 - 만들 것: D-P7-1. `scripts/load/uploads.ts`(동시 N건), `long-recording.ts`(3시간), `disk-full.ts`. 결과는 JSON 요약(처리 시간, 실패, 최대 메모리). 런북에 Pi에서 돌리는 법.
-- 수용: 로컬에서 N=3, 10분 길이로 끝까지 돌고 요약이 나옴, 실제 데이터 디렉터리를 쓰려 하면 거절.
+- 수용: 로컬에서 N=3, 10분 길이로 끝까지 돌고 요약이 나옴, 실제 데이터 디렉터리를 쓰려 하면 거절. `disk-full.ts`는 관찰만 한다(서버에 디스크 부족 거절 규칙이 없다. CONTRACTS S-25).
 
 ### P7-02 복원·장애 리허설
-- 의존: P1-12 · 소유: `scripts/rehearse/`, `docs/runbooks/`, `apps/server/test/` · basic · full
+- 의존: P1-12, P1-16(가짜 Gemini 응답 모양을 가져온다) · 소유: `scripts/rehearse/`, `docs/runbooks/`, `apps/server/test/` · basic · full
 - 만들 것: D-P7-3. 백업 → 사본 복원 → 건수·체크섬 비교 스크립트, 공급자 장애(연속 5xx, 타임아웃, 429) 주입 테스트가 "영원히 처리 중" 없이 끝나는지.
-- 수용: 스크립트가 사본에서만 돎(원본 경로를 주면 거절), 테스트 통과, backup-restore·incident-response 런북 갱신.
+- 수용: 스크립트가 사본에서만 돎(원본 경로를 주면 거절), 테스트 통과, backup-restore·incident-response 런북 갱신. "전환"은 다른 공급자로 바꾸는 것이 아니라 "장애 때 작업이 끝나고 다시 시도할 수 있다"로 읽는다(CONTRACTS S-26).
 
 ### P7-03 성능 예산
 - 의존: P3-10, P2-09 · 소유: `apps/web/`, `scripts/bench/`, `.github/` · careful · full
 - 만들 것: D-P7-2. 웹 초기 JS gzip 크기 검사, 전사 스크롤 e2e 측정, 검색 p95 검사를 CI `web` 작업에.
-- 수용: 수치와 근거(첫 측정값 × 1.2)를 `apps/web/README.md`에, 예산 초과 시 실패.
+- 수용: 수치와 근거(첫 측정값 × 1.2)를 `apps/web/README.md`에, 예산 초과 시 실패. 기계마다 다른 시간 수치(프레임, 검색 p95)는 CI에서 보정된 뒤에만 실패 조건이 된다(CONTRACTS S-27).
 
 ### P7-04 접근성 점검
-- 의존: P5-13 · 소유: `apps/web/`, `docs/v2/pipeline/A11Y-AUDIT.md` · basic · full
+- 의존: P5-13, P2-03(가입 화면), P2-05(공유 UI) · 소유: `apps/web/`, `docs/v2/pipeline/A11Y-AUDIT.md` · basic · full
 - 만들 것: 키보드만으로 가입 → 업로드 → 문서 → 공유 → 설정 → 관리자까지 가는 e2e, VoiceOver 수동 점검표(화면별 확인 항목).
 - 수용: e2e 통과, 점검표의 수동 항목은 STATUS "실측 필요"에.
 
 ### P7-05 인계 문서 맞추기
-- 의존: P7-01, P7-02 · 소유: `AGENTS.md`, `docs/`, `README.md` · basic · quick
+- 의존: P7-01, P7-02 · 소유: `AGENTS.md`, `docs/`, `README.md` · basic · quick · **마지막**(`pipeline.json`의 `last`. 다른 작업이 모두 합쳐졌거나 막힌 뒤에만 시작한다)
 - 만들 것: D-P7-4. `AGENTS.md` 저장소 지도, `docs/v2/README.md`, ROADMAP의 단계 상태, `docs/runbooks/handover-checklist.md`, `docs/v2/pipeline/STATUS.md` 최종본.
-- 수용: 문서의 모든 명령을 실제로 실행해 확인한 기록, 깨진 링크 0개.
+- 수용: 문서의 명령을 실행해 확인한 기록(운영 호스트 명령은 저장소와 대조만, 비용·외부 영향이 있는 명령은 실행하지 않고 그 수를 적는다. CONTRACTS S-28), 깨진 링크 0개.
