@@ -89,7 +89,10 @@ cd .claude/worktrees/wp-<ID> && bash scripts/pipeline/gate.sh <게이트>
 - `apple`: `bash apps/apple/scripts/gate.sh`. **P6-A0만** `cd apps/macos && swift build && swift test`다(CONTRACTS S-24).
 - `android`: `cd apps/android && ./gradlew testDebugUnitTest assembleDebug`.
 - `windows`: 로컬에서 돌지 않는다. 명세 7절의 정적 확인 명령을 직접 돌려 기대와 같으면 통과로 보고 합친다. CI(`.github/workflows/ci-cd.yml`)는 `main`으로 가는 PR이 열려 있을 때만 통합 브랜치의 push에서 돈다(CONTRACTS S-32).
-  - PR이 있으면: push한 뒤 `gh pr checks <PR 번호>`에서 `windows-native`를 본다. 빨가면 병합 커밋을 `git revert -m 1 <병합 커밋>`으로 되돌리고 `bun run pipeline block <ID> "windows-native CI 실패: <오류 한 줄>"`을 한다.
+  - PR이 있으면: 이 WP는 단계가 끝나기를 기다리지 않고 **합친 직후** `git push origin <통합 브랜치>`를 한다. 그다음 `gh pr checks <PR 번호> --watch`로 끝나기를 기다려, 이름이 `Windows System Tray & Native Reader (.NET 8 WinForms)`인 줄을 본다(작업 id는 `windows-native`지만 목록에는 이 이름으로 나온다).
+    - 초록이면 끝.
+    - 빨가면 `gh run view <실행 id> --log-failed | tail -60`의 출력을 같은 워커에게 보내 `wp/<ID>` 브랜치에서 고치게 하고, 새 커밋을 다시 합쳐 push한다(되돌리지 않고 **추가 커밋으로** 고친다). 최대 2번.
+    - 그래도 빨가면 `git revert -m 1 <첫 병합 커밋>`(추가로 합친 커밋이 있으면 그것도)으로 되돌려 push하고 `bun run pipeline block <ID> "windows-native CI 실패: <오류 한 줄>"`을 한다. **되돌린 뒤에는 그 브랜치를 다시 합쳐도 원래 변경이 돌아오지 않는다**(되돌림 커밋을 먼저 되돌려야 한다). 그 일은 사람에게 맡긴다.
   - PR이 없으면: PR을 **만들지 않는다**(사용자가 정한다). `STATUS.md`의 "실측 필요"에 "<ID>: Windows CI 미확인"을 적는다.
   - 같은 규칙이 P6-CI(Apple CI 작업의 첫 실행)와 P7-03(시간 예산의 CI 보정)에도 적용된다: PR이 없으면 확인하지 못한 것으로 적는다.
 

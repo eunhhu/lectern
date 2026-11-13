@@ -475,7 +475,7 @@ v2 파트 업로드로 옮긴다(`createUpload` → `putUploadPart` → `complet
 
 ## 8. 보충 — 명세를 쓰며 정한 것
 
-위의 결정이 말하지 않았거나 실제 코드와 부딪혀서, 작업 명세(`wp/<ID>.md`)를 쓰는 동안 정한 것이다. 계약과 같은 효력이 있다. 번호는 `S-n`이고, 자세한 근거는 각 명세의 10절에 있다. 이 절과 명세가 다르면 이 절이 맞다.
+위의 결정이 말하지 않았거나 실제 코드와 부딪혀서, 작업 명세(`wp/<ID>.md`)를 쓰는 동안 정한 것이다. 번호는 `S-n`이다. 이 절은 **CATALOG와 §0~§7의 해당 문장보다 앞선다**(그 문장을 좁히거나 고친 것이다). 각 줄은 요약이고, 세부(함수 이름, 조건, 문구)는 "명세" 칸의 명세가 정한다.
 
 ### P1 ~ P3
 
@@ -486,7 +486,7 @@ v2 파트 업로드로 옮긴다(`createUpload` → `putUploadPart` → `complet
 | S-3 | D-P1-3에 더해: `recording.status = partial`은 다음 투영에서 `ready`로 덮이지 않는다. `verifyLegacy`는 구조화 문서가 있는 녹음을 정규화해 비교한다. 오디오 자산이 여럿이면 `projectAudio`가 `duration_ms`를 첫 자산의 길이로 덮어쓰지 않는다. | P1-11, P1-14 |
 | S-4 | `publishNotes`에 선택 필드 `keepTitle`을 둔다(다시 만들기에서 사용자가 정한 제목을 지킨다). | P1-11, P1-13 |
 | S-5 | 사용자가 고친 할 일은 `updated_at != created_at`으로 판정한다. 다시 만들 때 고치지 않은 열린 항목만 지운다. | P1-11 |
-| S-6 | `process` 작업은 서버 키만 쓴다. 키가 없으면 `distill`로 떨어진다. 취소된 `process`의 녹음은 `failed`다. | P1-12 |
+| S-6 | `process` 작업은 서버 키만 쓴다. 서버 키나 ffmpeg가 없으면 `distill`로 되돌아간다. 취소와 원본 삭제는 작업을 `ok: false`로 끝낸다. 어떤 종료도 녹음을 `processing`에 남기지 않는다. | P1-12 |
 | S-7 | `deleteLectureById`는 덧붙인 오디오 파트의 파일도 지운다. | P1-14 |
 | S-8 | 평가 지표의 정의(P1-15)와 e2e 가짜 Gemini의 JSON 모양(P1-16)은 명세 작성자의 선택이다. 실제 평가 세트와 실제 응답이 생기면 그것에 맞춘다. | P1-15, P1-16 |
 | S-9 | 웹 셸이 꺼져 있고(`LECTERN_WEB_SHELL=0`) 옛 화면이 삭제된 뒤에는 `/`와 `/admin`이 503을 준다. | P2-10, P5-14 |
@@ -502,7 +502,7 @@ v2 파트 업로드로 옮긴다(`createUpload` → `putUploadPart` → `complet
 | S-14 | `updateWorkspace`의 `settings`는 얕게 병합한다. 값이 `null`인 키는 지운다. | P4-04 |
 | S-15 | PAT: 저장하는 접두는 앞 12자다(`lct_pat_`가 8자라 앞 8자는 모두 같다). 워크스페이스 범위는 `scopes_json` 안에 둔다(열을 더하지 않는다). PAT와 네이티브 토큰은 v1 API에서 받지 않는다. | P5-02, P5-03 |
 | S-16 | Apple 로그인 콜백(`form_post`)은 교차 사이트 `POST`라 `SameSite=Lax` 쿠키가 실리지 않는다. 한 번만 쓰는 `state`로만 보호하고, 응답은 303이다. | P5-05 |
-| S-17 | 네이티브 토큰을 회전하면 옛 refresh와 옛 access가 함께 무효가 된다. 푸시 기기의 `{device_id}`는 클라이언트가 만든다. | P5-03, P6-01 |
+| S-17 | 네이티브 토큰을 회전하면 옛 refresh는 "쓴 것"으로 표시되고 옛 access는 그 순간 만료된다. 이미 쓴 refresh가 다시 오면 그 묶음(family) 전체를 폐기한다. 푸시 기기의 `{device_id}`는 클라이언트가 만든다. | P5-03, P6-01 |
 | S-18 | 사용량의 기간은 Asia/Seoul 기준의 달이다. | P5-07 |
 | S-19 | 내보내기 zip은 압축하지 않고 ZIP64를 쓰지 않는다(4 GiB 한도). `include_audio`면 PDF도 넣는다. | P5-08 |
 | S-20 | 계정 삭제: 팀 워크스페이스의 비공개 녹음은 지우고, 공개(`workspace`) 녹음은 남기되 `created_by`를 그 워크스페이스의 owner로 바꾼다. | P5-09 |
