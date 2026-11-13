@@ -28,6 +28,7 @@ export * from "./notes/classify.ts";
 export * from "./notes/compact.ts";
 export * from "./notes/extract.ts";
 export * from "./notes/korean-date.ts";
+export * from "./notes/pipeline.ts";
 export * from "./notes/prompt.ts";
 export * from "./notes/render.ts";
 export * from "./notes/schemas.ts";
