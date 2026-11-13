@@ -16,7 +16,7 @@ describe("@lectern/db migrations", () => {
       const sqlite = new Database(join(dir, "fresh.sqlite"));
       expect(pendingMigrations(sqlite).length).toBeGreaterThan(0);
       const res = runMigrations(sqlite, { backupDir: join(dir, "backups") });
-      expect(res.applied).toEqual(["0000_job_queue", "0001_search_ask", "0002_search_fts", "0003_v2_entities"]);
+      expect(res.applied).toEqual(["0000_job_queue", "0001_search_ask", "0002_search_fts", "0003_v2_entities", "0004_p1_pipeline"]);
       expect(res.backup).toBeNull(); // nothing to protect yet
       const tables = (sqlite.query(`SELECT name FROM sqlite_master WHERE type='table'`).all() as any[]).map((r) => r.name);
       for (const t of ["job", "stage_run", "artifact", "ai_call", "job_event", "system_state"]) {
@@ -38,6 +38,24 @@ describe("@lectern/db migrations", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("fresh db has job.cancel_requested_at", () => {
+    const sqlite = new Database(":memory:");
+    runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") });
+    const columns = sqlite.query(`PRAGMA table_info(job)`).all() as Array<{ name: string; notnull: number }>;
+    const column = columns.find((c) => c.name === "cancel_requested_at");
+    expect(column).toBeDefined();
+    expect(column!.notnull).toBe(0);
+    sqlite.close();
+  });
+
+  test("existing job rows survive", () => {
+    const sqlite = new Database(":memory:");
+    runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") });
+    sqlite.query(`INSERT INTO job (id, owner_id, kind, run_after, created_at) VALUES ('job_1', 'usr_1', 'distill', 0, 0)`).run();
+    expect(sqlite.query(`SELECT cancel_requested_at FROM job WHERE id = 'job_1'`).get()).toEqual({ cancel_requested_at: null });
+    sqlite.close();
   });
 
   test("the search FTS table is contentless and supports deletes", () => {

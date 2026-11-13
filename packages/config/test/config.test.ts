@@ -68,6 +68,29 @@ describe("@lectern/config", () => {
     expect(JSON.stringify(raw)).not.toContain("AIza-secret-value");
   });
 
+  test("pipeline defaults to v1", () => {
+    expect(loadConfig({}).pipeline).toBe("v1");
+  });
+
+  test("pipeline accepts v2", () => {
+    expect(loadConfig({ LECTERN_PIPELINE: "v2" }).pipeline).toBe("v2");
+  });
+
+  test("pipeline rejects other values", () => {
+    let err: unknown;
+    try {
+      loadConfig({ LECTERN_PIPELINE: "v3" });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ConfigError);
+    expect((err as ConfigError).issues.join("\n")).toContain("LECTERN_PIPELINE");
+  });
+
+  test("empty pipeline means default", () => {
+    expect(loadConfig({ LECTERN_PIPELINE: "" }).pipeline).toBe("v1");
+  });
+
   test("policy page values: an email address and a real YYYY-MM-DD date, or unset", () => {
     expect(loadConfig({}).legal).toEqual({ contactEmail: null, officerName: null, effectiveDate: null });
     expect(

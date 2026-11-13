@@ -116,6 +116,11 @@ const ENV = {
     description:
       "v2 transcript pipeline (packages/harness: ingest → … → speakers, AI_HARNESS §11 step 3). off: not run. shadow: after a distill on the server key succeeds, a `transcribe` job transcribes the recording again (Gemini, about $0.2 per hour of audio) and keeps the transcript as a harness artifact nobody sees. on: will publish the transcript once the transcript tables exist; until then it runs as shadow",
   },
+  LECTERN_PIPELINE: {
+    schema: z.enum(["v1", "v2"]).default("v1"),
+    description:
+      "v1: a finished upload runs the distill job (audio in, Markdown out). v2: it runs the `process` job (transcript, then structured notes, CONTRACTS §1). Costs more than v1 per recording",
+  },
   LECTERN_ASK: {
     schema: bool(false),
     description:
@@ -206,6 +211,8 @@ export interface Config {
   distillEngine: "legacy" | "harness";
   /** The v2 transcript pipeline (AI_HARNESS §11 step 3); off by default because it costs a second Gemini pass. */
   transcriptEngine: "off" | "shadow" | "on";
+  /** Which recording pipeline a finished upload starts: v1 distill or the v2 `process` job. */
+  pipeline: "v1" | "v2";
   /** 물어보기 (ADR-0009): off by default because indexing and answers cost money. */
   ask: { enabled: boolean; monthlyLimitMicrousd: number };
   /** Operator-specific values for /privacy and /terms (null = not set yet). */
@@ -274,6 +281,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     distillEngine: p.LECTERN_DISTILL_ENGINE,
     transcriptEngine: p.LECTERN_TRANSCRIPT_ENGINE,
+    pipeline: p.LECTERN_PIPELINE,
     ask: {
       enabled: p.LECTERN_ASK,
       monthlyLimitMicrousd: p.LECTERN_ASK_MONTHLY_LIMIT_MICROUSD,
