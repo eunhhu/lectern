@@ -14,7 +14,7 @@
     {"id":"P1-08","title":"Markdown 렌더러","deps":["P1-07"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"merged"},
     {"id":"P1-09","title":"runNotesPipeline과 장애 주입","deps":["P1-08"],"owns":["packages/harness/"],"tier":"careful","gate":"unit","status":"merged"},
     {"id":"P1-10","title":"전사 발행 (서버)","deps":["P1-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"merged"},
-    {"id":"P1-11","title":"노트 발행과 브리지 (서버)","deps":["P1-09","P1-10"],"owns":["apps/server/","packages/db/src/legacy.ts","packages/db/test/"],"tier":"careful","gate":"full","status":"todo"},
+    {"id":"P1-11","title":"노트 발행과 브리지 (서버)","deps":["P1-09","P1-10"],"owns":["apps/server/","packages/db/src/legacy.ts","packages/db/test/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P1-12","title":"process 작업 (서버)","deps":["P1-11"],"owns":["apps/server/","apps/worker/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P1-13","title":"다시 만들기, 작업 취소, 관리자 재시도","deps":["P1-12"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P1-14","title":"여러 오디오 파트","deps":["P1-12"],"owns":["apps/server/","packages/media/"],"tier":"basic","gate":"full","status":"todo"},
