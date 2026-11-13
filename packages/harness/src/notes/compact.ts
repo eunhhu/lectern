@@ -11,7 +11,7 @@ export interface CompactSegment {
 }
 
 /** `MM:SS` under an hour (minutes zero-padded), `H:MM:SS` from one hour. Seconds round down. */
-function clock(ms: number): string {
+export function compactClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
@@ -27,7 +27,7 @@ export function formatCompactTranscript(t: { segments: readonly CompactSegment[]
   for (const segment of t.segments) {
     const body = segment.text.replace(/\r?\n/g, " ");
     const label = segment.speaker === null ? "" : `${segment.speaker}: `;
-    lines.push(`#${segment.idx} [${clock(segment.start_ms)}] ${label}${body}`);
+    lines.push(`#${segment.idx} [${compactClock(segment.start_ms)}] ${label}${body}`);
     ids.push(segment.idx);
   }
   return { text: lines.join("\n"), ids };
