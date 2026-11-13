@@ -1,0 +1,84 @@
+{
+  "id": "meeting",
+  "version": 1,
+  "name": "회의록",
+  "domains": [
+    "meeting",
+    "one_on_one",
+    "call"
+  ],
+  "sections": [
+    {
+      "key": "summary",
+      "title": "요약",
+      "fill": "structure",
+      "instructions": "회의의 목적과 결론을 짧게 요약한다.",
+      "block_types": [
+        "paragraph",
+        "list"
+      ],
+      "required": true
+    },
+    {
+      "key": "decisions",
+      "title": "결정 사항",
+      "fill": "decisions",
+      "instructions": "",
+      "block_types": [
+        "list"
+      ],
+      "required": false
+    },
+    {
+      "key": "action_items",
+      "title": "할 일",
+      "fill": "action_items",
+      "instructions": "",
+      "block_types": [
+        "list"
+      ],
+      "required": false
+    },
+    {
+      "key": "topics",
+      "title": "논의 주제별 요점",
+      "fill": "structure",
+      "instructions": "논의 주제마다 heading을 두고 나온 의견과 근거를 정리한다.",
+      "block_types": [
+        "paragraph",
+        "list",
+        "quote"
+      ],
+      "required": true
+    },
+    {
+      "key": "open_issues",
+      "title": "미결 쟁점",
+      "fill": "structure",
+      "instructions": "결론이 나지 않은 쟁점만 적는다.",
+      "block_types": [
+        "list",
+        "paragraph"
+      ],
+      "required": false
+    },
+    {
+      "key": "next_events",
+      "title": "다음 일정",
+      "fill": "events",
+      "instructions": "",
+      "block_types": [
+        "list"
+      ],
+      "required": false
+    }
+  ],
+  "extract": {
+    "events": true,
+    "action_items": true,
+    "questions": false,
+    "decisions": true,
+    "glossary": false
+  },
+  "question_kinds": []
+}
