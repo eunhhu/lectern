@@ -2,7 +2,7 @@
   "integration_branch": "p0-foundations",
   "max_parallel": 3,
   "packages": [
-    {"id":"P0-01","title":"preflight가 / 리다이렉트를 알게 한다","deps":[],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},
+    {"id":"P0-01","title":"preflight가 / 리다이렉트를 알게 한다","deps":[],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P1-C","title":"계약: LECTERN_PIPELINE 플래그와 job.cancel_requested_at","deps":["P0-01"],"owns":["packages/config/","packages/db/","docs/env.md","deploy/systemd/","docs/v2/pipeline/flags-on.env","apps/server/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P1-01","title":"라우팅, 압축 전사 형식, LLM 공급자","deps":["P1-C"],"owns":["packages/harness/"],"tier":"careful","gate":"unit","status":"todo"},
     {"id":"P1-02","title":"템플릿 5종과 로더","deps":["P1-01"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"todo"},

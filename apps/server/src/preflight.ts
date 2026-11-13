@@ -6,6 +6,11 @@
 // without touching production data. A non-zero exit aborts the deploy and rolls the checkout back
 // while the old server keeps running.
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { config } from "@lectern/config";
+import { buildPreflightChecks, rootRedirectProblems } from "./preflight-checks.ts";
+
 if (process.env.LECTERN_PREFLIGHT !== "1") {
   console.error("preflight.ts is run by the deploy webhook with a sandboxed environment.");
   process.exit(2);
@@ -14,18 +19,7 @@ if (process.env.LECTERN_PREFLIGHT !== "1") {
 const { handleRequest } = await import("./index.ts");
 const { PAGE_SCRIPTS } = await import("./ui.ts");
 
-const checks: Array<[path: string, expectedStatus: number]> = [
-  ["/api/health", 200],
-  ["/", 200],
-  ["/admin", 200],
-  ["/s/preflight-missing-token", 404],
-  ["/api/lectures", 401],
-  ["/api/v2/me", 401],
-  ["/api/v2/openapi.json", 200],
-  ["/privacy", 200],
-  ["/terms", 200],
-  ...[...PAGE_SCRIPTS.keys()].map((name): [string, number] => [`/assets/${name}`, 200]),
-];
+const checks = buildPreflightChecks(config().webShell, [...PAGE_SCRIPTS.keys()]);
 
 const failures: string[] = [];
 
@@ -53,6 +47,16 @@ for (const [path, expected] of checks) {
   } catch (err: any) {
     failures.push(`${path} → threw ${err?.message || err}`);
   }
+}
+
+// With the web shell on, / must redirect into /app and the legacy page must stay reachable.
+if (config().webShell) {
+  const { WEB_SHELL_DIST_DIR } = await import("./web-shell.ts");
+  const get = async (path: string) => {
+    const res = await handleRequest(new Request(`http://localhost${path}`));
+    return { status: res.status, location: res.headers.get("Location") };
+  };
+  failures.push(...(await rootRedirectProblems(get, { distBuilt: existsSync(join(WEB_SHELL_DIST_DIR, "index.html")) })));
 }
 
 // Build this release's web app now, before the restart; the new server promotes it at
