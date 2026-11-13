@@ -6,7 +6,7 @@
     {"id":"P1-C","title":"계약: LECTERN_PIPELINE 플래그와 job.cancel_requested_at","deps":["P0-01"],"owns":["packages/config/","packages/db/","docs/env.md","deploy/systemd/","docs/v2/pipeline/flags-on.env","apps/server/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P1-01","title":"라우팅, 압축 전사 형식, LLM 공급자","deps":["P1-C"],"owns":["packages/harness/"],"tier":"careful","gate":"unit","status":"merged"},
     {"id":"P1-02","title":"템플릿 5종과 로더","deps":["P1-01"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"merged"},
-    {"id":"P1-03","title":"단계 출력 스키마와 classify","deps":["P1-02"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"todo"},
+    {"id":"P1-03","title":"단계 출력 스키마와 classify","deps":["P1-02"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"merged"},
     {"id":"P1-04","title":"structure 단계","deps":["P1-03"],"owns":["packages/harness/"],"tier":"careful","gate":"unit","status":"todo"},
     {"id":"P1-05","title":"한국어 날짜 파서","deps":["P1-C"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"todo"},
     {"id":"P1-06","title":"extract 단계","deps":["P1-04"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"todo"},
