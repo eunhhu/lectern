@@ -19,6 +19,7 @@ import { createAudioClock, SimulatedClock, type AudioPart, type MediaClock } fro
 import { Icon, type IconName } from "../../ui/Icon.tsx";
 import { Badge, Button, Dot, EmptyState, ErrorBox, Progress, Segmented, Spinner, uiStyles } from "../../ui/controls.tsx";
 import { BulkDialogs, type BulkAction } from "../library/BulkDialogs.tsx";
+import { ShareDialog } from "../share/ShareDialog.tsx";
 import { folderPath } from "../library/folders.ts";
 import { useAskSession } from "../ask/session.ts";
 import { AskPanel } from "./AskPanel.tsx";
@@ -117,6 +118,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const folders = useFolders(rec.workspace_id).data ?? [];
   const tags = useTags(rec.workspace_id).data ?? [];
   const [action, setAction] = useState<BulkAction>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const wide = useMediaQuery(WIDE);
   const now = useMemo(() => new Date(), []);
   const prefs = usePreferences();
@@ -216,12 +218,18 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
         <MenuTrigger>
           <Button variant="ghost" icon="more" iconOnly aria-label="녹음 작업" />
           <Popover className={uiStyles.popover} placement="bottom end">
-            <Menu className={uiStyles.menu} onAction={(key) => setAction({ kind: key as "move" | "tag" | "delete", ids: [rec.id] })}>
+            <Menu
+              className={uiStyles.menu}
+              onAction={(key) => (key === "share" ? setShareOpen(true) : setAction({ kind: key as "move" | "tag" | "delete", ids: [rec.id] }))}
+            >
               <MenuItem id="move" className={uiStyles.menuItem}>
                 <Icon name="folder" /> 폴더로 이동…
               </MenuItem>
               <MenuItem id="tag" className={uiStyles.menuItem}>
                 <Icon name="tag" /> 태그…
+              </MenuItem>
+              <MenuItem id="share" className={uiStyles.menuItem}>
+                <Icon name="send" /> 공유…
               </MenuItem>
               <MenuItem id="delete" className={uiStyles.menuItem}>
                 <Icon name="trash" /> 삭제…
@@ -269,15 +277,18 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   );
 
   const dialogs = (
-    <BulkDialogs
-      action={action}
-      onClose={() => {
-        const deleted = action?.kind === "delete";
-        setAction(null);
-        if (deleted) setTimeout(() => void navigate({ to: "/library" }), 0);
-      }}
-      onFailed={() => {}}
-    />
+    <>
+      <BulkDialogs
+        action={action}
+        onClose={() => {
+          const deleted = action?.kind === "delete";
+          setAction(null);
+          if (deleted) setTimeout(() => void navigate({ to: "/library" }), 0);
+        }}
+        onFailed={() => {}}
+      />
+      <ShareDialog recording={rec} isOpen={shareOpen} onOpenChange={setShareOpen} />
+    </>
   );
 
   if (!hasTranscript) {

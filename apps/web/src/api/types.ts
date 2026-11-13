@@ -75,6 +75,9 @@ export type CompleteUploadResponse = z.infer<typeof D.CompleteUploadResponse>;
 
 export type Device = z.infer<typeof D.DeviceDto>;
 export type WorkspaceMember = z.infer<typeof D.WorkspaceMember>;
+export type ShareLinkDto = z.infer<typeof D.ShareLinkDto>;
+export type CreatedShareLink = z.infer<typeof D.CreatedShareLink>;
+export type ShareScope = z.infer<typeof D.ShareScope>;
 
 // Requests
 export type UpdateMeRequest = z.infer<typeof D.UpdateMeRequest>;
@@ -88,6 +91,7 @@ export type UpdateEventCandidateRequest = z.infer<typeof D.UpdateEventCandidateR
 export type CreateUploadRequest = z.infer<typeof D.CreateUploadRequest>;
 export type UploadFileSpec = z.infer<typeof D.UploadFileSpec>;
 export type CreateDocumentVersionRequest = z.infer<typeof D.CreateDocumentVersionRequest>;
+export type CreateShareLinkRequest = z.infer<typeof D.CreateShareLinkRequest>;
 export type ListRecordingsParams = z.infer<typeof D.ListRecordingsQuery>;
 export type ListSuggestionsParams = z.infer<typeof D.ListCalendarSuggestionsQuery>;
 export type ListActionItemsQuery = z.infer<typeof D.ListActionItemsQuery>;
@@ -116,6 +120,7 @@ export type RecordingPage = Page<RecordingListItem>;
 export type QuestionPage = Page<Question>;
 export type EventCandidatePage = Page<EventCandidate>;
 export type ActionItemPage = Page<ActionItem>;
+export type ShareLinkPage = Page<ShareLinkDto>;
 export type SearchHitPage = Page<SearchHit>;
 export type DevicePage = Page<Device>;
 export type WorkspaceMemberPage = Page<WorkspaceMember>;

@@ -26,6 +26,7 @@ import type {
   RecordingDetail,
   RecordingId,
   SearchHit,
+  ShareLinkDto,
   ServerEvent,
   TagId,
   Transcript,
@@ -433,6 +434,8 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
   // The preview starts signed in as the fixture user; signing out shows the login screen,
   // and signing in again takes that user's email with any password (there is no server).
   let signedIn = true;
+  const shareLinks: ShareLinkDto[] = [];
+  let shareSeq = 0;
   const unauthorized = new Set<() => void>();
   const session = (): SessionUser => ({ id: data.me.id, email: data.me.email, displayName: data.me.display_name });
 
@@ -732,6 +735,36 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
         document.updated_at = version.created_at;
         emit(document.workspace_id, document.recording_id, { type: "document.updated", payload: { document_id: document.id, version: version.version } } as never);
         return structuredClone(version);
+      }),
+
+    // Share links: in memory, never persisted. The URL (with its token) is only returned here.
+    listShareLinks: (ws, targetId) =>
+      wait(() => page(shareLinks.filter((l) => l.workspace_id === ws && !l.revoked_at && (!targetId || l.target_id === targetId)), undefined, MAX_PAGE)),
+    createShareLink: (body) =>
+      wait(() => {
+        const rec = data.recordings.find((r) => r.id === body.target_id);
+        if (body.target_type === "recording" && !rec) throw notFound("녹음");
+        shareSeq += 1;
+        const link = {
+          id: `shl_fx${shareSeq}`,
+          workspace_id: rec?.workspace_id ?? data.workspaces[0]!.workspace.id,
+          target_type: body.target_type,
+          target_id: body.target_id,
+          scope: { transcript: body.scope.transcript, audio: body.scope.audio },
+          expires_at: body.expires_at ?? null,
+          has_password: Boolean(body.password),
+          created_by: data.me.id,
+          created_at: nowIso(),
+          revoked_at: null,
+        } as ShareLinkDto;
+        shareLinks.unshift(link);
+        return { link: structuredClone(link), url: `https://lectern.example/s/fixture-token-${shareSeq}` };
+      }),
+    revokeShareLink: (id) =>
+      wait(() => {
+        const link = shareLinks.find((l) => l.id === id && !l.revoked_at);
+        if (!link) throw notFound("공유 링크");
+        link.revoked_at = nowIso() as ShareLinkDto["revoked_at"];
       }),
 
     listCalendarSuggestions: (q: ListSuggestionsParams) =>

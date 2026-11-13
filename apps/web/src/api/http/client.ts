@@ -285,6 +285,10 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     createDocumentVersion: (documentId, body, baseVersion) =>
       call("createDocumentVersion", { params: { document_id: documentId }, body, headers: { [HEADER.ifMatch]: versionETag(baseVersion) } }),
 
+    listShareLinks: (ws, targetId) =>
+      call("listShareLinks", { query: { workspace_id: ws, ...(targetId ? { target_id: targetId } : {}), limit: 200 } }),
+    createShareLink: (body) => call("createShareLink", { body }),
+    revokeShareLink: (id) => call("revokeShareLink", { params: { share_link_id: id } }),
     listCalendarSuggestions: (query) => call("listCalendarSuggestions", { query }),
     updateCalendarSuggestion: (id, body) => call("updateCalendarSuggestion", { params: { event_candidate_id: id }, body }),
 

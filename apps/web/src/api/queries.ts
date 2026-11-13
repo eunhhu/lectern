@@ -13,6 +13,7 @@ import type {
   BatchRecordingsRequest,
   RecordingProgress,
   CreateFolderRequest,
+  CreateShareLinkRequest,
   CreateTagRequest,
   DocumentBody,
   EventCandidate,
@@ -54,6 +55,7 @@ export const queryKeys = {
   devices: ["devices"] as const,
   workspaceActionItems: (ws: string) => ["workspace-action-items", ws] as const,
   calendar: (ws: string) => ["calendar", ws] as const,
+  shareLinks: (ws: string) => ["share-links", ws] as const,
 };
 
 /** Follows `next_cursor` until the last page (lists in the shell are small). */
@@ -402,6 +404,35 @@ export function useUpdateActionItem(ws: WorkspaceId) {
       void qc.invalidateQueries({ queryKey: queryKeys.workspaceActionItems(ws) });
       void qc.invalidateQueries({ queryKey: ["action-items"] });
     },
+  });
+}
+
+// --- share links (D-P2-3) ---------------------------------------------------------------
+
+/** Links that are not revoked (one recording's, or the workspace's). The token URL is never here. */
+export function useShareLinks(ws: string, targetId?: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: [...queryKeys.shareLinks(ws), targetId ?? "all"],
+    queryFn: () => api.listShareLinks(ws as WorkspaceId, targetId).then((p) => p.items),
+  });
+}
+
+export function useCreateShareLink(ws: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateShareLinkRequest) => api.createShareLink(body),
+    onSettled: () => void qc.invalidateQueries({ queryKey: queryKeys.shareLinks(ws) }),
+  });
+}
+
+export function useRevokeShareLink(ws: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.revokeShareLink(id),
+    onSettled: () => void qc.invalidateQueries({ queryKey: queryKeys.shareLinks(ws) }),
   });
 }
 
