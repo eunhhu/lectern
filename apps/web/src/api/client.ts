@@ -12,6 +12,7 @@ import type {
   BatchRecordingsResponse,
   ListActionItemsQuery,
   AskStreamEvent,
+  AskSuggestions,
   AskThread,
   AskThreadDetail,
   AskThreadPage,
@@ -32,6 +33,7 @@ import type {
   EventCandidatePage,
   Folder,
   FolderPage,
+  ListAskSuggestionsParams,
   ListAskThreadsQuery,
   ListRecordingsParams,
   ListSuggestionsParams,
@@ -41,6 +43,8 @@ import type {
   Recording,
   RecordingDetail,
   RecordingPage,
+  ReprocessRequest,
+  ReprocessResponse,
   SearchHitPage,
   SearchParams,
   ServerEvent,
@@ -161,6 +165,16 @@ export interface ApiClient {
   /** The link and its URL; the URL (with the token) is in this response only. */
   createShareLink(body: CreateShareLinkRequest): Promise<CreatedShareLink>;
   revokeShareLink(shareLinkId: string): Promise<void>;
+
+  // --- recording actions (D-P2-4) --------------------------------------------------
+  /** Deletes only the recording's audio files; transcript and documents stay. */
+  deleteRecordingAudio(recordingId: string): Promise<void>;
+  /** `dry_run` returns only the estimate (`job: null`); otherwise the queued job. */
+  reprocessRecording(recordingId: string, body: ReprocessRequest): Promise<ReprocessResponse>;
+  /** The document's Markdown and the file name the server suggests. */
+  exportDocument(documentId: string): Promise<{ filename: string; blob: Blob }>;
+  /** Rule-built suggested questions for a scope (no model call). */
+  listAskSuggestions(query: ListAskSuggestionsParams): Promise<AskSuggestions>;
 
   listCalendarSuggestions(query: ListSuggestionsParams): Promise<EventCandidatePage>;
   updateCalendarSuggestion(eventCandidateId: string, body: UpdateEventCandidateRequest): Promise<EventCandidate>;
