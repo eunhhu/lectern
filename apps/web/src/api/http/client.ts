@@ -79,6 +79,9 @@ const V1UserBody = z.object({
   user: z.object({ id: z.string().min(1), email: z.string(), displayName: z.string().nullable().optional() }),
 });
 const V1ErrorBody = z.object({ error: z.string() });
+/** `{ ok, message }` of send-code, reset-password and a register waiting for approval. */
+const V1MessageBody = z.object({ message: z.string().optional() });
+const V1PendingBody = z.object({ pendingApproval: z.literal(true), message: z.string().optional() });
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
 
@@ -185,11 +188,27 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     return send(`${authBase}${path}`, { ...init, headers: { Accept: "application/json", ...(init.headers as Record<string, string>) } });
   }
 
-  async function sessionFrom(res: Response): Promise<SessionUser> {
-    const parsed = V1UserBody.safeParse(await res.json().catch(() => null));
-    if (!parsed.success) throw new ApiClientError(res.status, "invalid_response", INVALID_MESSAGE);
+  function userFrom(status: number, json: unknown): SessionUser {
+    const parsed = V1UserBody.safeParse(json);
+    if (!parsed.success) throw new ApiClientError(status, "invalid_response", INVALID_MESSAGE);
     const { id, email, displayName } = parsed.data.user;
     return { id, email, displayName: displayName ?? null };
+  }
+
+  async function sessionFrom(res: Response): Promise<SessionUser> {
+    return userFrom(res.status, await res.json().catch(() => null));
+  }
+
+  async function postAuth(path: string, body: Record<string, string>): Promise<Response> {
+    const res = await auth(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!res.ok) throw await errorFrom(res);
+    return res;
+  }
+
+  async function messageFrom(res: Response): Promise<string> {
+    const parsed = V1MessageBody.safeParse(await res.json().catch(() => null));
+    if (!parsed.success) throw new ApiClientError(res.status, "invalid_response", INVALID_MESSAGE);
+    return parsed.data.message ?? "";
   }
 
   return {
@@ -214,6 +233,20 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     async logout() {
       const res = await auth("/logout", { method: "POST" });
       if (!res.ok) throw await errorFrom(res);
+    },
+    async sendCode(email, purpose) {
+      return messageFrom(await postAuth("/send-code", { email, purpose }));
+    },
+    async register({ email, displayName, password, verificationCode }) {
+      const res = await postAuth("/register", { email, displayName, password, verificationCode });
+      const json: unknown = await res.json().catch(() => null);
+      const pending = V1PendingBody.safeParse(json);
+      if (pending.success) return { kind: "pending", message: pending.data.message ?? "" };
+      // The body also carries the session token for native clients; it is ignored here.
+      return { kind: "signedIn", user: userFrom(res.status, json) };
+    },
+    async resetPassword({ email, verificationCode, newPassword }) {
+      return messageFrom(await postAuth("/reset-password", { email, verificationCode, newPassword }));
     },
     onUnauthorized(listener) {
       unauthorized.add(listener);

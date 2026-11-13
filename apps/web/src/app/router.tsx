@@ -16,6 +16,8 @@ import { LibraryPage } from "../routes/library/LibraryPage.tsx";
 import { RecordingPage } from "../routes/recording/RecordingPage.tsx";
 import { CalendarPage } from "../routes/calendar/CalendarPage.tsx";
 import { LoginPage, safeNext, type LoginSearch } from "../routes/login/LoginPage.tsx";
+import { ResetPage } from "../routes/account/ResetPage.tsx";
+import { SignupPage } from "../routes/account/SignupPage.tsx";
 import { NotFoundPage, SessionErrorPage } from "../routes/placeholders.tsx";
 import { SettingsPage } from "../routes/settings/SettingsPage.tsx";
 import { AskPage, type AskSearch } from "../routes/ask/AskPage.tsx";
@@ -51,6 +53,25 @@ const loginRoute = createRoute({
     if (await ensureSession(context)) throw redirect({ href: safeNext(search.next) });
   },
   component: LoginPage,
+});
+
+// Sign-up and password reset are for visitors: someone already signed in goes home.
+const signupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/signup",
+  beforeLoad: async ({ context }) => {
+    if (await ensureSession(context)) throw redirect({ href: "/" });
+  },
+  component: SignupPage,
+});
+
+const resetRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/reset",
+  beforeLoad: async ({ context }) => {
+    if (await ensureSession(context)) throw redirect({ href: "/" });
+  },
+  component: ResetPage,
 });
 
 const authedRoute = createRoute({
@@ -102,6 +123,8 @@ const settingsRoute = createRoute({ getParentRoute: () => authedRoute, path: "/s
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  signupRoute,
+  resetRoute,
   authedRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, askRoute, calendarRoute, settingsRoute]),
 ]);
 

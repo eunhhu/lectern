@@ -1,10 +1,10 @@
 // 로그인: the existing cookie auth (POST /api/auth/login sets the HttpOnly
 // `lectern_session` cookie). Nothing from the response is stored in the browser; the
-// session token in its body is ignored. Signing up and password reset stay on the
-// existing screen at / until the v2 account flows exist.
+// session token in its body is ignored. Signing up and password reset are /signup and
+// /reset (routes/account).
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { Form, Input, Label, TextField } from "react-aria-components";
 import { errorMessage } from "../../api/errors.ts";
@@ -90,13 +90,12 @@ export function LoginPage() {
             {pending ? "로그인하는 중…" : "로그인"}
           </Button>
         </Form>
-        {api.mode === "fixture" ? (
+        {api.mode === "fixture" && (
           <p className={s.note}>미리보기에는 서버가 없습니다. 예시 사용자의 이메일과 아무 비밀번호로 들어갑니다.</p>
-        ) : (
-          <p className={s.note}>
-            계정 만들기와 비밀번호 찾기는 <a href="/?legacy=1">기존 화면</a>에서 할 수 있습니다.
-          </p>
         )}
+        <p className={s.note}>
+          계정이 없거나 비밀번호를 잊었다면 <Link to="/signup">회원가입</Link> · <Link to="/reset">비밀번호를 잊으셨나요?</Link>
+        </p>
       </div>
     </main>
   );

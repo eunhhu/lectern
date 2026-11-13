@@ -453,6 +453,27 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
       wait(() => {
         signedIn = false;
       }),
+    // No mail in the preview: the code is always 000000.
+    sendCode: (_email, purpose) =>
+      wait(() =>
+        purpose === "reset"
+          ? "가입된 계정이라면 이메일로 6자리 인증번호가 발송됩니다. (10분간 유효)"
+          : "이메일로 6자리 인증번호를 발송했습니다. (10분간 유효)",
+      ),
+    register: ({ email, password, verificationCode }) =>
+      wait(() => {
+        if (email.trim().toLowerCase() === data.me.email) throw new ApiClientError(400, "bad_request", "이미 가입된 이메일 주소입니다.");
+        if (password.length < 6) throw new ApiClientError(400, "bad_request", "비밀번호는 최소 6자 이상이어야 합니다.");
+        if (verificationCode !== "000000") throw new ApiClientError(400, "bad_request", "이메일 인증번호가 올바르지 않거나 만료되었습니다.");
+        signedIn = true;
+        return { kind: "signedIn" as const, user: session() };
+      }),
+    resetPassword: ({ verificationCode, newPassword }) =>
+      wait(() => {
+        if (verificationCode !== "000000") throw new ApiClientError(400, "bad_request", "인증번호가 올바르지 않거나 만료되었습니다.");
+        if (newPassword.length < 6) throw new ApiClientError(400, "bad_request", "새 비밀번호는 최소 6자 이상이어야 합니다.");
+        return "비밀번호가 재설정되었습니다. 새 비밀번호로 로그인해주세요.";
+      }),
     onUnauthorized(listener) {
       unauthorized.add(listener);
       return () => unauthorized.delete(listener);
