@@ -10,7 +10,7 @@
     {"id":"P1-04","title":"structure 단계","deps":["P1-03"],"owns":["packages/harness/"],"tier":"careful","gate":"unit","status":"merged"},
     {"id":"P1-05","title":"한국어 날짜 파서","deps":["P1-C"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"merged"},
     {"id":"P1-06","title":"extract 단계","deps":["P1-04"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"merged"},
-    {"id":"P1-07","title":"verify와 문서 본문 조립","deps":["P1-05","P1-06"],"owns":["packages/harness/"],"tier":"careful","gate":"unit","status":"todo"},
+    {"id":"P1-07","title":"verify와 문서 본문 조립","deps":["P1-05","P1-06"],"owns":["packages/harness/"],"tier":"careful","gate":"unit","status":"merged"},
     {"id":"P1-08","title":"Markdown 렌더러","deps":["P1-07"],"owns":["packages/harness/"],"tier":"basic","gate":"unit","status":"todo"},
     {"id":"P1-09","title":"runNotesPipeline과 장애 주입","deps":["P1-08"],"owns":["packages/harness/"],"tier":"careful","gate":"unit","status":"todo"},
     {"id":"P1-10","title":"전사 발행 (서버)","deps":["P1-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
