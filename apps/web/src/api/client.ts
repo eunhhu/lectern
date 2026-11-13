@@ -83,6 +83,9 @@ export interface SessionUser {
   displayName: string | null;
 }
 
+/** POST /api/auth/register: signed in at once, or waiting for an operator's approval. */
+export type RegisterResult = { kind: "signedIn"; user: SessionUser } | { kind: "pending"; message: string };
+
 export interface AskQuestionOptions {
   signal?: AbortSignal;
   /** Every stream event, in order (`turn.started`, `retrieval`, `answer.delta`, …). */
@@ -99,6 +102,12 @@ export interface ApiClient {
   /** Signs in; the server sets the HttpOnly session cookie. Rejects with the server's message. */
   login(email: string, password: string): Promise<SessionUser>;
   logout(): Promise<void>;
+  /** Mails a 6-digit code (POST /api/auth/send-code). Resolves with the server's sentence. */
+  sendCode(email: string, purpose: "signup" | "reset"): Promise<string>;
+  /** Creates an account (POST /api/auth/register); the session token in the body is ignored. */
+  register(input: { email: string; displayName: string; password: string; verificationCode: string }): Promise<RegisterResult>;
+  /** Sets a new password with a mailed code (POST /api/auth/reset-password). Resolves with the server's sentence. */
+  resetPassword(input: { email: string; verificationCode: string; newPassword: string }): Promise<string>;
   /** Called whenever a request answers 401 (the session ended). Returns an unsubscribe function. */
   onUnauthorized(listener: () => void): () => void;
 
