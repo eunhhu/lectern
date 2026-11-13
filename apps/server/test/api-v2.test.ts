@@ -27,13 +27,11 @@ const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Recor
 const NOT_YET = new Set([
   "createAccessToken",
   "revokeAccessToken",
-  "cancelJob",
   "startGoogleIntegration",
   "disconnectIntegration",
   "createShareLink",
   "updateShareLink",
   "revokeShareLink",
-  "adminRetryJob",
 ]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";

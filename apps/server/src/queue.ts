@@ -26,6 +26,8 @@ export interface JobOutcome {
   /** Compaction: bytes saved. */
   savedBytes?: number;
   result?: Record<string, unknown>;
+  /** The job stopped because a user canceled it (job.cancel_requested_at): state `canceled`. */
+  canceled?: boolean;
   /**
    * Runs once the job's row is finished and its dedupe key released. For follow-up jobs on
    * the same subject: one enqueued from inside the handler can be leased by this worker
@@ -50,6 +52,8 @@ interface HandlerEntry {
   concurrency: number;
   /** Called when the job is given up after repeated interruptions. */
   onLost?: (job: { id: string; subjectId: string | null; ownerId: string }) => void;
+  /** Called when a queued job is canceled before any worker ran it. */
+  onCanceled?: (job: { id: string; subjectId: string | null; ownerId: string }) => void;
 }
 
 const handlers = new Map<string, HandlerEntry>();
@@ -57,9 +61,41 @@ const handlers = new Map<string, HandlerEntry>();
 export function registerJobHandler(
   kind: string,
   run: HandlerEntry["run"],
-  options: { concurrency: number; onLost?: HandlerEntry["onLost"] }
+  options: { concurrency: number; onLost?: HandlerEntry["onLost"]; onCanceled?: HandlerEntry["onCanceled"] }
 ): void {
-  handlers.set(kind, { run, concurrency: Math.max(1, options.concurrency), onLost: options.onLost });
+  handlers.set(kind, {
+    run,
+    concurrency: Math.max(1, options.concurrency),
+    onLost: options.onLost,
+    onCanceled: options.onCanceled,
+  });
+}
+
+export const JOB_CANCELED_MESSAGE = "사용자가 작업을 취소했습니다.";
+
+/**
+ * Ends queued jobs whose cancel was requested (job.cancel_requested_at): `canceled`, the
+ * dedupe key released, and the kind's onCanceled hook run for each. `jobId` limits it to
+ * one job. A running job stops itself at its next stage (its handler watches the column).
+ */
+export function cancelQueuedJobs(jobId?: string): number {
+  const params: Array<string | number> = [Date.now(), JOB_CANCELED_MESSAGE];
+  if (jobId) params.push(jobId);
+  const rows = db
+    .query(
+      `UPDATE job SET state = 'canceled', finished_at = ?, idempotency_key = NULL, lease_owner = NULL, lease_until = NULL, error = ?
+       WHERE state = 'queued' AND cancel_requested_at IS NOT NULL ${jobId ? "AND id = ?" : ""}
+       RETURNING id, kind, subject_id, owner_id`
+    )
+    .all(...params) as Array<Pick<JobRow, "id" | "kind" | "subject_id" | "owner_id">>;
+  for (const row of rows) {
+    try {
+      handlers.get(row.kind)?.onCanceled?.({ id: row.id, subjectId: row.subject_id, ownerId: row.owner_id });
+    } catch (err) {
+      logger.error("job cancel hook failed", { job_id: row.id, kind: row.kind, err });
+    }
+  }
+  return rows.length;
 }
 
 export function jobConcurrency(): Record<string, number> {
@@ -391,6 +427,7 @@ export class JobWorker {
     if (this.stopped) return;
     try {
       reclaimExpiredLeases();
+      cancelQueuedJobs();
       for (const [kind, entry] of handlers) {
         const active = this.running.get(kind) ?? new Set<string>();
         this.running.set(kind, active);
@@ -416,7 +453,7 @@ export class JobWorker {
              started_at = COALESCE(started_at, ?)
            WHERE id = (
              SELECT id FROM job
-             WHERE state = 'queued' AND run_after <= ? AND kind = ?
+             WHERE state = 'queued' AND run_after <= ? AND kind = ? AND cancel_requested_at IS NULL
              ORDER BY priority DESC, created_at
              LIMIT 1
            )
@@ -475,9 +512,9 @@ export class JobWorker {
            lease_until = NULL, idempotency_key = NULL, sealed_secret = NULL
          WHERE id = ? AND lease_owner = ?`
       ).run(
-        outcome.ok ? "succeeded" : "failed",
+        outcome.canceled ? "canceled" : outcome.ok ? "succeeded" : "failed",
         JSON.stringify(result),
-        outcome.ok ? null : outcome.error ?? null,
+        outcome.canceled ? outcome.error ?? JOB_CANCELED_MESSAGE : outcome.ok ? null : outcome.error ?? null,
         Date.now(),
         row.id,
         this.id
@@ -552,4 +589,9 @@ export function embeddedWorker(): JobWorker | null {
 
 function wakeLocalWorker(): void {
   ensureEmbeddedWorker()?.wake();
+}
+
+/** Has the in-process worker look for work now (a job was requeued outside enqueueJob). */
+export function wakeJobWorker(): void {
+  wakeLocalWorker();
 }
