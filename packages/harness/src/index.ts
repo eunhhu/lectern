@@ -26,6 +26,7 @@ export * from "./eval/set.ts";
 export * from "./eval/synth.ts";
 export * from "./notes/classify.ts";
 export * from "./notes/compact.ts";
+export * from "./notes/extract.ts";
 export * from "./notes/korean-date.ts";
 export * from "./notes/prompt.ts";
 export * from "./notes/schemas.ts";
