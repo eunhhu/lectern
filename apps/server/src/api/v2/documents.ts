@@ -2,7 +2,7 @@ import { documentVersionId, LEGACY_TEMPLATE_ID } from "@lectern/db";
 import { HEADER, parseVersionETag, versionETag, type DocumentBody } from "@lectern/domain";
 import { db, getLectureById, updateLectureMarkdown } from "../../db.ts";
 import { loadRecording } from "./access.ts";
-import { apiError, defineRouter, notFound, notImplemented, ok, okPage, type Handler, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, ok, okPage, type Handler, type V2Request } from "./common.ts";
 import {
   documentDto,
   documentVersionDto,
@@ -124,6 +124,17 @@ export const documentsRouter = defineRouter({
     });
   }, "recording:update"),
 
-  // The Markdown download (D-P2-4) comes with P2-01.
-  exportDocument: notImplemented,
+  // The current version as a Markdown attachment (D-P2-4). `format` is `md` only (the
+  // route's query schema answers 400 otherwise).
+  exportDocument: withDocument((_req, document, recording) => {
+    const version = versionOf(document.id, document.current_version)!;
+    const name = `${recording.title}.md`.replace(/[^\w가-힣._ -]/g, "_");
+    return new Response(`${version.rendered_md}\n`, {
+      headers: {
+        "Content-Type": "text/markdown; charset=utf-8",
+        "Content-Disposition": `attachment; filename="note.md"; filename*=UTF-8''${encodeURIComponent(name)}`,
+        "Cache-Control": "private, no-store",
+      },
+    });
+  }),
 });

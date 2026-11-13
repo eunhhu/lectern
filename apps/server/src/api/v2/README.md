@@ -1,6 +1,6 @@
 # API v2 (`/api/v2`)
 
-`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 뒤 단계(P4·P5) 기능 9개와 P2-01이 구현할 3개(D-P2-4)가 아직 `501 not_implemented`다.
+`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 뒤 단계(P4·P5) 기능 9개만 아직 `501 not_implemented`다.
 
 ## 요청 처리 순서
 
@@ -85,20 +85,20 @@
 | `GET /recordings/{recording_id}/events` | `listRecordingEvents` | 실제 | P4 전까지 비어 있음 |
 | `GET /recordings/{recording_id}/action-items` | `listRecordingActionItems` | 실제 | |
 | `POST /recordings/{recording_id}/reprocess` | `reprocessRecording` | 실제 | `full`은 오디오부터 다시(`LECTERN_PIPELINE=v2`면 `process`, 아니면 v1 재분석). `document`는 저장된 전사로 노트만 다시 만든다(`regenerate`, 새 문서 버전; 전사가 없으면 409). `dry_run`은 추정 비용 |
-| `DELETE /recordings/{recording_id}/audio` | `deleteRecordingAudio` | 501 | P2-01. 오디오만 지우고 노트는 남긴다 |
+| `DELETE /recordings/{recording_id}/audio` | `deleteRecordingAudio` | 실제 | 오디오만 지운다(전사·문서·노트·검색 색인은 남음). v1 강의는 `deleteLectureAudioOnly` 뒤 투영, `file:` 오디오 asset은 uploads 안의 파일과 행을 지움. 이미 없으면 204 |
 | `GET /assets/{asset_id}/content` | `getAssetContent` | 실제 | Range, 확장자 기준 MIME, `?token=` 가능 |
 | `GET /documents/{document_id}` | `getDocument` | 실제 | `ETag: "<current_version>"` |
 | `GET /documents/{document_id}/versions` | `listDocumentVersions` | 실제 | 최신순, 본문 제외 |
 | `GET /documents/{document_id}/versions/{version}` | `getDocumentVersion` | 실제 | |
 | `POST /documents/{document_id}/versions` | `createDocumentVersion` | 실제 | `If-Match` 낙관적 잠금, 오래되면 412. legacy 문서는 `markdown`, 구조화 문서는 `body`(바뀐 블록에 `edited`) |
-| `GET /documents/{document_id}/export` | `exportDocument` | 501 | P2-01. `format=md`, 현재 버전을 Markdown 첨부로 |
+| `GET /documents/{document_id}/export` | `exportDocument` | 실제 | `format=md`만. 현재 버전의 `rendered_md`를 `text/markdown` 첨부(`filename*=UTF-8''<제목>.md`)로 |
 | `GET /action-items` | `listActionItems` | 실제 | 마감 빠른 순 |
 | `PATCH /action-items/{action_item_id}` | `updateActionItem` | 실제 | |
 | `GET /jobs/{job_id}` | `getJob` | 실제 | v1 `distill`은 `process`. 시스템 작업은 404 |
 | `POST /jobs/{job_id}/cancel` | `cancelJob` | 실제 | `process`·`regenerate`·`distill`만. 대기 중이면 바로 `canceled`, 실행 중이면 다음 단계 전에 멈춘다(응답은 아직 `running`). 남의 작업은 404, 끝난 작업은 409 |
 | `GET /search` | `search` | 실제 | 제목·문서(legacy는 문단 `md-<n>`)·전사의 부분 문자열. 하이브리드 색인은 P3 |
 | `/ask/*` 6개 | `createAskThread` 등 | 실제(`LECTERN_ASK=1`), 꺼지면 501 | 개인 워크스페이스의 색인 위. 범위는 v2 녹음·폴더 |
-| `GET /ask/suggestions` | `listAskSuggestions` | 501 | P2-01. 규칙으로 만든 추천 질문(모델 호출 없음) |
+| `GET /ask/suggestions` | `listAskSuggestions` | 실제 | 규칙으로 만든 질문 최대 6개(모델 호출 없음, `LECTERN_ASK`와 무관). 녹음 범위는 도메인 질문 + 문서 섹션 제목 |
 | `GET /calendar/suggestions` | `listCalendarSuggestions` | 실제 | `statuses`, 기간. P4 전까지 비어 있음 |
 | `PATCH /calendar/suggestions/{event_candidate_id}` | `updateCalendarSuggestion` | 실제 | `synced`는 409 |
 | `POST /calendar/suggestions/batch` | `batchCalendarSuggestions` | 실제 | |
