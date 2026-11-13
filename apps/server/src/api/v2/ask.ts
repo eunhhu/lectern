@@ -29,11 +29,14 @@ import {
   type ScopeError,
 } from "@lectern/ask";
 import { folderRows, personalWorkspaceId, recordingRows } from "../../ask/legacy.ts";
-import { roleIn } from "./access.ts";
+import { loadRecording, requireWorkspace, roleIn } from "./access.ts";
+import { parseJson } from "./rows.ts";
+import { getFolderRow } from "./store.ts";
+import { buildSuggestions } from "./suggestions.ts";
 import type { AskService } from "../../ask/service.ts";
 import { db } from "../../db.ts";
 import { logger } from "../../log.ts";
-import { apiError, defineRouter, notImplemented, ok, okPage, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
 
 const HEARTBEAT_MS = 15_000;
 
@@ -224,7 +227,37 @@ export function createAskRouter(getService: () => AskService | null) {
       });
     },
 
-    // Rule-built suggestions (D-P2-4) come with P2-01.
-    listAskSuggestions: notImplemented,
+    // Rule-built suggestions (D-P2-4). No model: this answers with LECTERN_ASK off too.
+    listAskSuggestions: (req) => {
+      const query = req.query as { workspace_id: string; scope_type: "recording" | "folder" | "workspace"; scope_id?: string };
+      const member = requireWorkspace(req, query.workspace_id);
+      if (member instanceof Response) return member;
+      if (query.scope_type === "workspace") return ok(req, { suggestions: buildSuggestions({ scope: "workspace" }) });
+      if (!query.scope_id) return apiError(req.c, 400, "bad_request", "scope_id가 필요합니다.");
+      if (query.scope_type === "folder") {
+        const folder = getFolderRow(query.scope_id);
+        if (!folder || folder.workspace_id !== query.workspace_id) return notFound(req, "폴더");
+        return ok(req, { suggestions: buildSuggestions({ scope: "folder" }) });
+      }
+      const recording = loadRecording(req, query.scope_id);
+      if (recording instanceof Response) return recording;
+      if (recording.workspace_id !== query.workspace_id) return notFound(req, "녹음");
+      return ok(req, { suggestions: buildSuggestions({ scope: "recording", domain: recording.domain, sectionTitles: sectionTitlesOf(recording.id) }) });
+    },
+  });
+}
+
+/** Section titles of every document of a recording, from each one's current version. */
+function sectionTitlesOf(recordingId: string): string[] {
+  const rows = db
+    .query(
+      `SELECT v.body_json FROM document d JOIN document_version v ON v.document_id = d.id AND v.version = d.current_version
+       WHERE d.recording_id = ? ORDER BY d.updated_at DESC, d.id`
+    )
+    .all(recordingId) as Array<{ body_json: string | null }>;
+  return rows.flatMap((row) => {
+    if (row.body_json == null) return [];
+    const body = parseJson<{ sections?: Array<{ title?: unknown }> }>(row.body_json, {});
+    return (body.sections ?? []).map((s) => s.title).filter((t): t is string => typeof t === "string");
   });
 }

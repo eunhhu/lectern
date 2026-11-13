@@ -32,9 +32,6 @@ const NOT_YET = new Set([
   "createShareLink",
   "updateShareLink",
   "revokeShareLink",
-  // D-P2-4, implemented in P2-01.
-  "deleteRecordingAudio",
-  "exportDocument",
 ]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
@@ -239,17 +236,6 @@ describe("API v2 routes of later phases", () => {
       expect(body.error.code).toBe("not_implemented");
       expect(body.error.details).toEqual({ operation_id: route.operationId });
     }
-  });
-
-  test("ask suggestions answer 501 until P2-01", async () => {
-    const workspace = (await getJson("/me", ownerAuth)).body.personal_workspace_id as string;
-    const res = await call(
-      new Request(`http://localhost${API_BASE_PATH}/ask/suggestions?workspace_id=${workspace}&scope_type=workspace`, { headers: ownerAuth })
-    );
-    expect(res.status).toBe(501);
-    const body = ApiError.parse(await res.json());
-    expect(body.error.code).toBe("not_implemented");
-    expect(body.error.details).toEqual({ operation_id: "listAskSuggestions" });
   });
 
   test("every other route has a real handler (no route answers 501)", async () => {

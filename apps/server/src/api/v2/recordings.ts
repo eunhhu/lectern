@@ -1,17 +1,19 @@
-import { existsSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { deleteRecordingIndex, deleteRecordingThreads } from "@lectern/ask";
 import { deleteRecordingRows } from "@lectern/db";
 import { costMicrousd, DEFAULT_PRICING, priceFor } from "@lectern/harness";
 import type { ErrorCode } from "@lectern/domain";
 import { DEFAULT_GEMINI_MODEL } from "../../../../../packages/core/src/index.ts";
-import { db, deleteLectureById, getLectureById, getUserById, resetLectureForRetry } from "../../db.ts";
+import { DATA_DIR, db, deleteLectureAudioOnly, deleteLectureById, getLectureById, getUserById, resetLectureForRetry } from "../../db.ts";
+import { logger } from "../../log.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
 import { enqueueRecordingProcessing } from "../../process-job.ts";
 import { enqueueRegenerate } from "../../regenerate-job.ts";
 import { isLectureBusy } from "../../queue.ts";
 import { callerIn, can, loadRecording, requireWorkspace, VISIBLE_RECORDING_SQL } from "./access.ts";
-import { apiError, defineRouter, notFound, notImplemented, ok, okPage, pageBounds, pageFrom, type Handler, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, ok, okPage, pageBounds, pageFrom, type Handler, type V2Request } from "./common.ts";
 import {
   actionItemDto,
   eventCandidateDto,
@@ -34,6 +36,7 @@ import {
   activeJobRow,
   announceDeleted,
   announceLectures,
+  assetPath,
   documentsOf,
   folderSubtree,
   getFolderRow,
@@ -407,9 +410,45 @@ export const recordingsRouter = defineRouter({
     return ok(req, { estimate, job: job ? toJob(job) : null }, { status: 202 });
   }, "recording:update"),
 
-  // Deleting only the audio (D-P2-4) comes with P2-01.
-  deleteRecordingAudio: notImplemented,
+  // Only the audio goes (D-P2-4): transcript, documents, notes and the search index stay.
+  // Idempotent: a recording without audio answers 204 too.
+  deleteRecordingAudio: withRecording((req, recording) => {
+    // A lecture-backed recording: the v1 "오디오만 지우기", then the v2 rows follow by projection.
+    if (recording.lecture_id && getLectureById(recording.lecture_id)) deleteLectureAudioOnly(recording.lecture_id);
+    dropAudioFiles(recording.id);
+    if (recording.lecture_id) announceLectures([recording.lecture_id]);
+    return req.c.body(null, 204);
+  }, "recording:delete"),
 });
+
+/**
+ * Audio assets stored as files (`file:` blobs: the extra parts of a multi-part upload,
+ * derived audio). `lecture:` blobs are the v1 function's. Files are only removed under the
+ * uploads directory, as deleteLectureById does; the rows go either way.
+ */
+function dropAudioFiles(recordingId: string): void {
+  const rows = db
+    .query(`SELECT id, blob_key FROM asset WHERE recording_id = ? AND kind LIKE 'audio%' AND blob_key LIKE 'file:%'`)
+    .all(recordingId) as Array<{ id: string; blob_key: string }>;
+  if (!rows.length) return;
+  const uploads = join(DATA_DIR, "uploads");
+  for (const row of rows) {
+    const path = assetPath(row);
+    if (!path) continue;
+    if (!path.startsWith(uploads)) {
+      logger.warn("audio asset outside the uploads directory left on disk", { recording_id: recordingId, asset_id: row.id });
+      continue;
+    }
+    try {
+      unlinkSync(path);
+    } catch (err) {
+      logger.warn("could not remove an audio file", { recording_id: recordingId, asset_id: row.id, err });
+    }
+  }
+  transact(() => {
+    for (const row of rows) db.query(`DELETE FROM asset WHERE id = ?`).run(row.id);
+  });
+}
 
 /**
  * Estimated notes cost of a `document` reprocess: the transcript as input (about two
