@@ -24,6 +24,7 @@ import { useAskSession } from "../ask/session.ts";
 import { AskPanel } from "./AskPanel.tsx";
 import { AudioPlayer } from "./AudioPlayer.tsx";
 import { DocumentPane } from "./DocumentPane.tsx";
+import { DocumentEditor } from "./edit/DocumentEditor.tsx";
 import { PlaybackProvider, type SidePanel } from "./playback.tsx";
 import { SidePane } from "./SidePane.tsx";
 import { TranscriptPane } from "./TranscriptPane.tsx";
@@ -102,6 +103,8 @@ function playableParts(assets: RecordingDetail["assets"], urlOf: (id: string) =>
   return out;
 }
 
+const EDIT_BUTTON_ID = "document-edit";
+
 function RecordingView({ detail }: { detail: RecordingDetail }) {
   const api = useApi();
   const navigate = useNavigate();
@@ -125,6 +128,21 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const [backToAsk, setBackToAsk] = useState(false);
   // Focus the composer only when the reader opened 물어보기, not on page load.
   const [askFocus, setAskFocus] = useState(false);
+  // Document editing (D-P2-2); closing it puts focus back on "편집".
+  const [editing, setEditing] = useState(false);
+  const [refocusEdit, setRefocusEdit] = useState(false);
+  const closeEditor = useCallback(() => {
+    setEditing(false);
+    setRefocusEdit(true);
+  }, []);
+  useEffect(() => {
+    if (!refocusEdit || editing) return;
+    const button = document.getElementById(EDIT_BUTTON_ID);
+    if (button) {
+      button.focus();
+      setRefocusEdit(false);
+    }
+  });
   const setPanel = (next: RecordingPanel) => {
     setBackToAsk(false);
     setAskFocus(next === "ask");
@@ -312,8 +330,10 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
           문서
         </h2>
         <div className={s.docScroll}>
-          {doc.data ? (
-            <DocumentPane doc={doc.data} pdfs={pdfs} headingId="pane-document" />
+          {doc.data && editing ? (
+            <DocumentEditor doc={doc.data} recordingId={rec.id} onClose={closeEditor} />
+          ) : doc.data ? (
+            <DocumentPane doc={doc.data} pdfs={pdfs} headingId="pane-document" onEdit={() => setEditing(true)} editButtonId={EDIT_BUTTON_ID} />
           ) : (
             <EmptyState icon="pdf" title="문서가 아직 없습니다.">
               전사는 준비됐고 문서를 만드는 중입니다.

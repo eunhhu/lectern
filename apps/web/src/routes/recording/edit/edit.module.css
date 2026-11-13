@@ -1,0 +1,107 @@
+.editor {
+  max-width: 70ch;
+  margin: 0 auto;
+  padding: var(--space-24) var(--space-32) var(--space-64);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+/* Wide enough for Markdown next to its preview. */
+.editor[data-legacy] {
+  max-width: none;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  margin-right: auto;
+}
+
+.lead {
+  color: var(--color-text-secondary);
+  line-height: var(--font-line-height-relaxed);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.sectionTitle {
+  margin-top: var(--space-16);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.legacyGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-24);
+  align-items: start;
+}
+
+@media (max-width: 1279px) {
+  .legacyGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.textarea {
+  min-height: calc(var(--size-control-lg) * 2);
+  padding: var(--space-8);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
+  font: inherit;
+  line-height: var(--font-line-height-relaxed);
+  resize: vertical;
+  min-width: 0;
+}
+
+.textarea[data-focused] {
+  border-color: var(--color-accent-solid);
+  outline: 3px solid var(--color-bg-selected);
+  outline-offset: 0;
+}
+
+.markdown {
+  min-height: 60vh;
+  font-family: var(--font-family-mono);
+}
+
+.preview {
+  padding: var(--space-16);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-raised);
+  overflow-wrap: break-word;
+}
+
+.previewTitle {
+  font: var(--typography-label);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-8);
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  color: var(--color-status-danger-fg);
+  line-height: var(--font-line-height-relaxed);
+}
+
+.error > svg {
+  flex: none;
+  margin-top: 3px;
+}
