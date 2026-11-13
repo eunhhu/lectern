@@ -84,7 +84,7 @@
 | `GET /recordings/{recording_id}/questions` | `listRecordingQuestions` | 실제 | 폐기 예정, 비어 있음 |
 | `GET /recordings/{recording_id}/events` | `listRecordingEvents` | 실제 | P4 전까지 비어 있음 |
 | `GET /recordings/{recording_id}/action-items` | `listRecordingActionItems` | 실제 | |
-| `POST /recordings/{recording_id}/reprocess` | `reprocessRecording` | 실제 | 이전된 강의는 `full`만(v1 재분석). `dry_run`은 추정 비용. 전사가 없는데 `document`면 409 |
+| `POST /recordings/{recording_id}/reprocess` | `reprocessRecording` | 실제 | `full`은 오디오부터 다시(`LECTERN_PIPELINE=v2`면 `process`, 아니면 v1 재분석). `document`는 저장된 전사로 노트만 다시 만든다(`regenerate`, 새 문서 버전; 전사가 없으면 409). `dry_run`은 추정 비용 |
 | `GET /assets/{asset_id}/content` | `getAssetContent` | 실제 | Range, 확장자 기준 MIME, `?token=` 가능 |
 | `GET /documents/{document_id}` | `getDocument` | 실제 | `ETag: "<current_version>"` |
 | `GET /documents/{document_id}/versions` | `listDocumentVersions` | 실제 | 최신순, 본문 제외 |
@@ -93,7 +93,7 @@
 | `GET /action-items` | `listActionItems` | 실제 | 마감 빠른 순 |
 | `PATCH /action-items/{action_item_id}` | `updateActionItem` | 실제 | |
 | `GET /jobs/{job_id}` | `getJob` | 실제 | v1 `distill`은 `process`. 시스템 작업은 404 |
-| `POST /jobs/{job_id}/cancel` | `cancelJob` | 501 | v1 큐에 취소가 없다(하네스) |
+| `POST /jobs/{job_id}/cancel` | `cancelJob` | 실제 | `process`·`regenerate`·`distill`만. 대기 중이면 바로 `canceled`, 실행 중이면 다음 단계 전에 멈춘다(응답은 아직 `running`). 남의 작업은 404, 끝난 작업은 409 |
 | `GET /search` | `search` | 실제 | 제목·문서(legacy는 문단 `md-<n>`)·전사의 부분 문자열. 하이브리드 색인은 P3 |
 | `/ask/*` 6개 | `createAskThread` 등 | 실제(`LECTERN_ASK=1`), 꺼지면 501 | 개인 워크스페이스의 색인 위. 범위는 v2 녹음·폴더 |
 | `GET /calendar/suggestions` | `listCalendarSuggestions` | 실제 | `statuses`, 기간. P4 전까지 비어 있음 |
@@ -107,7 +107,7 @@
 | `GET /events` | `streamEvents` | 실제 | SSE. 아래 참고 |
 | `GET /admin/jobs` | `adminListJobs` | 실제 | 운영자 전용 |
 | `GET /admin/jobs/{job_id}` | `adminGetJob` | 실제 | 단계·모델 호출 포함 |
-| `POST /admin/jobs/{job_id}/retry` | `adminRetryJob` | 501 | v1 관리자 콘솔의 재분석을 쓴다 |
+| `POST /admin/jobs/{job_id}/retry` | `adminRetryJob` | 실제 | 실패한 `process`·`regenerate`를 같은 작업 id로 다시 큐에 넣는다. 끝난 단계는 메모로 건너뛰고 실패한 단계부터 이어 한다 |
 | `GET /admin/usage` | `adminListUsage` | 실제 | `usage_ledger`(쿼터 집계는 P5) |
 
 ### SSE (`GET /events`)

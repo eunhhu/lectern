@@ -24,7 +24,8 @@ import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
 import { emitProgress, type DistillInput } from "./distill-queue.ts";
-import { defaultProcessHarness, PROCESS_JOB_KIND, runProcessJob, type ProcessJobDeps } from "./process-job.ts";
+import { defaultProcessHarness, JOB_CANCELED_MESSAGE, PROCESS_JOB_KIND, runProcessJob, type ProcessJobDeps } from "./process-job.ts";
+import { REGENERATE_JOB_KIND, runRegenerateJob } from "./regenerate-job.ts";
 import { enqueueJob, isLectureBusy, registerJobHandler, type JobOutcome, type LeasedJob } from "./queue.ts";
 import { compactLectureAudio, isFfmpegAvailable } from "./storage.ts";
 import {
@@ -252,7 +253,7 @@ async function runCompaction(job: LeasedJob) {
   const id = job.subjectId!;
   // Transcribe, process and regenerate jobs read the original audio (or its transcript
   // stages' memo), which compaction replaces.
-  if (["distill", TRANSCRIBE_JOB_KIND, PROCESS_JOB_KIND, "regenerate"].some((kind) => isLectureBusy(id, kind))) {
+  if (["distill", TRANSCRIBE_JOB_KIND, PROCESS_JOB_KIND, REGENERATE_JOB_KIND].some((kind) => isLectureBusy(id, kind))) {
     return { ok: false, error: "분석 작업이 진행 중인 강의입니다." };
   }
   const res = await compactLectureAudio(id, getSystemSettings().storage_compact_bitrate_kbps);
@@ -267,6 +268,7 @@ async function runCompaction(job: LeasedJob) {
 
 registerJobHandler("distill", runDistillation, {
   concurrency: config().maxConcurrentJobs,
+  onCanceled: (job) => failCanceledLecture(job),
   // Interrupted too many times (crashes or kills mid-run): leave a retryable error behind
   // instead of a lecture that says "processing" forever.
   onLost: ({ id, subjectId, ownerId }) => {
@@ -291,6 +293,15 @@ registerJobHandler("distill", runDistillation, {
     }
   },
 });
+
+/** A queued `distill`/`process` canceled before it ran: the lecture ends with the cancel as its error. */
+function failCanceledLecture({ subjectId, ownerId }: { subjectId: string | null; ownerId: string }): void {
+  if (!subjectId) return;
+  const failed = failLectureRecord(subjectId, JOB_CANCELED_MESSAGE);
+  if (failed) {
+    emitLectureEvent(ownerId, { type: "error", id: subjectId, error_message: JOB_CANCELED_MESSAGE, lecture: toLectureSummaryDto(failed) });
+  }
+}
 
 registerJobHandler("compact", runCompaction, { concurrency: config().maxConcurrentCompact });
 
@@ -369,8 +380,29 @@ export function registerProcessJobHandler(deps: ProcessJobDeps = {}): void {
           });
         }
       },
+      onCanceled: (job) => failCanceledLecture(job),
     }
   );
 }
 
 registerProcessJobHandler();
+
+/**
+ * Registers the `regenerate` handler (regenerate-job.ts): the notes stages again on the
+ * published transcript. One at a time; an interrupted one only loses its artifacts (the
+ * recording still shows its previous notes).
+ */
+export function registerRegenerateJobHandler(deps: ProcessJobDeps = {}): void {
+  registerJobHandler(REGENERATE_JOB_KIND, (job) => runRegenerateJob(job, deps), {
+    concurrency: 1,
+    onLost: ({ id }) => {
+      try {
+        (deps.harness ?? defaultProcessHarness()).deleteArtifactsForJob(id);
+      } catch (err) {
+        logger.error("could not delete regenerate artifacts", { job_id: id, err });
+      }
+    },
+  });
+}
+
+registerRegenerateJobHandler();

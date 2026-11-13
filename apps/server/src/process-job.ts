@@ -41,13 +41,15 @@ import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
 import { publishNotes } from "./notes-publish.ts";
-import { enqueueJob, type JobOutcome, type LeasedJob } from "./queue.ts";
+import { enqueueJob, JOB_CANCELED_MESSAGE, type JobOutcome, type LeasedJob } from "./queue.ts";
 import { defaultTranscriptHarness } from "./transcript-job.ts";
 import { publishTranscript } from "./transcript-publish.ts";
 
 export const PROCESS_JOB_KIND = "process";
 
 export const PROCESS_SOURCE_GONE_MESSAGE = "녹음이나 그 오디오가 삭제되어 처리를 중단했습니다.";
+
+export { JOB_CANCELED_MESSAGE };
 
 /** Progress (percent) and message per stage, shown while the stage runs. */
 export const PROCESS_STAGE_PROGRESS: Record<string, [number, string]> = {
@@ -148,15 +150,54 @@ function dropArtifacts(harness: Harness, jobId: string): void {
  * (v2 `job.progress` carries the stage name). A stage that starts again (the next chunk, a
  * retry) is not announced twice; names without an entry are skipped.
  */
-export function stageEmitter(lectureId: string, ownerId: string): (stage: string) => void {
+export function stageEmitter(
+  lectureId: string,
+  ownerId: string,
+  options: { persist?: boolean } = {}
+): (stage: string) => void {
   let last: string | null = null;
   return (stage) => {
     const entry = PROCESS_STAGE_PROGRESS[stage];
     if (!entry || stage === last) return;
     last = stage;
     const [progress, message] = entry;
-    emitProgress(ownerId, updateLectureProgress(lectureId, stage, message, progress));
+    if (options.persist !== false) {
+      emitProgress(ownerId, updateLectureProgress(lectureId, stage, message, progress));
+      return;
+    }
+    // `regenerate`: the lecture keeps showing its finished notes; only the event says what runs.
+    const lecture = getLectureById(lectureId);
+    if (!lecture) return;
+    emitLectureEvent(ownerId, {
+      type: "progress",
+      id: lectureId,
+      stage,
+      stage_message: message,
+      progress,
+      lecture: toLectureSummaryDto(lecture),
+    });
   };
+}
+
+/**
+ * Watches job.cancel_requested_at (D-P1-8) and aborts `controller` with a `canceled` error
+ * once a user asks to cancel: on `check()` (stage starts, retries) and every second, so a
+ * stage in flight is stopped too. `stop()` when the job ends.
+ */
+export function cancelWatcher(jobId: string, controller: AbortController): { check: () => void; stop: () => void } {
+  const check = () => {
+    if (controller.signal.aborted) return;
+    const row = db.query(`SELECT cancel_requested_at FROM job WHERE id = ?`).get(jobId) as { cancel_requested_at: number | null } | null;
+    if (row && row.cancel_requested_at !== null) controller.abort(new HarnessError("canceled", JOB_CANCELED_MESSAGE));
+  };
+  const timer = setInterval(check, 1000);
+  timer.unref?.();
+  return { check, stop: () => clearInterval(timer) };
+}
+
+/** Whether `signal` was aborted by a user's cancel (cancelWatcher), not by a deletion. */
+export function canceledByUser(signal: AbortSignal): boolean {
+  return signal.aborted && signal.reason instanceof HarnessError && signal.reason.message === JOB_CANCELED_MESSAGE;
 }
 
 interface RecordingFacts {
@@ -240,6 +281,14 @@ function markPartial(lectureId: string, recordingId: string, code: string, messa
   announceLectures([lectureId]);
 }
 
+/** A full notes run clears the `partial` an earlier run left (the projection keeps it otherwise). */
+function markReady(lectureId: string, recordingId: string): void {
+  const cleared = db
+    .query(`UPDATE recording SET status = 'ready', failure_code = NULL, failure_message = NULL, updated_at = ? WHERE id = ? AND status = 'partial'`)
+    .run(Date.now(), recordingId).changes;
+  if (cleared) announceLectures([lectureId]);
+}
+
 export interface NotesPhaseContext {
   job: LeasedJob;
   run: JobRun;
@@ -252,6 +301,11 @@ export interface NotesPhaseContext {
   keepTitle: boolean;
   /** Stage progress (stageEmitter); the caller's run reports stage starts to it too. */
   emitStage: (stage: string) => void;
+  /**
+   * What a notes failure does: `partial` (default, `process`: the transcript was just
+   * published, D-P1-2) or `throw` (`regenerate`: the previous version stays as it is).
+   */
+  failure?: "partial" | "throw";
 }
 
 /**
@@ -297,12 +351,15 @@ export async function runNotesPhase(ctx: NotesPhaseContext): Promise<"ready" | "
       action_items: published.actionItems,
       partial: result.partial,
     });
-    if (!result.partial) return "ready";
+    if (!result.partial) {
+      markReady(lectureId, recordingId);
+      return "ready";
+    }
     markPartial(lectureId, recordingId, "notes_partial", NOTES_PARTIAL_MESSAGE);
     return "partial";
   } catch (err: any) {
     const error = err instanceof HarnessError ? err : null;
-    if (error?.kind === "canceled" || run.context.signal?.aborted) throw err;
+    if (error?.kind === "canceled" || run.context.signal?.aborted || ctx.failure === "throw") throw err;
     // The transcript is published already (D-P1-2): the lecture is done without notes.
     const budget = error?.kind === "budget";
     logger.warn("notes failed; the transcript stays", {
@@ -367,8 +424,8 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
   const fields = { job_id: job.id, lecture_id: lectureId };
   const keepTitle = keepsTitle(lectureId);
 
-  // Deleting the recording or only its audio cancels the run at the next stage or retry;
-  // the provider call in flight is aborted too (its stage gets ctx.signal).
+  // Deleting the recording or only its audio, or a user's cancel, stops the run at the next
+  // stage or retry; the provider call in flight is aborted too (its stage gets ctx.signal).
   const controller = new AbortController();
   const sourceGone = () => sourceAudio(lectureId) !== audioPath;
   const checkSource = () => {
@@ -376,6 +433,7 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
       controller.abort(new HarnessError("canceled", PROCESS_SOURCE_GONE_MESSAGE));
     }
   };
+  const cancel = cancelWatcher(job.id, controller);
   const emitStage = stageEmitter(lectureId, ownerId);
   const run = harness.job({
     jobId: job.id,
@@ -383,7 +441,10 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
     workspaceId,
     signal: controller.signal,
     onEvent: (ev: StageEvent) => {
-      if (ev.type === "started" || ev.type === "retry") checkSource();
+      if (ev.type === "started" || ev.type === "retry") {
+        checkSource();
+        cancel.check();
+      }
       if (ev.type === "started" && !controller.signal.aborted) emitStage(ev.stage);
       if (ev.type === "retry") {
         logger.warn("process stage retry", {
@@ -405,107 +466,127 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
       }
     },
   });
-  const gone = (): JobOutcome => {
+  /** Ends the job without a result: the recording or its audio is gone, or a user canceled it. */
+  const stopped = (): JobOutcome | null => {
+    if (sourceGone()) {
+      dropArtifacts(harness, job.id);
+      return { ok: false, error: PROCESS_SOURCE_GONE_MESSAGE };
+    }
+    if (!canceledByUser(controller.signal)) return null;
     dropArtifacts(harness, job.id);
-    return { ok: false, error: PROCESS_SOURCE_GONE_MESSAGE };
-  };
-
-  // 1. Transcript. Nothing is published when it fails, so the recording fails.
-  let transcript: Transcript;
-  let summary: Record<string, unknown>;
-  try {
-    const result = await runTranscriptPipeline(
-      run,
-      { audioPath, language: recording.language ?? undefined },
-      {
-        ...deps.pipeline,
-        provider:
-          deps.transcription ??
-          new GeminiTranscriptionProvider({
-            apiKey: () => readSecret("GEMINI_API_KEY"),
-            timeoutMs: config().gemini.timeoutMs,
-          }),
-        workDir: join(DATA_DIR, "work"),
-        onStage: (ev: PipelineStageEvent) => {
-          deps.pipeline?.onStage?.(ev);
-          checkSource();
-        },
-      }
-    );
-    if (sourceGone()) return gone();
-    transcript = result.transcript;
-    summary = {
-      chunks: result.chunks.chunks.length,
-      segments: transcript.segments.length,
-      speakers: transcript.speakers.length,
-      gaps: transcript.gaps.length,
-      failed_chunks: transcript.failed_chunks,
-      resumed_stages: result.stageRuns.filter((s) => s.resumed).length,
-    };
-  } catch (err: any) {
-    if (sourceGone() || (err instanceof HarnessError && err.kind === "canceled")) return gone();
-    const message = transcriptFailureMessage(err);
-    logger.warn("process transcript failed", {
-      ...fields,
-      error_kind: err instanceof HarnessError ? err.kind : undefined,
-      error_code: err instanceof HarnessError ? err.code : undefined,
-      error: err?.message || String(err),
-    });
-    // Finished stages stay: a retry of the recording reuses them (shared memo).
-    const failed = failLectureRecord(lectureId, message);
+    logger.info("process canceled by the user", fields);
+    const failed = failLectureRecord(lectureId, JOB_CANCELED_MESSAGE);
     emitLectureEvent(ownerId, {
       type: "error",
       id: lectureId,
-      error_message: message,
+      error_message: JOB_CANCELED_MESSAGE,
       lecture: failed ? toLectureSummaryDto(failed) : undefined,
     });
-    return { ok: false, error: message };
-  }
+    return { ok: false, canceled: true, error: JOB_CANCELED_MESSAGE };
+  };
 
-  // 2. Publish the transcript: from here on the recording is searchable whatever the notes do.
   try {
-    publishTranscript({ recordingId, workspaceId, transcript });
-    db.query(`UPDATE lectures SET duration_sec = ?, updated_at = ? WHERE id = ?`).run(
-      Math.round(transcript.duration_ms / 1000),
-      new Date().toISOString(),
-      lectureId
-    );
-    syncPendingLectures();
-  } catch (err) {
-    logger.error("could not publish transcript", { ...fields, err });
-    const message = "전사를 저장하지 못했습니다.";
-    const failed = failLectureRecord(lectureId, message);
-    emitLectureEvent(ownerId, { type: "error", id: lectureId, error_message: message, lecture: failed ? toLectureSummaryDto(failed) : undefined });
-    return { ok: false, error: message };
-  }
-  scheduleLectureIndex(lectureId, ownerId);
-  announceLectures([lectureId]);
+    // 1. Transcript. Nothing is published when it fails, so the recording fails.
+    let transcript: Transcript;
+    let summary: Record<string, unknown>;
+    try {
+      const result = await runTranscriptPipeline(
+        run,
+        { audioPath, language: recording.language ?? undefined },
+        {
+          ...deps.pipeline,
+          provider:
+            deps.transcription ??
+            new GeminiTranscriptionProvider({
+              apiKey: () => readSecret("GEMINI_API_KEY"),
+              timeoutMs: config().gemini.timeoutMs,
+            }),
+          workDir: join(DATA_DIR, "work"),
+          onStage: (ev: PipelineStageEvent) => {
+            deps.pipeline?.onStage?.(ev);
+            checkSource();
+            cancel.check();
+          },
+        }
+      );
+      const early = stopped();
+      if (early) return early;
+      transcript = result.transcript;
+      summary = {
+        chunks: result.chunks.chunks.length,
+        segments: transcript.segments.length,
+        speakers: transcript.speakers.length,
+        gaps: transcript.gaps.length,
+        failed_chunks: transcript.failed_chunks,
+        resumed_stages: result.stageRuns.filter((s) => s.resumed).length,
+      };
+    } catch (err: any) {
+      const early = stopped();
+      if (early) return early;
+      if (err instanceof HarnessError && err.kind === "canceled") {
+        dropArtifacts(harness, job.id);
+        return { ok: false, error: err.message };
+      }
+      const message = transcriptFailureMessage(err);
+      logger.warn("process transcript failed", {
+        ...fields,
+        error_kind: err instanceof HarnessError ? err.kind : undefined,
+        error_code: err instanceof HarnessError ? err.code : undefined,
+        error: err?.message || String(err),
+      });
+      // Finished stages stay: a retry of the job resumes after them (same job id, memo).
+      const failed = failLectureRecord(lectureId, message);
+      emitLectureEvent(ownerId, {
+        type: "error",
+        id: lectureId,
+        error_message: message,
+        lecture: failed ? toLectureSummaryDto(failed) : undefined,
+      });
+      return { ok: false, error: message };
+    }
 
-  // 3. Notes.
-  let status: "ready" | "partial";
-  try {
-    status = await runNotesPhase({
-      job,
-      run,
-      lectureId,
-      recordingId,
-      workspaceId,
-      transcript,
-      deps,
-      keepTitle,
-      emitStage,
-    });
-  } catch (err: any) {
-    if (sourceGone()) return gone();
-    const message = err?.message || String(err);
-    logger.warn("process canceled", { ...fields, error: message });
-    return { ok: false, error: message };
-  }
-  if (sourceGone()) return gone();
+    // 2. Publish the transcript: from here on the recording is searchable whatever the notes do.
+    try {
+      publishTranscript({ recordingId, workspaceId, transcript });
+      db.query(`UPDATE lectures SET duration_sec = ?, updated_at = ? WHERE id = ?`).run(
+        Math.round(transcript.duration_ms / 1000),
+        new Date().toISOString(),
+        lectureId
+      );
+      syncPendingLectures();
+    } catch (err) {
+      logger.error("could not publish transcript", { ...fields, err });
+      const message = "전사를 저장하지 못했습니다.";
+      const failed = failLectureRecord(lectureId, message);
+      emitLectureEvent(ownerId, { type: "error", id: lectureId, error_message: message, lecture: failed ? toLectureSummaryDto(failed) : undefined });
+      return { ok: false, error: message };
+    }
+    scheduleLectureIndex(lectureId, ownerId);
+    announceLectures([lectureId]);
 
-  dropArtifacts(harness, job.id);
-  const spent = db.query(`SELECT spent_microusd FROM job WHERE id = ?`).get(job.id) as { spent_microusd: number } | null;
-  const outcome = { status, ...summary, spent_microusd: spent?.spent_microusd ?? 0 };
-  logger.info("recording processed", { ...fields, ...outcome });
-  return { ok: true, result: outcome };
+    // 3. Notes.
+    let status: "ready" | "partial";
+    try {
+      status = await runNotesPhase({ job, run, lectureId, recordingId, workspaceId, transcript, deps, keepTitle, emitStage });
+    } catch (err: any) {
+      const early = stopped();
+      if (early) return early;
+      const message = err?.message || String(err);
+      logger.warn("process notes stopped", { ...fields, error: message });
+      return { ok: false, error: message };
+    }
+    // Deleted while the notes were committing. A cancel that comes after the publish is moot.
+    if (sourceGone()) {
+      dropArtifacts(harness, job.id);
+      return { ok: false, error: PROCESS_SOURCE_GONE_MESSAGE };
+    }
+
+    dropArtifacts(harness, job.id);
+    const spent = db.query(`SELECT spent_microusd FROM job WHERE id = ?`).get(job.id) as { spent_microusd: number } | null;
+    const outcome = { status, ...summary, spent_microusd: spent?.spent_microusd ?? 0 };
+    logger.info("recording processed", { ...fields, ...outcome });
+    return { ok: true, result: outcome };
+  } finally {
+    cancel.stop();
+  }
 }

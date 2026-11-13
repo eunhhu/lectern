@@ -1,12 +1,14 @@
 import { existsSync } from "node:fs";
 import { deleteRecordingIndex, deleteRecordingThreads } from "@lectern/ask";
 import { deleteRecordingRows } from "@lectern/db";
+import { costMicrousd, DEFAULT_PRICING, priceFor } from "@lectern/harness";
 import type { ErrorCode } from "@lectern/domain";
 import { DEFAULT_GEMINI_MODEL } from "../../../../../packages/core/src/index.ts";
 import { db, deleteLectureById, getLectureById, getUserById, resetLectureForRetry } from "../../db.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
 import { enqueueRecordingProcessing } from "../../process-job.ts";
+import { enqueueRegenerate } from "../../regenerate-job.ts";
 import { isLectureBusy } from "../../queue.ts";
 import { callerIn, can, loadRecording, requireWorkspace, VISIBLE_RECORDING_SQL } from "./access.ts";
 import { apiError, defineRouter, notFound, ok, okPage, pageBounds, pageFrom, type Handler, type V2Request } from "./common.ts";
@@ -359,21 +361,20 @@ export const recordingsRouter = defineRouter({
     return okPage(req, rows.map(actionItemDto));
   }),
 
-  // Migrated lectures have no transcript (ARCHITECTURE §5.3 option 1), so the only way to
-  // reprocess one is `full`: the v1 pipeline again on the stored audio, after the user saw
-  // the estimate (`dry_run`). `document` needs a transcript to rebuild from.
+  // `full`: the whole pipeline again on the stored audio (`process` under LECTERN_PIPELINE=v2,
+  // else the v1 distillation). `document`: only the notes stages again on the published
+  // transcript (`regenerate`, a new document version); migrated lectures have no transcript
+  // (ARCHITECTURE §5.3 option 1), so for them only `full` works. Both after the user saw the
+  // estimate (`dry_run`).
   reprocessRecording: withRecording((req, recording) => {
     const body = req.body as { mode: "document" | "full"; dry_run?: boolean };
-    const hasTranscript = Boolean(db.query(`SELECT 1 FROM transcript_segment WHERE recording_id = ? LIMIT 1`).get(recording.id));
-    const audioMs = body.mode === "full" ? (recording.duration_ms ?? 0) : 0;
+    if (body.mode === "document") return regenerateDocument(req, recording, body.dry_run === true);
+    const audioMs = recording.duration_ms ?? 0;
     const estimate = {
       estimated_microusd: Math.ceil((audioMs / 3_600_000) * LEGACY_MICROUSD_PER_HOUR),
       audio_ms: audioMs,
       within_quota: true, // no AI cost quota yet (ROADMAP D10); ask has its own monthly limit
     };
-    if (body.mode === "document" && !hasTranscript) {
-      return apiError(req.c, 409, "conflict", "전사가 없는 녹음이라 문서만 다시 만들 수 없습니다. 전체 재처리를 선택하세요.");
-    }
     if (body.dry_run) return ok(req, { estimate, job: null });
     const lecture = recording.lecture_id ? getLectureById(recording.lecture_id) : null;
     if (!lecture) return apiError(req.c, 409, "conflict", "아직 다시 처리할 수 없는 녹음입니다.");
@@ -406,6 +407,38 @@ export const recordingsRouter = defineRouter({
     return ok(req, { estimate, job: job ? toJob(job) : null }, { status: 202 });
   }, "recording:update"),
 });
+
+/**
+ * Estimated notes cost of a `document` reprocess: the transcript as input (about two
+ * characters per token for Korean) plus prompts, one document's worth of output, at the
+ * structure model's price. The classify call is small and left out.
+ */
+function regenerateEstimate(recordingId: string) {
+  const chars = (db.query(`SELECT COALESCE(SUM(LENGTH(text)), 0) AS n FROM transcript_segment WHERE recording_id = ?`).get(recordingId) as { n: number })
+    .n;
+  const price = priceFor(DEFAULT_PRICING, "gemini", "gemini-3.8-flash", Date.now());
+  const usage = { inputTokens: Math.ceil(chars / 2) + 4_000, cachedTokens: 0, outputTokens: 6_000 };
+  return { estimated_microusd: price ? costMicrousd(usage, price) : 0, audio_ms: 0, within_quota: true };
+}
+
+function regenerateDocument(req: V2Request, recording: RecordingRow, dryRun: boolean): Response {
+  const hasTranscript = Boolean(db.query(`SELECT 1 FROM transcript_segment WHERE recording_id = ? LIMIT 1`).get(recording.id));
+  if (!hasTranscript) {
+    return apiError(req.c, 409, "conflict", "전사가 없는 녹음이라 문서만 다시 만들 수 없습니다. 전체 재처리를 선택하세요.");
+  }
+  const estimate = regenerateEstimate(recording.id);
+  if (dryRun) return ok(req, { estimate, job: null });
+  const lecture = recording.lecture_id ? getLectureById(recording.lecture_id) : null;
+  if (!lecture) return apiError(req.c, 409, "conflict", "아직 다시 처리할 수 없는 녹음입니다.");
+  if (isLectureBusy(lecture.id)) return apiError(req.c, 409, "conflict", "이미 처리 중인 녹음입니다.");
+  if (!canUseServerKey(req.user!) || !canUseServerKey(getUserById(lecture.owner_id))) {
+    return apiError(req.c, 403, "forbidden", "서버 AI 키 사용 권한이 없는 계정입니다.");
+  }
+  // The recording keeps its current notes while this runs (no reset): the new version replaces them.
+  const { jobId } = enqueueRegenerate(lecture.id, lecture.owner_id, estimate.estimated_microusd * 3 + 200_000);
+  const job = db.query(`SELECT * FROM job WHERE id = ?`).get(jobId) as Parameters<typeof toJob>[0];
+  return ok(req, { estimate, job: toJob(job) }, { status: 202 });
+}
 
 /** Same rule as the v1 retry route: the server's Gemini key, for the caller and the owner. */
 function canUseServerKey(user: { can_use_server_key: number; status?: string } | null): boolean {
