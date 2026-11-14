@@ -16,7 +16,7 @@
 | 3 | 비밀번호 재설정(코드 메일) | `fetch('/api/auth/reset-password')` | `/app/reset`(P2-03) | server/account.e2e.ts › reset does not say whether the account exists; account.e2e.ts › password reset ends at the login link | 있음 |
 | 4 | 로그인한 상태에서 비밀번호 바꾸기 | 설정 모달, `fetch('/api/auth/password')` | 없음: 설정에 비밀번호 변경 화면이 없다(재설정 메일로만 바꿀 수 있다) | - | 없음 |
 | 5 | 표시 이름 바꾸기 | `save-display-name`, `fetch('/api/auth/profile')` | 설정 > 프로필(`PATCH /api/v2/me`) | organise.e2e.ts › user menu: profile and account settings | 있음 |
-| 6 | 개인 API 토큰 보기·복사·재발급 | `copy-api-token`, `rotate-api-token`, `fetch('/api/auth/rotate-token')` | 없음: 설정에 토큰 화면이 없고, v2 접근 토큰 API(`/api/v2/access-tokens`)는 아직 501이다(P4) | - | 없음 |
+| 6 | 개인 API 토큰 보기·복사·재발급 | `copy-api-token`, `rotate-api-token`, `fetch('/api/auth/rotate-token')` | 없음: 설정에 토큰 화면이 없고, v2 개인 토큰 API(`POST /api/v2/me/tokens`)는 아직 501이다(P5) | - | 없음 |
 | 7 | 클라이언트 연동 안내(iOS 단축어 curl 예시, 앱 내려받기 링크) | `open-clients`, `/api/clients/ios-shortcut` 안내 | 없음: 설정 > 연동은 Google 캘린더 자리만 있고 앱 내려받기·단축어 안내가 없다 | - | 없음 |
 | 8 | 설정 열기 | `open-settings` | `/app/settings`(사용자 메뉴 `설정`, `프로필과 계정`) | organise.e2e.ts › user menu: profile and account settings | 있음 |
 | 9 | 파일 올리기(여러 파일, 끌어 놓기, PDF 짝짓기) | `pick-file`, `fetch('/api/lectures/ingest')` | 업로드 대화상자(`U`, `녹음 올리기`) | server/flow.e2e.ts › upload: a recording goes up in parts and waits for processing; keyboard.e2e.ts › keyboard only: upload audio and a PDF, wait for processing, open the document, follow a source | 있음 |
