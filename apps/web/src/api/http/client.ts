@@ -23,6 +23,7 @@ import { z } from "zod";
 import { ApiClientError, type ApiClient, type SessionUser } from "../client.ts";
 import type { AskTurn, ServerEvent as ServerEventType } from "../types.ts";
 import { readSse, SseParser } from "./sse.ts";
+import { createAdminApi } from "../admin.ts";
 
 export interface HttpClientOptions {
   /** Defaults to the global fetch (tests pass a fake). */
@@ -305,6 +306,24 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     },
     listWorkspaces: () => call("listWorkspaces"),
     listMembers: (workspaceId) => call("listWorkspaceMembers", { params: { workspace_id: workspaceId } }),
+    admin: createAdminApi({
+      call: (operationId, input) => call(operationId, input as CallInput),
+      async v1(method, path, body) {
+        const headers: Record<string, string> = { Accept: "application/json" };
+        if (body !== undefined) headers["Content-Type"] = "application/json";
+        const res = await send(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+        if (!res.ok) {
+          const error = await errorFrom(res);
+          if (res.status === 401) signalUnauthorized();
+          throw error;
+        }
+        try {
+          return (await res.json()) as unknown;
+        } catch {
+          throw new ApiClientError(res.status, "invalid_response", INVALID_MESSAGE, res.headers.get("X-Request-Id"));
+        }
+      },
+    }),
     updateMember: (workspaceId, userId, role) => call("updateMember", { params: { workspace_id: workspaceId, user_id: userId }, body: { role } }),
     removeMember: (workspaceId, userId) => call("removeMember", { params: { workspace_id: workspaceId, user_id: userId } }),
     listInvites: (workspaceId) => call("listInvites", { params: { workspace_id: workspaceId } }),

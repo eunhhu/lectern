@@ -5,6 +5,7 @@
 // in memory only and are gone after a reload.
 
 import type {
+  WorkspaceQuota,
   Invite,
   MembershipRole,
   WorkspaceMember,
@@ -65,6 +66,7 @@ import { UPLOADED_GENERIC } from "../../fixtures/scripts.ts";
 import { parseFileName } from "../../lib/pairing.ts";
 import { ApiClientError, type ApiClient, type SessionUser } from "../client.ts";
 import { composeAnswer, streamChunks, type ComposedAnswer } from "./ask.ts";
+import { createFixtureAdmin } from "./admin.ts";
 import { asId, type ListRecordingsParams, type ListSuggestionsParams, type RecordingFailure, type RecordingProgress, type SearchParams } from "../types.ts";
 
 export interface FixtureClientOptions {
@@ -583,6 +585,12 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     }
   }
   const teamWs = data.workspaces.find((w) => w.workspace.kind === "team")?.workspace.id as WorkspaceId | undefined;
+  // Workspace limits (P5-07/P5-12): the team has some, the personal workspace none. The admin
+  // fixture sets them, 설정 › 사용량 reads them.
+  const quotas = new Map<string, WorkspaceQuota>();
+  if (teamWs) quotas.set(teamWs, { audio_ms_month: 72_000_000, ai_microusd_month: 10_000_000, storage_bytes: 10 * 1024 ** 3 });
+  // `?fixture-operator=off`: the preview user is not an operator (no admin console).
+  if (fixtureFlag("fixture-operator") === "off") data.me.system_role = "member";
   let invites: Invite[] = teamWs
     ? [
         {
@@ -806,6 +814,8 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
 
     listMembers: (ws) => wait(() => page(data.members.filter((m) => m.workspace_id === ws), undefined, MAX_PAGE)),
 
+    admin: createFixtureAdmin({ me: () => data.me, wait, quotas, personalWs: personalWs, teamWs }),
+
     updateMember: (ws, userId, newRole) =>
       wait((): WorkspaceMember => {
         const mine = managerOf(ws);
@@ -907,16 +917,11 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
       wait((): WorkspaceUsage => {
         const entry = data.workspaces.find((w) => w.workspace.id === ws);
         if (!entry) throw notFound("워크스페이스");
+        const quota = structuredClone(quotas.get(ws) ?? null);
         if (entry.workspace.kind === "personal") {
-          return { period: period(), audio_ms: 12_000_000, ai_cost_microusd: 1_234_567, storage_bytes: 1_288_490_189, quota: null };
+          return { period: period(), audio_ms: 12_000_000, ai_cost_microusd: 1_234_567, storage_bytes: 1_288_490_189, quota };
         }
-        return {
-          period: period(),
-          audio_ms: 66_600_000,
-          ai_cost_microusd: 10_000_000,
-          storage_bytes: 3_435_973_837,
-          quota: { audio_ms_month: 72_000_000, ai_microusd_month: 10_000_000, storage_bytes: 10 * 1024 ** 3 },
-        };
+        return { period: period(), audio_ms: 66_600_000, ai_cost_microusd: 10_000_000, storage_bytes: 3_435_973_837, quota };
       }),
 
     listFolders: (ws) =>

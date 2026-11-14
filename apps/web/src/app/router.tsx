@@ -21,6 +21,13 @@ import { SignupPage } from "../routes/account/SignupPage.tsx";
 import { NotFoundPage, SessionErrorPage } from "../routes/placeholders.tsx";
 import { SettingsPage } from "../routes/settings/SettingsPage.tsx";
 import { InvitePage, type InviteSearch } from "../routes/invite/InvitePage.tsx";
+import { AdminLayout } from "../routes/admin/AdminLayout.tsx";
+import { JobDetailPage } from "../routes/admin/JobDetailPage.tsx";
+import { JobsPage, type AdminJobsSearch } from "../routes/admin/JobsPage.tsx";
+import { OverviewPage } from "../routes/admin/OverviewPage.tsx";
+import { UsagePage, type AdminUsageSearch } from "../routes/admin/UsagePage.tsx";
+import { UsersPage } from "../routes/admin/UsersPage.tsx";
+import { JobKind as JobKindSchema, JobState as JobStateSchema } from "@lectern/domain";
 import { AskPage, type AskSearch } from "../routes/ask/AskPage.tsx";
 import { SearchPage, type SearchPageSearch } from "../routes/search/SearchPage.tsx";
 
@@ -155,11 +162,36 @@ const inviteRoute = createRoute({
   component: InvitePage,
 });
 
+// The admin console (P5-12). AdminLayout draws "not found" for anyone who is not an operator.
+const adminRoute = createRoute({ getParentRoute: () => authedRoute, path: "/admin", component: AdminLayout });
+const adminOverviewRoute = createRoute({ getParentRoute: () => adminRoute, path: "/", component: OverviewPage });
+const adminUsersRoute = createRoute({ getParentRoute: () => adminRoute, path: "/users", component: UsersPage });
+const adminJobsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/jobs",
+  validateSearch: (search: Record<string, unknown>): AdminJobsSearch => ({
+    state: JobStateSchema.safeParse(search.state).data,
+    kind: JobKindSchema.safeParse(search.kind).data,
+  }),
+  component: JobsPage,
+});
+const adminJobRoute = createRoute({ getParentRoute: () => adminRoute, path: "/jobs/$jobId", component: JobDetailPage });
+const adminUsageRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/usage",
+  validateSearch: (search: Record<string, unknown>): AdminUsageSearch => ({
+    period: typeof search.period === "string" && /^\d{4}-\d{2}$/.test(search.period) ? search.period : undefined,
+  }),
+  component: UsagePage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   signupRoute,
   resetRoute,
-  authedRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, searchRoute, askRoute, calendarRoute, settingsRoute, inviteRoute]),
+  authedRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, searchRoute, askRoute, calendarRoute, settingsRoute, inviteRoute,
+    adminRoute.addChildren([adminOverviewRoute, adminUsersRoute, adminJobsRoute, adminJobRoute, adminUsageRoute]),
+  ]),
 ]);
 
 export function createAppRouter(context: RouterContext) {

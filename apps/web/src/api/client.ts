@@ -5,6 +5,7 @@
 // the in-memory fixtures (./fixture/client.ts, tests and `web:dev`). ./index.ts picks one
 // at build time.
 
+import type { AdminApi } from "./admin.ts";
 import type {
   AcceptInviteResponse,
   CreateInviteRequest,
@@ -173,6 +174,8 @@ export interface ApiClient {
 
   listWorkspaces(): Promise<MyWorkspacePage>;
   listMembers(workspaceId: WorkspaceId): Promise<WorkspaceMemberPage>;
+  /** The admin console's calls (P5-12). Operators only; others get 403. */
+  readonly admin: AdminApi;
   // --- team workspaces (P5-11: D-P5-6, D-P5-7) ---------------------------------------
   /** 403 when the caller may not, 409 for the last owner. */
   updateMember(workspaceId: WorkspaceId, userId: string, role: MembershipRole): Promise<WorkspaceMember>;
