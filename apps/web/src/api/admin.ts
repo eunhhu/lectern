@@ -1,4 +1,4 @@
-// The admin console's API (P5-12, P5-16): the v1 `/api/admin/*` routes the old console uses,
+// The admin console's API (P5-12, P5-16, P5-13): the v1 `/api/admin/*` routes the old console uses,
 // the v1 lecture routes it sends its lecture actions to (an operator counts as every
 // lecture's owner there), and the v2 `admin`-tagged routes. The v1 shapes below are read
 // from the server, not made up: `GET /api/admin/overview` and `/api/admin/lectures` in
@@ -17,6 +17,23 @@ export const AdminUserStatus = z.enum(["active", "pending", "suspended"]);
 /** Old rows can hold NULL where the DTO type says string or number. */
 const text = z.string().nullish().transform((v) => v ?? "");
 const count = z.number().nullish().transform((v) => v ?? 0);
+/** Nullable text that stays null (an error message, a timestamp that may be missing). */
+const maybe = z.string().nullish().transform((v) => v ?? null);
+/**
+ * A list that keeps the rows that parse: one odd row (a kind the server's types do not
+ * list, an old row with a hole) must not blank a screen that also shows other things.
+ */
+function rows<S extends z.ZodType>(item: S) {
+  return z
+    .array(z.unknown())
+    .nullish()
+    .transform((list) =>
+      (list ?? []).flatMap((r) => {
+        const got = item.safeParse(r);
+        return got.success ? [got.data as z.output<S>] : [];
+      }),
+    );
+}
 
 const AdminUserSchema = z.object({
   id: z.string(),
@@ -39,7 +56,7 @@ const AdminUserSchema = z.object({
   session_count: z.number(),
 });
 
-export const AdminOverviewSchema = z.object({
+const AdminOverviewBase = z.object({
   metrics: z.object({
     totalUsers: z.number(),
     activeUsers: z.number(),
@@ -63,7 +80,6 @@ export const AdminOverviewSchema = z.object({
 });
 
 export type AdminUser = z.infer<typeof AdminUserSchema>;
-export type AdminOverview = z.infer<typeof AdminOverviewSchema>;
 
 /** `PATCH /api/admin/users/:id` (v1, camelCase): the server keeps every key not sent. */
 export interface AdminUserPatch {
@@ -149,6 +165,256 @@ export type AdminLecture = z.infer<typeof AdminLectureSchema>;
 export type AdminLecturePage = z.infer<typeof AdminLecturePageSchema>;
 export type AdminLectureDetail = z.infer<typeof AdminLectureDetailSchema>;
 
+/** One audit log row (db.ts AuditLogRecord). */
+const AuditLogSchema = z.object({
+  id: z.string(),
+  actor_id: text,
+  actor_email: text,
+  action: text,
+  target_id: text,
+  detail: text,
+  created_at: z.string(),
+});
+
+/**
+ * GET /api/admin/overview. `recentLectures` (50 newest) and `auditLogs` (60 newest) are read
+ * row by row: the same answer gives the user list, so one odd row must not blank it.
+ */
+/** The overview's `recentLectures`: LectureSummaryDto and the owner, nothing about jobs or compaction. */
+const RecentLectureSchema = AdminLectureSchema.pick({
+  id: true,
+  title: true,
+  course: true,
+  status: true,
+  has_audio: true,
+  created_at: true,
+  updated_at: true,
+  owner_id: true,
+  owner_email: true,
+  owner_name: true,
+});
+export type AdminRecentLecture = z.infer<typeof RecentLectureSchema>;
+
+export const AdminOverviewSchema = AdminOverviewBase.extend({
+  recentLectures: rows(RecentLectureSchema),
+  auditLogs: rows(AuditLogSchema),
+});
+
+export type AdminOverview = z.infer<typeof AdminOverviewSchema>;
+export type AdminAuditLog = z.infer<typeof AuditLogSchema>;
+
+/**
+ * SystemSettings (db.ts), read strictly: the settings form sends every key back, so a key
+ * that did not parse must stop the form, not turn into a default that switches a deletion
+ * policy on or off.
+ */
+export const AdminSettingsSchema = z.object({
+  allow_public_signup: z.boolean(),
+  default_user_role: z.enum(["member", "viewer"]),
+  default_require_approval: z.boolean(),
+  default_can_use_server_key: z.boolean(),
+  default_quota_mb: z.number(),
+  storage_auto_compact: z.boolean(),
+  storage_compact_bitrate_kbps: z.number(),
+  audio_retention_days: z.number(),
+  failed_audio_retention_days: z.number(),
+  audit_retention_days: z.number(),
+});
+export type AdminSettings = z.infer<typeof AdminSettingsSchema>;
+
+const CountBytes = z.object({ count, bytes: count });
+
+/** GET /api/admin/storage (admin-api.ts AdminStorageDto). */
+const AdminStorageSchema = z.object({
+  /** The answer carries SystemSettings; the card needs the failed-lecture retention only. */
+  settings: z
+    .object({ failed_audio_retention_days: count })
+    .nullish()
+    .transform((v) => v ?? { failed_audio_retention_days: 0 }),
+  totals: z.object({ lectures: count, withAudio: count, audioBytes: count, uploadsBytes: count, uploadsFiles: count }),
+  byFormat: rows(z.object({ ext: text, count, bytes: count })),
+  byStatus: rows(z.object({ status: text, count, audioBytes: count })),
+  byUser: rows(
+    z.object({
+      userId: z.string(),
+      email: text,
+      displayName: text,
+      lectureCount: count,
+      audioBytes: count,
+      quotaMb: count,
+      usedPct: z.number().nullish().transform((v) => v ?? null),
+    }),
+  ),
+  compaction: z.object({
+    enabled: z.boolean(),
+    ffmpegAvailable: z.boolean(),
+    bitrateKbps: count,
+    candidates: count,
+    candidateBytes: count,
+    estimatedSavedBytes: count,
+    compactedCount: count,
+    savedBytesTotal: count,
+    queued: count,
+    running: count,
+  }),
+  reclaimable: z.object({
+    failedAudio: CountBytes,
+    retention: z.object({ days: count, count, bytes: count }),
+    orphans: CountBytes,
+  }),
+  trash: z.object({ count, bytes: count, retentionDays: count }),
+  largest: rows(
+    z.object({
+      id: z.string(),
+      title: text,
+      course: text,
+      ownerEmail: text,
+      audioBytes: count,
+      durationSec: count,
+      ext: text,
+      compacted: z.boolean(),
+      createdAt: z.string(),
+    }),
+  ),
+});
+export type AdminStorage = z.infer<typeof AdminStorageSchema>;
+
+const CompactResultSchema = z.object({ dryRun: z.boolean(), candidates: count, queued: count, candidateBytes: count, estimatedSavedBytes: count });
+const GcResultSchema = z.object({
+  dryRun: z.boolean(),
+  orphans: z.object({ count, bytes: count, files: z.array(z.string()).nullish().transform((v) => v ?? []) }),
+  movedToTrash: count,
+});
+const DaysCountBytes = z.object({ days: count, count, bytes: count });
+const RetentionResultSchema = z.object({ dryRun: z.boolean(), retention: DaysCountBytes, failedRetention: DaysCountBytes });
+export type CompactResult = z.infer<typeof CompactResultSchema>;
+export type GcResult = z.infer<typeof GcResultSchema>;
+export type RetentionResult = z.infer<typeof RetentionResultSchema>;
+
+/**
+ * A v1 queue job (admin-api.ts JobDto). `kind` and `stage` are the queue's own strings: the
+ * server's types say "distill" | "compact", but a v2 "index" job comes through too.
+ */
+const OpsJobSchema = z.object({
+  id: z.string(),
+  kind: text,
+  lectureId: text,
+  lectureTitle: text,
+  ownerEmail: text,
+  state: z.enum(["queued", "running"]),
+  stage: text,
+  progress: count,
+  enqueuedAt: z.string(),
+  startedAt: maybe,
+});
+const FinishedJobSchema = z.object({
+  id: z.string(),
+  kind: text,
+  lectureId: text,
+  lectureTitle: text,
+  ownerEmail: text,
+  ok: z.boolean(),
+  error: maybe,
+  savedBytes: count,
+  startedAt: text,
+  finishedAt: z.string(),
+  durationMs: count,
+});
+export type OpsJob = z.infer<typeof OpsJobSchema>;
+export type FinishedJob = z.infer<typeof FinishedJobSchema>;
+
+/** POST /api/admin/maintenance/run → { result } (admin-api.ts MaintenanceResultDto). */
+const MaintenanceResultSchema = z.object({
+  startedAt: z.string(),
+  finishedAt: z.string(),
+  expiredSessions: count,
+  expiredCodes: count,
+  prunedAuditLogs: count,
+  orphanFiles: CountBytes,
+  tempFiles: CountBytes,
+  retention: CountBytes,
+  failedRetention: CountBytes,
+  backup: z
+    .object({ file: z.string(), sizeBytes: count })
+    .nullish()
+    .transform((v) => v ?? null),
+  walCheckpointed: z.boolean(),
+  errors: z
+    .array(z.string())
+    .nullish()
+    .transform((v) => v ?? []),
+});
+export type MaintenanceResult = z.infer<typeof MaintenanceResultSchema>;
+
+/** GET /api/admin/ops (admin-api.ts AdminOpsDto). */
+const AdminOpsSchema = z.object({
+  server: z.object({
+    gitSha: text,
+    bootAt: text,
+    uptimeSec: count,
+    bunVersion: text,
+    pid: count,
+    platform: text,
+    memory: z.object({ rssBytes: count, heapUsedBytes: count }),
+    ffmpegAvailable: z.boolean(),
+    requests: z.object({ total: count, errors5xx: count }),
+  }),
+  jobs: z.object({
+    concurrency: z.object({ distill: count, compact: count }),
+    running: rows(OpsJobSchema),
+    queued: rows(OpsJobSchema),
+    recent: rows(FinishedJobSchema),
+    last24h: z.object({ completed: count, failed: count, avgDurationMs: count }),
+  }),
+  disk: z
+    .object({ path: text, totalBytes: count, freeBytes: count, usedPct: count, low: z.boolean() })
+    .nullish()
+    .transform((v) => v ?? null),
+  database: z.object({ sizeBytes: count, walBytes: count, users: count, lectures: count, sessions: count, auditLogs: count }),
+  backups: z.object({
+    keep: count,
+    count,
+    totalBytes: count,
+    latest: z
+      .object({ file: z.string(), sizeBytes: count, createdAt: z.string() })
+      .nullish()
+      .transform((v) => v ?? null),
+  }),
+  maintenance: z.object({
+    intervalMin: count,
+    running: z.boolean(),
+    lastRunAt: maybe,
+    lastResult: MaintenanceResultSchema.nullish().transform((v) => v ?? null),
+  }),
+  deploy: z.object({
+    inProgress: z.boolean(),
+    lastResult: z
+      .object({ ok: z.boolean(), sha: text, error: maybe, at: z.string() })
+      .nullish()
+      .transform((v) => v ?? null),
+  }),
+});
+export type AdminOps = z.infer<typeof AdminOpsSchema>;
+
+export const AUDIT_PREFIXES = ["auth", "account", "admin", "storage", "ops"] as const;
+export type AuditPrefix = (typeof AUDIT_PREFIXES)[number];
+
+/** GET /api/admin/audit (admin-api.ts AdminAuditListDto). */
+const AdminAuditPageSchema = z.object({
+  logs: rows(AuditLogSchema),
+  nextCursor: maybe,
+  total: count,
+  counts: z.object({ all: count, auth: count, account: count, admin: count, storage: count, ops: count }),
+});
+export type AdminAuditPage = z.infer<typeof AdminAuditPageSchema>;
+
+export interface AdminAuditQuery {
+  action?: AuditPrefix;
+  q?: string;
+  cursor?: string;
+  limit?: number;
+}
+
 export interface AdminLecturesQuery {
   status?: z.infer<typeof LectureStatus>;
   q?: string;
@@ -197,6 +463,24 @@ export interface AdminApi {
   deleteLectureAudio(id: string): Promise<{ reclaimedBytes: number }>;
   /** DELETE /api/lectures/:id: the note and the audio. */
   deleteLecture(id: string): Promise<void>;
+  /** GET /api/admin/storage */
+  storage(): Promise<AdminStorage>;
+  /** POST /api/admin/storage/compact { all: true, dryRun } */
+  compactAll(dryRun: boolean): Promise<CompactResult>;
+  /** POST /api/admin/storage/gc { dryRun }: orphan uploads to the trash folder. */
+  gcStorage(dryRun: boolean): Promise<GcResult>;
+  /** POST /api/admin/storage/retention { dryRun }: the retention policies, now. */
+  applyRetention(dryRun: boolean): Promise<RetentionResult>;
+  /** GET /api/admin/ops */
+  ops(): Promise<AdminOps>;
+  /** POST /api/admin/maintenance/run. Concurrent calls share one run (no 409). */
+  runMaintenance(): Promise<MaintenanceResult>;
+  /** The overview's `settings`, read strictly (there is no GET /api/admin/settings). */
+  settings(): Promise<AdminSettings>;
+  /** PATCH /api/admin/settings; the server keeps a key that is not sent or not valid. */
+  saveSettings(patch: Partial<AdminSettings>): Promise<AdminSettings>;
+  /** GET /api/admin/audit, newest first; pass `nextCursor` back as `cursor`. */
+  audit(q: AdminAuditQuery): Promise<AdminAuditPage>;
 }
 
 /** What the HTTP client lends the admin API: its v2 `call` and a v1 JSON request. */
@@ -261,6 +545,20 @@ export function createAdminApi(t: AdminTransport): AdminApi {
     },
     deleteLecture: async (id) => {
       await t.v1("DELETE", `/api/lectures/${encodeURIComponent(id)}`);
+    },
+    storage: async () => read(AdminStorageSchema, await t.v1("GET", "/api/admin/storage"), "storage"),
+    compactAll: async (dryRun) => read(CompactResultSchema, await t.v1("POST", "/api/admin/storage/compact", { all: true, dryRun }), "compact"),
+    gcStorage: async (dryRun) => read(GcResultSchema, await t.v1("POST", "/api/admin/storage/gc", { dryRun }), "gc"),
+    applyRetention: async (dryRun) => read(RetentionResultSchema, await t.v1("POST", "/api/admin/storage/retention", { dryRun }), "retention"),
+    ops: async () => read(AdminOpsSchema, await t.v1("GET", "/api/admin/ops"), "ops"),
+    runMaintenance: async () => read(z.object({ result: MaintenanceResultSchema }), await t.v1("POST", "/api/admin/maintenance/run"), "maintenance").result,
+    settings: async () => read(z.object({ settings: AdminSettingsSchema }), await t.v1("GET", "/api/admin/overview"), "settings").settings,
+    saveSettings: async (patch) => read(z.object({ settings: AdminSettingsSchema }), await t.v1("PATCH", "/api/admin/settings", patch), "settings").settings,
+    audit: async (q) => {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") qs.set(k, String(v));
+      const query = qs.toString();
+      return read(AdminAuditPageSchema, await t.v1("GET", `/api/admin/audit${query ? `?${query}` : ""}`), "audit");
     },
   };
 }

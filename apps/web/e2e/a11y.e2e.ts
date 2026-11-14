@@ -230,9 +230,9 @@ test("admin overview/users/jobs/job detail/usage have no axe violations", async 
 });
 
 test("admin user detail/new user/recordings/recording detail have no axe violations", async ({ page, axe }) => {
-  const screens: { path: string; label: string; ready: string }[] = [
+  const screens: { path: string; label: string; ready: string | RegExp }[] = [
     { path: "/app/admin/users/usr_fixture_sehun", label: "관리 사용자 상세", ready: "sehun@example.com" },
-    { path: "/app/admin/recordings", label: "관리 녹음", ready: "55개" },
+    { path: "/app/admin/recordings", label: "관리 녹음", ready: /^55개$/ },
     { path: "/app/admin/recordings/lec_fx_04", label: "관리 녹음 상세", ready: "압축 전" },
     { path: "/app/admin/recordings/lec_fx_06", label: "관리 녹음 상세(오류)", ready: "Gemini 응답이 비어 있습니다." },
   ];
@@ -254,4 +254,52 @@ test("admin user detail/new user/recordings/recording detail have no axe violati
   await axe(page, "새 사용자");
   await page.emulateMedia({ colorScheme: "dark" });
   await axe(page, "새 사용자 (다크)");
+});
+
+test("admin storage/ops/settings/audit have no axe violations", async ({ page, axe }) => {
+  const screens: { path: string; label: string; ready: string }[] = [
+    { path: "/app/admin/storage", label: "관리 저장소", ready: "회수 가능 공간" },
+    { path: "/app/admin/ops", label: "관리 운영", ready: "최근 완료된 v1 작업" },
+    { path: "/app/admin/settings", label: "관리 설정", ready: "공개 회원가입 허용" },
+    { path: "/app/admin/audit", label: "관리 감사 로그", ready: "64건" },
+    { path: "/app/admin?fixture-admin=trouble", label: "관리 개요(문제 있음)", ready: "최근 배포 실패" },
+  ];
+  for (const screen of screens) {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(screen.path);
+    await expect(page.getByText(screen.ready).first()).toBeVisible();
+    await axe(page, screen.label);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await axe(page, `${screen.label} (다크)`);
+  }
+
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/app/admin/storage");
+  await page.getByRole("button", { name: "전체 압축" }).click();
+  await expect(page.getByRole("dialog", { name: "전체 압축" })).toBeVisible();
+  await axe(page, "전체 압축 미리보기");
+  await page.getByRole("button", { name: "취소" }).click();
+  await page.getByRole("button", { name: "정리: 보존 기간이 지난 오디오" }).click();
+  await expect(page.getByRole("alertdialog", { name: "보존 정책 적용" })).toBeVisible();
+  await axe(page, "보존 정책 확인");
+  await page.getByRole("button", { name: "취소" }).click();
+
+  await page.goto("/app/admin/ops");
+  await page.getByRole("button", { name: "유지보수 지금 실행" }).click();
+  await page.getByRole("dialog", { name: "유지보수 실행" }).getByRole("button", { name: "실행" }).click();
+  await expect(page.getByRole("dialog", { name: "유지보수 완료" })).toBeVisible();
+  await axe(page, "유지보수 결과");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "유지보수 결과 (다크)");
+
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/app/admin/settings");
+  await page.getByRole("textbox", { name: "감사 로그 보존 일수" }).fill("90");
+  await page.getByRole("link", { name: "감사 로그", exact: true }).click();
+  await expect(page.getByRole("alertdialog", { name: "저장하지 않은 변경" })).toBeVisible();
+  await axe(page, "저장하지 않은 변경");
+  await page.getByRole("button", { name: "버리고 떠나기" }).click();
+  await page.getByRole("button", { name: /^자세히:/ }).first().click();
+  await expect(page.getByRole("dialog", { name: "감사 로그" })).toBeVisible();
+  await axe(page, "감사 로그 항목");
 });

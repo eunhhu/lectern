@@ -814,7 +814,15 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
 
     listMembers: (ws) => wait(() => page(data.members.filter((m) => m.workspace_id === ws), undefined, MAX_PAGE)),
 
-    admin: createFixtureAdmin({ me: () => data.me, wait, quotas, personalWs: personalWs, teamWs }),
+    admin: createFixtureAdmin({
+      me: () => data.me,
+      wait,
+      quotas,
+      personalWs: personalWs,
+      teamWs,
+      // `?fixture-admin=trouble|unavailable` (see FixtureAdminDeps.mode).
+      mode: (["trouble", "unavailable"] as const).find((m) => m === fixtureFlag("fixture-admin")) ?? null,
+    }),
 
     updateMember: (ws, userId, newRole) =>
       wait((): WorkspaceMember => {

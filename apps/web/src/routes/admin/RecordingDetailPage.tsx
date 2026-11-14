@@ -3,21 +3,23 @@
 // conditions and sent to the same routes: 재시도 (`POST /api/lectures/:id/retry`), 지금 압축
 // (`POST /api/admin/storage/compact { ids }`), 오디오 삭제 and 녹음 삭제
 // (`DELETE /api/lectures/:id[/audio]`). The two deletions ask first; while an action runs
-// its button is off and says so.
+// its button is off and says so. P5-13: the job box (the lecture's running or queued v1
+// job from `GET /api/admin/ops`), read again with the lecture while one is on.
 
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
-import type { AdminLectureDetail } from "../../api/admin.ts";
+import type { AdminLectureDetail, OpsJob } from "../../api/admin.ts";
 import { ApiClientError } from "../../api/client.ts";
 import { errorMessage } from "../../api/errors.ts";
-import { useAdminLecture, useAdminLectureAction, useAdminOverview } from "../../api/queries.ts";
+import { useAdminLecture, useAdminLectureAction, useAdminOps, useAdminOverview } from "../../api/queries.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
-import { formatBytes, formatCount, formatDateTime } from "../../lib/format.ts";
+import { formatBytes, formatCount, formatDateTime, formatRelative } from "../../lib/format.ts";
 import { Icon } from "../../ui/Icon.tsx";
 import { Badge, Button, ErrorBox, ModalDialog } from "../../ui/controls.tsx";
 import { showToast } from "../../ui/toast.tsx";
 import { toastError } from "../library/organise.ts";
 import { formatSeconds, lectureStageLabel } from "./format.ts";
+import { opsKindLabel } from "./OpsPage.tsx";
 import { LectureStatusBadge } from "./RecordingsPage.tsx";
 import s from "./admin.module.css";
 
@@ -126,6 +128,7 @@ function RecordingDetail({ lecture: l }: { lecture: AdminLectureDetail }) {
           </Button>
         </div>
       </header>
+      <JobBox lectureId={l.id} busy={l.job_state !== null || l.status === "processing"} />
       {l.error_message && (
         <div className={s.callout} role="note" aria-label="오류 메시지">
           <Icon name="alert" size={16} />
@@ -226,6 +229,34 @@ function RecordingDetail({ lecture: l }: { lecture: AdminLectureDetail }) {
         )}
       </ModalDialog>
     </>
+  );
+}
+
+/** The lecture's job in the v1 queue (running first), like the old console's peek. */
+function JobBox({ lectureId, busy }: { lectureId: string; busy: boolean }) {
+  const ops = useAdminOps({ pollMs: busy ? 5_000 : undefined }).data;
+  if (!ops) return null;
+  const job: OpsJob | undefined = [...ops.jobs.running, ...ops.jobs.queued].find((j) => j.lectureId === lectureId);
+  if (!job) return null;
+  const now = new Date();
+  const running = job.state === "running";
+  const p = Math.max(0, Math.min(100, job.progress));
+  return (
+    <section className={s.jobBox} aria-label="진행 중 작업">
+      <strong>
+        {opsKindLabel(job.kind)} · {running ? "실행 중" : "대기열"}
+      </strong>
+      <span className={s.muted}>
+        {running
+          ? `${lectureStageLabel(job.stage, "processing")}${job.kind === "distill" ? ` · ${p}%` : ""} · ${formatRelative(job.startedAt ?? job.enqueuedAt, now)} 시작`
+          : `${formatRelative(job.enqueuedAt, now)} 대기열에 추가됨`}
+      </span>
+      {running && job.kind === "distill" && (
+        <span className={s.stageBar} aria-hidden="true">
+          <span className={s.stageFill} ref={(el) => el?.style.setProperty("width", `${p}%`)} />
+        </span>
+      )}
+    </section>
   );
 }
 

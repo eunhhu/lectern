@@ -3,7 +3,7 @@
 // /api/v2 client happens in api/index.ts alone.
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { AdminJobsQuery, AdminLecture, AdminLecturesQuery, AdminNewUser, AdminUserPatch } from "./admin.ts";
+import type { AdminAuditQuery, AdminJobsQuery, AdminLecture, AdminLecturesQuery, AdminNewUser, AdminSettings, AdminUserPatch } from "./admin.ts";
 import { createContext, useContext, useEffect } from "react";
 import { ApiClientError, type ApiClient } from "./client.ts";
 import { errorMessage } from "./errors.ts";
@@ -77,6 +77,10 @@ export const queryKeys = {
   adminUsage: (period: string) => ["admin", "usage", period] as const,
   adminLectures: (status?: string, q?: string, owner?: string) => ["admin", "lectures", status ?? null, q ?? null, owner ?? null] as const,
   adminLecture: (id: string) => ["admin", "lecture", id] as const,
+  adminStorage: ["admin", "storage"] as const,
+  adminOps: ["admin", "ops"] as const,
+  adminSettings: ["admin", "settings"] as const,
+  adminAudit: (action?: string, q?: string) => ["admin", "audit", action ?? null, q ?? null] as const,
   workspaceActionItems: (ws: string) => ["workspace-action-items", ws] as const,
   calendar: (ws: string) => ["calendar", ws] as const,
   shareLinks: (ws: string) => ["share-links", ws] as const,
@@ -347,9 +351,62 @@ export function useIsOperator(): boolean | undefined {
   return me.system_role === "owner" || me.system_role === "admin";
 }
 
-export function useAdminOverview(enabled = true) {
+/**
+ * `pollMs`: read again on a timer while the tab is visible (TanStack pauses a background
+ * tab), as the old console did on 개요 and 작업.
+ */
+export function useAdminOverview(enabled = true, pollMs?: number) {
   const api = useApi();
-  return useQuery({ queryKey: queryKeys.adminOverview, queryFn: () => api.admin.overview(), enabled });
+  return useQuery({ queryKey: queryKeys.adminOverview, queryFn: () => api.admin.overview(), enabled, refetchInterval: pollMs ?? false });
+}
+
+export function useAdminOps(options: { enabled?: boolean; pollMs?: number } = {}) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.adminOps, queryFn: () => api.admin.ops(), enabled: options.enabled ?? true, refetchInterval: options.pollMs ?? false });
+}
+
+export function useAdminStorage(options: { enabled?: boolean; pollMs?: number } = {}) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.adminStorage, queryFn: () => api.admin.storage(), enabled: options.enabled ?? true, refetchInterval: options.pollMs ?? false });
+}
+
+/** The settings form's values: read once; a save writes the answer back. */
+export function useAdminSettings() {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.adminSettings, queryFn: () => api.admin.settings(), staleTime: Infinity });
+}
+
+export function useSaveAdminSettings() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Partial<AdminSettings>) => api.admin.saveSettings(patch),
+    gcTime: 0,
+    onSuccess: (settings) => {
+      qc.setQueryData(queryKeys.adminSettings, settings);
+      return Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.adminOverview }),
+        qc.invalidateQueries({ queryKey: queryKeys.adminStorage }),
+        qc.invalidateQueries({ queryKey: ["admin", "audit"] }),
+      ]);
+    },
+  });
+}
+
+export function useAdminAudit(filter: Pick<AdminAuditQuery, "action" | "q">) {
+  const api = useApi();
+  return useInfiniteQuery({
+    queryKey: queryKeys.adminAudit(filter.action, filter.q),
+    queryFn: ({ pageParam }) => api.admin.audit({ ...filter, cursor: pageParam, limit: 50 }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+/** After a storage or maintenance run: every admin read but the settings form. */
+export function useRefreshAdmin() {
+  const qc = useQueryClient();
+  return () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "admin" && q.queryKey[1] !== "settings" });
 }
 
 export function useUpdateAdminUser() {

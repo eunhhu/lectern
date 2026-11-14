@@ -7,7 +7,21 @@
 // and the old console's rules hold (see apps/server/src/index.ts and db.ts). Quotas are
 // shared with the fixture's workspace usage, so a limit set here shows in 설정 › 사용량.
 
-import type { AdminApi, AdminLecture, AdminLectureDetail, AdminOverview, AdminUser } from "../admin.ts";
+import type {
+  AdminApi,
+  AdminAuditLog,
+  AdminLecture,
+  AdminLectureDetail,
+  AdminOps,
+  AdminOverview,
+  AdminSettings,
+  AdminStorage,
+  AdminUser,
+  AuditPrefix,
+  FinishedJob,
+  MaintenanceResult,
+  OpsJob,
+} from "../admin.ts";
 import { ApiClientError } from "../client.ts";
 import type { AiCall, Job, JobDetail, Me, StageRun, UsageLedger, WorkspaceQuota } from "../types.ts";
 
@@ -18,6 +32,13 @@ export interface FixtureAdminDeps {
   quotas: Map<string, WorkspaceQuota>;
   personalWs: string;
   teamWs: string | undefined;
+  /**
+   * `?fixture-admin=trouble`: the disk is low, ffmpeg is missing, the last maintenance
+   * reported an error and the last deploy failed. `?fixture-admin=unavailable`: the first
+   * two reads of ops, storage and the audit log answer 503 (a query tries twice), so the
+   * screens show "다시 시도".
+   */
+  mode?: "trouble" | "unavailable" | null;
 }
 
 const HOUR = 3_600_000;
@@ -26,6 +47,8 @@ const MB = 1_000_000;
 const hash = (n: number) => n.toString(16).padStart(64, "0");
 const BUSY = "이미 분석 또는 압축 작업이 진행 중인 강의입니다.";
 const COMPACT_MS = 3_000;
+const MIB = 1_048_576;
+const fakeSha = (seed: string) => seed.repeat(Math.ceil(40 / seed.length)).slice(0, 40);
 
 type Lecture = AdminLectureDetail;
 type UserRow = Omit<AdminUser, "lecture_count" | "error_count" | "public_count" | "audio_bytes">;
@@ -222,8 +245,22 @@ export function createFixtureAdmin(deps: FixtureAdminDeps): AdminApi {
     const role = deps.me().system_role;
     if (role !== "owner" && role !== "admin") throw new ApiClientError(403, "forbidden", "관리자(Owner/Admin) 권한이 필요한 기능입니다.");
   };
-  const settings = { default_user_role: "member" as const, default_can_use_server_key: true, default_quota_mb: 2048 };
+  // Retention is on (14 days) so 저장소 › 정리 has done lectures' audio and one failed lecture
+  // to clear.
+  let sys: AdminSettings = {
+    allow_public_signup: true,
+    default_user_role: "member",
+    default_require_approval: false,
+    default_can_use_server_key: true,
+    default_quota_mb: 2048,
+    storage_auto_compact: true,
+    storage_compact_bitrate_kbps: 40,
+    audio_retention_days: 14,
+    failed_audio_retention_days: 14,
+    audit_retention_days: 365,
+  };
   const overview = (): AdminOverview => {
+    settle();
     const rows = users.map(crm);
     return {
       metrics: {
@@ -236,8 +273,10 @@ export function createFixtureAdmin(deps: FixtureAdminDeps): AdminApi {
         errorLectures: rows.reduce((sum, u) => sum + u.error_count, 0),
         totalAudioBytes: rows.reduce((sum, u) => sum + u.audio_bytes, 0),
       },
-      settings: { ...settings },
+      settings: { ...sys },
       users: rows,
+      recentLectures: lectures.slice(0, 50).map((l) => ({ id: l.id, title: l.title, course: l.course, status: l.status, has_audio: l.has_audio, created_at: l.created_at, updated_at: l.updated_at, owner_id: l.owner_id, owner_email: l.owner_email, owner_name: l.owner_name })),
+      auditLogs: structuredClone(auditLogs.slice(0, 60)),
     };
   };
   const user = (id: string) => {
@@ -277,7 +316,274 @@ export function createFixtureAdmin(deps: FixtureAdminDeps): AdminApi {
         job_kind: null,
         updated_at: done,
       });
+      recent.unshift({ id: `ojob_fx_c${id}`, kind: "compact", lectureId: id, lectureTitle: l.title, ownerEmail: l.owner_email, ok: true, error: null, savedBytes: l.audio_original_size - l.audio_size, startedAt: new Date(since).toISOString(), finishedAt: done, durationMs: now - since });
     }
+  };
+
+  // MARK: P5-13 — storage, ops, settings, audit log
+
+  const trouble = deps.mode === "trouble";
+  const failures = new Map<string, number>();
+  /** `?fixture-admin=unavailable`: the first two reads of each screen fail. */
+  const reachable = (what: string) => {
+    if (deps.mode !== "unavailable") return;
+    const seen = failures.get(what) ?? 0;
+    if (seen >= 2) return;
+    failures.set(what, seen + 1);
+    throw new ApiClientError(503, "unavailable", "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.");
+  };
+
+  const ACTORS = [me.email, "jimin@example.com", "sehun@example.com", "seoa@example.com"];
+  const TEMPLATES: [string, string, (k: number) => string][] = [
+    ["auth.login", "로그인 성공", () => ""],
+    ["admin.user_update", "역할 member → viewer, 상태 active", () => "usr_fixture_dohyun"],
+    ["storage.compact", "오디오 압축 3건 대기열 추가 (40kbps, 예상 절감 118MB)", () => ""],
+    ["auth.logout", "로그아웃", () => ""],
+    ["storage.audio_delete", "오디오 삭제 (9.4MB 확보)", (k) => `lec_fx_${String((k % 50) + 1).padStart(2, "0")}`],
+    ["account.password_reset", "비밀번호 재설정 메일 발송", () => ""],
+    ["ops.maintenance", "자동 유지보수 (세션 2, 고아 0, 백업 없음, 오류 0)", () => ""],
+    ["auth.login_failed", "비밀번호 불일치", () => ""],
+    ["admin.settings_update", "가입허용=true, 기본역할=member, 오디오보존=14일", () => ""],
+    ["storage.gc", "고아 업로드 파일 2개 휴지통 이동 (12MB)", () => ""],
+    ["account.profile_update", "표시 이름 변경", () => ""],
+  ];
+  // 64 rows, one every five hours, newest first.
+  const auditLogs: AdminAuditLog[] = Array.from({ length: 64 }, (_, k) => {
+    const [action, detail, target] = TEMPLATES[k % TEMPLATES.length]!;
+    const actor = action.startsWith("admin.") || action.startsWith("storage.") || action.startsWith("ops.") ? ACTORS[k % 2]! : ACTORS[k % ACTORS.length]!;
+    return {
+      id: `audlog_fx_${String(k + 1).padStart(2, "0")}`,
+      actor_id: users.find((u) => u.email === actor)?.id ?? "",
+      actor_email: actor,
+      action,
+      target_id: target(k),
+      detail,
+      created_at: at((k + 1) * 5 * HOUR),
+    };
+  });
+  let auditSeq = 0;
+  const record = (action: string, detail: string, target = "") => {
+    auditSeq++;
+    auditLogs.unshift({ id: `audlog_fx_new_${auditSeq}`, actor_id: deps.me().id, actor_email: deps.me().email, action, target_id: target, detail, created_at: new Date().toISOString() });
+  };
+
+  // Files under uploads/ that no lecture points at, and the trash they are moved to.
+  let orphans = [
+    { name: "a1f3c9e2-orphan.webm", bytes: 18 * MB },
+    { name: "7b22d0aa-orphan.mp3", bytes: 12 * MB },
+    { name: "upload-1730000000.part", bytes: 6 * MB },
+    { name: "c09e5f10-orphan.m4a", bytes: 2 * MB },
+  ];
+  const trash = { count: 2, bytes: 9 * MB };
+
+  const backups = [2, 3, 4].map((daysAgo) => {
+    const createdAt = at(daysAgo * DAY + 3 * HOUR);
+    return { file: `lectern-${createdAt.slice(0, 10)}.sqlite`, sizeBytes: (46 - daysAgo) * MB, createdAt };
+  });
+  const BACKUP_KEEP = 7;
+  const lastMaintenance = (): MaintenanceResult => ({
+    startedAt: at(50 * 60_000),
+    finishedAt: at(50 * 60_000 - 3_400),
+    expiredSessions: 2,
+    expiredCodes: 0,
+    prunedAuditLogs: 0,
+    orphanFiles: { count: 0, bytes: 0 },
+    tempFiles: { count: 1, bytes: 1_200_000 },
+    retention: { count: 0, bytes: 0 },
+    failedRetention: { count: 0, bytes: 0 },
+    backup: null,
+    walCheckpointed: true,
+    errors: trouble ? ["백업 실패: 디스크 공간이 부족합니다."] : [],
+  });
+  const maintenance: AdminOps["maintenance"] = { intervalMin: 60, running: false, lastRunAt: at(50 * 60_000), lastResult: lastMaintenance() };
+  const enqueued = new Map<string, number>([
+    ["lec_fx_03", now - 6 * 60_000],
+    ["lec_fx_20", now - 2 * 60_000],
+  ]);
+  const recent: FinishedJob[] = [
+    ["lec_fx_06", "distill", false, 41_000],
+    ["lec_fx_01", "distill", true, 88_000],
+    ["lec_fx_08", "compact", true, 12_000],
+    ["lec_fx_02", "distill", true, 131_000],
+    ["lec_fx_09", "distill", true, 96_000],
+    ["lec_fx_12", "compact", true, 9_000],
+    ["lec_fx_10", "distill", true, 104_000],
+    ["lec_fx_13", "distill", true, 77_000],
+  ].map(([id, kind, ok, took], k) => {
+    const l = lectures.find((x) => x.id === id)!;
+    const finishedAt = at((k + 1) * 2 * HOUR);
+    return {
+      id: `ojob_fx_${k + 1}`,
+      kind: kind as string,
+      lectureId: id as string,
+      lectureTitle: l.title,
+      ownerEmail: l.owner_email,
+      ok: ok as boolean,
+      error: ok ? null : "Gemini 응답이 비어 있습니다. 잠시 뒤 다시 시도하세요.",
+      savedBytes: kind === "compact" ? 21 * MB : 0,
+      startedAt: new Date(Date.parse(finishedAt) - (took as number)).toISOString(),
+      finishedAt,
+      durationMs: took as number,
+    };
+  });
+
+  const retentionTargets = () => {
+    const old = (iso: string, days: number) => days > 0 && Date.now() - Date.parse(iso) > days * DAY;
+    const audio = lectures.filter((l) => l.status === "done" && l.has_audio && !l.job_state && old(l.created_at, sys.audio_retention_days));
+    const failed = lectures.filter((l) => l.status === "error" && !l.job_state && old(l.updated_at, sys.failed_audio_retention_days));
+    const sum = (list: Lecture[]) => list.reduce((acc, l) => acc + l.audio_size, 0);
+    return {
+      audio,
+      failed,
+      retention: { days: sys.audio_retention_days, count: sys.audio_retention_days ? audio.length : 0, bytes: sys.audio_retention_days ? sum(audio) : 0 },
+      failedRetention: { days: sys.failed_audio_retention_days, count: sys.failed_audio_retention_days ? failed.length : 0, bytes: sys.failed_audio_retention_days ? sum(failed) : 0 },
+    };
+  };
+
+  const storage = (): AdminStorage => {
+    settle();
+    const withAudio = lectures.filter((l) => l.has_audio);
+    const group = <K extends string>(list: Lecture[], key: (l: Lecture) => K) => {
+      const out = new Map<K, { count: number; bytes: number }>();
+      for (const l of list) {
+        const g = out.get(key(l)) ?? { count: 0, bytes: 0 };
+        g.count++;
+        g.bytes += l.audio_size;
+        out.set(key(l), g);
+      }
+      return [...out.entries()].sort((a, b) => b[1].bytes - a[1].bytes);
+    };
+    const candidates = lectures.filter(compactable);
+    const compacted = lectures.filter((l) => l.compacted && l.has_audio);
+    const failedAudio = lectures.filter((l) => l.status === "error" && l.has_audio);
+    const ret = retentionTargets();
+    const inUploads = withAudio.filter((l) => l.audio_in_uploads);
+    const orphanBytes = orphans.reduce((acc, f) => acc + f.bytes, 0);
+    return {
+      settings: { ...sys },
+      totals: {
+        lectures: lectures.length,
+        withAudio: withAudio.length,
+        audioBytes: withAudio.reduce((acc, l) => acc + l.audio_size, 0),
+        uploadsBytes: inUploads.reduce((acc, l) => acc + l.audio_size, 0) + orphanBytes,
+        uploadsFiles: inUploads.length + orphans.length,
+      },
+      byFormat: group(withAudio, (l) => l.audio_ext || "").map(([ext, g]) => ({ ext, count: g.count, bytes: g.bytes })),
+      byStatus: group(lectures, (l) => l.status).map(([status, g]) => ({ status, count: g.count, audioBytes: g.bytes })),
+      byUser: users
+        .map(crm)
+        .map((u) => ({
+          userId: u.id,
+          email: u.email,
+          displayName: u.display_name,
+          lectureCount: u.lecture_count,
+          audioBytes: u.audio_bytes,
+          quotaMb: u.quota_mb,
+          usedPct: u.quota_mb ? Math.round((u.audio_bytes / (u.quota_mb * MIB)) * 1000) / 10 : null,
+        }))
+        .sort((a, b) => b.audioBytes - a.audioBytes),
+      compaction: {
+        enabled: sys.storage_auto_compact,
+        ffmpegAvailable: !trouble,
+        bitrateKbps: sys.storage_compact_bitrate_kbps,
+        candidates: candidates.length,
+        candidateBytes: candidates.reduce((acc, l) => acc + l.audio_size, 0),
+        estimatedSavedBytes: candidates.reduce((acc, l) => acc + Math.round(l.audio_size * 0.6), 0),
+        compactedCount: compacted.length,
+        savedBytesTotal: compacted.reduce((acc, l) => acc + Math.max(0, l.audio_original_size - l.audio_size), 0),
+        queued: compacting.size,
+        running: 0,
+      },
+      reclaimable: {
+        failedAudio: { count: failedAudio.length, bytes: failedAudio.reduce((acc, l) => acc + l.audio_size, 0) },
+        retention: ret.retention,
+        orphans: { count: orphans.length, bytes: orphanBytes },
+      },
+      trash: { ...trash, retentionDays: 7 },
+      largest: [...withAudio]
+        .sort((a, b) => b.audio_size - a.audio_size)
+        .slice(0, 20)
+        .map((l) => ({ id: l.id, title: l.title, course: l.course, ownerEmail: l.owner_email, audioBytes: l.audio_size, durationSec: l.duration_sec, ext: l.audio_ext, compacted: l.compacted, createdAt: l.created_at })),
+    };
+  };
+
+  const opsJob = (l: Lecture): OpsJob => ({
+    id: `ojob_fx_${l.id}`,
+    kind: l.job_kind ?? "distill",
+    lectureId: l.id,
+    lectureTitle: l.title,
+    ownerEmail: l.owner_email,
+    state: l.job_state === "running" ? "running" : "queued",
+    stage: l.job_kind === "compact" ? "compact" : l.stage,
+    progress: l.progress,
+    enqueuedAt: new Date(enqueued.get(l.id) ?? compacting.get(l.id) ?? Date.now()).toISOString(),
+    startedAt: l.job_state === "running" ? new Date((enqueued.get(l.id) ?? Date.now()) + 2 * 60_000).toISOString() : null,
+  });
+  const ops = (): AdminOps => {
+    settle();
+    const busy = lectures.filter((l) => l.job_state);
+    const backupBytes = backups.reduce((acc, b) => acc + b.sizeBytes, 0);
+    return {
+      server: {
+        gitSha: fakeSha("f00dfeed"),
+        bootAt: at(3 * DAY),
+        uptimeSec: Math.round((3 * DAY) / 1000),
+        bunVersion: "1.4.0",
+        pid: 4242,
+        platform: "linux-arm64",
+        memory: { rssBytes: 212 * MB, heapUsedBytes: 58 * MB },
+        ffmpegAvailable: !trouble,
+        requests: { total: 18_204, errors5xx: 3 },
+      },
+      jobs: {
+        concurrency: { distill: 2, compact: 1 },
+        running: busy.filter((l) => l.job_state === "running").map(opsJob),
+        queued: busy.filter((l) => l.job_state === "queued").map(opsJob),
+        recent: structuredClone(recent.slice(0, 50)),
+        last24h: { completed: recent.filter((j) => j.ok).length, failed: recent.filter((j) => !j.ok).length, avgDurationMs: Math.round(recent.reduce((acc, j) => acc + j.durationMs, 0) / recent.length) },
+      },
+      disk: trouble
+        ? { path: "/var/lib/lectern", totalBytes: 128_000 * MB, freeBytes: 1_100 * MB, usedPct: 99.1, low: true }
+        : { path: "/var/lib/lectern", totalBytes: 128_000 * MB, freeBytes: 41_200 * MB, usedPct: 67.8, low: false },
+      database: {
+        sizeBytes: 48 * MB,
+        walBytes: 3_200_000,
+        users: users.length,
+        lectures: lectures.length,
+        sessions: users.reduce((acc, u) => acc + u.session_count, 0),
+        auditLogs: auditLogs.length,
+      },
+      backups: { keep: BACKUP_KEEP, count: backups.length, totalBytes: backupBytes, latest: backups[0] ? { ...backups[0] } : null },
+      maintenance: structuredClone(maintenance),
+      deploy: {
+        inProgress: false,
+        lastResult: trouble
+          ? { ok: false, sha: fakeSha("badc0de"), error: "health check failed: /api/health 502", at: at(2 * HOUR) }
+          : { ok: true, sha: fakeSha("f00dfeed"), error: null, at: at(3 * DAY) },
+      },
+    };
+  };
+
+  /** db.ts updateSystemSettings: a key that is missing or not valid keeps its value. */
+  const applySettings = (patch: Partial<AdminSettings>): AdminSettings => {
+    const days = (v: unknown, cur: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(36_500, Math.round(v)) : cur);
+    const bool = (v: unknown, cur: boolean) => (typeof v === "boolean" ? v : cur);
+    sys = {
+      allow_public_signup: bool(patch.allow_public_signup, sys.allow_public_signup),
+      default_user_role: patch.default_user_role === "viewer" || patch.default_user_role === "member" ? patch.default_user_role : sys.default_user_role,
+      default_require_approval: bool(patch.default_require_approval, sys.default_require_approval),
+      default_can_use_server_key: bool(patch.default_can_use_server_key, sys.default_can_use_server_key),
+      default_quota_mb: typeof patch.default_quota_mb === "number" && patch.default_quota_mb >= 0 ? Math.round(patch.default_quota_mb) : sys.default_quota_mb,
+      storage_auto_compact: bool(patch.storage_auto_compact, sys.storage_auto_compact),
+      storage_compact_bitrate_kbps:
+        typeof patch.storage_compact_bitrate_kbps === "number" && Number.isFinite(patch.storage_compact_bitrate_kbps)
+          ? Math.min(96, Math.max(24, Math.round(patch.storage_compact_bitrate_kbps)))
+          : sys.storage_compact_bitrate_kbps,
+      audio_retention_days: days(patch.audio_retention_days, sys.audio_retention_days),
+      failed_audio_retention_days: days(patch.failed_audio_retention_days, sys.failed_audio_retention_days),
+      audit_retention_days: days(patch.audit_retention_days, sys.audit_retention_days),
+    };
+    return { ...sys };
   };
 
   return {
@@ -444,6 +750,119 @@ export function createFixtureAdmin(deps: FixtureAdminDeps): AdminApi {
         operator();
         lecture(id);
         lectures = lectures.filter((l) => l.id !== id);
+      }),
+    storage: () => deps.wait(() => (operator(), reachable("storage"), storage())),
+    compactAll: (dryRun) =>
+      deps.wait(() => {
+        operator();
+        const picked = lectures.filter(compactable);
+        const candidateBytes = picked.reduce((acc, l) => acc + l.audio_size, 0);
+        const estimatedSavedBytes = picked.reduce((acc, l) => acc + Math.round(l.audio_size * 0.6), 0);
+        if (!dryRun) {
+          if (trouble) throw new ApiClientError(503, "unavailable", "서버에 ffmpeg가 없어 압축할 수 없습니다.");
+          for (const l of picked) {
+            Object.assign(l, { job_state: "queued", job_kind: "compact" });
+            compacting.set(l.id, Date.now());
+          }
+          record("storage.compact", `오디오 압축 ${picked.length}건 대기열 추가 (${sys.storage_compact_bitrate_kbps}kbps, 예상 절감 ${Math.round(estimatedSavedBytes / MIB)}MB)`);
+        }
+        return { dryRun, candidates: picked.length, queued: dryRun ? 0 : picked.length, candidateBytes, estimatedSavedBytes };
+      }),
+    gcStorage: (dryRun) =>
+      deps.wait(() => {
+        operator();
+        const found = { count: orphans.length, bytes: orphans.reduce((acc, f) => acc + f.bytes, 0), files: orphans.slice(0, 50).map((f) => f.name) };
+        let movedToTrash = 0;
+        if (!dryRun) {
+          movedToTrash = orphans.length;
+          trash.count += orphans.length;
+          trash.bytes += found.bytes;
+          orphans = [];
+          record("storage.gc", `고아 업로드 파일 ${movedToTrash}개 휴지통 이동 (${Math.round(found.bytes / MIB)}MB)`);
+        }
+        return { dryRun, orphans: found, movedToTrash };
+      }),
+    applyRetention: (dryRun) =>
+      deps.wait(() => {
+        operator();
+        const t = retentionTargets();
+        if (!dryRun) {
+          if (sys.audio_retention_days) for (const l of t.audio) Object.assign(l, { has_audio: false, audio_size: 0, audio_ext: "", audio_mime: null, updated_at: new Date().toISOString() });
+          if (sys.failed_audio_retention_days) {
+            const gone = new Set(t.failed.map((l) => l.id));
+            lectures = lectures.filter((l) => !gone.has(l.id));
+          }
+          record("storage.retention", `보존 정책 적용: 오디오 삭제 ${t.retention.count}건, 실패 강의 삭제 ${t.failedRetention.count}건`);
+        }
+        return { dryRun, retention: t.retention, failedRetention: t.failedRetention };
+      }),
+    ops: () => deps.wait(() => (operator(), reachable("ops"), ops())),
+    runMaintenance: () =>
+      deps.wait(() => {
+        operator();
+        // The run took 2.6 s and has just finished (a finish in the future reads as a date).
+        const started = Date.now() - 2_600;
+        const moved = { count: orphans.length, bytes: orphans.reduce((acc, f) => acc + f.bytes, 0) };
+        trash.count += moved.count;
+        trash.bytes += moved.bytes;
+        orphans = [];
+        const createdAt = new Date(started).toISOString();
+        const backup = { file: `lectern-${createdAt.slice(0, 19).replace(/:/g, "")}.sqlite`, sizeBytes: 47 * MB, createdAt };
+        backups.unshift(backup);
+        backups.splice(BACKUP_KEEP);
+        const result: MaintenanceResult = {
+          startedAt: createdAt,
+          finishedAt: new Date(started + 2_600).toISOString(),
+          expiredSessions: 1,
+          expiredCodes: 2,
+          prunedAuditLogs: 0,
+          orphanFiles: moved,
+          tempFiles: { count: 0, bytes: 0 },
+          retention: { count: 0, bytes: 0 },
+          failedRetention: { count: 0, bytes: 0 },
+          backup: { file: backup.file, sizeBytes: backup.sizeBytes },
+          walCheckpointed: true,
+          errors: [],
+        };
+        Object.assign(maintenance, { lastRunAt: result.finishedAt, lastResult: result });
+        record("ops.maintenance", `수동 유지보수 실행 (세션 1, 고아 ${moved.count}, 백업 ${backup.file}, 오류 0)`);
+        return structuredClone(result);
+      }),
+    settings: () => deps.wait(() => (operator(), { ...sys })),
+    saveSettings: (patch) =>
+      deps.wait(() => {
+        operator();
+        const next = applySettings(patch);
+        record("admin.settings_update", `가입허용=${next.allow_public_signup}, 기본역할=${next.default_user_role}, 오디오보존=${next.audio_retention_days}일, 감사로그보존=${next.audit_retention_days}일`);
+        return next;
+      }),
+    // GET /api/admin/audit: q matches the actor, action, detail or target; counts are per
+    // prefix for q; the cursor is `${created_at}|${id}` of the last row seen.
+    audit: (q) =>
+      deps.wait(() => {
+        operator();
+        reachable("audit");
+        const term = (q.q ?? "").trim().toLowerCase();
+        const base = auditLogs.filter((a) => !term || [a.actor_email, a.action, a.detail, a.target_id].some((v) => v.toLowerCase().includes(term)));
+        const counts = { all: base.length, auth: 0, account: 0, admin: 0, storage: 0, ops: 0 } as Record<"all" | AuditPrefix, number>;
+        for (const a of base) {
+          const prefix = a.action.split(".")[0] as AuditPrefix;
+          if (prefix in counts) counts[prefix]++;
+        }
+        let list = q.action ? base.filter((a) => a.action.startsWith(`${q.action}.`)) : base;
+        if (q.cursor) {
+          const i = list.findIndex((a) => `${a.created_at}|${a.id}` === q.cursor);
+          list = i >= 0 ? list.slice(i + 1) : list;
+        }
+        const limit = Math.min(200, Math.max(1, q.limit ?? 50));
+        const page = list.slice(0, limit);
+        const last = page[page.length - 1];
+        return {
+          logs: structuredClone(page),
+          nextCursor: list.length > limit && last ? `${last.created_at}|${last.id}` : null,
+          total: q.action ? counts[q.action] : counts.all,
+          counts,
+        };
       }),
   };
 }

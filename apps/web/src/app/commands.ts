@@ -6,7 +6,9 @@ import type { IconName } from "../ui/Icon.tsx";
 export interface ShortcutInfo {
   keys: string[];
   label: string;
-  group: "이동" | "명령" | "목록" | "폴더·태그" | "녹음 상세" | "물어보기";
+  group: "이동" | "명령" | "목록" | "폴더·태그" | "녹음 상세" | "물어보기" | "관리";
+  /** Shown to service operators only. */
+  operator?: boolean;
 }
 
 export const SHORTCUTS: ShortcutInfo[] = [
@@ -34,7 +36,24 @@ export const SHORTCUTS: ShortcutInfo[] = [
   { keys: ["Enter"], label: "질문 보내기", group: "물어보기" },
   { keys: ["⇧Enter"], label: "줄 바꿈", group: "물어보기" },
   { keys: ["⌘K"], label: "팔레트에 질문을 쓰고 ‘물어보기’ 고르기", group: "물어보기" },
+  { keys: ["G", "O"], label: "관리 개요로 이동", group: "관리", operator: true },
+  { keys: ["G", "M"], label: "관리 사용자로 이동", group: "관리", operator: true },
+  { keys: ["G", "J"], label: "관리 작업으로 이동", group: "관리", operator: true },
+  { keys: ["G", ","], label: "관리 설정으로 이동", group: "관리", operator: true },
+  { keys: ["C"], label: "새 사용자 (관리 › 사용자에서)", group: "관리", operator: true },
+  { keys: ["⌘Enter"], label: "관리 설정 저장 (관리 › 설정에서)", group: "관리", operator: true },
 ];
+
+/**
+ * The old admin console's "G then a letter" moves that do not collide with the app's
+ * (P5-13). Its G L, G S and G A would take the app's 라이브러리, 설정 and 물어보기.
+ */
+export const ADMIN_GO_KEYS: Record<string, "/admin" | "/admin/users" | "/admin/jobs" | "/admin/settings"> = {
+  o: "/admin",
+  m: "/admin/users",
+  j: "/admin/jobs",
+  ",": "/admin/settings",
+};
 
 export const GO_KEYS: Record<string, "/" | "/library" | "/ask" | "/calendar" | "/settings"> = {
   h: "/",

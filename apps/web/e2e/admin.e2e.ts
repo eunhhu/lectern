@@ -5,7 +5,8 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures.ts";
 
-const card = (page: Page, label: string) => page.getByRole("listitem").filter({ hasText: label });
+// The overview's two lists of cards (확인 필요 below them has items of its own).
+const card = (page: Page, label: string) => page.getByRole("list", { name: /^(사용자와 녹음|작업)$/ }).getByRole("listitem").filter({ hasText: label });
 const bodyRows = (page: Page, caption: string | RegExp) => page.getByRole("table", { name: caption }).locator("tbody tr");
 
 test("non-admin sees not found", async ({ page }) => {

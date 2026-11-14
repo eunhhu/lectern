@@ -21,13 +21,17 @@ import { SignupPage } from "../routes/account/SignupPage.tsx";
 import { NotFoundPage, SessionErrorPage } from "../routes/placeholders.tsx";
 import { SettingsPage } from "../routes/settings/SettingsPage.tsx";
 import { InvitePage, type InviteSearch } from "../routes/invite/InvitePage.tsx";
-import { AdminUserRole, AdminUserStatus, LectureStatus } from "../api/admin.ts";
+import { AdminUserRole, AdminUserStatus, AUDIT_PREFIXES, LectureStatus } from "../api/admin.ts";
+import { AuditPage, type AdminAuditSearch } from "../routes/admin/AuditPage.tsx";
 import { AdminLayout } from "../routes/admin/AdminLayout.tsx";
 import { JobDetailPage } from "../routes/admin/JobDetailPage.tsx";
 import { JobsPage, type AdminJobsSearch } from "../routes/admin/JobsPage.tsx";
 import { OverviewPage } from "../routes/admin/OverviewPage.tsx";
+import { OpsPage, type AdminOpsSearch } from "../routes/admin/OpsPage.tsx";
 import { RecordingDetailPage } from "../routes/admin/RecordingDetailPage.tsx";
 import { RecordingsPage, type AdminRecordingsSearch } from "../routes/admin/RecordingsPage.tsx";
+import { SettingsPage as AdminSettingsPage } from "../routes/admin/SettingsPage.tsx";
+import { StoragePage, type AdminStorageSearch } from "../routes/admin/StoragePage.tsx";
 import { UserDetailPage } from "../routes/admin/UserDetailPage.tsx";
 import { UsagePage, type AdminUsageSearch } from "../routes/admin/UsagePage.tsx";
 import { UsersPage, type AdminUsersSearch } from "../routes/admin/UsersPage.tsx";
@@ -166,7 +170,7 @@ const inviteRoute = createRoute({
   component: InvitePage,
 });
 
-// The admin console (P5-12, P5-16). AdminLayout draws "not found" for anyone who is not an operator.
+// The admin console (P5-12, P5-16, P5-13). AdminLayout draws "not found" for anyone who is not an operator.
 const searchText = (v: unknown, max = 200) => (typeof v === "string" && v.trim() && v.length <= max ? v : undefined);
 const adminRoute = createRoute({ getParentRoute: () => authedRoute, path: "/admin", component: AdminLayout });
 const adminOverviewRoute = createRoute({ getParentRoute: () => adminRoute, path: "/", component: OverviewPage });
@@ -177,6 +181,7 @@ const adminUsersRoute = createRoute({
     role: AdminUserRole.safeParse(search.role).data,
     status: AdminUserStatus.safeParse(search.status).data,
     q: searchText(search.q),
+    new: search.new === 1 || search.new === "1" || search.new === true ? 1 : undefined,
   }),
   component: UsersPage,
 });
@@ -210,6 +215,30 @@ const adminUsageRoute = createRoute({
   }),
   component: UsagePage,
 });
+const adminStorageRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/storage",
+  validateSearch: (search: Record<string, unknown>): AdminStorageSearch => ({
+    run: search.run === "compact" || search.run === "gc" || search.run === "retention" ? search.run : undefined,
+  }),
+  component: StoragePage,
+});
+const adminOpsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/ops",
+  validateSearch: (search: Record<string, unknown>): AdminOpsSearch => ({ run: search.run === "maintenance" ? "maintenance" : undefined }),
+  component: OpsPage,
+});
+const adminSettingsRoute = createRoute({ getParentRoute: () => adminRoute, path: "/settings", component: AdminSettingsPage });
+const adminAuditRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/audit",
+  validateSearch: (search: Record<string, unknown>): AdminAuditSearch => ({
+    action: AUDIT_PREFIXES.find((p) => p === search.action),
+    q: searchText(search.q),
+  }),
+  component: AuditPage,
+});
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
@@ -225,6 +254,10 @@ const routeTree = rootRoute.addChildren([
       adminJobsRoute,
       adminJobRoute,
       adminUsageRoute,
+      adminStorageRoute,
+      adminOpsRoute,
+      adminSettingsRoute,
+      adminAuditRoute,
     ]),
   ]),
 ]);

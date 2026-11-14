@@ -8,12 +8,16 @@
 // The full edit form is the user's own page (UserDetailPage).
 
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Input, Label, TextArea, TextField } from "react-aria-components";
 import type { AdminNewUser, AdminOverview, AdminUser } from "../../api/admin.ts";
 import { errorMessage } from "../../api/errors.ts";
 import { useAdminOverview, useCreateAdminUser, useDeleteAdminUser, useMe, useUpdateAdminUser } from "../../api/queries.ts";
+import { insideDialog } from "../../app/GlobalShortcuts.tsx";
+import { currentOverlay } from "../../app/overlays.ts";
+import { getPreferences } from "../../app/preferences.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
+import { isImeComposing, isTypingTarget } from "../../lib/keyboard.ts";
 import { formatBytes, formatCount, formatDate, formatRelative } from "../../lib/format.ts";
 import { ROLE_LABEL } from "../../lib/roles.ts";
 import { Icon } from "../../ui/Icon.tsx";
@@ -29,6 +33,8 @@ export interface AdminUsersSearch {
   role?: AdminUser["role"];
   status?: AdminUser["status"];
   q?: string;
+  /** `?new=1` (the command palette's 새 사용자) opens the new-user dialog on arrival. */
+  new?: 1;
 }
 
 export const STATUS_TONE = { active: "success", pending: "attention", suspended: "danger" } as const;
@@ -62,6 +68,30 @@ export function UsersPage() {
   const rows = all.filter((u) => matches(u, search));
 
   const setFilter = (next: AdminUsersSearch) => void navigate({ to: "/admin/users", search: { ...search, ...next }, replace: true });
+  const ready = Boolean(overview.data);
+
+  // ?new=1 from the palette, once the defaults are in.
+  useEffect(() => {
+    if (!search.new || !ready) return;
+    setCreating(true);
+    void navigate({ to: "/admin/users", search: { ...search, new: undefined }, replace: true });
+  }, [search, ready, navigate]);
+
+  // The old console's C: a new user, with the app's single-key rules (DESIGN.md §1.2).
+  // "G then C" is the app's 일정, not this.
+  useEffect(() => {
+    let lastG = 0;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "g") lastG = Date.now();
+      if (e.key.toLowerCase() !== "c" || Date.now() - lastG < 1_200) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented || isImeComposing(e)) return;
+      if (!ready || !getPreferences().singleKeyShortcuts || currentOverlay() || insideDialog(e.target) || isTypingTarget(e.target)) return;
+      e.preventDefault();
+      setCreating(true);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [ready]);
 
   const patch = async (user: AdminUser, body: Parameters<typeof update.mutateAsync>[0]["patch"], done: string) => {
     try {

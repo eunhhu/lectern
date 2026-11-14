@@ -3,6 +3,10 @@
 // PDF pages (every result on the search screen), and asking the notes a question
 // (물어보기: this note, this folder or all notes, listed first when the text reads like a
 // question). Matching ignores spaces and case and accepts 초성 ("ㅇㅇㅊㅈ" → 운영체제).
+// Service operators also find the admin console here once they type (P5-13, the old
+// console's palette): its screens, its commands (유지보수 실행, 전체 압축, 고아 파일 정리,
+// 보존 정책 적용 — each opens its preview and asks first — and 새 사용자), and every
+// account's recordings by title. Nobody else asks the admin routes anything.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
@@ -21,7 +25,8 @@ import {
   Text,
   TextField,
 } from "react-aria-components";
-import { queryKeys, useApi, useFolders, useRecordings } from "../api/queries.ts";
+import { queryKeys, useApi, useFolders, useIsOperator, useRecordings } from "../api/queries.ts";
+import { ADMIN_TABS } from "../routes/admin/AdminLayout.tsx";
 import type { RecordingDetail } from "../api/types.ts";
 import { bestMatch, looksLikeQuestion } from "../lib/hangul.ts";
 import { formatDate, formatTimestamp } from "../lib/format.ts";
@@ -58,6 +63,18 @@ const NAV_ALIASES: Record<string, string[]> = {
   "/ask": ["ask", "agent", "rag", "ai", "질문", "에이전트"],
   "/calendar": ["calendar", "schedule", "events"],
   "/settings": ["settings", "preferences", "환경"],
+};
+
+const ADMIN_ALIASES: Record<string, string[]> = {
+  "/admin": ["overview", "dashboard", "대시보드"],
+  "/admin/users": ["users", "members", "멤버"],
+  "/admin/recordings": ["lectures", "recordings", "강의"],
+  "/admin/jobs": ["jobs", "queue"],
+  "/admin/usage": ["usage", "quota", "한도"],
+  "/admin/storage": ["storage", "disk", "스토리지", "디스크"],
+  "/admin/ops": ["ops", "backup", "deploy", "server", "백업", "배포", "서버"],
+  "/admin/settings": ["settings", "policy", "정책"],
+  "/admin/audit": ["audit", "log", "기록"],
 };
 
 function rank(items: Item[], query: string, limit = 50): Item[] {
@@ -103,6 +120,14 @@ function PaletteBody() {
   const openDetail = useQueryClient().getQueryData<RecordingDetail>(queryKeys.recording(hereRecordingId ?? ""));
   const hereRecording = hereRecordingId ? { id: hereRecordingId, title: openDetail?.recording.title ?? recordings.find((r) => r.id === hereRecordingId)?.title ?? "열려 있는 녹음" } : undefined;
   const hereFolder = location.pathname.endsWith("/library") && location.search.folder && location.search.folder !== "none" ? folders.find((f) => f.id === location.search.folder) : undefined;
+
+  const operator = useIsOperator() === true;
+  const adminLectures = useQuery({
+    queryKey: ["admin", "palette-lectures", q],
+    queryFn: () => api.admin.lectures({ q, limit: 5 }),
+    enabled: operator && q.length >= 2,
+    staleTime: 30_000,
+  });
 
   const search = useQuery({
     queryKey: ["palette-search", workspaceId, q],
@@ -211,6 +236,30 @@ function PaletteBody() {
           ]
         : [];
     const askSection: Section = { id: "ask", title: "물어보기", items: asks };
+    const admin: Item[] = operator
+      ? [
+          ...ADMIN_TABS.map((t) => ({
+            id: `admin:go:${t.to}`,
+            label: `관리 › ${t.label}`,
+            icon: t.icon,
+            detail: "이동",
+            aliases: ["admin", ...(ADMIN_ALIASES[t.to] ?? [])],
+            run: go(() => void navigate({ to: t.to })),
+          })),
+          { id: "admin:maintenance", label: "유지보수 실행", icon: "settings", detail: "관리", aliases: ["maintenance", "backup", "백업"], run: go(() => void navigate({ to: "/admin/ops", search: { run: "maintenance" } })) },
+          { id: "admin:compact", label: "전체 압축 (미리보기)", icon: "folder", detail: "관리", aliases: ["compact", "compress", "압축"], run: go(() => void navigate({ to: "/admin/storage", search: { run: "compact" } })) },
+          { id: "admin:gc", label: "고아 파일 정리 (미리보기)", icon: "trash", detail: "관리", aliases: ["gc", "orphan", "trash", "휴지통"], run: go(() => void navigate({ to: "/admin/storage", search: { run: "gc" } })) },
+          { id: "admin:retention", label: "보존 정책 적용 (미리보기)", icon: "clock", detail: "관리", aliases: ["retention", "보존", "정리"], run: go(() => void navigate({ to: "/admin/storage", search: { run: "retention" } })) },
+          { id: "admin:new-user", label: "새 사용자", icon: "plus", detail: "관리", keys: ["C"], aliases: ["new user", "create user", "add member", "새 멤버"], run: go(() => void navigate({ to: "/admin/users", search: { new: 1 } })) },
+        ]
+      : [];
+    const adminRecs: Item[] = (adminLectures.data?.lectures ?? []).map((l) => ({
+      id: `admin:rec:${l.id}`,
+      label: l.title || "제목 없음",
+      icon: "audio",
+      detail: l.owner_email,
+      run: go(() => void navigate({ to: "/admin/recordings/$lectureId", params: { lectureId: l.id } })),
+    }));
     const out: Section[] = [
       ...(looksLikeQuestion(question) ? [askSection] : []),
       { id: "nav", title: "이동", items: rank(nav, query) },
@@ -219,6 +268,9 @@ function PaletteBody() {
       { id: "folders", title: "폴더", items: query.trim() ? rank(flds, query, 5) : [] },
       { id: "hits", title: "전사·문서", items: hits },
       ...(looksLikeQuestion(question) ? [] : [askSection]),
+      // Operators only, once something is typed: the app's own results come first.
+      { id: "admin", title: "관리", items: query.trim() ? rank(admin, query, 8) : [] },
+      { id: "admin-recordings", title: "관리 · 모든 녹음", items: q.length >= 2 ? adminRecs : [] },
     ];
     if (query.trim()) {
       out.push({
@@ -236,7 +288,7 @@ function PaletteBody() {
     }
     return out.filter((sec) => sec.items.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, q, recordings, folders, workspaces, workspaceId, search.data, hereRecording, hereFolder]);
+  }, [query, q, recordings, folders, workspaces, workspaceId, search.data, hereRecording, hereFolder, operator, adminLectures.data]);
 
   const byId = new Map(sections.flatMap((sec) => sec.items.map((it) => [it.id, it] as const)));
   const nothing = query.trim() !== "" && sections.every((sec) => sec.id === "all");
