@@ -43,7 +43,7 @@
     {"id":"P3-09","title":"웹: 전역 검색","deps":["P3-06"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P3-10","title":"검색 성능 측정","deps":["P3-06"],"owns":["scripts/bench/","packages/ask/"],"tier":"basic","gate":"unit","status":"merged"},
     {"id":"P4-C","title":"계약: LECTERN_CALENDAR, 테이블, 라우트, 방침","deps":["P3-C"],"owns":["packages/config/","packages/db/","packages/domain/","docs/env.md","deploy/systemd/","docs/v2/pipeline/flags-on.env","apps/server/","docs/runbooks/"],"tier":"careful","gate":"full","status":"merged"},
-    {"id":"P4-01","title":"ICS 구독","deps":["P4-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},
+    {"id":"P4-01","title":"ICS 구독","deps":["P4-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P4-02","title":"Google OAuth와 연동 수명 주기","deps":["P4-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P4-03","title":"calendar_sync 작업","deps":["P4-02"],"owns":["apps/server/","apps/worker/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P4-04","title":"자동 등록과 재처리 멱등성","deps":["P4-03","P1-12"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},

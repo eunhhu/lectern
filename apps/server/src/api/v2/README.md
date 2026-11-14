@@ -1,6 +1,6 @@
 # API v2 (`/api/v2`)
 
-`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 뒤 단계 기능 7개(P4 5개, P5 2개)는 아직 `501 not_implemented`다.
+`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 뒤 단계 기능 4개(P4 2개, P5 2개)는 아직 `501 not_implemented`다.
 
 ## 요청 처리 순서
 
@@ -105,9 +105,9 @@
 | `GET /calendar/suggestions` | `listCalendarSuggestions` | 실제 | `statuses`, 기간. P4 전까지 비어 있음 |
 | `PATCH /calendar/suggestions/{event_candidate_id}` | `updateCalendarSuggestion` | 실제 | `synced`는 409 |
 | `POST /calendar/suggestions/batch` | `batchCalendarSuggestions` | 실제 | |
-| `GET /calendar/feed` | `getCalendarFeed` | 501 | P4-01. ICS 구독이 있는지(`url`은 만들 때만 보여 주고 이후 `null`) |
-| `POST /calendar/feed` | `createCalendarFeed` | 501 | P4-01. 만들거나 다시 만든다(옛 주소는 바로 막힘) |
-| `DELETE /calendar/feed` | `deleteCalendarFeed` | 501 | P4-01 |
+| `GET /calendar/feed` | `getCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 워크스페이스 멤버 누구나. ICS 구독이 있는지만(`url`은 늘 `null`. 토큰은 해시만 저장) |
+| `POST /calendar/feed` | `createCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 만들거나 다시 만든다. 응답의 `url`(`/cal/<토큰>.ics`)은 이때 한 번만. 옛 주소는 같은 트랜잭션에서 막힌다. 주소 자체는 `http.ts`의 공개 라우트다(인증 없음, `accepted`·`synced` 일정만, 비공개 녹음의 일정은 만든 사람의 주소에만, 꺼짐·잘못된 이름·모르는·회수된 토큰은 모두 같은 404, 요청 로그에는 `/cal/***`) |
+| `DELETE /calendar/feed` | `deleteCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 204. 주소가 바로 404가 된다 |
 | `GET /integrations` | `listIntegrations` | 실제 | P4 전까지 비어 있음 |
 | `POST /integrations/google` | `startGoogleIntegration` | 501 | P4 |
 | `DELETE /integrations/{integration_id}` | `disconnectIntegration` | 501 | P4 |

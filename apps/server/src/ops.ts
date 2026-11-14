@@ -72,14 +72,19 @@ export function requestStats(): { total: number; errors5xx: number } {
   return { ...requestCounters };
 }
 
-/** Query parameters that carry credentials are never written to logs. */
+/** Path prefixes whose remainder is a credential (the ICS subscription token, P4-01). */
+const SECRET_PATH_PREFIXES = ["/cal/"];
+
+/** Query parameters and path segments that carry credentials are never written to logs. */
 export function redactUrlForLog(url: URL): string {
   const params = new URLSearchParams(url.search);
   for (const key of ["token", "share", "key"]) {
     if (params.has(key)) params.set(key, "redacted");
   }
   const qs = params.toString();
-  return qs ? `${url.pathname}?${qs}` : url.pathname;
+  const prefix = SECRET_PATH_PREFIXES.find((p) => url.pathname.startsWith(p));
+  const path = prefix ? `${prefix}***` : url.pathname;
+  return qs ? `${path}?${qs}` : path;
 }
 
 // MARK: - Gauges

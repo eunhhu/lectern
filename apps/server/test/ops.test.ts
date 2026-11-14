@@ -689,6 +689,12 @@ describe("deploy & logging safety", () => {
     expect(line).not.toContain("share=abc");
     expect(line).toContain("q=keep");
   });
+
+  test("the ICS subscription token in the path is redacted in request logs", () => {
+    const line = redactUrlForLog(new URL("http://localhost/cal/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcd.ics"));
+    expect(line).toBe("/cal/***");
+    expect(redactUrlForLog(new URL("http://localhost/calendar?x=1"))).toBe("/calendar?x=1");
+  });
 });
 
 describe("storage accounting", () => {
