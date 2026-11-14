@@ -9,15 +9,14 @@
 
 WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단계가 끝날 때 오케스트레이터가 고친다.
 
-기준: 2026-11-14, 통합 브랜치 `p0-foundations`. **P0·P1의 WP를 모두 병합했다**(P0 1개, P1 17개, 모두 게이트 통과). P2부터는 아직 `todo`다. P0·P2 이후 행의 "만듦"은 파이프라인을 시작하기 전부터 있던 것이다.
+기준: 2026-11-14, 통합 브랜치 `p0-foundations`. **P0·P1·P3의 WP를 모두 병합했다**(P0 1개, P1 17개, P3 11개, 모두 게이트 통과). P2는 11개 중 9개를 병합했고 P2-09는 사용자 결정 대기(`BLOCKED`), P2-10은 그 뒤다. P4부터는 아직 `todo`다. P4 이후 행의 "만듦"은 파이프라인을 시작하기 전부터 있던 것이다.
 
 | 단계 | 만듦 | 가짜로 테스트함 | 실측 필요 | 사용자 필요 |
 |---|---|---|---|---|
 | P0 기반 | 작업 큐·워커 분리, 마이그레이션 러너, Hono 진입점, JSON 로그, 설정 패키지, 디자인 토큰, 법적 페이지, CD 사전 점검 | 단위 테스트 794개 | 운영에는 `5b0ef75`까지만 배포됨. 그 뒤 커밋(v2 테이블 이전 포함)은 운영 DB에서 돌려 본 적이 없다 | 운영 호스트 복구, `lectern-worker` 유닛 설치, Google OAuth 검증 신청 |
 | P1 하네스 | 단계 실행기, 미디어 처리(정규화·말소리 지도·청크·여러 오디오 파트 잇기), 전사 → 병합 → 화자, 노트 단계(분류·구조화·추출·검증), Gemini 전사·LLM 어댑터, v2 처리 작업(`process`)과 다시 만들기(`regenerate`)·작업 취소·관리자 재시도, v1 다리(`lectures.markdown` = 구조화 문서), 평가 CLI(전사 지표, `--notes` 문서·추출 지표), 웹의 v2 처리 상태 | 단위 테스트 1082개(스크립트 공급자, 합성 세트, 노트 오라클), 웹 e2e 56개(가짜 Gemini로 v2 올리기 → 전사 → 문서 → 출처 이동), axe 0건 | Gemini 전사·노트 요청 형식(실제 호출로 확인한 적 없음), 1시간당 비용, 실제 녹음의 구조화·추출 품질 지표 | 평가 세트(동의받은 녹음 10건 이상과 주석), D11 비용 목표 확정, 운영에서 `LECTERN_PIPELINE=v2` 켜기 |
-| P2 데이터·웹 | v2 테이블과 이전, API v2(9개는 501), 새 웹 앱(`/app`), 물어보기 v1, `/` → `/app` 리다이렉트(플래그 켬일 때) | 웹 e2e 55개, axe 0건, v1 계약 테스트 | 운영 DB 사본에서의 이전 리허설, 물어보기 평가(재현율·인용 정밀도) | `LECTERN_WEB_SHELL=1`·`LECTERN_ASK=1` 켜기, 옛 화면 삭제 승인(P2-10) |
-| P2 남은 것 | — (P2-C ~ P2-10) | — | — | — |
-| P3 PDF·검색 | — | — | Pi에서 검색 p95 200ms, PDF 포함 평가 | PDF 포함 평가 녹음 5건 |
+| P2 데이터·웹 | v2 테이블과 이전, API v2, 새 웹 앱(`/app`), 물어보기 v1, `/` → `/app` 리다이렉트(플래그 켬일 때). 파이프라인에서 더한 것: 오디오만 삭제, 문서 Markdown 내보내기, 서버 추천 질문, 공유 링크(만들기·바꾸기·회수)와 공개 페이지 `/s/:token`, 웹 회원가입·이메일 인증·비밀번호 재설정, 문서 편집(블록 글자, legacy Markdown, 저장 충돌), 공유 UI, 다시 처리·Markdown 내려받기, Pretendard 직접 호스팅, v1 화면 기능 대조표(`PARITY.md`)와 빠진 e2e | 단위 테스트(전체 1357개), 웹 e2e(전체 129개, fixture 107개), axe 0건, v1 계약 테스트 | 운영 DB 사본에서의 이전 리허설, 물어보기 평가(재현율·인용 정밀도) | **대조표 `없음` 8행(#4 #6 #7 #21 #22 #27 #30 #31)을 만들지 정하기(P2-09가 여기서 멈춤)**, `LECTERN_WEB_SHELL=1`·`LECTERN_ASK=1` 켜기, 옛 화면 삭제 승인(P2-10) |
+| P3 PDF·검색 | PDF 업로드(`LECTERN_PDF`), 쪽 글자 추출(`packages/pdf`), `pdf_ingest` 단계와 `pdf_page` 저장, `align` 단계와 노트 문맥의 PDF 쪽, 스캔본 OCR(dry run 견적 → 사용자 승인 뒤에만 Gemini), PDF 쪽 색인·쪽 인용·하이브리드 `GET /search`, 물어보기 도구 루프 테스트, 웹 PDF 뷰어(pdf.js, 파일 패널, OCR 비용 확인), 전역 검색 화면 `/app/search`와 ⌘K의 PDF 적중·IME 가드, 검색 성능 측정 스크립트(`scripts/bench/`) | 가짜 Gemini(스크립트 응답)로 OCR·도구 루프·PDF 인용, 웹 e2e(PDF 뷰어 12개, 검색 10개), axe 0건. 검색 측정: Apple M3에서 합성 1000건(조각 21,660개) p95 53 ms | Pi에서 검색 p95 200 ms, 실제 Gemini OCR의 비용·품질, PDF 포함 평가 | PDF 포함 평가 녹음 5건, 운영에서 `LECTERN_PDF=1` 켜기 |
 | P4 캘린더 | 일정 제안 API(빈 상태) | — | 실제 Google Calendar 연동 전 과정 | Google OAuth 클라이언트와 검증, `calendar.app.created` 범위 승인 |
 | P5 계정 | — | — | Google·Apple 로그인 실제 흐름, 보안 리뷰 | Apple Developer 계정(Sign in with Apple), 보안 리뷰어, 쿼터 기본값 |
 | P6 네이티브 | 기존 macOS·Android·Windows 클라이언트(v1 API) | Android 단위 테스트 | 실제 기기 전부(3시간 백그라운드 녹음, Dynamic Island, APNs, 시스템 오디오 권한), Windows 빌드 | Apple Developer ID(D7), APNs 키, TestFlight, v1 차단 시점 결정 |
@@ -46,7 +45,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 
 | 항목 | WP |
 |---|---|
-| Raspberry Pi에서 검색 p95 200 ms | P3-10 |
+| Raspberry Pi에서 검색 p95 200 ms. `bun scripts/bench/search.ts --recordings 1000 --max-p95-ms 200`으로 잰다. 참고: Apple M3에서 p95 53 ms(2026-11-14) | P3-10 |
 | 실제 Google 동의 화면과 전용 캘린더 생성·동기화 | P4-02, P4-03 |
 | Bun의 `node:http2` 클라이언트가 Apple의 실제 APNs 서버(TLS, ALPN h2)와 붙는지. 테스트의 가짜는 평문 h2다 | P6-02 |
 | 옛 macOS 앱으로 로그인한 Mac에서 새 빌드로 토큰이 키체인으로 옮겨지는지 | P6-A0 |
@@ -92,6 +91,11 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | `BGContinuedProcessingTask`, IETF 재개 업로드 | P6-A3 |
 | 디스크가 부족할 때 업로드를 거절하는 서버 규칙(`disk-full.ts`의 관찰 결과를 보고 정한다) | P7-01 |
 | 관리자 강의의 아카이브 `.md` 파일을 v2 처리 결과로도 쓰기 | P1-11 |
+| 다시 만들기(`regenerate`)가 PDF 문맥 없이 노트를 만든다. PDF 쪽 출처(`pdf_pages` 라벨)가 모두 지워진다 | P3-04 |
+| 이미 처리된 녹음에 나중에 붙인 PDF는 `pdf_ingest`를 타지 않는다(쪽 추출은 `process` 작업 안에서만 돈다) | P3-03 |
+| 작업 단계 이름(`StageName`)에 `pdf_ocr`이 없다. OCR 작업의 진행이 단계 이름 없이 보인다 | P3-05 |
+| 같은 녹음의 다른 PDF OCR이 큐에 있으면 409다(큐가 녹음 단위로 중복을 막는다). PDF 단위로 풀지 정한다 | P3-05 |
+| 웹 fixture 물어보기에 `pdf_page` 인용 경로가 없어 "인용을 누르면 그 쪽이 열린다" e2e가 없다. PDF 콘텐츠의 Range 요청 경로도 e2e로 보지 않았다 | P3-08 |
 
 ### 명세 자체의 한계
 
