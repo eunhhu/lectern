@@ -14,9 +14,10 @@ import { canonicalJson, sha256Hex } from "../hash.ts";
 import type { LlmProvider } from "../providers.ts";
 import type { Routing } from "../routing.ts";
 import { defineStage, type StageDefinition } from "../stage.ts";
+import type { PdfContext } from "../pdf/context.ts";
 import type { LoadedTemplate } from "../templates.ts";
 import { formatCompactTranscript, type CompactSegment } from "./compact.ts";
-import { NOTES_SYSTEM, notesContext, repairSuffix } from "./prompt.ts";
+import { hasPdfText, NOTES_SYSTEM, notesContext, pdfContextParts, repairSuffix } from "./prompt.ts";
 
 export const EXTRACT_STAGE_VERSION = 1;
 
@@ -26,9 +27,13 @@ export interface ExtractInput {
   language: string;
   recordedAtMs: number;
   tz: string;
+  /** Related lecture PDF pages (P3-04); without page text the prompt is the P1 one. */
+  pdf?: PdfContext;
 }
 
 const EXTRACT_INSTRUCTION = "위 전사에서 아래 항목만 JSON으로 추출한다. 전사에 실제로 나온 것만 쓴다.";
+
+const PDF_EVIDENCE_NOTE = "\n자료(PDF) 쪽은 참고만 한다. 근거(evidence)는 전사의 #번호로만 단다.";
 
 const FIELD_HELP: Record<Exclude<ExtractField, "questions">, string> = {
   events:
@@ -78,6 +83,7 @@ function buildInstruction(input: ExtractInput, fields: ExtractField[], repair: {
   return (
     `${EXTRACT_INSTRUCTION}\n\n${input.template.extractPrompt}\n\n` +
     `녹음 시각: ${formatRecordedAt(input.recordedAtMs, input.tz)}\n출력 언어: ${input.language}\n추출 항목:${help}` +
+    (hasPdfText(input.pdf) ? PDF_EVIDENCE_NOTE : "") +
     repairSuffix(repair)
   );
 }
@@ -97,7 +103,10 @@ export function extractStage(
       const def = input.template.def;
       const fields = enabledExtractFields(def);
       return {
-        inputs: [sha256Hex(formatCompactTranscript({ segments: input.segments }).text)],
+        inputs: [
+          sha256Hex(formatCompactTranscript({ segments: input.segments }).text),
+          ...(hasPdfText(input.pdf) ? [sha256Hex(input.pdf.text)] : []),
+        ],
         prompt: sha256Hex(`${NOTES_SYSTEM}\u0000${EXTRACT_INSTRUCTION}\u0000${canonicalJson(FIELD_HELP)}`),
         template: `${def.id}@${def.version}:${input.template.hash}`,
         provider: llm.id,
@@ -118,7 +127,7 @@ export function extractStage(
         llm.generate({
           schema: extractSchemaFor(def),
           system: NOTES_SYSTEM,
-          context: notesContext(input.segments),
+          context: [...notesContext(input.segments), ...pdfContextParts(input.pdf)],
           instruction: buildInstruction(input, fields, ctx.repair),
           model: route.model,
           maxOutputTokens: route.maxOutputTokens,

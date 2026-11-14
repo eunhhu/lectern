@@ -3,12 +3,14 @@ import { join } from "node:path";
 import { deleteRecordingIndex, deleteRecordingThreads } from "@lectern/ask";
 import { deleteRecordingRows } from "@lectern/db";
 import { costMicrousd, DEFAULT_PRICING, priceFor } from "@lectern/harness";
+import { config } from "@lectern/config";
 import type { ErrorCode } from "@lectern/domain";
 import { DEFAULT_GEMINI_MODEL } from "../../../../../packages/core/src/index.ts";
 import { DATA_DIR, db, deleteLectureAudioOnly, deleteLectureById, getLectureById, getUserById, resetLectureForRetry } from "../../db.ts";
 import { logger } from "../../log.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
+import { deleteAlignment, readAlignment } from "../../pdf-align-file.ts";
 import { enqueueRecordingProcessing } from "../../process-job.ts";
 import { enqueueRegenerate } from "../../regenerate-job.ts";
 import { isLectureBusy } from "../../queue.ts";
@@ -162,6 +164,7 @@ function deleteRecording(recording: RecordingRow): void {
   deleteRecordingIndex(db, recording.workspace_id, recording.id);
   deleteRecordingThreads(db, recording.workspace_id, recording.id);
   db.query("DELETE FROM pdf_page WHERE recording_id = ?").run(recording.id);
+  deleteAlignment(recording.id);
   deleteRecordingRows(db, recording.id);
 }
 
@@ -421,7 +424,13 @@ export const recordingsRouter = defineRouter({
     return req.c.body(null, 204);
   }, "recording:delete"),
   // Transcript windows matched to PDF pages (D-P3-4): P3-04 reads the align output.
-  getRecordingAlignment: notImplemented,
+  // The transcript–PDF alignment the last `process` run made (P3-04); none yet is no windows.
+  getRecordingAlignment: (req) => {
+    if (!config().pdf) return notImplemented(req);
+    const recording = loadRecording(req, req.params.recording_id);
+    if (recording instanceof Response) return recording;
+    return ok(req, readAlignment(recording.id));
+  },
 });
 
 /**

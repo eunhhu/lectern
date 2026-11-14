@@ -1,7 +1,9 @@
 // The shared prompt prefix of the notes stages (CONTRACTS §1.3): system text, then the
-// compact transcript, then a per-stage instruction. structure and extract use the same
-// system text and transcript part so a provider-side prefix cache can serve both.
+// compact transcript, then the related lecture PDF pages when there are any (P3-04), then a
+// per-stage instruction. structure and extract use the same system text, transcript and PDF
+// parts so a provider-side prefix cache can serve both.
 
+import type { PdfContext } from "../pdf/context.ts";
 import type { ContextPart } from "../providers.ts";
 import { formatCompactTranscript, type CompactSegment } from "./compact.ts";
 
@@ -11,6 +13,16 @@ export const NOTES_SYSTEM =
 
 export function notesContext(segments: readonly CompactSegment[]): ContextPart[] {
   return [{ type: "text", text: `전사:\n${formatCompactTranscript({ segments }).text}` }];
+}
+
+/** The PDF part after the transcript; nothing (the P1 prompt, byte for byte) without page text. */
+export function pdfContextParts(pdf: PdfContext | undefined): ContextPart[] {
+  return pdf?.text ? [{ type: "text", text: `자료(PDF) 관련 쪽:\n${pdf.text}` }] : [];
+}
+
+/** Whether a stage input carries PDF page text (prompt part, instruction line and memo input). */
+export function hasPdfText(pdf: PdfContext | undefined): pdf is PdfContext {
+  return Boolean(pdf?.text);
 }
 
 /** The repair suffix every notes stage appends after a rejected answer. */

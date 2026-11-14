@@ -36,6 +36,7 @@ import { personalWorkspaceId } from "./ask/workspace.ts";
 import { BlobStore, deleteArtifactsForJobs } from "@lectern/harness";
 import { ensurePrivateDir, hardenPrivateTree, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
+import { deleteAlignment } from "./pdf-align-file.ts";
 
 export const USER_ROLES = ["owner", "admin", "member", "viewer"] as const;
 export const USER_STATUSES = ["active", "pending", "suspended"] as const;
@@ -910,6 +911,10 @@ export function deleteUserAndData(targetUserId: string): boolean {
   }
   deleteAllUserSessions(targetUserId);
   deleteWorkspaceAskData(db, personalWorkspaceId(targetUserId));
+  // Lecture PDF pages and alignments of recordings without a lecture (P3-03, P3-04).
+  const workspaceRecordings = db.query(`SELECT id FROM recording WHERE workspace_id = ?`).all(personalWorkspaceId(targetUserId)) as Array<{ id: string }>;
+  for (const rec of workspaceRecordings) deleteAlignment(rec.id);
+  db.query(`DELETE FROM pdf_page WHERE workspace_id = ?`).run(personalWorkspaceId(targetUserId));
   deleteWorkspaceRows(db, personalWorkspaceId(targetUserId));
   db.query(`DELETE FROM membership WHERE user_id = ?`).run(targetUserId);
   const res = db.query(`DELETE FROM users WHERE id = ?`).run(targetUserId);
@@ -1771,6 +1776,7 @@ export function deleteLectureById(id: string): boolean {
     const workspaceId = personalWorkspaceId(rec.owner_id);
     deleteRecordingIndex(db, workspaceId, id);
     db.query("DELETE FROM pdf_page WHERE recording_id = ?").run(lectureRecordingId(id));
+    deleteAlignment(lectureRecordingId(id));
     deleteRecordingThreads(db, workspaceId, id);
   }
   if (rec) {
