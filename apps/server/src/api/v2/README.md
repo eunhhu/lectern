@@ -14,6 +14,11 @@
 
 모든 요청 앞에서 `syncPendingLectures()`가 db.ts를 거치지 않은 강의 쓰기(압축 등)를 v2 행에 반영한다. 응답에는 `Cache-Control: no-store`가 붙는다. 등록되지 않은 `/api/v2/*`는 v2 형식의 404다. `GET /api/v2/openapi.json`은 인증 없이 열린다.
 
+domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아니라 302다.
+
+- `GET /integrations/google/callback`: Google 캘린더 연결의 돌아오는 곳(P4-02).
+- `GET /auth/google/start?next=…`, `GET /auth/google/callback`: "Google로 계속하기"(P5-04, D-P5-5). `LECTERN_GOOGLE_LOGIN`이 꺼져 있거나 OAuth 클라이언트가 없으면 404. 시작할 때 로그인돼 있으면 계정에 연결하는 흐름이다(`/app/settings?identity=linked|taken#account`). 실패는 모두 `/app/login?error=oauth|email_unverified|no_email|inactive|signup_closed`. state는 한 번만 쓰이고 ID 토큰의 nonce이며, 시작한 브라우저의 짧은 쿠키(`lectern_oauth`)와 맞아야 한다.
+
 ## 데이터: v1 강의와 v2 행
 
 녹음 처리는 아직 v1 파이프라인(강의 하나 = Gemini 호출 하나)이다. 그래서 강의 하나가 v2 행 여러 개로 존재하고(ARCHITECTURE §5.3), 두 쪽을 같은 상태로 유지한다.
@@ -55,8 +60,8 @@
 | `GET /me/tokens` | `listAccessTokens` | 실제 | v1 API 토큰(앞 8자만)을 맨 앞에, 그 뒤로 개인 액세스 토큰(P5-02) |
 | `POST /me/tokens` | `createAccessToken` | 실제 | 개인 액세스 토큰(D-P5-3). 원문은 이 응답에서 한 번만. 사용자당 살아 있는 토큰 20개 |
 | `DELETE /me/tokens/{token_id}` | `revokeAccessToken` | 실제 | 개인 액세스 토큰만. v1 토큰 id면 409(v1 `rotate-token`이 대신한다) |
-| `GET /me/identities` | `listIdentities` | 501 | P5-04·P5-05(Google·Apple 로그인) |
-| `DELETE /me/identities/{identity_id}` | `unlinkIdentity` | 501 | 마지막 로그인 수단은 409 |
+| `GET /me/identities` | `listIdentities` | 실제 | 연결된 Google·Apple 로그인(P5-04·P5-05) |
+| `DELETE /me/identities/{identity_id}` | `unlinkIdentity` | 실제 | 마지막 로그인 수단(다른 연결이 없고 스스로 정한 비밀번호도 없음)은 409 |
 | `POST /me/exports` | `createExport` | 501 | P5-08(`export` 작업) |
 | `GET /me/exports` | `listExports` | 501 | P5-08 |
 | `GET /me/exports/{export_id}/content` | `getExportContent` | 501 | P5-08. 요청한 사용자만 |

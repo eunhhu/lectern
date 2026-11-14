@@ -15,6 +15,10 @@ export const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.app.created";
+/** Google sign-in (P5-04): an ID token with the e-mail, nothing else. */
+export const LOGIN_SCOPE = "openid email profile";
+export const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+export const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 
 /** How long a started authorization may take before its state expires. */
 export const OAUTH_STATE_TTL_MS = 10 * 60_000;
@@ -43,6 +47,11 @@ export function calendarRedirectUri(): string {
   return `${config().baseUrl.replace(/\/+$/, "")}${API_BASE_PATH}/integrations/google/callback`;
 }
 
+/** The sign-in callback URL (P5-04). */
+export function loginRedirectUri(): string {
+  return `${config().baseUrl.replace(/\/+$/, "")}${API_BASE_PATH}/auth/google/callback`;
+}
+
 const base64url = (bytes: Buffer) => bytes.toString("base64url");
 
 export function newPkce(): { verifier: string; challenge: string } {
@@ -50,19 +59,35 @@ export function newPkce(): { verifier: string; challenge: string } {
   return { verifier, challenge: base64url(createHash("sha256").update(verifier).digest()) };
 }
 
-export function authorizationUrl(p: { clientId: string; redirectUri: string; scope: string; state: string; challenge: string }): string {
+/**
+ * The consent URL. The calendar asks for offline access (a refresh token) and always shows
+ * consent; sign-in (`offline: false`) asks for neither and sends a nonce for the ID token.
+ */
+export function authorizationUrl(p: {
+  clientId: string;
+  redirectUri: string;
+  scope: string;
+  state: string;
+  challenge: string;
+  offline?: boolean;
+  nonce?: string;
+}): string {
   const url = new URL(GOOGLE_AUTH_URL);
-  url.search = new URLSearchParams({
+  const params = new URLSearchParams({
     client_id: p.clientId,
     redirect_uri: p.redirectUri,
     response_type: "code",
     scope: p.scope,
-    access_type: "offline",
-    prompt: "consent",
-    state: p.state,
-    code_challenge: p.challenge,
-    code_challenge_method: "S256",
-  }).toString();
+  });
+  if (p.offline !== false) {
+    params.set("access_type", "offline");
+    params.set("prompt", "consent");
+  }
+  params.set("state", p.state);
+  if (p.nonce) params.set("nonce", p.nonce);
+  params.set("code_challenge", p.challenge);
+  params.set("code_challenge_method", "S256");
+  url.search = params.toString();
   return url.toString();
 }
 

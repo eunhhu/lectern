@@ -19,6 +19,7 @@ import { documentsRouter } from "./documents.ts";
 import { eventsRouter } from "./events.ts";
 import { foldersRouter } from "./folders.ts";
 import { googleCalendarCallback } from "./google-callback.ts";
+import { googleLoginCallback, googleLoginStart } from "./auth-google.ts";
 import { integrationsRouter } from "./integrations.ts";
 import { jobsRouter } from "./jobs.ts";
 import { meRouter } from "./me.ts";
@@ -110,6 +111,9 @@ export function createApiV2App(options: ApiV2Options = {}) {
   // Google's redirect back after the calendar consent (P4-02): a browser navigation, outside
   // the domain route table.
   v2.get("/integrations/google/callback", googleCalendarCallback);
+  // "Google로 계속하기" (P5-04): browser navigations too.
+  v2.get("/auth/google/start", googleLoginStart);
+  v2.get("/auth/google/callback", googleLoginCallback);
 
   // Unknown /api/v2 paths (and known paths with another method) answer in the v2 error
   // shape instead of falling through to the legacy router.
