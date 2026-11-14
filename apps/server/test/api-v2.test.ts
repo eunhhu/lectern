@@ -27,10 +27,7 @@ const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Recor
 
 /** Routes of later phases. */
 const NOT_YET = new Set([
-  // Accounts (P5-C): contract only until P5-08..P5-09.
-  "createExport",
-  "listExports",
-  "getExportContent",
+  // Accounts (P5-C): contract only until P5-09.
   "requestAccountDeletion",
   "cancelAccountDeletion",
   "getAccountDeletion",

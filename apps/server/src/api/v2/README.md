@@ -63,9 +63,9 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 | `DELETE /me/tokens/{token_id}` | `revokeAccessToken` | 실제 | 개인 액세스 토큰만. v1 토큰 id면 409(v1 `rotate-token`이 대신한다) |
 | `GET /me/identities` | `listIdentities` | 실제 | 연결된 Google·Apple 로그인(P5-04·P5-05) |
 | `DELETE /me/identities/{identity_id}` | `unlinkIdentity` | 실제 | 마지막 로그인 수단(다른 연결이 없고 스스로 정한 비밀번호도 없음)은 409 |
-| `POST /me/exports` | `createExport` | 501 | P5-08(`export` 작업) |
-| `GET /me/exports` | `listExports` | 501 | P5-08 |
-| `GET /me/exports/{export_id}/content` | `getExportContent` | 501 | P5-08. 요청한 사용자만 |
+| `POST /me/exports` | `createExport` | 실제 | P5-08. 멤버면 누구나, 202. `export` 작업이 `<데이터 디렉터리>/exports/<id>.zip`을 만든다. 진행 중이 있으면 409, 하루 5번까지 |
+| `GET /me/exports` | `listExports` | 실제 | P5-08. 자기 것, 최신순 20개 |
+| `GET /me/exports/{export_id}/content` | `getExportContent` | 실제 | P5-08. 요청한 사용자만(남의 것은 404). `ready`가 아니면 409. 무압축 zip, 7일 뒤 유지보수가 지운다 |
 | `POST /me/deletion` | `requestAccountDeletion` | 501 | P5-09(7일 유예) |
 | `DELETE /me/deletion` | `cancelAccountDeletion` | 501 | P5-09 |
 | `GET /me/deletion` | `getAccountDeletion` | 501 | P5-09 |

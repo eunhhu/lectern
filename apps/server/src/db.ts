@@ -927,6 +927,15 @@ export function deleteUserAndData(targetUserId: string): boolean {
   const workspaceRecordings = db.query(`SELECT id FROM recording WHERE workspace_id = ?`).all(personalWorkspaceId(targetUserId)) as Array<{ id: string }>;
   for (const rec of workspaceRecordings) deleteAlignment(rec.id);
   db.query(`DELETE FROM pdf_page WHERE workspace_id = ?`).run(personalWorkspaceId(targetUserId));
+  // Their export zips (P5-08, export/job.ts): the files under <data dir>/exports, then the rows.
+  const exportIds = db.query(`SELECT id FROM data_export WHERE user_id = ?`).all(targetUserId) as Array<{ id: string }>;
+  for (const { id } of exportIds) {
+    for (const name of [`${id}.zip`, `${id}.zip.tmp`]) {
+      const path = join(config().dataDir, "exports", name);
+      if (existsSync(path)) unlinkSync(path);
+    }
+  }
+  db.query(`DELETE FROM data_export WHERE user_id = ?`).run(targetUserId);
   // Calendar rows keyed by the user, in any workspace (P4): reminders addressed to them, their
   // ICS feeds, and the event links of their Google integrations (deleted with the workspace).
   db.query(`DELETE FROM reminder WHERE user_id = ?`).run(targetUserId);

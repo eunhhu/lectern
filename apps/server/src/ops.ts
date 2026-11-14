@@ -23,6 +23,7 @@ import { pruneFinishedJobs } from "./queue.ts";
 import { DATA_DIR, HARNESS_BLOB_DIR, db, deleteSession, getSystemSettings } from "./db.ts";
 import { pruneNativeSessions } from "./native-auth.ts";
 import { refreshAllLedgers } from "./usage.ts";
+import { expireExports } from "./export/job.ts";
 import { ensurePrivateDir, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
 import {
@@ -290,6 +291,8 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
   step("native sessions", 0, () => pruneNativeSessions(now));
   // This month's usage_ledger row per workspace (P5-07), for the operator's usage list.
   step("usage ledger", 0, () => refreshAllLedgers(now));
+  // Export zips past their 7 days, and temp files a crash left (P5-08).
+  step("data exports", 0, () => expireExports(now));
   const expiredCodes = step("verification codes", 0, () =>
     db.query(`DELETE FROM email_verifications WHERE expires_at < ?`).run(nowIso).changes
   );
