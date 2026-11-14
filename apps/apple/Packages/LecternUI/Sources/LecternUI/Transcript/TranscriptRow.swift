@@ -54,5 +54,6 @@ struct TranscriptRow: View, Equatable {
         .accessibilityLabel(Self.accessibilityLabel(speakerName: speakerName, segment: segment))
         .accessibilityHint("두 번 탭하면 이 위치부터 재생합니다")
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("transcript.row")
     }
 }

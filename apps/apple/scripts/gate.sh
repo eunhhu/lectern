@@ -17,14 +17,16 @@ for pkg in LecternKit RecorderKit LecternUI LecternIntents; do
   (cd "Packages/$pkg" && swift test)
 done
 
-build() {  # scheme, destination
-  echo "gate: xcodebuild $1"
+build() {  # scheme, destination, action
+  echo "gate: xcodebuild $1 $3"
   # -skipPackagePluginValidation: LecternKit's OpenAPI generator plugin would otherwise wait for
   # a "trust this plugin" click (P6-A2).
   xcodebuild -project Lectern.xcodeproj -scheme "$1" -destination "$2" -configuration Debug \
-    -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build -quiet
+    -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO "$3" -quiet
 }
-build LecterniOS 'generic/platform=iOS Simulator'
-build LecternMac 'generic/platform=macOS'
+# build-for-testing also builds the UI test bundle; the UI tests themselves need a booted
+# simulator and are not run here (D-P6-9, README).
+build LecterniOS 'generic/platform=iOS Simulator' build-for-testing
+build LecternMac 'generic/platform=macOS' build
 
 echo "gate: apple ok"

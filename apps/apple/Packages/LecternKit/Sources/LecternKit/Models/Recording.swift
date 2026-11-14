@@ -20,6 +20,15 @@ public struct Me: Sendable, Equatable {
     public let systemRole: String
     public let personalWorkspaceID: String
 
+    public init(id: String, email: String, displayName: String, timezone: String, systemRole: String, personalWorkspaceID: String) {
+        self.id = id
+        self.email = email
+        self.displayName = displayName
+        self.timezone = timezone
+        self.systemRole = systemRole
+        self.personalWorkspaceID = personalWorkspaceID
+    }
+
     init(_ m: Components.Schemas.Me) {
         id = m.id
         email = m.email
@@ -38,6 +47,13 @@ public struct WorkspaceSummary: Sendable, Equatable, Identifiable {
     /// The user's role in it: `owner`, `admin`, `member`, `viewer`.
     public let role: String
 
+    public init(id: String, name: String, kind: String, role: String) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.role = role
+    }
+
     init(_ w: Components.Schemas.MyWorkspace) {
         id = w.workspace.id
         name = w.workspace.name
@@ -52,6 +68,14 @@ public struct Folder: Sendable, Equatable, Identifiable {
     public let parentID: String?
     public let name: String
     public let sortKey: String
+
+    public init(id: String, workspaceID: String, parentID: String?, name: String, sortKey: String) {
+        self.id = id
+        self.workspaceID = workspaceID
+        self.parentID = parentID
+        self.name = name
+        self.sortKey = sortKey
+    }
 
     init(_ f: Components.Schemas.Folder) {
         id = f.id
@@ -111,6 +135,23 @@ public struct RecordingSummary: Sendable, Equatable, Identifiable {
     /// 0–1 while a job runs (lists only).
     public let progress: Double?
 
+    public init(
+        id: String, workspaceID: String, folderID: String?, title: String, status: RecordingStatus, durationMs: Int?,
+        recordedAt: Date, createdAt: Date, updatedAt: Date, excerpt: String?, progress: Double?
+    ) {
+        self.id = id
+        self.workspaceID = workspaceID
+        self.folderID = folderID
+        self.title = title
+        self.status = status
+        self.durationMs = durationMs
+        self.recordedAt = recordedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.excerpt = excerpt
+        self.progress = progress
+    }
+
     init(_ r: Components.Schemas.RecordingListItem) {
         id = r.id
         workspaceID = r.workspace_id
@@ -151,6 +192,16 @@ public struct AssetSummary: Sendable, Equatable, Identifiable {
     public let durationMs: Int?
     public let pageCount: Int?
 
+    public init(id: String, kind: String, partIndex: Int, mime: String, bytes: Int, durationMs: Int?, pageCount: Int?) {
+        self.id = id
+        self.kind = kind
+        self.partIndex = partIndex
+        self.mime = mime
+        self.bytes = bytes
+        self.durationMs = durationMs
+        self.pageCount = pageCount
+    }
+
     init(_ a: Components.Schemas.Asset) {
         id = a.id
         kind = a.kind
@@ -167,6 +218,13 @@ public struct DocumentSummary: Sendable, Equatable, Identifiable {
     public let templateID: String
     public let currentVersion: Int
     public let updatedAt: Date
+
+    public init(id: String, templateID: String, currentVersion: Int, updatedAt: Date) {
+        self.id = id
+        self.templateID = templateID
+        self.currentVersion = currentVersion
+        self.updatedAt = updatedAt
+    }
 
     init(_ d: Components.Schemas.Document) {
         id = d.id
@@ -213,6 +271,14 @@ public struct RecordingDetail: Sendable, Equatable {
     /// The first part of the original audio.
     public var audioAssetID: String? {
         assets.filter { $0.kind == "audio" }.min { $0.partIndex < $1.partIndex }?.id
+    }
+
+    public init(recording: RecordingSummary, assets: [AssetSummary], documents: [DocumentSummary], speakers: [Speaker], failureMessage: String?) {
+        self.recording = recording
+        self.assets = assets
+        self.documents = documents
+        self.speakers = speakers
+        self.failureMessage = failureMessage
     }
 
     init(_ d: Components.Schemas.RecordingDetail) {
