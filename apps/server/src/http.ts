@@ -5,10 +5,14 @@
 
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
+import { config } from "@lectern/config";
 import { API_BASE_PATH, createApiV2App } from "./api/v2/index.ts";
+import { feedByToken, feedEvents } from "./calendar/feed.ts";
+import { renderIcs } from "./calendar/ics.ts";
 import { LEGAL_PAGES, legalPageHtml } from "./legal.ts";
 import { createShareRouter } from "./share-page.ts";
 import { logger } from "./log.ts";
+import { redactUrlForLog } from "./ops.ts";
 import { WEB_SHELL_BASE, webShellResponse } from "./web-shell.ts";
 
 type Env = { Variables: { requestId: string } };
@@ -37,13 +41,28 @@ export function createHttpApp(legacy: (req: Request) => Promise<Response>, optio
     logger.error("unhandled request error", {
       request_id: requestId,
       method: c.req.method,
-      path: new URL(c.req.url).pathname,
+      path: redactUrlForLog(new URL(c.req.url)),
       err,
     });
     return c.json({ error: "서버 내부 오류가 발생했습니다.", request_id: requestId }, 500);
   });
 
   app.route(API_BASE_PATH, createApiV2App());
+
+  // ICS subscription (P4-01, D-P4-2): a secret URL, no sign-in. Off, malformed, unknown
+  // and revoked all give the same 404, so a guess learns nothing.
+  app.get("/cal/:file", (c) => {
+    const match = /^([A-Za-z0-9_-]{20,128})\.ics$/.exec(c.req.param("file"));
+    const feed = config().calendar && match ? feedByToken(match[1]!) : null;
+    if (!feed) return c.text("Not found", 404, { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" });
+    return new Response(renderIcs(feedEvents(feed.userId, feed.workspaceId)), {
+      headers: {
+        "Content-Type": "text/calendar; charset=utf-8",
+        "Cache-Control": "private, max-age=300",
+        "X-Robots-Tag": "noindex",
+      },
+    });
+  });
 
   // Public policy pages (linked from the OAuth consent screen and the app stores), with
   // the operator's contact, officer and effective date filled in (legal.ts).

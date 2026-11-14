@@ -30,9 +30,6 @@ const NOT_YET = new Set([
   "revokeAccessToken",
   "startGoogleIntegration",
   "disconnectIntegration",
-  "getCalendarFeed",
-  "createCalendarFeed",
-  "deleteCalendarFeed",
 ]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
@@ -244,8 +241,10 @@ describe("API v2 routes of later phases", () => {
   });
 
   test("every other route has a real handler (no route answers 501)", async () => {
-    // Flag-gated routes answer 501 while their flag is off (listAssetPages, ocrAsset, getRecordingAlignment: LECTERN_PDF).
+    // Flag-gated routes answer 501 while their flag is off (listAssetPages, ocrAsset,
+    // getRecordingAlignment: LECTERN_PDF; the calendar feed routes: LECTERN_CALENDAR).
     process.env.LECTERN_PDF = "1";
+    process.env.LECTERN_CALENDAR = "1";
     resetConfigForTests();
     try {
       for (const route of ROUTES.filter((r) => !NOT_YET.has(r.operationId) && !r.path.startsWith("/ask"))) {
@@ -255,6 +254,7 @@ describe("API v2 routes of later phases", () => {
       }
     } finally {
       delete process.env.LECTERN_PDF;
+      delete process.env.LECTERN_CALENDAR;
       resetConfigForTests();
     }
   });
