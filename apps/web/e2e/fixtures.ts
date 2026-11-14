@@ -57,7 +57,9 @@ export async function tabTo(page: Page, name: string | RegExp, max = 80) {
         ?.split(" ")
         .map((id) => document.getElementById(id)?.textContent ?? "")
         .join(" ");
-      return (el.getAttribute("aria-label") ?? byIds ?? el.textContent ?? "").trim();
+      // A checkbox or radio is a hidden <input> inside its <label>: its name is the label's text.
+      const byLabel = (el as HTMLInputElement).labels?.[0]?.textContent;
+      return (el.getAttribute("aria-label") ?? byIds ?? (el.textContent || byLabel) ?? "").trim();
     });
     if (typeof name === "string" ? focused.includes(name) : name.test(focused)) return;
   }

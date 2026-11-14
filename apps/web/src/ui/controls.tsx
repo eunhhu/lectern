@@ -198,6 +198,7 @@ export function SelectField<T extends { id: string; label: string }>({
   onSelectionChange,
   hideLabel,
   description,
+  isDisabled,
 }: {
   label: string;
   items: T[];
@@ -205,10 +206,12 @@ export function SelectField<T extends { id: string; label: string }>({
   onSelectionChange: (key: string) => void;
   hideLabel?: boolean;
   description?: string;
+  isDisabled?: boolean;
 }) {
   return (
     <Select
       className={s.field}
+      isDisabled={isDisabled}
       selectedKey={selectedKey}
       onSelectionChange={(key: Key | null) => key !== null && onSelectionChange(String(key))}
       aria-label={hideLabel ? label : undefined}

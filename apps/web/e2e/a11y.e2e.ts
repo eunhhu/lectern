@@ -14,7 +14,7 @@ const SCREENS: { path: string; label: string; ready: string | RegExp }[] = [
   { path: "/app/search?q=퀀텀", label: "검색", ready: /^PDF \d+$/ },
   { path: "/app/ask", label: "물어보기", ready: "노트에 물어보세요" },
   { path: "/app/ask?thread=ask_seed_os07", label: "물어보기 대화", ready: "다음 CPU 버스트 길이를 미리 알 수 없기 때문이다." },
-  { path: "/app/calendar", label: "일정", ready: "캘린더 연결" },
+  { path: "/app/calendar", label: "일정", ready: "연결 설정" },
   { path: "/app/settings", label: "설정", ready: "한 글자 단축키 사용" },
 ];
 
@@ -44,6 +44,20 @@ test("the team workspace meeting view has no axe violations", async ({ page, axe
   await page.getByRole("tab", { name: "일정·할 일" }).click();
   await expect(page.getByRole("tabpanel").getByText("QA 체크리스트 정리")).toBeVisible();
   await axe(page, "회의 상세");
+});
+
+test("settings integrations and reminders have no axe violations", async ({ page, axe }) => {
+  await page.goto("/app/settings?fixture-integration=needs_reauth#integrations");
+  await expect(page.getByText("Google 연결이 만료되었습니다.", { exact: false })).toBeVisible();
+  await page.locator("#reminders").locator("label", { hasText: "일정과 할 일 마감을 이메일로 알려 주기" }).click();
+  await expect(page.locator("#reminders").getByRole("button", { name: /알림 시각/ })).toBeVisible();
+  await page.locator("#integrations").getByRole("button", { name: "구독 주소 만들기" }).click();
+  await expect(page.getByLabel("구독 주소", { exact: true })).toBeVisible();
+  await axe(page, "설정 연동·알림");
+  await page.goto("/app/settings?fixture-integration=active#integrations");
+  await page.locator("#integrations").getByRole("button", { name: "연결 해제" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await axe(page, "연결 해제 확인");
 });
 
 test("overlays have no axe violations", async ({ page, axe }) => {

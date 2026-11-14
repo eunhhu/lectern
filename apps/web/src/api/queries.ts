@@ -26,7 +26,9 @@ import type {
   UpdateMeRequest,
   UpdateRecordingRequest,
   UpdateTagRequest,
+  MyWorkspace,
   WorkspaceId,
+  WorkspaceSettings,
 } from "./types.ts";
 
 export const ApiContext = createContext<ApiClient | null>(null);
@@ -57,6 +59,8 @@ export const queryKeys = {
   workspaceActionItems: (ws: string) => ["workspace-action-items", ws] as const,
   calendar: (ws: string) => ["calendar", ws] as const,
   shareLinks: (ws: string) => ["share-links", ws] as const,
+  integrations: (ws: string) => ["integrations", ws] as const,
+  calendarFeed: (ws: string) => ["calendar-feed", ws] as const,
   assetPages: (id: string) => ["asset-pages", id] as const,
   search: (ws: string, q: string, kind?: string) => ["search", ws, q, kind ?? null] as const,
 };
@@ -436,6 +440,71 @@ export function useRevokeShareLink(ws: string) {
   return useMutation({
     mutationFn: (id: string) => api.revokeShareLink(id),
     onSettled: () => void qc.invalidateQueries({ queryKey: queryKeys.shareLinks(ws) }),
+  });
+}
+
+// --- calendar connections and reminders (P4-07) -------------------------------------
+// Answers 501 while the server has the calendar feature off: no retries, the screens say
+// "준비 중입니다." instead.
+
+export function useIntegrations(ws: WorkspaceId) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.integrations(ws), queryFn: () => allPages(() => api.listIntegrations(ws)), retry: false });
+}
+
+export function useCalendarFeed(ws: WorkspaceId) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.calendarFeed(ws), queryFn: () => api.getCalendarFeed(ws), retry: false });
+}
+
+export function useStartGoogleIntegration(ws: WorkspaceId) {
+  const api = useApi();
+  return useMutation({ mutationFn: (returnTo: string) => api.startGoogleIntegration(ws, returnTo) });
+}
+
+export function useDisconnectIntegration(ws: WorkspaceId) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.disconnectIntegration(id),
+    onSettled: () => void qc.invalidateQueries({ queryKey: queryKeys.integrations(ws) }),
+  });
+}
+
+export function useCreateCalendarFeed(ws: WorkspaceId) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.createCalendarFeed(ws),
+    onSettled: () => void qc.invalidateQueries({ queryKey: queryKeys.calendarFeed(ws) }),
+  });
+}
+
+export function useDeleteCalendarFeed(ws: WorkspaceId) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.deleteCalendarFeed(ws),
+    onSettled: () => void qc.invalidateQueries({ queryKey: queryKeys.calendarFeed(ws) }),
+  });
+}
+
+/**
+ * Changes some workspace settings. Always sends the whole merged object (the current
+ * settings with `patch` on top), so a server that replaces settings keeps the rest.
+ */
+export function useUpdateWorkspaceSettings(ws: WorkspaceId) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Partial<WorkspaceSettings>) => {
+      const current = qc.getQueryData<MyWorkspace[]>(queryKeys.workspaces)?.find((w) => w.workspace.id === ws)?.workspace.settings ?? {};
+      return api.updateWorkspaceSettings(ws, { ...current, ...patch });
+    },
+    onSuccess: (workspace) => {
+      qc.setQueryData<MyWorkspace[]>(queryKeys.workspaces, (list) => list?.map((w) => (w.workspace.id === ws ? { ...w, workspace } : w)));
+      void qc.invalidateQueries({ queryKey: queryKeys.workspaces });
+    },
   });
 }
 

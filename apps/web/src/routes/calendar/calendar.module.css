@@ -550,3 +550,21 @@
     border-bottom: 1px solid var(--color-border-subtle);
   }
 }
+
+/* How events reach calendar apps (P4-07) */
+.connection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  color: var(--color-text-secondary);
+}
+
+.connection[data-tone="attention"] {
+  background: var(--color-status-attention-subtle);
+  color: var(--color-status-attention-fg);
+}
