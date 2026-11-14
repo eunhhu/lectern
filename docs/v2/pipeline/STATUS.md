@@ -55,6 +55,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 서명한 빌드에서 App Group(`group.com.qucord.lectern`)과 Keychain 접근 그룹이 프로비저닝되고 앱·위젯·공유 확장이 같이 쓰는지. P6-A1부터 entitlements가 비어 있어서(XcodeGen이 매번 지웠다, 2026-11-15에 고침) 서명한 빌드로 확인된 적이 없다 | P6-A1, P6-A2, P6-A3 |
 | 녹음 엔진의 기기 점검(통화 중 일시정지, AirPods 빼기, 화면 끈 3시간, 무음 경고, 장치 바뀜, 녹음 중 강제 종료): `apps/apple/MANUAL_CHECKS.md` 4–9 | P6-A4 |
 | 화면 부품의 기기 점검(가장 큰 글자, VoiceOver로 문서 끝까지, 전사 직접 스크롤 뒤 5초 — Mac 휠·트랙패드가 스크롤 단계를 보고하는지 포함): `apps/apple/MANUAL_CHECKS.md` 10–12 | P6-A5 |
+| iOS 앱 셸의 기기 점검(만료된 토큰으로 긴 재생, VoiceOver로 목록·상세, iPad 나란히 보기, 픽스처 UI 테스트 실행): `apps/apple/MANUAL_CHECKS.md` 13–16. UI 테스트는 이 Mac의 CoreSimulator가 Xcode보다 오래돼 빌드만 했다. iPhone이 녹음 목록부터 보이는지(`preferredCompactColumn`)도 여기서 본다 | P6-A6 |
 | 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
 | CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
 | Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
@@ -90,6 +91,8 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | OAuth로만 가입한(비밀번호 없는) 계정의 네이티브 앱 로그인 | P5-03 |
 | "어떤 로그인 수단이 켜져 있는지" 알려 주는 라우트. 지금은 웹이 start 주소를 찔러 본다 | P5-10 |
 | 계정 삭제 확인 메일(방침과 문구가 필요하다) | P5-09 |
+| iOS 앱에 문서 편집·물어보기·검색·캘린더·PDF 보기가 없다(PDF 출처는 눌러도 아무 일도 없다). 웹을 따라잡는 화면은 이 파이프라인의 WP가 아니다 | P6-A6 |
+| 업로드 대기열 항목이 계정에 묶여 있지 않다. 로그아웃 뒤 다른 계정으로 로그인하면 이전 계정의 녹음을 그 계정으로 올린다 | P6-A6 |
 | 내보내기 zip의 ZIP64(4 GiB를 넘는 워크스페이스) | P5-08 |
 | v1 사용량 관리자 화면: P5-13이 P6-C보다 먼저 돌면 빠진다. P6-03 뒤에 더해야 한다 | P5-13 |
 | 관리자 콘솔 2부를 P5-16(멤버·녹음·대조표)과 P5-13(저장소·운영·설정·감사 로그)으로 나눴다(옛 콘솔 기능 85행, CONTRACTS S-33). `LECTERN_V1_BLOCK`을 켜면 새 콘솔의 녹음 동작(재시도·삭제·오디오 삭제, `/api/lectures*`)도 막힌다 | P5-16, P6-03 |
@@ -150,3 +153,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-A4 | `EngineAudioInput.onInputLost`를 `recorder.handle(.routeLost)`로 잇는다(macOS는 오디오 세션이 없어 장치가 사라져도 다른 신호가 없다). 방해 뒤 사용자가 직접 재개할 때는 `resume()` 전에 `activate()`를 다시 부르고 `resume()` 뒤 `state`를 확인한다(입력을 다시 시작하지 못하면 일시정지로 남는다) | P6-A6·A8에 전달 |
 | 2026-11-15 | P6-A5 | 녹음 상세는 `DocumentView(document:transcript:onSource:)`, `TranscriptList`, `PlayerBar`를 조립한다. 전사 출처는 `SourceResolver.range(...)?.startMs`로 `seek(toMs:)` 뒤 재생. `TranscriptRow`는 `.equatable()`이라 처음 받은 `onSeek`를 계속 쓰므로 바뀌지 않는 참조만 잡게 넘긴다 | P6-A6·A9에 전달 |
 | 2026-11-15 | P6-A5 | Apple 앱의 시간 표기는 명세 테스트대로 `0:59`·`12:05`·`1:02:05`다(웹은 `00:59`). 블록 글은 Markdown으로 읽지 않는다(웹과 같다). 강조 상자 라벨은 domain 값의 시험·과제·중요·참고다 | 기록만 |
+| 2026-11-15 | P6-A6 | 화면은 `LecternClient` 프로토콜로만 서버에 묻는다(`LiveClient`, `FixtureClient`). 뷰모델(`LoginViewModel`·`LibraryViewModel`·`RecordingViewModel`)과 `PlayerViewModel`은 LecternUI에 있다. macOS는 `LiveClient(platform: "macos")`로 같은 뷰모델을 쓴다 | P6-A9에 전달 |
+| 2026-11-15 | P6-A6 | 오디오는 `LecternAPI.assetContentURL`이 자격을 `?token=`에 넣은 주소로 재생한다(AVPlayer는 헤더를 못 붙인다). 접근 토큰이 1시간이라 재생 중 항목이 실패하면 새 주소로 한 번 다시 불러 같은 위치에서 잇는다 | 기록만 |
+| 2026-11-15 | P6-A6 | 백그라운드 업로드(`BackgroundUploader`, `handleEventsForBackgroundURLSession`)는 아직 없다. 앱이 활성일 때만 `run()`한다. 대기열은 프로세스마다 하나여야 하는데 지금은 `AppModel`이 만들고 서버 주소가 바뀌면 다시 만든다. 인텐트가 장면 없이 앱을 깨우면 `AppModel`이 없을 수 있다 | P6-A7에 전달 |
+| 2026-11-15 | P6-A6 | 붙여 넣은 API 토큰은 만료가 없는데 이제 `?token=`으로도 간다. 서버 v2 로그는 pathname만 남긴다(쿼리 없음). 앞단 프록시의 접근 로그가 쿼리를 남기는지 확인한다 | P5-15 보안 검토에 더함 |
