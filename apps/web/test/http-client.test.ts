@@ -228,4 +228,53 @@ describe("HTTP ApiClient", () => {
   test("asset bytes come from /assets/{id}/content", () => {
     expect(createHttpClient().assetContentUrl("as_1")).toBe("/api/v2/assets/as_1/content");
   });
+
+  test("listAssetPages calls the route", async () => {
+    const body = {
+      page_count: 2,
+      scanned: false,
+      pages: [
+        { page_no: 1, has_text_layer: true, char_count: 30 },
+        { page_no: 2, has_text_layer: true, char_count: 40 },
+      ],
+    };
+    const { fn, seen } = fakeFetch(() => json(200, body));
+    expect(await createHttpClient({ fetch: fn }).listAssetPages("ast_1")).toEqual(body);
+    expect(seen.map((r) => `${r.method} ${r.url}`)).toEqual(["GET /api/v2/assets/ast_1/pages"]);
+  });
+
+  test("ocrAsset dry run", async () => {
+    const { fn, seen } = fakeFetch(() => json(200, { pages_to_ocr: 3, estimated_cost_microusd: 8_454, job_id: null }));
+    expect(await createHttpClient({ fetch: fn }).ocrAsset("ast_1", { dry_run: true })).toEqual({ pages_to_ocr: 3, estimated_cost_microusd: 8_454, job_id: null });
+    expect(seen.map((r) => `${r.method} ${r.url}`)).toEqual(["POST /api/v2/assets/ast_1/ocr"]);
+    expect(seen[0]!.body).toBe('{"dry_run":true}');
+    expect(seen[0]!.headers.get("Idempotency-Key")).toBeTruthy();
+  });
+
+  test("ocrAsset 501", async () => {
+    const { fn } = fakeFetch(() => json(501, { error: { code: "not_implemented", message: "PDF 기능이 꺼져 있습니다." } }));
+    const err = await createHttpClient({ fetch: fn })
+      .ocrAsset("ast_1", { dry_run: true })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiClientError);
+    expect(err).toMatchObject({ status: 501, code: "not_implemented" });
+  });
+});
+
+describe("fixture PDF pages and OCR", () => {
+  test("pages, scans and an OCR that only runs when asked", async () => {
+    const api = createFixtureClient({ now: new Date("2026-10-19T03:00:00.000Z"), latencyMs: 0 });
+    expect(api.assetContentUrl("rec_os07_pdf")).toBe("/api/v2/assets/rec_os07_pdf/content");
+    const text = await api.listAssetPages("rec_os07_pdf");
+    expect(text).toMatchObject({ page_count: 24, scanned: false });
+    expect(text.pages).toHaveLength(24);
+    expect(await api.ocrAsset("rec_os07_pdf", { dry_run: true })).toEqual({ pages_to_ocr: 0, estimated_cost_microusd: 0, job_id: null });
+
+    expect(await api.listAssetPages("rec_os06_pdf")).toMatchObject({ page_count: 18, scanned: true });
+    expect(await api.ocrAsset("rec_os06_pdf", { dry_run: true })).toEqual({ pages_to_ocr: 18, estimated_cost_microusd: 18 * 2_818, job_id: null });
+    expect(await api.ocrAsset("rec_os06_pdf", { dry_run: true })).toMatchObject({ pages_to_ocr: 18 }); // a dry run changes nothing
+    expect(await api.ocrAsset("rec_os06_pdf", { dry_run: false })).toMatchObject({ pages_to_ocr: 18, job_id: "job_fixture_ocr" });
+    expect(await api.ocrAsset("rec_os06_pdf", { dry_run: true })).toMatchObject({ pages_to_ocr: 0 });
+    await expect(api.listAssetPages("rec_nope_pdf")).rejects.toMatchObject({ status: 404 });
+  });
 });

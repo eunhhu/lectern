@@ -56,6 +56,7 @@ export const queryKeys = {
   workspaceActionItems: (ws: string) => ["workspace-action-items", ws] as const,
   calendar: (ws: string) => ["calendar", ws] as const,
   shareLinks: (ws: string) => ["share-links", ws] as const,
+  assetPages: (id: string) => ["asset-pages", id] as const,
 };
 
 /** Follows `next_cursor` until the last page (lists in the shell are small). */
@@ -519,6 +520,38 @@ export function useReprocess(recordingId: string, ws: string) {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.recording(recordingId) });
       void qc.invalidateQueries({ queryKey: queryKeys.recordings(ws) });
+    },
+  });
+}
+
+/** A PDF's pages and whether it is a scan (the viewer's OCR offer). */
+export function useAssetPages(assetId: string) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.assetPages(assetId), queryFn: () => api.listAssetPages(assetId), retry: false });
+}
+
+/** The dry-run OCR estimate shown before OCR is confirmed; never cached. */
+export function useOcrEstimate(assetId: string, enabled: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["ocr-estimate", assetId] as const,
+    queryFn: () => api.ocrAsset(assetId, { dry_run: true }),
+    enabled,
+    retry: false,
+    gcTime: 0,
+    staleTime: 0,
+  });
+}
+
+/** Queues OCR of a scanned PDF (`dry_run: false`); only called from the confirm button of the estimate dialog. */
+export function useOcrAsset(assetId: string, recordingId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.ocrAsset(assetId, { dry_run: false }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.assetPages(assetId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.recording(recordingId) });
     },
   });
 }
