@@ -303,6 +303,14 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     createShareLink: (body) => call("createShareLink", { body }),
     revokeShareLink: (id) => call("revokeShareLink", { params: { share_link_id: id } }),
 
+    listIntegrations: (ws) => call("listIntegrations", { query: { workspace_id: ws, limit: 200 } }),
+    startGoogleIntegration: (ws, returnTo) => call("startGoogleIntegration", { body: { workspace_id: ws, return_to: returnTo } }),
+    disconnectIntegration: (id) => call("disconnectIntegration", { params: { integration_id: id } }),
+    getCalendarFeed: (ws) => call("getCalendarFeed", { query: { workspace_id: ws } }),
+    createCalendarFeed: (ws) => call("createCalendarFeed", { body: { workspace_id: ws } }),
+    deleteCalendarFeed: (ws) => call("deleteCalendarFeed", { query: { workspace_id: ws } }),
+    updateWorkspaceSettings: (ws, settings) => call("updateWorkspace", { params: { workspace_id: ws }, body: { settings } }),
+
     deleteRecordingAudio: (id) => call("deleteRecordingAudio", { params: { recording_id: id } }),
     // 200 (dry run) and 202 (queued) both parse as ReprocessResponse.
     reprocessRecording: (id, body) => call("reprocessRecording", { params: { recording_id: id }, body }),

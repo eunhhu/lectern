@@ -46,6 +46,11 @@ import type {
   ReprocessRequest,
   ReprocessResponse,
   AssetPages,
+  CalendarFeedCreated,
+  CalendarFeedInfo,
+  IntegrationPage,
+  Workspace,
+  WorkspaceSettings,
   OcrAssetRequest,
   OcrAssetResponse,
   SearchHitPage,
@@ -181,6 +186,21 @@ export interface ApiClient {
 
   listCalendarSuggestions(query: ListSuggestionsParams): Promise<EventCandidatePage>;
   updateCalendarSuggestion(eventCandidateId: string, body: UpdateEventCandidateRequest): Promise<EventCandidate>;
+
+  // --- calendar connections and reminders (P4, D-P4-2/3/7) -------------------------
+  /** The caller's own integrations in the workspace. */
+  listIntegrations(workspaceId: WorkspaceId): Promise<IntegrationPage>;
+  /** Where to send the browser for Google consent; it comes back to `returnTo`. 501 while the feature is off. */
+  startGoogleIntegration(workspaceId: WorkspaceId, returnTo: string): Promise<{ authorization_url: string }>;
+  /** Revokes the tokens; events already in Google stay there. */
+  disconnectIntegration(integrationId: string): Promise<void>;
+  /** Whether an ICS subscription exists (its URL is never shown again). 501 while the feature is off. */
+  getCalendarFeed(workspaceId: WorkspaceId): Promise<CalendarFeedInfo>;
+  /** A new subscription URL, shown once; the previous one stops working. */
+  createCalendarFeed(workspaceId: WorkspaceId): Promise<CalendarFeedCreated>;
+  deleteCalendarFeed(workspaceId: WorkspaceId): Promise<void>;
+  /** PATCH /workspaces/{id} with `{ settings }` (owner and admin). */
+  updateWorkspaceSettings(workspaceId: WorkspaceId, settings: Partial<WorkspaceSettings>): Promise<Workspace>;
 
   search(query: SearchParams): Promise<SearchHitPage>;
 

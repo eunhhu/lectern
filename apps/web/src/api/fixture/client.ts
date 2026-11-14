@@ -48,6 +48,8 @@ import type {
   UploadPartReceipt,
   UploadSession,
   WorkspaceId,
+  Integration,
+  WorkspaceSettings,
 } from "../types.ts";
 import { buildFixtureData, PDF_PAGE_TEXTS, processRecording, TEMPLATE_FOR, type FixtureData, type JobProgress } from "../../fixtures/index.ts";
 import { UPLOADED_GENERIC_DOC } from "../../fixtures/documents.ts";
@@ -77,6 +79,62 @@ const FAILURES: Record<"failed" | "partial", RecordingFailure> = {
 const MAX_PAGE = 200;
 
 const notFound = (what: string) => new ApiClientError(404, "not_found", `${what}을 찾을 수 없습니다.`);
+
+// The fixture's calendar state (P4-07): integrations, which workspaces have an ICS feed
+// (and since when), and workspace settings changed in this tab.
+interface CalendarState {
+  integrations: Integration[];
+  feeds: Record<string, string>;
+  settings: Record<string, WorkspaceSettings>;
+}
+const CALENDAR_KEY = "lectern.fixture.calendar";
+
+function fixtureIntegration(ws: WorkspaceId, userId: string, status: Integration["status"], at: string): Integration {
+  return {
+    id: `int_fx_${ws}`,
+    workspace_id: ws,
+    user_id: userId,
+    provider: "google",
+    scopes: ["https://www.googleapis.com/auth/calendar.app.created"],
+    calendar_id: "fixture-calendar@group.calendar.google.com",
+    status,
+    created_at: at,
+    updated_at: at,
+  } as Integration;
+}
+
+/** Reads the tab's saved state; `?fixture-integration=needs_reauth` starts with an expired connection (e2e). */
+function loadCalendarState(data: FixtureData): CalendarState {
+  let state: CalendarState = { integrations: [], feeds: {}, settings: {} };
+  try {
+    const raw = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(CALENDAR_KEY);
+    if (raw) state = { ...state, ...(JSON.parse(raw) as Partial<CalendarState>) };
+  } catch {
+    // Storage blocked or unreadable: start empty.
+  }
+  try {
+    const wanted = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("fixture-integration");
+    if (wanted === "needs_reauth" || wanted === "active") {
+      const ws = (data.me.personal_workspace_id ?? data.workspaces[0]!.workspace.id) as WorkspaceId;
+      state.integrations = [fixtureIntegration(ws, data.me.id, wanted, new Date().toISOString())];
+    }
+  } catch {
+    // No location (tests).
+  }
+  for (const entry of data.workspaces) {
+    const saved = state.settings[entry.workspace.id];
+    if (saved) entry.workspace.settings = saved;
+  }
+  return state;
+}
+
+function saveCalendarState(state: CalendarState): void {
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(CALENDAR_KEY, JSON.stringify(state));
+  } catch {
+    // Storage blocked: the state lasts until the tab reloads.
+  }
+}
 
 function page<T>(items: T[], cursor: string | undefined, limit: unknown) {
   const size = Math.min(Math.max(Number(limit ?? 50) || 50, 1), MAX_PAGE);
@@ -447,6 +505,7 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
   let signedIn = true;
   const shareLinks: ShareLinkDto[] = [];
   let shareSeq = 0;
+  const calendar = loadCalendarState(data);
   const unauthorized = new Set<() => void>();
   const session = (): SessionUser => ({ id: data.me.id, email: data.me.email, displayName: data.me.display_name });
 
@@ -771,6 +830,58 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
         shareLinks.unshift(link);
         return { link: structuredClone(link), url: `https://lectern.example/s/fixture-token-${shareSeq}` };
       }),
+    // Calendar connections (P4-07): no Google and no server. Kept in sessionStorage so a
+    // reload shows what a real server would (the feed exists, its URL is gone).
+    listIntegrations: (ws) => wait(() => page(calendar.integrations.filter((i) => i.workspace_id === ws), undefined, MAX_PAGE)),
+    startGoogleIntegration: (ws) =>
+      wait(() => {
+        const at = nowIso();
+        calendar.integrations = calendar.integrations.filter((i) => i.workspace_id !== ws);
+        calendar.integrations.push(fixtureIntegration(ws, data.me.id, "active", at));
+        saveCalendarState(calendar);
+        return { authorization_url: "/app/settings?google=connected#integrations" };
+      }),
+    disconnectIntegration: (id) =>
+      wait(() => {
+        if (!calendar.integrations.some((i) => i.id === id)) throw notFound("연동");
+        calendar.integrations = calendar.integrations.filter((i) => i.id !== id);
+        saveCalendarState(calendar);
+      }),
+    getCalendarFeed: (ws) =>
+      wait(() => {
+        const feed = calendar.feeds[ws];
+        return { exists: Boolean(feed), url: null, created_at: (feed ?? null) as never };
+      }),
+    createCalendarFeed: (ws) =>
+      wait(() => {
+        const at = nowIso();
+        calendar.feeds[ws] = at;
+        saveCalendarState(calendar);
+        const origin = typeof location === "undefined" ? "https://lectern.example" : location.origin;
+        return { url: `${origin}/cal/fixture-${Math.random().toString(36).slice(2, 12)}.ics`, created_at: at as never };
+      }),
+    deleteCalendarFeed: (ws) =>
+      wait(() => {
+        delete calendar.feeds[ws];
+        saveCalendarState(calendar);
+      }),
+    updateWorkspaceSettings: (ws, settings) =>
+      wait(() => {
+        const entry = data.workspaces.find((w) => w.workspace.id === ws);
+        if (!entry) throw notFound("워크스페이스");
+        if (entry.role !== "owner" && entry.role !== "admin") throw new ApiClientError(403, "forbidden", "워크스페이스 관리자만 바꿀 수 있습니다.");
+        const merged: Record<string, unknown> = { ...entry.workspace.settings };
+        for (const [key, value] of Object.entries(settings)) {
+          if (value === null || value === undefined) delete merged[key];
+          else merged[key] = value;
+        }
+        entry.workspace.settings = merged as WorkspaceSettings;
+        entry.workspace.updated_at = nowIso() as never;
+        calendar.settings[ws] = entry.workspace.settings;
+        saveCalendarState(calendar);
+        return structuredClone(entry.workspace);
+      }),
+
     revokeShareLink: (id) =>
       wait(() => {
         const link = shareLinks.find((l) => l.id === id && !l.revoked_at);

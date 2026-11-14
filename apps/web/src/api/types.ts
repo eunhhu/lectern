@@ -78,6 +78,10 @@ export type WorkspaceMember = z.infer<typeof D.WorkspaceMember>;
 export type ShareLinkDto = z.infer<typeof D.ShareLinkDto>;
 export type CreatedShareLink = z.infer<typeof D.CreatedShareLink>;
 export type ShareScope = z.infer<typeof D.ShareScope>;
+export type WorkspaceSettings = z.infer<typeof D.WorkspaceSettings>;
+export type Integration = z.infer<typeof D.IntegrationDto>;
+export type CalendarFeedInfo = z.infer<typeof D.CalendarFeedInfo>;
+export type CalendarFeedCreated = z.infer<typeof D.CalendarFeedCreated>;
 
 // Requests
 export type UpdateMeRequest = z.infer<typeof D.UpdateMeRequest>;
@@ -133,6 +137,7 @@ export type SearchHitPage = Page<SearchHit>;
 export type DevicePage = Page<Device>;
 export type WorkspaceMemberPage = Page<WorkspaceMember>;
 export type AskThreadPage = Page<AskThread>;
+export type IntegrationPage = Page<Integration>;
 
 export type {
   ActionItemStatus,

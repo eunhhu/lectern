@@ -195,3 +195,52 @@
     padding-top: 0;
   }
 }
+
+/* Integrations and reminders (P4-07) */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: var(--space-16);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-sm);
+  background: var(--color-status-attention-subtle);
+  color: var(--color-status-attention-fg);
+}
+
+.urlRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-8);
+}
+
+.urlRow > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}

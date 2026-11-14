@@ -278,3 +278,62 @@ describe("fixture PDF pages and OCR", () => {
     await expect(api.listAssetPages("rec_nope_pdf")).rejects.toMatchObject({ status: 404 });
   });
 });
+
+describe("calendar connections (P4-07)", () => {
+  test("calendar feed and integration calls", async () => {
+    const ws = asId<D.WorkspaceId>(PERSONAL_WS);
+    const workspace = fixture.data.workspaces.find((w) => w.workspace.id === ws)!.workspace;
+    const { fn, seen } = fakeFetch((req) => {
+      if (req.method === "DELETE") return new Response(null, { status: 204 });
+      if (req.url.startsWith("/api/v2/calendar/feed") && req.method === "POST") {
+        return json(200, { url: "https://lectern.example/cal/abc.ics", created_at: "2026-10-19T03:00:00.000Z" });
+      }
+      if (req.url.startsWith("/api/v2/calendar/feed")) return json(200, { exists: true, url: null, created_at: "2026-10-19T03:00:00.000Z" });
+      if (req.url.startsWith("/api/v2/integrations/google")) return json(200, { authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?x=1" });
+      if (req.url.startsWith("/api/v2/integrations")) return json(200, { items: [], next_cursor: null });
+      return json(200, { ...workspace, settings: { reminders: { email: true, lead_minutes: [60] } } });
+    });
+    const api = createHttpClient({ fetch: fn });
+    expect(await api.createCalendarFeed(ws)).toEqual({ url: "https://lectern.example/cal/abc.ics", created_at: "2026-10-19T03:00:00.000Z" } as never);
+    expect((await api.getCalendarFeed(ws)).exists).toBe(true);
+    await api.deleteCalendarFeed(ws);
+    expect((await api.listIntegrations(ws)).items).toEqual([]);
+    expect((await api.startGoogleIntegration(ws, "/app/settings#integrations")).authorization_url).toStartWith("https://accounts.google.com/");
+    await api.disconnectIntegration("int_1");
+    const saved = await api.updateWorkspaceSettings(ws, { reminders: { email: true, lead_minutes: [60] } });
+    expect(saved.settings.reminders).toEqual({ email: true, lead_minutes: [60] });
+
+    const [create, info, del, list, start, disconnect, patch] = seen;
+    expect([create!.method, create!.url]).toEqual(["POST", "/api/v2/calendar/feed"]);
+    expect(JSON.parse(create!.body!)).toEqual({ workspace_id: ws });
+    expect(info!.url).toBe(`/api/v2/calendar/feed?workspace_id=${ws}`);
+    expect([del!.method, del!.url]).toEqual(["DELETE", `/api/v2/calendar/feed?workspace_id=${ws}`]);
+    expect(list!.url).toStartWith(`/api/v2/integrations?workspace_id=${ws}`);
+    expect(JSON.parse(start!.body!)).toEqual({ workspace_id: ws, return_to: "/app/settings#integrations" });
+    expect([disconnect!.method, disconnect!.url]).toEqual(["DELETE", "/api/v2/integrations/int_1"]);
+    expect([patch!.method, patch!.url]).toEqual(["PATCH", `/api/v2/workspaces/${ws}`]);
+    expect(JSON.parse(patch!.body!)).toEqual({ settings: { reminders: { email: true, lead_minutes: [60] } } });
+  });
+
+  test("the fixture connects, disconnects, keeps a feed without its URL and merges settings", async () => {
+    const api = createFixtureClient({ now: new Date("2026-10-19T03:00:00.000Z"), latencyMs: 0 });
+    const ws = asId<D.WorkspaceId>(PERSONAL_WS);
+    expect((await api.listIntegrations(ws)).items).toEqual([]);
+    expect(await api.startGoogleIntegration(ws, "/app/settings#integrations")).toEqual({ authorization_url: "/app/settings?google=connected#integrations" });
+    const [google] = (await api.listIntegrations(ws)).items;
+    expect(google).toMatchObject({ provider: "google", status: "active" });
+    await api.disconnectIntegration(google!.id);
+    expect((await api.listIntegrations(ws)).items).toEqual([]);
+
+    expect(await api.getCalendarFeed(ws)).toEqual({ exists: false, url: null, created_at: null } as never);
+    const created = await api.createCalendarFeed(ws);
+    expect(created.url).toContain("/cal/");
+    expect(await api.getCalendarFeed(ws)).toEqual({ exists: true, url: null, created_at: created.created_at } as never);
+    await api.deleteCalendarFeed(ws);
+    expect((await api.getCalendarFeed(ws)).exists).toBe(false);
+
+    await api.updateWorkspaceSettings(ws, { calendar_auto_add: { enabled: true, min_confidence: 0.8 } });
+    const saved = await api.updateWorkspaceSettings(ws, { reminders: { email: true, lead_minutes: [1440, 60] } });
+    expect(saved.settings).toMatchObject({ calendar_auto_add: { enabled: true, min_confidence: 0.8 }, reminders: { email: true, lead_minutes: [1440, 60] } });
+  });
+});

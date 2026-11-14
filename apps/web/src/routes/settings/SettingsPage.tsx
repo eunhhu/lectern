@@ -1,7 +1,7 @@
 // 설정 (ARCHITECTURE §7): profile, the current workspace and its members, signed-in
-// devices, integrations, and the options that live in this browser (theme, single-key
-// shortcuts: WCAG 2.1.4). Profile and devices go through the ApiClient (PATCH /me,
-// DELETE /me/devices/{id}); integrations are a placeholder until P4.
+// devices, integrations and reminders (Integrations.tsx, Reminders.tsx, P4-07), and the
+// options that live in this browser (theme, single-key shortcuts: WCAG 2.1.4). Profile and
+// devices go through the ApiClient (PATCH /me, DELETE /me/devices/{id}).
 
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -17,6 +17,8 @@ import { Badge, Button, SelectField, SwitchField, uiStyles } from "../../ui/cont
 import { showToast } from "../../ui/toast.tsx";
 import { toastError } from "../library/organise.ts";
 import { ShareLinkRow } from "../share/ShareLinkRow.tsx";
+import { Integrations } from "./Integrations.tsx";
+import { Reminders } from "./Reminders.tsx";
 import layout from "../../app/layout.module.css";
 import shareStyles from "../share/share.module.css";
 import s from "./settings.module.css";
@@ -36,6 +38,7 @@ const SECTIONS = [
   { id: "share-links", label: "공유 링크" },
   { id: "devices", label: "기기" },
   { id: "integrations", label: "연동" },
+  { id: "reminders", label: "알림" },
   { id: "browser", label: "이 브라우저" },
 ];
 
@@ -66,6 +69,7 @@ export function SettingsPage() {
         <ShareLinks />
         <Devices />
         <Integrations />
+        <Reminders />
         <BrowserOptions />
       </div>
     </div>
@@ -255,31 +259,6 @@ function Devices() {
           </li>
         ))}
       </ul>
-    </section>
-  );
-}
-
-function Integrations() {
-  return (
-    <section id="integrations" className={s.section} aria-labelledby="set-integrations">
-      <h2 id="set-integrations" className={s.heading}>
-        연동
-      </h2>
-      <div className={s.member}>
-        <span className={s.deviceIcon}>
-          <Icon name="calendar" />
-        </span>
-        <span className={s.memberText}>
-          <span className={s.memberName}>Google 캘린더</span>
-          <span className={s.muted}>연결하면 확정한 일정이 ‘Lectern’ 캘린더에 들어갑니다. 다른 일정은 읽지 않습니다.</span>
-        </span>
-        <Button
-          size="sm"
-          onPress={() => showToast({ title: "미리보기에서는 연결할 수 없습니다.", description: "실제 서버에 연결되면 Google 동의 화면으로 이동합니다.", tone: "info" })}
-        >
-          연결
-        </Button>
-      </div>
     </section>
   );
 }
