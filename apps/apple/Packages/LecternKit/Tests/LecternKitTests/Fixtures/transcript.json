@@ -1,0 +1,40 @@
+{
+  "recording_id": "lec_4be2a1c9d0f3",
+  "segments": [
+    {
+      "workspace_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a01",
+      "recording_id": "lec_4be2a1c9d0f3",
+      "idx": 12,
+      "start_ms": 843000,
+      "end_ms": 851500,
+      "speaker_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a07",
+      "text": "오늘은 대칭키 암호의 운영 모드를 보겠습니다.",
+      "confidence": 0.93,
+      "source_chunk": 2
+    }
+  ],
+  "speakers": [
+    {
+      "id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a07",
+      "workspace_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a01",
+      "recording_id": "lec_4be2a1c9d0f3",
+      "label": "S1",
+      "display_name": "김교수",
+      "confidence": 0.8,
+      "created_at": "2026-10-19T05:30:00.000Z",
+      "updated_at": "2026-10-19T05:30:00.000Z"
+    }
+  ],
+  "gaps": [
+    {
+      "kind": "break",
+      "start_ms": 3012000,
+      "end_ms": 3760000
+    },
+    {
+      "kind": "missing_transcript",
+      "start_ms": 4000000,
+      "end_ms": 4300000
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+{
+  "document": {
+    "id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a08",
+    "workspace_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a01",
+    "recording_id": "lec_4be2a1c9d0f3",
+    "template_id": "lecture",
+    "template_version": 1,
+    "current_version": 2,
+    "user_edited": true,
+    "created_at": "2026-10-19T05:30:00.000Z",
+    "updated_at": "2026-10-19T08:10:00Z"
+  },
+  "version": {
+    "id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a09",
+    "workspace_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a01",
+    "recording_id": "lec_4be2a1c9d0f3",
+    "document_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a08",
+    "version": 2,
+    "base_version": 1,
+    "template_id": "lecture",
+    "template_version": 1,
+    "body": {
+      "sections": [
+        {
+          "key": "summary",
+          "title": "핵심 요약",
+          "blocks": [
+            {
+              "id": "b1",
+              "type": "paragraph",
+              "heading": null,
+              "text": "ECB는 같은 평문 블록을 같은 암호문으로 바꾼다.",
+              "sources": [
+                {
+                  "kind": "transcript",
+                  "start_idx": 12,
+                  "end_idx": 14
+                },
+                {
+                  "kind": "video_frame",
+                  "at_ms": 1000
+                }
+              ]
+            },
+            {
+              "id": "b2",
+              "type": "list",
+              "heading": null,
+              "style": "bullet",
+              "items": [
+                {
+                  "text": "CBC는 IV가 필요하다.",
+                  "sources": [
+                    {
+                      "kind": "transcript",
+                      "start_idx": 12,
+                      "end_idx": 14
+                    }
+                  ]
+                },
+                {
+                  "text": "CTR은 병렬화가 쉽다.",
+                  "sources": [
+                    {
+                      "kind": "pdf_page",
+                      "asset_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a06",
+                      "page": 3
+                    }
+                  ]
+                }
+              ],
+              "sources": []
+            }
+          ]
+        },
+        {
+          "key": "topics",
+          "title": "주제별 상세",
+          "blocks": [
+            {
+              "id": "b3",
+              "type": "term",
+              "heading": "운영 모드",
+              "term": "IV",
+              "definition": "초기화 벡터",
+              "sources": [
+                {
+                  "kind": "transcript",
+                  "start_idx": 12,
+                  "end_idx": 14
+                }
+              ]
+            },
+            {
+              "id": "b4",
+              "type": "formula",
+              "heading": null,
+              "expression": "C_i = E_K(P_i \\oplus C_{i-1})",
+              "explanation": null,
+              "sources": [
+                {
+                  "kind": "pdf_page",
+                  "asset_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a06",
+                  "page": 3
+                }
+              ]
+            },
+            {
+              "id": "b5",
+              "type": "callout",
+              "heading": null,
+              "tone": "exam",
+              "text": "CBC 복호화 그림은 시험에 나온다.",
+              "sources": [
+                {
+                  "kind": "transcript",
+                  "start_idx": 12,
+                  "end_idx": 14
+                }
+              ]
+            },
+            {
+              "id": "b6",
+              "type": "quote",
+              "heading": null,
+              "text": "ECB는 절대 쓰지 마세요.",
+              "speaker": "S1",
+              "sources": [
+                {
+                  "kind": "transcript",
+                  "start_idx": 12,
+                  "end_idx": 14
+                }
+              ]
+            },
+            {
+              "id": "b7",
+              "type": "gap",
+              "heading": null,
+              "kind": "break",
+              "start_ms": 3012000,
+              "end_ms": 3760000,
+              "sources": []
+            },
+            {
+              "type": "future_block",
+              "x": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rendered_md": "## 핵심 요약\n\nECB는 같은 평문 블록을 같은 암호문으로 바꾼다.\n",
+    "created_by": "user",
+    "author_id": "usr_3b1f0c9e-6a52-4f6e-9d3a-0c8f2e7b1a44",
+    "created_at": "2026-10-19T08:10:00Z"
+  }
+}

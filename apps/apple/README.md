@@ -16,7 +16,15 @@ apps/apple/
   MANUAL_CHECKS.md                    실제 기기에서만 확인되는 것
 ```
 
-지금은 뼈대다. 화면은 "Lectern" 글자 하나뿐이고, 패키지마다 이름을 확인하는 테스트 하나가 있다.
+화면은 아직 "Lectern" 글자 하나뿐이다. LecternKit에는 API 클라이언트와 인증이 있다(P6-A2, 아래).
+
+## API 클라이언트 (LecternKit)
+
+- 클라이언트는 `packages/domain/openapi.json`에서 `swift-openapi-generator` SwiftPM 플러그인이 빌드 때 만든다(D-P6-7). 생성 코드와 그 입력은 커밋하지 않는다. 게이트의 `scripts/pre-gate-openapi.sh`가 입력을 `Packages/LecternKit/Sources/LecternKit/openapi.json`에 쓴다. Xcode에서만 빌드할 때는 먼저 그 스크립트를 한 번 돌린다.
+- 입력은 그대로 복사하지 않고 `scripts/openapi-for-swift.py`로 세 가지를 고친다. 생성기가 zod의 표기를 다르게 읽기 때문이다. ① `anyOf: [X, null]`(nullable 참조)은 생성기가 속성째 버린다 → `X`로 바꾸고 `required`에서 뺀다(생성 필드가 옵셔널). ② 판별자가 있는 `oneOf`의 가지가 인라인 객체이면(`SourceRef`, `NativeTokenRequest`) 케이스 없는 enum이 된다 → 가지마다 컴포넌트(`SourceRefPdfPage` 등)와 `mapping`을 만든다. ③ 문자열 `enum`은 모르는 값에서 던지는 Swift enum이 된다. domain의 enum은 모두 열려 있다 → `enum`을 지우고(문자열) 모델에서 `unknown`으로 받는다.
+- 앱은 생성 타입(`internal`)을 보지 않는다. `LecternAPI`(목록·상세·전사·문서·자산 요청)와 `Models/`의 값 타입만 쓴다. 모르는 블록 `type`은 `DocumentBlock.unknown`, 모르는 출처 `kind`는 빠진다(`OpenUnionMiddleware`).
+- 인증은 `AuthProvider` 뒤에 있다. `ApiTokenProvider`는 v1 API 토큰(`X-Lectern-Token`), `NativeTokenProvider`는 네이티브 토큰 쌍(D-P5-4, `Authorization: Bearer`)이다. 401이면 refresh를 한 번 하고 한 번만 다시 보낸다. 동시에 여러 요청이 401을 받아도 refresh는 한 번이다. 토큰은 Keychain(`KeychainTokenStore`, 서비스 `com.qucord.lectern`, 앱이 넘기는 접근 그룹)에만 둔다.
+- 패키지 의존(GitHub)을 받아야 하므로 처음 게이트는 네트워크가 필요하다. 버전은 `Packages/LecternKit/Package.resolved`에 고정돼 있다.
 
 ## 처음 실행
 

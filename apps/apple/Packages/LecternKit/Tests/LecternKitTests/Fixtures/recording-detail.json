@@ -1,0 +1,74 @@
+{
+  "recording": {
+    "id": "lec_4be2a1c9d0f3",
+    "workspace_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a01",
+    "folder_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a02",
+    "title": "암호학 7주차: 블록 암호 운영 모드",
+    "domain": "lecture",
+    "template_id": "lecture",
+    "language": "ko",
+    "recorded_at": "2026-10-19T05:30:00.000Z",
+    "recorded_at_source": "client",
+    "duration_ms": 4980000,
+    "status": "ready",
+    "created_by": "usr_3b1f0c9e-6a52-4f6e-9d3a-0c8f2e7b1a44",
+    "visibility": "private",
+    "created_at": "2026-10-19T05:30:00.000Z",
+    "updated_at": "2026-10-19T08:10:00Z"
+  },
+  "tags": [
+    {
+      "workspace_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a01",
+      "recording_id": "lec_4be2a1c9d0f3",
+      "tag_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a03",
+      "source": "ai",
+      "confidence": 0.72,
+      "created_at": "2026-10-19T05:30:00.000Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a05",
+      "workspace_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a01",
+      "recording_id": "lec_4be2a1c9d0f3",
+      "kind": "audio",
+      "part_index": 0,
+      "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "bytes": 48211009,
+      "mime": "audio/mp4",
+      "duration_ms": 4980000,
+      "page_count": null,
+      "meta": {
+        "channels": 1,
+        "sample_rate": 48000
+      },
+      "created_at": "2026-10-19T05:30:00.000Z"
+    }
+  ],
+  "speakers": [
+    {
+      "id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a07",
+      "workspace_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a01",
+      "recording_id": "lec_4be2a1c9d0f3",
+      "label": "S1",
+      "display_name": "김교수",
+      "confidence": 0.8,
+      "created_at": "2026-10-19T05:30:00.000Z",
+      "updated_at": "2026-10-19T05:30:00.000Z"
+    }
+  ],
+  "documents": [
+    {
+      "id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a08",
+      "workspace_id": "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a01",
+      "recording_id": "lec_4be2a1c9d0f3",
+      "template_id": "lecture",
+      "template_version": 1,
+      "current_version": 2,
+      "user_edited": true,
+      "created_at": "2026-10-19T05:30:00.000Z",
+      "updated_at": "2026-10-19T08:10:00Z"
+    }
+  ],
+  "active_job": null
+}

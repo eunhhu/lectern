@@ -19,8 +19,10 @@ done
 
 build() {  # scheme, destination
   echo "gate: xcodebuild $1"
+  # -skipPackagePluginValidation: LecternKit's OpenAPI generator plugin would otherwise wait for
+  # a "trust this plugin" click (P6-A2).
   xcodebuild -project Lectern.xcodeproj -scheme "$1" -destination "$2" -configuration Debug \
-    CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build -quiet
+    -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build -quiet
 }
 build LecterniOS 'generic/platform=iOS Simulator'
 build LecternMac 'generic/platform=macOS'
