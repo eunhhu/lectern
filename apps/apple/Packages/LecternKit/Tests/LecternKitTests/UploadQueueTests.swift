@@ -379,3 +379,60 @@ final class UploadQueueTests: XCTestCase {
         XCTAssertEqual(server.calls.last, .complete(uploadID: "upl_1", key: j.id))
     }
 }
+
+/// Handing a job to the background session (BackgroundUploader) and back.
+extension UploadQueueTests {
+    func testClaimMakesTheSessionAndGivesTheFirstPart() async throws {
+        let q = queue()
+        let j = try job()
+        try await q.enqueue(j)
+        let claimed = await q.claimForBackground(j.id)
+        XCTAssertEqual(claimed?.uploadID, "upl_1")
+        XCTAssertEqual(claimed?.part, 1)
+        XCTAssertEqual(server.calls, [.create(key: j.id)])  // no part sent by the queue itself
+        let stateNow = await state(q, j.id)
+        XCTAssertEqual(stateNow, .uploading)
+    }
+
+    func testRunLeavesAClaimedJobAlone() async throws {
+        let q = queue()
+        let j = try job()
+        try await q.enqueue(j)
+        _ = await q.claimForBackground(j.id)
+        await q.run()
+        XCTAssertEqual(server.calls, [.create(key: j.id)])
+        let second = await q.claimForBackground(j.id)  // already handed over
+        XCTAssertNil(second)
+
+        await q.markPartDone(j.id, part: 1)
+        await q.releaseFromBackground(j.id)
+        await q.run()  // asks the server, sends what it lacks, completes
+        let stateNow = await state(q, j.id)
+        XCTAssertEqual(stateNow, .done(recordingID: "rec_upl_1"))
+        XCTAssertEqual(server.calls.filter { if case .create = $0 { true } else { false } }.count, 1)
+    }
+
+    func testRunSkipsJobsInFlightAfterARelaunch() async throws {
+        let q = queue()
+        let a = try job(id: "a")
+        let b = try job(id: "b")
+        try await q.enqueue(a)
+        try await q.enqueue(b)
+        await q.run(skipping: ["a"])
+        let stateA = await state(q, "a")
+        let stateB = await state(q, "b")
+        XCTAssertEqual(stateA, .queued)
+        XCTAssertEqual(stateB, .done(recordingID: "rec_upl_1"))
+    }
+
+    func testClaimOfAMissingFileFailsTheJob() async throws {
+        let q = queue()
+        let j = try job()
+        try await q.enqueue(j)
+        try FileManager.default.removeItem(at: container.appendingPathComponent(j.fileRelativePath))
+        let claimed = await q.claimForBackground(j.id)
+        XCTAssertNil(claimed)
+        let stateNow = await state(q, j.id)
+        XCTAssertEqual(stateNow, .failed(message: UploadQueue.missingFileMessage))
+    }
+}

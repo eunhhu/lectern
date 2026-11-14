@@ -35,4 +35,11 @@ public struct RecordingToggleIntent: SetValueIntent, AudioRecordingIntent {
 
 /// Lets the app and the widget extension include this package's intents.
 public struct LecternIntentsPackage: AppIntentsPackage {}
+
+/// Siri and Shortcuts show this sentence (otherwise a generic error).
+extension RecordingError: CustomLocalizedStringResourceConvertible {
+    public var localizedStringResource: LocalizedStringResource {
+        LocalizedStringResource(String.LocalizationValue(errorDescription ?? ""))
+    }
+}
 #endif

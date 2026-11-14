@@ -60,6 +60,7 @@ iOS 앱에는 로그인, 라이브러리, 녹음 상세, 설정 화면이 있다
 - 정지: 2초보다 짧으면 지운다. 아니면 App Group 컨테이너의 `Recordings/`에 쓴 파일을 업로드 대기열에 넣고(`recorded_at`은 녹음 시작 시각, 마커 포함) 활동은 `올리는 중`을 4초 보인 뒤 끝난다. 대기열에 넣지 못하면 파일은 남는다.
 - 인텐트는 App Group `UserDefaults`의 `default_workspace_id`(로그인할 때 앱이 개인 워크스페이스를 적는다)로 녹음한다. 컨트롤은 `recording_active`를 읽는다. 앱이 켜질 때 남은 활동과 `recording_active`를 정리한다(녹음 중 강제 종료 대비).
 - `AppServices`(프로세스에 하나)가 클라이언트, 업로드 대기열, 녹음 세션을 갖는다. 장면 없이 인텐트로 깨어나도 `App.init`에서 만들어진다.
+- 업로드: 새 녹음과 앱이 백그라운드로 갈 때의 항목은 백그라운드 URLSession(`BackgroundUploader`)으로 올린다(앱이 멈춰도 이어진다). 앱이 활성일 때 남은 항목은 대기열이 직접 올린다. 한 항목은 한쪽만 올린다(`UploadQueue.claimForBackground`, `run(skipping:)`).
 
 ## 처음 실행
 

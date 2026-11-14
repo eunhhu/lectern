@@ -27,6 +27,8 @@ private struct LibraryColumns: View {
     @State private var showSettings = false
     @State private var showUploads = false
     @State private var showRecorder = false
+    /// The recording went to the queue: the queue sheet opens once the record screen is gone.
+    @State private var queuedFromRecorder = false
     /// iPhone (compact): the list of recordings first; a folder tap comes back to it.
     @State private var compactColumn = NavigationSplitViewColumn.content
 
@@ -48,10 +50,13 @@ private struct LibraryColumns: View {
         .task { await model.load() }
         .sheet(isPresented: $showSettings) { SettingsScreen() }
         .sheet(isPresented: $showUploads) { UploadQueueSheet() }
-        .fullScreenCover(isPresented: $showRecorder) {
+        .fullScreenCover(isPresented: $showRecorder, onDismiss: {
+            if queuedFromRecorder { showUploads = true }
+            queuedFromRecorder = false
+        }) {
             if let session = app.recordingSession, let draft {
                 RecordScreen(session: session, draft: draft) { queued in
-                    if queued { showUploads = true }
+                    queuedFromRecorder = queued
                 }
             }
         }
