@@ -25,6 +25,11 @@ public actor UploadQueue {
     private let now: @Sendable () -> Date
     private var cache: [String: UploadJob]
     private var running = false
+    /// The job `run()` is on now.
+    private var processing: String?
+    /// Jobs handed to the background session (BackgroundUploader): `run()` leaves them alone until
+    /// the session's chain of parts ends and releases them.
+    private var backgroundOwned: Set<String> = []
     private let continuation: AsyncStream<[UploadJob]>.Continuation
 
     /// Every change of the queue (the whole list, oldest first).
@@ -51,15 +56,57 @@ public actor UploadQueue {
     }
 
     /// Runs every runnable job once, one at a time. A second call while one runs returns at once.
-    public func run() async {
+    /// `skipping`: jobs with a part in flight in the background session (after a relaunch the
+    /// queue no longer knows them); jobs handed over in this process are skipped anyway.
+    public func run(skipping: Set<String> = []) async {
         guard !running else { return }
         running = true
-        defer { running = false }
-        var tried = Set<String>()
-        while let next = jobs().first(where: { ($0.state.isRunnable || ($0.state.isDone && !$0.markers.isEmpty)) && !tried.contains($0.id) }) {
+        defer {
+            running = false
+            processing = nil
+        }
+        var tried = skipping
+        while let next = jobs().first(where: { ($0.state.isRunnable || ($0.state.isDone && !$0.markers.isEmpty)) && !tried.contains($0.id) && !backgroundOwned.contains($0.id) }) {
             tried.insert(next.id)
+            processing = next.id
             await process(next)
         }
+    }
+
+    // MARK: - Background session
+
+    /// Hands a job to the background session: makes (or checks) its server session and returns
+    /// the first part to send. nil when there is nothing to hand over: not runnable, `run()` is on
+    /// it, already handed over, every part is on the server (`run()` completes it), or the server
+    /// refused (the job is marked as `run()` would mark it).
+    public func claimForBackground(_ id: String) async -> (uploadID: String, part: Int)? {
+        guard var job = cache[id], job.state.isRunnable, processing != id, !backgroundOwned.contains(id) else { return nil }
+        backgroundOwned.insert(id)  // before the first await: `run()` must not start it meanwhile
+        guard filesPresent(job) else {
+            backgroundOwned.remove(id)
+            fail(&job, Self.missingFileMessage)
+            return nil
+        }
+        do {
+            let completedOnServer = try await syncSession(&job)
+            if !completedOnServer, let next = nextPart(id) { return next }
+        } catch {
+            handle(error, &job)
+        }
+        backgroundOwned.remove(id)
+        return nil
+    }
+
+    /// The background chain of a job ended (its last part, a failure, or a part that could not
+    /// be started): `run()` may take it again.
+    public func releaseFromBackground(_ id: String) {
+        backgroundOwned.remove(id)
+    }
+
+    /// A background part of this job finished (after a relaunch the queue may not know the job is
+    /// the background session's): `run()` leaves it alone until it is released.
+    public func holdForBackground(_ id: String) {
+        backgroundOwned.insert(id)
     }
 
     /// A failed job back to the queue.
@@ -111,35 +158,11 @@ public actor UploadQueue {
         if case let .done(recordingID) = job.state {
             return await sendMarkers(&job, recordingID: recordingID)
         }
-        let paths = [job.fileRelativePath] + job.pdfRelativePaths
-        guard paths.allSatisfy({ FileManager.default.fileExists(atPath: containerURL.appendingPathComponent($0).path) }) else {
+        guard filesPresent(job) else {
             return fail(&job, Self.missingFileMessage)
         }
         do {
-            var completedOnServer = false
-            if job.uploadID == nil {
-                try await createSession(&job)
-            } else {
-                let status: UploadStatus?
-                do {
-                    status = try await transport.status(uploadID: job.uploadID!)
-                } catch APIError.notFound {
-                    status = nil
-                }
-                if let status, status.isCompleted {
-                    // The complete response was lost. The server dropped the parts and answers the
-                    // same complete again with its stored result; sending parts would get 409 and
-                    // start a second recording under a new key.
-                    completedOnServer = true
-                } else if let status, !status.isDead {
-                    job.partsDone = status.partsDone.sorted()
-                } else {
-                    abandonSession(&job)
-                    try await createSession(&job)
-                }
-            }
-            job.state = .uploading
-            try write(job)
+            let completedOnServer = try await syncSession(&job)
             let total = job.files.reduce(0) { $0 + $1.partCount }
             for part in completedOnServer ? [] : remainingParts(total: total, done: job.partsDone) {
                 guard let (file, range) = locate(part, in: job) else { throw APIError.decoding("part \(part) is outside the session's files") }
@@ -157,6 +180,40 @@ public actor UploadQueue {
         } catch {
             handle(error, &job)
         }
+    }
+
+    private func filesPresent(_ job: UploadJob) -> Bool {
+        ([job.fileRelativePath] + job.pdfRelativePaths).allSatisfy { FileManager.default.fileExists(atPath: containerURL.appendingPathComponent($0).path) }
+    }
+
+    /// Makes the server session, or asks the server which parts it has (the server is the truth,
+    /// not the local record). True when the server already completed it.
+    private func syncSession(_ job: inout UploadJob) async throws -> Bool {
+        var completedOnServer = false
+        if job.uploadID == nil {
+            try await createSession(&job)
+        } else {
+            let status: UploadStatus?
+            do {
+                status = try await transport.status(uploadID: job.uploadID!)
+            } catch APIError.notFound {
+                status = nil
+            }
+            if let status, status.isCompleted {
+                // The complete response was lost. The server dropped the parts and answers the
+                // same complete again with its stored result; sending parts would get 409 and
+                // start a second recording under a new key.
+                completedOnServer = true
+            } else if let status, !status.isDead {
+                job.partsDone = status.partsDone.sorted()
+            } else {
+                abandonSession(&job)
+                try await createSession(&job)
+            }
+        }
+        job.state = .uploading
+        try write(job)
+        return completedOnServer
     }
 
     /// Markers go once the recording exists; a failed send is tried again on the next run (the

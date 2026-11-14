@@ -53,6 +53,15 @@ iOS 앱에는 로그인, 라이브러리, 녹음 상세, 설정 화면이 있다
 - 픽스처 모드: 실행 인자 `-LECTERN_FIXTURE 1`(또는 환경 변수 `LECTERN_FIXTURE=1`)이면 서버 없이 예시 데이터(폴더 3, 녹음 8)로 로그인된 채 시작한다. Xcode 스킴의 Arguments에 넣어 화면을 볼 수 있다.
 - UI 테스트(`LecterniOSUITests`, 픽스처 모드로 녹음을 열고 전사 탭까지)는 게이트가 빌드만 한다(`build-for-testing`). 실행: `xcodebuild test -project apps/apple/Lectern.xcodeproj -scheme LecterniOS -destination 'platform=iOS Simulator,name=iPhone 17'`.
 
+## 앱 밖에서 녹음 (P6-A7)
+
+- 시작: 제어 센터·잠금 화면·동작 버튼의 `녹음` 컨트롤(`RecordingToggleIntent`), Siri·단축어("Lectern으로 녹음 시작"), 앱 안의 `녹음` 버튼. 모두 앱 프로세스의 `RecordingSession.shared` 하나를 쓴다(`AudioRecordingIntent`·`LiveActivityIntent`는 앱 프로세스에서 돈다). 이미 녹음 중이면 새 녹음을 만들지 않는다.
+- Live Activity(잠금 화면, Dynamic Island): 경과 시간(녹음 중에는 시스템이 그리는 타이머, 일시정지면 고정 글자), 상태 글자, 일시정지·재개, 중요, 정지. 갱신은 상태가 바뀔 때만 한다(레벨로는 하지 않는다). 전화로 일시정지되면 녹음기 상태를 따라 `일시정지됨`이 된다. Live Activity를 꺼 두어도 녹음은 된다.
+- 정지: 2초보다 짧으면 지운다. 아니면 App Group 컨테이너의 `Recordings/`에 쓴 파일을 업로드 대기열에 넣고(`recorded_at`은 녹음 시작 시각, 마커 포함) 활동은 `올리는 중`을 4초 보인 뒤 끝난다. 대기열에 넣지 못하면 파일은 남는다.
+- 인텐트는 App Group `UserDefaults`의 `default_workspace_id`(로그인할 때 앱이 개인 워크스페이스를 적는다)로 녹음한다. 컨트롤은 `recording_active`를 읽는다. 앱이 켜질 때 남은 활동과 `recording_active`를 정리한다(녹음 중 강제 종료 대비).
+- `AppServices`(프로세스에 하나)가 클라이언트, 업로드 대기열, 녹음 세션을 갖는다. 장면 없이 인텐트로 깨어나도 `App.init`에서 만들어진다.
+- 업로드: 새 녹음과 앱이 백그라운드로 갈 때의 항목은 백그라운드 URLSession(`BackgroundUploader`)으로 올린다(앱이 멈춰도 이어진다). 앱이 활성일 때 남은 항목은 대기열이 직접 올린다. 한 항목은 한쪽만 올린다(`UploadQueue.claimForBackground`, `run(skipping:)`).
+
 ## 처음 실행
 
 1. 서명 값을 로컬 파일에 둔다. 이 파일은 커밋하지 않는다(`.gitignore`).

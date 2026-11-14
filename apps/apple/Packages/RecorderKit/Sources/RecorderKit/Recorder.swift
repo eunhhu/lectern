@@ -18,6 +18,13 @@ public struct RecordingResult: Sendable, Equatable {
     public let durationMs: Int
     public let markers: [RecordedMarker]
     public let startedAt: Date
+
+    public init(fileURL: URL, durationMs: Int, markers: [RecordedMarker], startedAt: Date) {
+        self.fileURL = fileURL
+        self.durationMs = durationMs
+        self.markers = markers
+        self.startedAt = startedAt
+    }
 }
 
 /// One recording: microphone → AAC file, with level, silence warning, pause and markers.
@@ -57,6 +64,14 @@ public actor Recorder {
     /// True while the input has been silent for 20 s of recording. A new stream starts with the
     /// current value.
     public nonisolated var silenceWarning: AsyncStream<Bool> { core.silence.stream() }
+
+    /// Every state the recorder goes through, starting with the current one. Nothing is dropped
+    /// (a quick pause and resume arrives as both), and the stream ends after `finished` or a
+    /// failure.
+    public nonisolated var stateChanges: AsyncStream<RecorderState> { core.states.stream() }
+
+    /// Recorded time so far on the file's axis (written frames; pauses are not in it).
+    public nonisolated var recordedMs: Int { core.durationMs }
 
     // MARK: - Commands
 
@@ -202,6 +217,7 @@ public actor Recorder {
 final class RecorderCore: @unchecked Sendable {
     let levels = Broadcast<Float>()
     let silence = Broadcast<Bool>(initial: false)
+    let states = Broadcast<RecorderState>(initial: .idle, keepsAll: true)
 
     private let lock = NSLock()
     private let sink: AudioSink
@@ -227,16 +243,19 @@ final class RecorderCore: @unchecked Sendable {
     }
 
     func begin(sampleRate: Double) {
-        lock.withLock {
+        let after = lock.withLock { () -> RecorderState in
             self.sampleRate = sampleRate
             throttle = LevelThrottle(sampleRate: sampleRate)
             current = reduce(current, .start)
+            return current
         }
+        states.yield(after)
     }
 
     /// `start()` failed after `begin`: back to the beginning.
     func abandon() {
         lock.withLock { current = .idle }
+        states.yield(.idle)
     }
 
     func apply(_ event: RecorderEvent) {
@@ -248,18 +267,21 @@ final class RecorderCore: @unchecked Sendable {
         if before == .recording, case .paused = after {
             levels.yield(0)
         }
+        if before != after { states.yield(after) }
     }
 
     func receive(_ buffer: AVAudioPCMBuffer) {
         var level: Float?
         var warningChanged: Bool?
         var failed: (@Sendable () -> Void)?
+        var failedState: RecorderState?
         lock.withLock {
             guard current == .recording else { return }
             do {
                 try sink.write(buffer)
             } catch {
                 current = reduce(current, .sinkFailed(Recorder.writeFailureMessage))
+                failedState = current
                 failed = failureHandler
                 return
             }
@@ -274,6 +296,7 @@ final class RecorderCore: @unchecked Sendable {
         }
         if let level { levels.yield(level) }
         if let warningChanged { silence.yield(warningChanged) }
+        if let failedState { states.yield(failedState) }
         if let failed {
             failed()
         }
@@ -301,6 +324,7 @@ final class RecorderCore: @unchecked Sendable {
     func finishStreams() {
         levels.finish()
         silence.finish()
+        states.finish()
     }
 
     /// Call with the lock held.
@@ -309,23 +333,26 @@ final class RecorderCore: @unchecked Sendable {
     }
 }
 
-/// A value fanned out to every current listener; each keeps only the newest value.
+/// A value fanned out to every current listener; each keeps only the newest value, unless
+/// `keepsAll` (then every value, in order).
 final class Broadcast<Element: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuations: [UUID: AsyncStream<Element>.Continuation] = [:]
     private let replays: Bool
+    private let keepsAll: Bool
     private var last: Element?
     private var finished = false
 
     /// With `initial`, a new stream starts with the latest value (`initial` until something is
     /// yielded). Without it, a new stream waits for the next value.
-    init(initial: Element? = nil) {
+    init(initial: Element? = nil, keepsAll: Bool = false) {
         replays = initial != nil
+        self.keepsAll = keepsAll
         last = initial
     }
 
     func stream() -> AsyncStream<Element> {
-        let (stream, continuation) = AsyncStream<Element>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let (stream, continuation) = AsyncStream<Element>.makeStream(bufferingPolicy: keepsAll ? .unbounded : .bufferingNewest(1))
         let id = UUID()
         let (added, replay) = lock.withLock { () -> (Bool, Element?) in
             guard !finished else { return (false, nil) }

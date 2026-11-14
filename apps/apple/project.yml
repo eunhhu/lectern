@@ -67,6 +67,7 @@ targets:
     dependencies:
       - package: LecternKit
       - package: LecternUI
+      - package: LecternIntents
   LecternShare:
     type: app-extension
     platform: iOS
