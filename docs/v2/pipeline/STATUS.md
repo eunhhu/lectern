@@ -49,7 +49,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 실제 Google 동의 화면과 전용 캘린더 생성·동기화 | P4-02, P4-03 |
 | Bun의 `node:http2` 클라이언트가 Apple의 실제 APNs 서버(TLS, ALPN h2)와 붙는지. 테스트의 가짜는 평문 h2다 | P6-02 |
 | 옛 macOS 앱으로 로그인한 Mac에서 새 빌드로 토큰이 키체인으로 옮겨지는지 | P6-A0 |
-| `swift-openapi-generator`가 이 저장소의 `openapi.json`을 처리하는지(확인하지 않았다. 안 되면 P6-A2가 `BLOCKED`로 멈추고 Apple 줄 전체가 선다) | P6-A2 |
+| ~~`swift-openapi-generator`가 이 저장소의 `openapi.json`을 처리하는지~~ 확인됨(2026-11-15, P6-A2): 1.14.4가 처리한다. 다만 nullable 참조·인라인 판별 유니온·문자열 enum을 그대로 두면 필드가 빠지거나 디코딩이 실패해서 `apps/apple/scripts/openapi-for-swift.py`가 입력을 고친다 | P6-A2 |
 | 샌드박스 앱에서 시스템 오디오 탭이 되는지, 추가 entitlement가 필요한지 | P6-A10 |
 | 실제 iPhone에서 푸시 등록, Live Activity(원격 갱신·push-to-start), 알림, 유니버설 링크, 위젯 | P6-A7, P6-A11 |
 | 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
@@ -129,3 +129,12 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-01 | 전체 게이트에서 `export.test.ts`가 흔들렸다(두 강의가 같은 밀리초면 내보내기의 녹음 번호가 무작위 id로 바뀜). 테스트에서 두 강의 사이를 띄웠다 | P6-01에서 고침 |
 | 2026-11-15 | P6-A1 | 이 Mac의 `xcodebuild`가 "CoreSimulator is out of date … Simulator device support disabled"를 낸다. 시뮬레이터 대상 빌드는 되지만 시뮬레이터 실행·UI 테스트에는 Xcode 추가 구성 요소 설치가 필요하다(`sudo xcodebuild -runFirstLaunch` 또는 Xcode를 한 번 열기) | 사용자(로컬 환경) |
 | 2026-11-15 | P6-A0 | Keychain 쓰기가 실패하면 옛 값은 `UserDefaults`에 남지만 그 실행에서는 로그인이 풀린 것처럼 보인다(`authToken`이 빈 값). 그 상태에서 로그아웃하면 평문 사본이 남고 다음 실행에서 다시 옮겨진다. 명세대로이며 실측 때 이 경우도 본다 | 실측 항목(P6-A0 행)에 포함 |
+| 2026-11-15 | P6-02 | 처리 단계 Live Activity와 완료 알림 발송기가 들어갔다. 실제 APNs 서버(TLS + ALPN h2) 연결과 sandbox 발송은 Pi에서 키·팀·토픽을 넣고 한 번 확인한다(실측 표의 P6-02 행) | 실측 항목 |
+| 2026-11-15 | P6-02 | push-to-start의 `attributes-type`은 `ProcessingActivityAttributes`, ContentState는 `stage`, `stage_label`, `progress`(0–100 또는 null), `recording_id`, `document_ready`다. 픽스처: `apps/server/test/fixtures/apns/*.json` | P6-A11에 전달 |
+| 2026-11-15 | P6-02 | process 작업이 여러 번 끊겨 실패로 끝나거나(onLost) 대기 중 취소되면(onCanceled)도 Live Activity를 끝낸다(명세 파일 목록에 없던 `job-handlers.ts`). PDF 단계의 예기치 못한 오류로 끝나는 경로는 기존처럼 녹음 상태를 바꾸지 않아 Live Activity도 그대로다 | 기록만 |
+| 2026-11-15 | P6-03 | `LECTERN_V1_SUNSET`·`LECTERN_V1_BLOCK`은 켜지 않았다. 관리자 화면(P5-13)의 v1 사용량에서 폐기 대상 경로(`/api/lectures`, `/api/ingest/`, `/api/events`, `/api/clients/`)의 건수를 보고 정한다. `/api/auth/*`의 browser 건수는 새 웹 앱이 쓰므로 0이 되지 않는다 | 사용자 결정 |
+| 2026-11-15 | P6-03 | 배포 환경에 `APPLE_APP_IDS=<TEAM_ID>.com.qucord.lectern.ios,<TEAM_ID>.com.qucord.lectern.macos`를 넣어야 AASA가 열린다. Apple CDN이 받아 가는지는 실제 도메인에서 확인한다 | 사용자(배포) |
+| 2026-11-15 | P6-A2 | 파트 업로드(스트림 본문)는 AuthMiddleware가 401에서 다시 보내지 않는다. 업로드 쪽이 refresh 뒤 그 파트를 다시 올린다 | P6-A3에 전달 |
+| 2026-11-15 | P6-A2 | Apple 게이트는 `python3`(입력 변환), 첫 실행의 GitHub 접근(패키지 의존), `xcodebuild -skipPackagePluginValidation`이 필요하다 | P6-CI에 전달 |
+| 2026-11-15 | P6-A2 | 앱은 `KeychainTokenStore(accessGroup: "$(AppIdentifierPrefix)com.qucord.lectern")`을 넘긴다. 앱·위젯·공유 확장이 한 쌍을 같이 쓰므로 refresh 전에 저장소를 다시 읽는다(쓴 refresh 토큰을 다시 보내면 서버가 가족 전체를 끊는다) | P6-A6·A9에 전달 |
+| 2026-11-15 | P6-A2 | 이벤트·할 일 목록을 래퍼에 여는 작업은 그 응답의 열린 유니온(`evidence` 등)을 `OpenUnionMiddleware`에 더한다 | 후속 WP |
