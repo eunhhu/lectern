@@ -99,7 +99,7 @@
 | `PATCH /action-items/{action_item_id}` | `updateActionItem` | 실제 | |
 | `GET /jobs/{job_id}` | `getJob` | 실제 | v1 `distill`은 `process`. 시스템 작업은 404 |
 | `POST /jobs/{job_id}/cancel` | `cancelJob` | 실제 | `process`·`regenerate`·`distill`만. 대기 중이면 바로 `canceled`, 실행 중이면 다음 단계 전에 멈춘다(응답은 아직 `running`). 남의 작업은 404, 끝난 작업은 409 |
-| `GET /search` | `search` | 실제 | 제목·문서(legacy는 문단 `md-<n>`)·전사의 부분 문자열. 하이브리드 색인은 P3 |
+| `GET /search` | `search` | 실제 | 물어보기 색인이 있으면(`LECTERN_ASK=1`) `packages/ask`의 하이브리드 검색(BM25 + 벡터): 전사·문서·PDF 쪽 적중, 제목 일치가 맨 앞, 최대 50개. legacy 문서 적중의 `block_id`는 문단 `md-<n>`. `LECTERN_ASK=0`이면 제목·문서·전사의 부분 문자열 |
 | `/ask/*` 6개 | `createAskThread` 등 | 실제(`LECTERN_ASK=1`), 꺼지면 501 | 개인 워크스페이스의 색인 위. 범위는 v2 녹음·폴더 |
 | `GET /ask/suggestions` | `listAskSuggestions` | 실제 | 규칙으로 만든 질문 최대 6개(모델 호출 없음, `LECTERN_ASK`와 무관). 녹음 범위는 도메인 질문 + 문서 섹션 제목 |
 | `GET /calendar/suggestions` | `listCalendarSuggestions` | 실제 | `statuses`, 기간. P4 전까지 비어 있음 |
