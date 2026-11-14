@@ -32,6 +32,9 @@
 | `LECTERN_ASK` | `false` |  | 1: turn on 물어보기 (/api/v2/ask) and its search index over each user's lectures (ADR-0009); index jobs and answers call Gemini (cost). 0: the ask routes answer 501 |
 | `LECTERN_PDF` | `false` |  | 1: accept PDF uploads, extract their pages, show the PDF viewer and cite pages. 0: PDF uploads are refused as today |
 | `LECTERN_ASK_MONTHLY_LIMIT_MICROUSD` | `2000000` |  | Per-workspace monthly ask budget in micro-USD (2000000 = $2, ROADMAP D14); 0 blocks asking |
+| `LECTERN_CALENDAR` | `false` |  | 1: turn on ICS subscription (/cal/<token>.ics), Google Calendar sync and e-mail reminders. 0: the calendar routes answer 501 |
+| `GOOGLE_OAUTH_CLIENT_ID` | — | secret | Google OAuth client id (calendar, later sign-in) |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | — | secret | Google OAuth client secret |
 | `LECTERN_LEGAL_CONTACT_EMAIL` | — |  | Contact address printed on /privacy and /terms (account deletion and data requests); a role address such as privacy@, not a personal one |
 | `LECTERN_LEGAL_OFFICER_NAME` | — |  | 개인정보 보호책임자 name printed on /privacy |
 | `LECTERN_LEGAL_EFFECTIVE_DATE` | — |  | 공고·시행일 of the current /privacy and /terms (YYYY-MM-DD) |

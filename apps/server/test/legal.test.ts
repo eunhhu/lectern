@@ -32,6 +32,15 @@ describe("policy pages", () => {
     expect(renderLegalTemplate(template("privacy"), SET).html).toContain("개인정보 보호책임자: 홍길동");
   });
 
+  test("privacy page covers calendar and reminders", () => {
+    const html = template("privacy");
+    expect(html).toContain("캘린더 구독 주소(ICS)는 이용자만 아는 비밀 주소입니다");
+    expect(html).toContain("일정·할 일 알림");
+    expect(html).toContain("이메일 알림 기록");
+    expect(html).toContain("<td>발송 후 90일, 또는 계정을 삭제할 때까지</td>");
+    expect(html).toContain("주소 원문은 저장하지 않습니다");
+  });
+
   test("unset values read as neutral text, never a raw slot or an empty mailto link", () => {
     for (const page of LEGAL_PAGES) {
       const { html, missing } = renderLegalTemplate(template(page), UNSET);

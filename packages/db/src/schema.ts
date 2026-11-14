@@ -716,3 +716,71 @@ export const lectureSyncPending = sqliteTable("lecture_sync_pending", {
   lectureId: text("lecture_id").primaryKey(),
   markedAt: integer("marked_at").notNull(),
 });
+
+// ---------------------------------------------------------------------------
+// Calendar (P4, CONTRACTS §4 `p4_calendar`). Times are epoch ms.
+// ---------------------------------------------------------------------------
+
+/**
+ * A user's ICS subscription for one workspace. Only the token's hash is stored (D-0-7).
+ * At most one active row (revoked_at IS NULL) per user and workspace, kept by the code (P4-01).
+ */
+export const calendarFeed = sqliteTable(
+  "calendar_feed",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    createdAt: integer("created_at").notNull(),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => [index("idx_calendar_feed_user").on(t.userId, t.workspaceId)]
+);
+
+/** Which external calendar event an event candidate became (D-P4-4: no duplicates on resync). */
+export const calendarEventLink = sqliteTable(
+  "calendar_event_link",
+  {
+    eventCandidateId: text("event_candidate_id").primaryKey(),
+    integrationId: text("integration_id").notNull(),
+    externalEventId: text("external_event_id").notNull(),
+    externalEtag: text("external_etag"),
+    state: text("state", { enum: ["synced", "error"] }).notNull(),
+    lastSyncedAt: integer("last_synced_at").notNull(),
+    errorCode: text("error_code"),
+  },
+  (t) => [index("idx_calendar_link_integration").on(t.integrationId)]
+);
+
+/** One e-mail reminder (D-P4-7). The same user, target and time is sent once. */
+export const reminder = sqliteTable(
+  "reminder",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id").notNull(),
+    targetType: text("target_type", { enum: ["event", "action_item"] }).notNull(),
+    targetId: text("target_id").notNull(),
+    sendAt: integer("send_at").notNull(),
+    state: text("state", { enum: ["scheduled", "sent", "canceled", "failed"] }).notNull(),
+    sentAt: integer("sent_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_reminder_unique").on(t.userId, t.targetType, t.targetId, t.sendAt),
+    index("idx_reminder_due").on(t.state, t.sendAt),
+  ]
+);
+
+/** An OAuth authorization in flight (CSRF state, PKCE verifier). Only the state's hash is stored. */
+export const oauthState = sqliteTable("oauth_state", {
+  stateHash: text("state_hash").primaryKey(),
+  userId: text("user_id"),
+  workspaceId: text("workspace_id"),
+  purpose: text("purpose", { enum: ["google_calendar", "google_login", "apple_login"] }).notNull(),
+  codeVerifier: text("code_verifier"),
+  redirectAfter: text("redirect_after"),
+  createdAt: integer("created_at").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+});

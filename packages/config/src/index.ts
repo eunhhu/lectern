@@ -135,6 +135,21 @@ const ENV = {
     schema: int(0, 1_000_000_000, 2_000_000),
     description: "Per-workspace monthly ask budget in micro-USD (2000000 = $2, ROADMAP D14); 0 blocks asking",
   },
+  LECTERN_CALENDAR: {
+    schema: bool(false),
+    description:
+      "1: turn on ICS subscription (/cal/<token>.ics), Google Calendar sync and e-mail reminders. 0: the calendar routes answer 501",
+  },
+  GOOGLE_OAUTH_CLIENT_ID: {
+    schema: optionalString,
+    description: "Google OAuth client id (calendar, later sign-in)",
+    secret: true,
+  },
+  GOOGLE_OAUTH_CLIENT_SECRET: {
+    schema: optionalString,
+    description: "Google OAuth client secret",
+    secret: true,
+  },
   LECTERN_LEGAL_CONTACT_EMAIL: {
     schema: optionalString.refine((v) => v === undefined || z.email().safeParse(v).success, {
       message: "must be an email address",
@@ -222,6 +237,8 @@ export interface Config {
   ask: { enabled: boolean; monthlyLimitMicrousd: number };
   /** Lecture PDFs (CONTRACTS §3): uploads, page extraction, the viewer and page citations. */
   pdf: boolean;
+  /** ICS feed, Google Calendar sync, reminders (P4). */
+  calendar: boolean;
   /** Operator-specific values for /privacy and /terms (null = not set yet). */
   legal: { contactEmail: string | null; officerName: string | null; effectiveDate: string | null };
   owner: {
@@ -294,6 +311,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       monthlyLimitMicrousd: p.LECTERN_ASK_MONTHLY_LIMIT_MICROUSD,
     },
     pdf: p.LECTERN_PDF,
+    calendar: p.LECTERN_CALENDAR,
     legal: {
       contactEmail: p.LECTERN_LEGAL_CONTACT_EMAIL ?? null,
       officerName: p.LECTERN_LEGAL_OFFICER_NAME ?? null,
@@ -317,7 +335,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
 /** Reads a secret at the moment it is needed (never cached). Empty strings count as unset. */
 export function readSecret(
-  name: "GEMINI_API_KEY" | "RESEND_API_KEY" | "LECTERN_DEPLOY_TOKEN" | "LECTERN_OWNER_PASSWORD" | "LECTERN_OWNER_API_TOKEN"
+  name:
+    | "GEMINI_API_KEY"
+    | "RESEND_API_KEY"
+    | "LECTERN_DEPLOY_TOKEN"
+    | "LECTERN_OWNER_PASSWORD"
+    | "LECTERN_OWNER_API_TOKEN"
+    | "GOOGLE_OAUTH_CLIENT_ID"
+    | "GOOGLE_OAUTH_CLIENT_SECRET"
 ): string | undefined {
   const v = (process.env[name] || "").trim();
   return v || undefined;

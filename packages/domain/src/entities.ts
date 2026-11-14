@@ -91,6 +91,10 @@ export const WorkspaceSettings = named(
       .optional()
       .describe("Auto-register explicit-date events at or above `min_confidence` (ARCHITECTURE §11). Off when absent."),
     default_language: LanguageTag.optional(),
+    reminders: z
+      .object({ email: z.boolean(), lead_minutes: z.array(z.number().int().min(5).max(43200)).min(1).max(5) })
+      .optional()
+      .describe("E-mail reminders (ARCHITECTURE §11). Off when absent; when `email` is on and `lead_minutes` is empty the server uses [1440]."),
   }),
   "Workspace settings. Every field is optional; the server applies defaults.",
 );

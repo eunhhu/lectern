@@ -417,7 +417,7 @@ export const savedView = {
 } satisfies In<typeof D.SavedView>;
 
 export const ENTITY_FIXTURES: Record<D.EntityName, unknown[]> = {
-  workspace: [workspace],
+  workspace: [workspace, { ...workspace, settings: { reminders: { email: true, lead_minutes: [1440] } } }],
   membership: [membership],
   folder: [folder, { ...folder, parent_id: ID.folder }],
   tag: [tag],
@@ -445,7 +445,12 @@ export const ENTITY_FIXTURES: Record<D.EntityName, unknown[]> = {
 
 /** Hand-written invalid rows; the tests also drop every required key of each valid fixture. */
 export const ENTITY_INVALID: Record<D.EntityName, unknown[]> = {
-  workspace: [{ ...workspace, kind: "org" }, { ...workspace, settings: { calendar_auto_add: { enabled: true, min_confidence: 2 } } }],
+  workspace: [
+    { ...workspace, kind: "org" },
+    { ...workspace, settings: { calendar_auto_add: { enabled: true, min_confidence: 2 } } },
+    { ...workspace, settings: { reminders: { email: true, lead_minutes: [] } } },
+    { ...workspace, settings: { reminders: { email: true, lead_minutes: [0] } } },
+  ],
   membership: [{ ...membership, role: "guest" }],
   folder: [{ ...folder, name: "" }],
   tag: [{ ...tag, color: "#ff0000" }],
@@ -695,8 +700,13 @@ export const API_CASES: Record<string, Case> = {
   CreateWorkspaceRequest: { schema: D.CreateWorkspaceRequest, valid: [{ name: "연구실" }], invalid: [{ name: "" }] },
   UpdateWorkspaceRequest: {
     schema: D.UpdateWorkspaceRequest,
-    valid: [{ settings: {} }, { name: "새 이름" }],
-    invalid: [{ settings: { default_language: "Korean" } }],
+    valid: [{ settings: {} }, { name: "새 이름" }, { settings: { reminders: { email: true, lead_minutes: [1440] } } }],
+    invalid: [
+      { settings: { default_language: "Korean" } },
+      { settings: { reminders: { email: true, lead_minutes: [] } } },
+      { settings: { reminders: { email: true, lead_minutes: [0] } } },
+      { settings: { reminders: { email: true, lead_minutes: [5, 10, 15, 20, 25, 30] } } },
+    ],
   },
   WorkspaceMemberPage: {
     schema: D.WorkspaceMemberPage,
@@ -971,6 +981,24 @@ export const API_CASES: Record<string, Case> = {
     schema: D.StartGoogleIntegrationResponse,
     valid: [{ authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=x" }],
     invalid: [{ authorization_url: "not a url" }],
+  },
+  CalendarFeedInfo: {
+    schema: D.CalendarFeedInfo,
+    valid: [
+      { exists: true, url: null, created_at: T0 },
+      { exists: false, url: null, created_at: null },
+    ],
+    invalid: [{ exists: true, url: "not a url", created_at: T0 }, { exists: "yes", url: null, created_at: null }],
+  },
+  CreateCalendarFeedRequest: {
+    schema: D.CreateCalendarFeedRequest,
+    valid: [{ workspace_id: ID.workspace }],
+    invalid: [{ workspace_id: "" }, {}],
+  },
+  CalendarFeedCreated: {
+    schema: D.CalendarFeedCreated,
+    valid: [{ url: "https://lectern.example/cal/abcDEF123.ics", created_at: T0 }],
+    invalid: [{ url: null, created_at: T0 }, { url: "https://lectern.example/cal/x.ics", created_at: "yesterday" }],
   },
   ShareLinkPage: { schema: D.ShareLinkPage, valid: [page([shareLinkDto])], invalid: [page([shareLink])] },
   ShareLink: { schema: D.ShareLinkDto, valid: [shareLinkDto], invalid: [{ ...shareLinkDto, target_type: "folder" }] },
