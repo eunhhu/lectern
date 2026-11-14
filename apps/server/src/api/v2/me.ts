@@ -2,6 +2,7 @@ import { ensurePersonalWorkspace, personalWorkspaceId, sha256Hex } from "@lecter
 import { extractAuthToken } from "../../auth.ts";
 import { db, deleteSession, getUserById, updateUserProfile, type UserRecord } from "../../db.ts";
 import { countActivePats, createPat, listPats, revokePat, type PatRow } from "../../access-tokens.ts";
+import { hasOwnPassword } from "../../oauth/login.ts";
 import { sessionIdOf, sessionMetaOf } from "../../session-meta.ts";
 import { requireWorkspace, roleIn } from "./access.ts";
 import { apiError, defineRouter, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
@@ -141,9 +142,25 @@ export const meRouter = defineRouter({
     if (!revokePat(user.id, id)) return notFound(req, "토큰");
     return req.c.body(null, 204);
   },
-  // Accounts (P5-C contract; P5-01..P5-09 implement them).
-  listIdentities: notImplemented,
-  unlinkIdentity: notImplemented,
+  // Google and Apple sign-in methods linked to the account (P5-04, D-P5-1).
+  listIdentities: (req) => {
+    const rows = db
+      .query(`SELECT id, provider, email, created_at FROM oauth_identity WHERE user_id = ? ORDER BY created_at, id`)
+      .all(req.user!.id) as Array<{ id: string; provider: string; email: string | null; created_at: number }>;
+    return okPage(req, rows.map((r) => ({ id: r.id, provider: r.provider, email: r.email, created_at: iso(r.created_at) })));
+  },
+  unlinkIdentity: (req) => {
+    const user = getUserById(req.user!.id) ?? req.user!;
+    const identity = db.query(`SELECT id FROM oauth_identity WHERE id = ? AND user_id = ?`).get(String(req.params.identity_id), user.id);
+    if (!identity) return notFound(req, "로그인 수단");
+    const others = (db.query(`SELECT COUNT(*) AS n FROM oauth_identity WHERE user_id = ? AND id != ?`).get(user.id, String(req.params.identity_id)) as { n: number }).n;
+    // The last way in stays: without another identity the account needs a password of its own.
+    if (others === 0 && !hasOwnPassword(user)) {
+      return apiError(req.c, 409, "conflict", "마지막 로그인 수단은 연결을 해제할 수 없습니다. 먼저 비밀번호를 설정해 주세요.");
+    }
+    db.query(`DELETE FROM oauth_identity WHERE id = ? AND user_id = ?`).run(String(req.params.identity_id), user.id);
+    return req.c.body(null, 204);
+  },
   createExport: notImplemented,
   listExports: notImplemented,
   getExportContent: notImplemented,

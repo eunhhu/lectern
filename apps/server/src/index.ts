@@ -100,6 +100,7 @@ import { resolveResendApiKey, sendMail } from "./mail.ts";
 import { liveWorkers, publishApiRelease } from "./coordination.ts";
 import { makePrivate } from "./fsperm.ts";
 import { recordSessionMeta } from "./session-meta.ts";
+import { sessionCookieHeader } from "./oauth/login.ts";
 import { authRateLimits, firstRateLimitWait, getClientIp, recordRateLimitHits, tooManyRequestsMessage } from "./rate-limit.ts";
 export { getClientIp, resetAuthRateLimits } from "./rate-limit.ts";
 import { createHttpApp } from "./http.ts";
@@ -415,14 +416,9 @@ function canSharePublicly(user: UserRecord | null): boolean {
 
 const SHARE_RESTRICTED_MESSAGE = "외부 공유 링크 공개 권한이 제한된 계정입니다.";
 
-// Only a deployment explicitly served over plain http (local dev) drops `Secure`.
-const SESSION_COOKIE_SECURE = !PUBLIC_BASE_URL.toLowerCase().startsWith("http://");
-
-function makeSessionCookieHeader(sessionToken: string, maxAgeSec = 30 * 86400): string {
-  return `lectern_session=${encodeURIComponent(
-    sessionToken
-  )}; Path=/; HttpOnly;${SESSION_COOKIE_SECURE ? " Secure;" : ""} SameSite=Lax; Max-Age=${maxAgeSec}`;
-}
+// One definition with the Google and Apple sign-in (oauth/login.ts). Only a deployment
+// explicitly served over plain http (local dev) drops `Secure`.
+const makeSessionCookieHeader = sessionCookieHeader;
 
 interface IncomingAudio {
   /** The upload body as a Blob: written to disk without another copy in JS memory. */

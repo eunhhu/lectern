@@ -27,9 +27,7 @@ const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Recor
 
 /** Routes of later phases. */
 const NOT_YET = new Set([
-  // Accounts (P5-C): contract only until P5-04..P5-09.
-  "listIdentities",
-  "unlinkIdentity",
+  // Accounts (P5-C): contract only until P5-06..P5-09.
   "listInvites",
   "createInvite",
   "revokeInvite",
@@ -197,13 +195,16 @@ describe("API v2 route table", () => {
     expect(fromOpenApi.sort()).toEqual(fromRoutes.sort());
   });
 
+  const OUTSIDE_TABLE = new Set(["/openapi.json", "/integrations/google/callback", "/auth/google/start", "/auth/google/callback"]);
+
   test("every openapi.json operation is mounted exactly once, and nothing else is", () => {
     const expected = Object.entries(openapi.paths)
       .flatMap(([path, ops]) => Object.keys(ops).map((method) => `${method.toUpperCase()} ${toHonoPath(path)}`))
       .sort();
     const mounted = createApiV2App()
-      // Outside the route table: the schema itself and Google's OAuth redirect back (P4-02).
-      .routes.filter((r) => r.method !== "ALL" && r.path !== "/openapi.json" && r.path !== "/integrations/google/callback")
+      // Outside the route table: the schema itself and the browser navigations of OAuth: the
+      // calendar's redirect back (P4-02) and Google sign-in (P5-04).
+      .routes.filter((r) => r.method !== "ALL" && !OUTSIDE_TABLE.has(r.path))
       .map((r) => `${r.method} ${r.path}`)
       .sort();
     expect(mounted).toEqual(expected);
