@@ -7,6 +7,7 @@
 import { lectureRecordingId } from "@lectern/db";
 import { HarnessError, type StageEvent, type Transcript } from "@lectern/harness";
 import { db, getLectureById } from "./db.ts";
+import { notifyFinished } from "./apns/notify.ts";
 import { logger } from "./log.ts";
 import {
   canceledByUser,
@@ -133,6 +134,7 @@ export async function runRegenerateJob(job: LeasedJob, deps: ProcessJobDeps = {}
     )?.current_version;
     harness.deleteArtifactsForJob(job.id);
     logger.info("notes regenerated", { ...fields, status, version });
+    void notifyFinished(recordingId, status); // only a finished run alerts; a failed one keeps the old notes
     return { ok: true, result: { status, version } };
   } catch (err: any) {
     if (canceledByUser(controller.signal)) {

@@ -43,6 +43,7 @@ import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
 import { markersForNotes } from "./markers.ts";
+import { endAllLiveActivities, notifyFinished, notifyStage } from "./apns/notify.ts";
 import { publishNotes } from "./notes-publish.ts";
 import { alignRecording } from "./pdf-align.ts";
 import { ingestRecordingPdfs } from "./pdf-publish.ts";
@@ -159,7 +160,7 @@ function dropArtifacts(harness: Harness, jobId: string): void {
 export function stageEmitter(
   lectureId: string,
   ownerId: string,
-  options: { persist?: boolean } = {}
+  options: { persist?: boolean; onStage?: (stage: string, progress: number) => void } = {}
 ): (stage: string) => void {
   let last: string | null = null;
   return (stage) => {
@@ -167,6 +168,7 @@ export function stageEmitter(
     if (!entry || stage === last) return;
     last = stage;
     const [progress, message] = entry;
+    options.onStage?.(stage, progress);
     if (options.persist !== false) {
       emitProgress(ownerId, updateLectureProgress(lectureId, stage, message, progress));
       return;
@@ -446,7 +448,8 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
     }
   };
   const cancel = cancelWatcher(job.id, controller);
-  const emitStage = stageEmitter(lectureId, ownerId);
+  // Live Activity updates follow the stages (D-P6-2); never awaited, never thrown.
+  const emitStage = stageEmitter(lectureId, ownerId, { onStage: (stage, progress) => void notifyStage(recordingId, stage, progress) });
   const run = harness.job({
     jobId: job.id,
     scope: workspaceId,
@@ -487,6 +490,7 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
     if (!canceledByUser(controller.signal)) return null;
     dropArtifacts(harness, job.id);
     logger.info("process canceled by the user", fields);
+    void endAllLiveActivities(recordingId); // no alert for a cancel
     const failed = failLectureRecord(lectureId, JOB_CANCELED_MESSAGE);
     emitLectureEvent(ownerId, {
       type: "error",
@@ -574,6 +578,7 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
       });
       // Finished stages stay: a retry of the job resumes after them (same job id, memo).
       const failed = failLectureRecord(lectureId, message);
+      void notifyFinished(recordingId, "failed");
       emitLectureEvent(ownerId, {
         type: "error",
         id: lectureId,
@@ -597,6 +602,7 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
       keepJoined = true;
       const message = "전사를 저장하지 못했습니다.";
       const failed = failLectureRecord(lectureId, message);
+      void notifyFinished(recordingId, "failed");
       emitLectureEvent(ownerId, { type: "error", id: lectureId, error_message: message, lecture: failed ? toLectureSummaryDto(failed) : undefined });
       return { ok: false, error: message };
     }
@@ -646,6 +652,7 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
     const spent = db.query(`SELECT spent_microusd FROM job WHERE id = ?`).get(job.id) as { spent_microusd: number } | null;
     const outcome = { status, ...summary, spent_microusd: spent?.spent_microusd ?? 0 };
     logger.info("recording processed", { ...fields, ...outcome });
+    void notifyFinished(recordingId, status);
     return { ok: true, result: outcome };
   } finally {
     cancel.stop();

@@ -1,0 +1,14 @@
+{
+  "aps": {
+    "timestamp": 1794700000,
+    "event": "end",
+    "content-state": {
+      "stage": "done",
+      "stage_label": "문서 준비됨",
+      "progress": 100,
+      "recording_id": "0199f0a0-1000-7000-8000-00000000abcd",
+      "document_ready": true
+    },
+    "dismissal-date": 1794703600
+  }
+}
