@@ -18,7 +18,14 @@ public final class KeychainTokenStore: TokenStore, Sendable {
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: key,
         ]
-        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+            #if os(macOS)
+            // Access groups exist only in the data protection keychain; without this a Mac app's
+            // items go to the file-based login keychain (TN3137).
+            query[kSecUseDataProtectionKeychain as String] = true
+            #endif
+        }
         return query
     }
 

@@ -17,6 +17,15 @@ public protocol RecordingActivityController: Sendable {
     func endLeftovers() async
 }
 
+/// No Live Activity (macOS): the recording goes on without one.
+public struct NoRecordingActivity: RecordingActivityController {
+    public init() {}
+    public func start(attributes: RecordingActivityAttributes, state: RecordingActivityAttributes.ContentState) async -> Bool { false }
+    public func update(state: RecordingActivityAttributes.ContentState) async {}
+    public func end(state: RecordingActivityAttributes.ContentState, dismissAfter: TimeInterval) async {}
+    public func endLeftovers() async {}
+}
+
 #if canImport(ActivityKit) && os(iOS)
 /// `Activity<RecordingActivityAttributes>`, local updates only (no push token: the processing
 /// activity of P6-A11 is a separate one).
