@@ -1,0 +1,3 @@
+// Copy to Local.xcconfig and fill in. Never commit Local.xcconfig.
+DEVELOPMENT_TEAM =
+LECTERN_SERVER_URL = https:/$()/your-server.example
