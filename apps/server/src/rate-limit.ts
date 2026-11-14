@@ -90,6 +90,9 @@ export const authRateLimits = {
   // Accepting a workspace invitation (P5-06), per signed-in user: tokens are not guessable,
   // and this keeps anyone from trying.
   inviteAcceptUser: new RateLimiter(10, 15 * MINUTE_MS),
+  // Wrong passwords when asking to delete the account (P5-09), per signed-in user: a stolen
+  // session cannot guess the password here.
+  deletionPasswordUser: new RateLimiter(5, 15 * MINUTE_MS),
 };
 
 export function resetAuthRateLimits(): void {

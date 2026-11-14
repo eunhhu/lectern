@@ -22,7 +22,7 @@ import {
 import type { PatRow } from "../../access-tokens.ts";
 import { isAdminUser } from "../../auth.ts";
 import type { UserRecord } from "../../db.ts";
-import { authenticateV2 } from "./authn.ts";
+import { authenticateV2, type V2Auth } from "./authn.ts";
 
 export type V2Env = { Variables: { requestId: string; user: UserRecord | null } };
 export type V2Context = Context<V2Env>;
@@ -34,6 +34,8 @@ export interface V2Request {
   user: UserRecord | null;
   /** Set when the request came with a personal access token (P5-02): its workspace and scopes bind the request. */
   pat?: PatRow;
+  /** How the caller signed in (authn.ts): a web session, the v1 API token, a PAT or a native app token. */
+  via?: V2Auth["via"];
   params: Record<string, unknown>;
   query: Record<string, unknown>;
   headers: Record<string, unknown>;
@@ -248,7 +250,7 @@ export function defineRouter(handlers: Record<string, Handler>): Hono<V2Env> {
       c.set("user", user);
       const input = await parseRequest(c, route);
       if (input instanceof Response) return input;
-      return handler({ c, route, user, ...(pat ? { pat } : {}), ...input });
+      return handler({ c, route, user, ...(pat ? { pat } : {}), ...(auth ? { via: auth.via } : {}), ...input });
     });
   }
   return router;

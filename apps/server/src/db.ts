@@ -952,6 +952,16 @@ export function deleteUserAndData(targetUserId: string): boolean {
   return res.changes > 0;
 }
 
+/**
+ * Gives a lecture to another user (account deletion, P5-09: a deleted member's shared team
+ * recording stays with the team). The projection then names the new owner as the recording's
+ * creator and keeps it in its team workspace.
+ */
+export function transferLectureOwner(lectureId: string, newOwnerId: string): void {
+  db.query(`UPDATE lectures SET owner_id = ? WHERE id = ?`).run(newOwnerId, lectureId);
+  syncLecture(lectureId);
+}
+
 export function createSession(userId: string, ttlDays = 30): string {
   const token = `ses_${randomBytes(24).toString("base64url")}`;
   const now = new Date();

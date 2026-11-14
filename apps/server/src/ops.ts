@@ -24,6 +24,7 @@ import { DATA_DIR, HARNESS_BLOB_DIR, db, deleteSession, getSystemSettings } from
 import { pruneNativeSessions } from "./native-auth.ts";
 import { refreshAllLedgers } from "./usage.ts";
 import { expireExports } from "./export/job.ts";
+import { enqueueDueDeletions } from "./account-deletion.ts";
 import { ensurePrivateDir, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
 import {
@@ -293,6 +294,8 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
   step("usage ledger", 0, () => refreshAllLedgers(now));
   // Export zips past their 7 days, and temp files a crash left (P5-08).
   step("data exports", 0, () => expireExports(now));
+  // Account deletions past their 7 days of grace (P5-09): one `account_deletion` job each.
+  step("account deletions", 0, () => enqueueDueDeletions(now));
   const expiredCodes = step("verification codes", 0, () =>
     db.query(`DELETE FROM email_verifications WHERE expires_at < ?`).run(nowIso).changes
   );
