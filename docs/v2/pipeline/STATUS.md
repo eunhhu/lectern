@@ -9,7 +9,7 @@
 
 WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단계가 끝날 때 오케스트레이터가 고친다.
 
-기준: 2026-11-14, 통합 브랜치 `p0-foundations`. **P0·P1·P3의 WP를 모두 병합했다**(P0 1개, P1 17개, P3 11개, 모두 게이트 통과). P2는 11개 중 9개를 병합했고 P2-09는 사용자 결정 대기(`BLOCKED`), P2-10은 그 뒤다. P4부터는 아직 `todo`다. P4 이후 행의 "만듦"은 파이프라인을 시작하기 전부터 있던 것이다.
+기준: 2026-11-15, 통합 브랜치 `p0-foundations`. **P0·P1·P3·P4의 WP를 모두 병합했다**(P0 1개, P1 17개, P3 11개, P4 8개, 모두 게이트 통과). P2는 11개 중 9개를 병합했고 P2-09는 사용자 결정 대기(`BLOCKED`), P2-10은 그 뒤다. P5부터는 아직 `todo`다. P5 이후 행의 "만듦"은 파이프라인을 시작하기 전부터 있던 것이다.
 
 | 단계 | 만듦 | 가짜로 테스트함 | 실측 필요 | 사용자 필요 |
 |---|---|---|---|---|
@@ -17,7 +17,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | P1 하네스 | 단계 실행기, 미디어 처리(정규화·말소리 지도·청크·여러 오디오 파트 잇기), 전사 → 병합 → 화자, 노트 단계(분류·구조화·추출·검증), Gemini 전사·LLM 어댑터, v2 처리 작업(`process`)과 다시 만들기(`regenerate`)·작업 취소·관리자 재시도, v1 다리(`lectures.markdown` = 구조화 문서), 평가 CLI(전사 지표, `--notes` 문서·추출 지표), 웹의 v2 처리 상태 | 단위 테스트 1082개(스크립트 공급자, 합성 세트, 노트 오라클), 웹 e2e 56개(가짜 Gemini로 v2 올리기 → 전사 → 문서 → 출처 이동), axe 0건 | Gemini 전사·노트 요청 형식(실제 호출로 확인한 적 없음), 1시간당 비용, 실제 녹음의 구조화·추출 품질 지표 | 평가 세트(동의받은 녹음 10건 이상과 주석), D11 비용 목표 확정, 운영에서 `LECTERN_PIPELINE=v2` 켜기 |
 | P2 데이터·웹 | v2 테이블과 이전, API v2, 새 웹 앱(`/app`), 물어보기 v1, `/` → `/app` 리다이렉트(플래그 켬일 때). 파이프라인에서 더한 것: 오디오만 삭제, 문서 Markdown 내보내기, 서버 추천 질문, 공유 링크(만들기·바꾸기·회수)와 공개 페이지 `/s/:token`, 웹 회원가입·이메일 인증·비밀번호 재설정, 문서 편집(블록 글자, legacy Markdown, 저장 충돌), 공유 UI, 다시 처리·Markdown 내려받기, Pretendard 직접 호스팅, v1 화면 기능 대조표(`PARITY.md`)와 빠진 e2e | 단위 테스트(전체 1357개), 웹 e2e(전체 129개, fixture 107개), axe 0건, v1 계약 테스트 | 운영 DB 사본에서의 이전 리허설, 물어보기 평가(재현율·인용 정밀도) | **대조표 `없음` 8행(#4 #6 #7 #21 #22 #27 #30 #31)을 만들지 정하기(P2-09가 여기서 멈춤)**, `LECTERN_WEB_SHELL=1`·`LECTERN_ASK=1` 켜기, 옛 화면 삭제 승인(P2-10) |
 | P3 PDF·검색 | PDF 업로드(`LECTERN_PDF`), 쪽 글자 추출(`packages/pdf`), `pdf_ingest` 단계와 `pdf_page` 저장, `align` 단계와 노트 문맥의 PDF 쪽, 스캔본 OCR(dry run 견적 → 사용자 승인 뒤에만 Gemini), PDF 쪽 색인·쪽 인용·하이브리드 `GET /search`, 물어보기 도구 루프 테스트, 웹 PDF 뷰어(pdf.js, 파일 패널, OCR 비용 확인), 전역 검색 화면 `/app/search`와 ⌘K의 PDF 적중·IME 가드, 검색 성능 측정 스크립트(`scripts/bench/`) | 가짜 Gemini(스크립트 응답)로 OCR·도구 루프·PDF 인용, 웹 e2e(PDF 뷰어 12개, 검색 10개), axe 0건. 검색 측정: Apple M3에서 합성 1000건(조각 21,660개) p95 53 ms | Pi에서 검색 p95 200 ms, 실제 Gemini OCR의 비용·품질, PDF 포함 평가 | PDF 포함 평가 녹음 5건, 운영에서 `LECTERN_PDF=1` 켜기 |
-| P4 캘린더 | 일정 제안 API(빈 상태) | — | 실제 Google Calendar 연동 전 과정 | Google OAuth 클라이언트와 검증, `calendar.app.created` 범위 승인 |
+| P4 캘린더 | `LECTERN_CALENDAR` 플래그와 P4 테이블(`calendar_feed`, `calendar_event_link`, `reminder`, `oauth_state`), ICS 구독 주소(`/cal/<토큰>.ics`, 해시만 저장), Google 캘린더 OAuth(PKCE)·다시 연결·해제(토큰 폐기)와 `needs_reauth`, `calendar_sync` 작업(전용 "Lectern" 캘린더에 넣기·고치기·지우기, 401 한 번 재시도, 일시 오류 지연 재시도), 일정 자동 수락(설정 `calendar_auto_add`)과 재처리 멱등성, 이메일 리마인더(`reminder` 작업, 5분 주기, 한 번만 발송, 90일 뒤 정리)와 `mail.ts`, 물어보기 `list_items` 도구의 데이터, 웹 설정 "연동"·"알림"과 일정 화면의 연결 상태 | 단위 테스트(전체 1471개, 가짜 Google 서버·가짜 Resend), 웹 e2e(전체 138개, 캘린더 설정 7개와 캘린더 꺼짐 서버 e2e), axe 0건 | 실제 Google 동의 화면과 전용 캘린더 생성·동기화, 실제 Resend로 리마인더 메일 발송, Apple 캘린더·Outlook에서 ICS 구독 | Google OAuth 클라이언트와 검증, `calendar.app.created` 범위 승인, 운영에서 `LECTERN_CALENDAR=1` 켜기 |
 | P5 계정 | — | — | Google·Apple 로그인 실제 흐름, 보안 리뷰 | Apple Developer 계정(Sign in with Apple), 보안 리뷰어, 쿼터 기본값 |
 | P6 네이티브 | 기존 macOS·Android·Windows 클라이언트(v1 API) | Android 단위 테스트 | 실제 기기 전부(3시간 백그라운드 녹음, Dynamic Island, APNs, 시스템 오디오 권한), Windows 빌드 | Apple Developer ID(D7), APNs 키, TestFlight, v1 차단 시점 결정 |
 | P7 하드닝 | 런북 7종 | — | Pi 부하 시험, 백업 복원 리허설, VoiceOver 수동 점검 | 인계 점검을 해 볼 사람 |
@@ -96,6 +96,11 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 작업 단계 이름(`StageName`)에 `pdf_ocr`이 없다. OCR 작업의 진행이 단계 이름 없이 보인다 | P3-05 |
 | 같은 녹음의 다른 PDF OCR이 큐에 있으면 409다(큐가 녹음 단위로 중복을 막는다). PDF 단위로 풀지 정한다 | P3-05 |
 | 웹 fixture 물어보기에 `pdf_page` 인용 경로가 없어 "인용을 누르면 그 쪽이 열린다" e2e가 없다. PDF 콘텐츠의 Range 요청 경로도 e2e로 보지 않았다 | P3-08 |
+| `calendar_event_link`의 기본 키가 `event_candidate_id`라 일정 하나가 연동 하나에만 링크된다. 팀 워크스페이스에서 두 사람이 각자 Google을 연결하면 공유 일정을 번갈아 찾아 입양(PATCH)한다(중복은 없고 호출만 는다). 표 정의를 `(event_candidate_id, integration_id)`로 바꾸는 계약 변경이 필요하다 | P4-03 |
+| 계정을 지울 때 Google 토큰을 폐기하지 않는다(`integration` 행만 지운다) | P4-03, P5 계정 삭제 |
+| `packages/db`의 `WORKSPACE_TABLES`(`deleteWorkspaceRows`)에 P4 표가 없다. 계정 삭제는 `deleteUserAndData`가 사용자 기준으로 지우지만, 팀 워크스페이스를 지울 때는 남는다 | P4-05 |
+| domain 설명 문구 두 곳: `UpdateWorkspaceRequest.settings`는 "Replaces"라고 하지만 서버는 얕게 합친다. `StartGoogleIntegrationRequest.return_to` 예시는 `/settings/integrations`지만 실제 경로는 `/app/settings#integrations`다 | P4-02, P4-04 |
+| 물어보기 runner는 검색이 질문을 노트에 근거 짓지 못하면 모델을 부르지 않는다. 그래서 "이번 주 마감이 뭐야?"처럼 노트 본문과 겹치지 않는 질문은 `list_items`에 닿지 못한다. 근거가 없어도 도구 라운드를 한 번 열지 정한다 | P4-06 |
 
 ### 명세 자체의 한계
 
