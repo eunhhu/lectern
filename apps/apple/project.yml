@@ -1,0 +1,66 @@
+name: Lectern
+options:
+  bundleIdPrefix: com.qucord.lectern
+  deploymentTarget: { iOS: "26.0", macOS: "26.0" }
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+packages:
+  LecternKit: { path: Packages/LecternKit }
+  RecorderKit: { path: Packages/RecorderKit }
+  LecternUI: { path: Packages/LecternUI }
+  LecternIntents: { path: Packages/LecternIntents }
+targets:
+  LecterniOS:
+    type: application
+    platform: iOS
+    sources: [iOS/App]
+    info: { path: iOS/App/Info.plist }
+    entitlements: { path: iOS/App/Lectern.entitlements }
+    settings:
+      base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios, PRODUCT_NAME: Lectern, TARGETED_DEVICE_FAMILY: "1,2" }
+    dependencies:
+      - package: LecternKit
+      - package: RecorderKit
+      - package: LecternUI
+      - package: LecternIntents
+      - target: LecternWidgets
+      - target: LecternShare
+  LecternWidgets:
+    type: app-extension
+    platform: iOS
+    sources: [iOS/Widgets]
+    info: { path: iOS/Widgets/Info.plist }
+    entitlements: { path: iOS/Widgets/LecternWidgets.entitlements }
+    settings:
+      base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios.widgets }
+    dependencies:
+      - package: LecternKit
+      - package: LecternUI
+  LecternShare:
+    type: app-extension
+    platform: iOS
+    sources: [iOS/Share]
+    info: { path: iOS/Share/Info.plist }
+    entitlements: { path: iOS/Share/LecternShare.entitlements }
+    settings:
+      base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios.share }
+    dependencies:
+      - package: LecternKit
+  LecternMac:
+    type: application
+    platform: macOS
+    sources: [macOS/App]
+    info: { path: macOS/App/Info.plist }
+    entitlements: { path: macOS/App/LecternMac.entitlements }
+    settings:
+      base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.macos, PRODUCT_NAME: Lectern }
+    dependencies:
+      - package: LecternKit
+      - package: RecorderKit
+      - package: LecternUI
+      - package: LecternIntents
+schemes:
+  LecterniOS: { build: { targets: { LecterniOS: all } } }
+  LecternMac: { build: { targets: { LecternMac: all } } }
