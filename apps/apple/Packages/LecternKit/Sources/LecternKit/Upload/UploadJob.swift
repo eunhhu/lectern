@@ -58,6 +58,9 @@ public struct UploadJob: Codable, Identifiable, Equatable, Sendable {
     public var title: String?
     /// Sent as `recorded_at`.
     public var recordedAt: Date?
+    /// Audio parts after the first ("1부", "2부" shared together: one recording, `part_index` in
+    /// this order). nil for a single file (and in entries written before it existed).
+    public var audioPartRelativePaths: [String]?
     /// PDFs uploaded with the recording (share extension).
     public var pdfRelativePaths: [String]
     public var markers: [Marker]
@@ -76,6 +79,29 @@ public struct UploadJob: Codable, Identifiable, Equatable, Sendable {
     public var createdAt: Date
     public var updatedAt: Date
 
+    /// Every audio file in playback order.
+    public var audioRelativePaths: [String] { [fileRelativePath] + (audioPartRelativePaths ?? []) }
+
+    /// Every file of the job, in the order the upload session lists them (audio, then PDFs).
+    public var allRelativePaths: [String] { audioRelativePaths + pdfRelativePaths }
+
+    /// The type the server stores an audio file under, from its extension
+    /// (apps/server/src/media-files.ts); nil for one it does not take.
+    public static func audioMimeType(forExtension ext: String) -> String? {
+        switch ext.lowercased() {
+        case "m4a", "mp4": "audio/mp4"
+        case "aac": "audio/aac"
+        case "mp3": "audio/mpeg"
+        case "wav": "audio/wav"
+        case "webm": "audio/webm"
+        case "ogg", "oga", "opus": "audio/ogg"
+        case "flac": "audio/flac"
+        case "3gp": "audio/3gpp"
+        case "aiff", "aif": "audio/aiff"
+        default: nil
+        }
+    }
+
     /// The Idempotency-Key of this job's current server session.
     public var idempotencyKey: String {
         sessionGeneration == 0 ? id : "\(id).\(sessionGeneration)"
@@ -91,6 +117,7 @@ public struct UploadJob: Codable, Identifiable, Equatable, Sendable {
         folderID: String? = nil,
         title: String? = nil,
         recordedAt: Date? = nil,
+        audioPartRelativePaths: [String] = [],
         pdfRelativePaths: [String] = [],
         markers: [Marker] = [],
         now: Date = Date()
@@ -104,6 +131,7 @@ public struct UploadJob: Codable, Identifiable, Equatable, Sendable {
         self.folderID = folderID
         self.title = title
         self.recordedAt = recordedAt
+        self.audioPartRelativePaths = audioPartRelativePaths.isEmpty ? nil : audioPartRelativePaths
         self.pdfRelativePaths = pdfRelativePaths
         self.markers = markers
         uploadID = nil

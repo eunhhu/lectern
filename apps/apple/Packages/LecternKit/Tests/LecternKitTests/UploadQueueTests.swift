@@ -436,3 +436,37 @@ extension UploadQueueTests {
         XCTAssertEqual(stateNow, .failed(message: UploadQueue.missingFileMessage))
     }
 }
+
+/// A recording shared as "1부" and "2부" with a PDF: one session, audio files first in order.
+extension UploadQueueTests {
+    func testSeveralAudioFilesAndAPdfInOneSession() async throws {
+        let id = "multi"
+        let first = "Recordings/\(id)-1.m4a", second = "Recordings/\(id)-2.mp3", pdf = "Recordings/\(id).pdf"
+        try Data(count: 10).write(to: container.appendingPathComponent(first))   // 3 parts of 4 bytes
+        try Data(count: 6).write(to: container.appendingPathComponent(second))   // 2 parts
+        try Data(count: 5).write(to: container.appendingPathComponent(pdf))      // 2 parts
+        let j = UploadJob(id: id, fileRelativePath: first, fileName: "\(id)-1.m4a", mimeType: "audio/mp4", byteCount: 10, workspaceID: "ws",
+                          audioPartRelativePaths: [second], pdfRelativePaths: [pdf])
+        let q = queue()
+        try await q.enqueue(j)
+        await q.run()
+        XCTAssertEqual(server.calls.compactMap { if case let .put(_, p) = $0 { p } else { nil } }, [1, 2, 3, 4, 5, 6, 7])
+        let stateNow = await state(q, id)
+        XCTAssertEqual(stateNow, .done(recordingID: "rec_upl_1"))
+        let session = await q.jobs().first { $0.id == id }
+        XCTAssertEqual(session?.files.map(\.relativePath), [first, second, pdf])
+        XCTAssertEqual(session?.files.map(\.partCount), [3, 2, 2])
+    }
+
+    func testAMissingSecondAudioFileFailsTheJob() async throws {
+        let first = "Recordings/m-1.m4a"
+        try Data(count: 10).write(to: container.appendingPathComponent(first))
+        let j = UploadJob(id: "m", fileRelativePath: first, fileName: "m-1.m4a", mimeType: "audio/mp4", byteCount: 10, workspaceID: "ws",
+                          audioPartRelativePaths: ["Recordings/m-2.m4a"])
+        let q = queue()
+        try await q.enqueue(j)
+        await q.run()
+        let stateNow = await state(q, "m")
+        XCTAssertEqual(stateNow, .failed(message: UploadQueue.missingFileMessage))
+    }
+}

@@ -1,5 +1,6 @@
 import Foundation
 import LecternIntents
+import Network
 import LecternKit
 import LecternUI
 import RecorderKit
@@ -24,6 +25,9 @@ final class AppServices {
     private(set) var backgroundUploader: BackgroundUploader?
     let recordingSession: RecordingSession?
     private let tokenStore: TokenStore
+    /// Runs the queue when the network comes back (jobs waiting for it).
+    private let pathMonitor = NWPathMonitor()
+    private var networkWasDown = false
 
     private init() {
         let environment = AppEnvironment.current()
@@ -36,6 +40,20 @@ final class AppServices {
             RecordingSession.install(recordingSession)
             Task { await recordingSession.cleanUpAfterLaunch() }
         }
+        // What a share the system ended halfway left behind (older than a day).
+        let container = AppEnvironment.sharedContainerURL()
+        Task.detached(priority: .utility) {
+            SharedInbox(containerURL: container, store: .inContainer(container)).removeLeftovers(now: Date())
+        }
+        pathMonitor.pathUpdateHandler = { path in
+            Task { @MainActor in AppServices.shared.networkChanged(satisfied: path.status == .satisfied) }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "com.qucord.lectern.network"))
+    }
+
+    private func networkChanged(satisfied: Bool) {
+        if satisfied, networkWasDown { runUploads() }
+        networkWasDown = !satisfied
     }
 
     // MARK: - Server and sign-in
@@ -53,14 +71,21 @@ final class AppServices {
         return true
     }
 
-    /// Intents record into the personal workspace of whoever is signed in.
+    /// Intents and the share extension use the personal workspace of whoever is signed in (not
+    /// in fixture mode: there is no queue to upload what they would add).
     func remember(_ me: Me) {
+        guard !environment.isFixture else { return forgetSignIn() }
         SharedDefaults.group?.set(me.personalWorkspaceID, forKey: SharedDefaults.defaultWorkspaceIDKey)
+    }
+
+    /// Nobody is signed in: intents and the share extension ask to sign in.
+    func forgetSignIn() {
+        SharedDefaults.group?.removeObject(forKey: SharedDefaults.defaultWorkspaceIDKey)
     }
 
     func signOut() async {
         await client.signOut()
-        SharedDefaults.group?.removeObject(forKey: SharedDefaults.defaultWorkspaceIDKey)
+        forgetSignIn()
     }
 
     // MARK: - Uploads
@@ -79,6 +104,7 @@ final class AppServices {
     func handOffUploads() {
         guard let uploadQueue, backgroundUploader != nil else { return }
         withBackgroundTime {
+            await uploadQueue.reloadFromStore()  // jobs the share extension added
             for job in await uploadQueue.jobs() where job.state.isRunnable {
                 await self.handOff(job.id)
             }

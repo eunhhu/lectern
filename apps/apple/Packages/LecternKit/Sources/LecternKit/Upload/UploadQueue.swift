@@ -61,6 +61,7 @@ public actor UploadQueue {
     public func run(skipping: Set<String> = []) async {
         guard !running else { return }
         running = true
+        reloadFromStore()
         defer {
             running = false
             processing = nil
@@ -71,6 +72,17 @@ public actor UploadQueue {
             processing = next.id
             await process(next)
         }
+    }
+
+    /// Jobs another process saved in the store since (the share extension): added to the queue.
+    /// Jobs already known stay as this queue has them (it is their only writer).
+    public func reloadFromStore() {
+        var added = false
+        for job in store.load() where cache[job.id] == nil {
+            cache[job.id] = job
+            added = true
+        }
+        if added { publish() }
     }
 
     // MARK: - Background session
@@ -123,7 +135,7 @@ public actor UploadQueue {
         try store.delete(id)
         cache[id] = nil
         if case .done = job.state {
-            for path in [job.fileRelativePath] + job.pdfRelativePaths {
+            for path in job.allRelativePaths {
                 try? FileManager.default.removeItem(at: containerURL.appendingPathComponent(path))
             }
         }
@@ -183,7 +195,7 @@ public actor UploadQueue {
     }
 
     private func filesPresent(_ job: UploadJob) -> Bool {
-        ([job.fileRelativePath] + job.pdfRelativePaths).allSatisfy { FileManager.default.fileExists(atPath: containerURL.appendingPathComponent($0).path) }
+        job.allRelativePaths.allSatisfy { FileManager.default.fileExists(atPath: containerURL.appendingPathComponent($0).path) }
     }
 
     /// Makes the server session, or asks the server which parts it has (the server is the truth,
@@ -239,14 +251,21 @@ public actor UploadQueue {
     }
 
     private func createSession(_ job: inout UploadJob) async throws {
+        func size(_ url: URL) -> Int64 {
+            (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+        }
         var specs = [UploadFileSpec(kind: .audio, fileName: job.fileName, mimeType: job.mimeType, byteCount: job.byteCount)]
+        for path in job.audioPartRelativePaths ?? [] {
+            let url = containerURL.appendingPathComponent(path)
+            let mime = UploadJob.audioMimeType(forExtension: url.pathExtension) ?? job.mimeType
+            specs.append(UploadFileSpec(kind: .audio, fileName: url.lastPathComponent, mimeType: mime, byteCount: size(url)))
+        }
         for path in job.pdfRelativePaths {
             let url = containerURL.appendingPathComponent(path)
-            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
-            specs.append(UploadFileSpec(kind: .pdf, fileName: url.lastPathComponent, mimeType: "application/pdf", byteCount: size))
+            specs.append(UploadFileSpec(kind: .pdf, fileName: url.lastPathComponent, mimeType: "application/pdf", byteCount: size(url)))
         }
         let session = try await transport.create(job, files: specs)
-        let paths = [job.fileRelativePath] + job.pdfRelativePaths
+        let paths = job.allRelativePaths
         job.uploadID = session.uploadID
         job.partSize = session.partSize
         job.files = session.files.compactMap { file in

@@ -5,7 +5,7 @@ import os
 /// Values the app, its intents and the widget extension share through the App Group.
 public enum SharedDefaults {
     /// The workspace an intent records into; the app writes it at sign-in.
-    public static let defaultWorkspaceIDKey = "default_workspace_id"
+    public static let defaultWorkspaceIDKey = AppEnvironment.defaultWorkspaceIDKey
     /// True while a recording is in progress; the control reads it.
     public static let recordingActiveKey = "recording_active"
     public static let recordingControlKind = "com.qucord.lectern.recording"
