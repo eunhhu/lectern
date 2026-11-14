@@ -1,6 +1,6 @@
 # API v2 (`/api/v2`)
 
-`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 계약만 있고 아직 만들지 않은 라우트(`adminListV1Usage`, P6-03)는 `501 not_implemented`다(아래 표).
+`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. P6-03부터 계약만 있고 만들지 않은 라우트는 없다(새 라우트를 계약에 먼저 넣으면 만들 때까지 `501 not_implemented`이고 `api-v2.test.ts`의 `NOT_YET`에 적는다).
 
 ## 요청 처리 순서
 
@@ -151,7 +151,7 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 | `POST /admin/jobs/{job_id}/retry` | `adminRetryJob` | 실제 | 실패한 `process`·`regenerate`를 같은 작업 id로 다시 큐에 넣는다. 끝난 단계는 메모로 건너뛰고 실패한 단계부터 이어 한다 |
 | `GET /admin/usage` | `adminListUsage` | 실제 | `usage_ledger`. 유지보수가 이번 달 행을 갱신한다(P5-07) |
 | `PUT /admin/workspaces/{workspace_id}/quota` | `adminSetQuota` | 실제 | P5-07. 운영자 전용. 세 값이 모두 `null`이면 행을 지운다(제한 없음). 감사 로그 `workspace.quota.set` |
-| `GET /admin/v1-usage` | `adminListV1Usage` | 501 | P6-03. 운영자 전용. `v1_usage`의 날짜·경로·클라이언트별 v1 호출 수(`?from=&to=`, D-P6-5) |
+| `GET /admin/v1-usage` | `adminListV1Usage` | 실제 | P6-03. 운영자 전용. `v1_usage`의 날짜(서울)·경로·클라이언트별 v1 호출 수. `?from=&to=`(기본 최근 30일), `day` 내림차순·건수 내림차순 최대 1,000행. 메모리의 집계를 먼저 쓴 뒤 읽는다(`../../v1-sunset.ts`, D-P6-5) |
 
 ### SSE (`GET /events`)
 

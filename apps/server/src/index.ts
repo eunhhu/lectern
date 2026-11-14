@@ -104,6 +104,7 @@ import { sessionCookieHeader } from "./oauth/login.ts";
 import { authRateLimits, firstRateLimitWait, getClientIp, recordRateLimitHits, tooManyRequestsMessage } from "./rate-limit.ts";
 export { getClientIp, resetAuthRateLimits } from "./rate-limit.ts";
 import { createHttpApp } from "./http.ts";
+import { flushV1Usage } from "./v1-sunset.ts";
 import { promoteStagedWebBuild } from "./web-build.ts";
 import { WEB_SHELL_DIST_DIR } from "./web-shell.ts";
 import { logger } from "./log.ts";
@@ -2396,6 +2397,7 @@ if (import.meta.main) {
     }
     closeAllSseStreams();
     await Promise.race([server.stop(), new Promise((r) => setTimeout(r, 5000))]);
+    flushV1Usage(); // the v1 calls counted since the last write (never throws)
     try {
       db.exec(`PRAGMA wal_checkpoint(TRUNCATE)`);
     } catch {
