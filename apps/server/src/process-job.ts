@@ -36,6 +36,7 @@ import {
 import { concatAudio, isFfmpegAvailable, readStreamInfo } from "@lectern/media";
 import { announceLectures, assetPath } from "./api/v2/store.ts";
 import { scheduleLectureIndex } from "./ask/index-job.ts";
+import { afterNotesPublished } from "./calendar/auto-accept.ts";
 import { DATA_DIR, db, failLectureRecord, getLectureById, syncPendingLectures, updateLectureProgress } from "./db.ts";
 import { announceQueued, emitProgress, enqueueDistillation, type DistillInput } from "./distill-queue.ts";
 import { toLectureSummaryDto } from "./dto.ts";
@@ -347,6 +348,7 @@ export async function runNotesPhase(ctx: NotesPhaseContext): Promise<"ready" | "
     run.context.signal?.throwIfAborted();
     ctx.emitStage("publish");
     const published = publishNotes({ recordingId, workspaceId, result, keepTitle: ctx.keepTitle });
+    afterNotesPublished(recordingId, workspaceId); // calendar auto-add and sync (P4-04); never throws
     const lecture = getLectureById(lectureId);
     if (lecture) emitLectureEvent(job.ownerId, { type: "completed", id: lectureId, lecture: toLectureSummaryDto(lecture) });
     scheduleLectureIndex(lectureId, job.ownerId);
