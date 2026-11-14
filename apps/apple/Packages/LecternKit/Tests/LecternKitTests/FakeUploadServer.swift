@@ -26,6 +26,8 @@ final class FakeUploadServer: UploadTransport, @unchecked Sendable {
     private(set) var createdJobs: [UploadJob] = []
     var partSize = 4
     var putDelay: TimeInterval = 0
+    /// The next complete succeeds on the server but its response never arrives.
+    var dropNextCompleteResponse = false
 
     /// Throws `error` on the next `times` calls that match.
     func fail(_ error: APIError, times: Int = 1, when: @escaping (Call) -> Bool) {
@@ -82,7 +84,8 @@ final class FakeUploadServer: UploadTransport, @unchecked Sendable {
         try enter(.status(uploadID: uploadID))
         return try lock.withLock {
             guard let session = sessions[uploadID] else { throw APIError.notFound }
-            return UploadStatus(state: session.state, partsDone: session.received.sorted())
+            // Like the server: a completed session has no parts left.
+            return UploadStatus(state: session.state, partsDone: session.state == "completed" ? [] : session.received.sorted())
         }
     }
 
@@ -104,8 +107,17 @@ final class FakeUploadServer: UploadTransport, @unchecked Sendable {
         try enter(.complete(uploadID: uploadID, key: idempotencyKey))
         return try lock.withLock {
             guard let session = sessions[uploadID] else { throw APIError.notFound }
+            if session.state == "completed" { return "rec_\(uploadID)" }  // the stored result
+            guard session.state == "open" else {
+                throw APIError.server(status: 409, code: "conflict", message: "이미 끝났거나 취소된 업로드입니다.")
+            }
             guard session.received.count == session.partCount else {
                 throw APIError.server(status: 409, code: "upload_incomplete", message: "파트가 모자랍니다.")
+            }
+            sessions[uploadID]!.state = "completed"
+            if dropNextCompleteResponse {
+                dropNextCompleteResponse = false
+                throw APIError.transport("response lost")
             }
             return "rec_\(uploadID)"
         }

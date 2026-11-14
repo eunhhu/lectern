@@ -44,6 +44,7 @@ public struct UploadStatus: Equatable, Sendable {
 
     /// Expired or aborted: nothing more can be sent to it.
     public var isDead: Bool { state == "expired" || state == "aborted" }
+    public var isCompleted: Bool { state == "completed" }
 }
 
 /// One local file of a job, as the create request lists it.
