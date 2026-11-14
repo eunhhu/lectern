@@ -21,7 +21,7 @@ import { integrationsRouter } from "./integrations.ts";
 import { jobsRouter } from "./jobs.ts";
 import { meRouter } from "./me.ts";
 import { recordingsRouter } from "./recordings.ts";
-import { searchRouter } from "./search.ts";
+import { createSearchRouter } from "./search.ts";
 import { shareLinksRouter } from "./share-links.ts";
 import { tagsRouter } from "./tags.ts";
 import { digestPendingAssets } from "./store.ts";
@@ -43,7 +43,6 @@ export const RESOURCE_ROUTERS = [
   documentsRouter,
   actionItemsRouter,
   jobsRouter,
-  searchRouter,
   calendarRouter,
   integrationsRouter,
   shareLinksRouter,
@@ -103,6 +102,7 @@ export function createApiV2App(options: ApiV2Options = {}) {
 
   for (const router of RESOURCE_ROUTERS) v2.route("/", router);
   v2.route("/", createAskRouter(options.askService ?? askService));
+  v2.route("/", createSearchRouter(options.askService ?? askService));
 
   // Unknown /api/v2 paths (and known paths with another method) answer in the v2 error
   // shape instead of falling through to the legacy router.

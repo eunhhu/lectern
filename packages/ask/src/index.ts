@@ -9,6 +9,7 @@ export * from "./scope.ts";
 export * from "./lexical.ts";
 export * from "./vector.ts";
 export * from "./hybrid.ts";
+export * from "./search.ts";
 export * from "./context.ts";
 export * from "./citations.ts";
 export * from "./threads.ts";
