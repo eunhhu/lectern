@@ -16,7 +16,7 @@ apps/apple/
   MANUAL_CHECKS.md                    실제 기기에서만 확인되는 것
 ```
 
-화면은 아직 "Lectern" 글자 하나뿐이다. LecternKit에는 API 클라이언트와 인증이 있다(P6-A2, 아래).
+화면은 아직 "Lectern" 글자 하나뿐이다. LecternKit에는 API 클라이언트, 인증, 업로드 큐가 있고(P6-A2·A3), RecorderKit에는 녹음 엔진이 있다(P6-A4, 아래).
 
 ## API 클라이언트 (LecternKit)
 
@@ -26,6 +26,15 @@ apps/apple/
 - 인증은 `AuthProvider` 뒤에 있다. `ApiTokenProvider`는 v1 API 토큰(`X-Lectern-Token`), `NativeTokenProvider`는 네이티브 토큰 쌍(D-P5-4, `Authorization: Bearer`)이다. 401이면 refresh를 한 번 하고 한 번만 다시 보낸다. 동시에 여러 요청이 401을 받아도 refresh는 한 번이다. 토큰은 Keychain(`KeychainTokenStore`, 서비스 `com.qucord.lectern`, 앱이 넘기는 접근 그룹)에만 둔다.
 - 업로드는 `Upload/`의 `UploadQueue`(actor)다(P6-A3, D-P6-6). 대기열은 App Group 컨테이너의 `UploadQueue/<id>.json`(항목마다 파일 하나, 원자적 쓰기)이라 공유 확장·위젯도 같이 본다. 항목 id가 `createUpload`·`completeUpload`의 `Idempotency-Key`다. 재개할 때는 서버의 `received_parts`가 기준이고, 파트는 파일의 그 구간만 읽어 보낸다(메모리에 올리지 않는다). 백그라운드 `URLSession` 연결은 `BackgroundUploader`이고 단위 테스트가 없다(`MANUAL_CHECKS.md` 1–3).
 - 패키지 의존(GitHub)을 받아야 하므로 처음 게이트는 네트워크가 필요하다. 버전은 `Packages/LecternKit/Package.resolved`에 고정돼 있다.
+
+## 녹음 (RecorderKit)
+
+- `Recorder`(actor)가 마이크를 AAC .m4a(44.1kHz, 모노, 64kbps — 기존 macOS 앱과 같은 값)로 쓴다. 입력은 `EngineAudioInput`(AVAudioEngine 탭, 하드웨어 형식은 `BufferConverter`로 파일 형식에 맞춘다), 파일은 `FileAudioSink`. 녹음마다 새 `Recorder`를 만든다.
+- 일시정지 중에는 파일에 쓰지 않는다. 그래서 파일 길이 = 일시정지를 뺀 시간이고, 마커 시각(`addMarker`)은 쓴 프레임 수로 계산해 서버 전사의 시간축과 같다.
+- 상태 전이는 순수 함수 `reduce`(P6-A4 명세의 표). 사용자가 일시정지했으면 시스템(통화 끝, 이어폰 복귀)이 재개하지 않는다. 통화·경로 끊김 뒤에는 엔진이 멈춰 있으므로 다음 재개 때 입력을 다시 시작하고, 시작하지 못하면 일시정지 상태로 남는다.
+- iOS는 `SessionCoordinator`가 오디오 세션(`.playAndRecord`, 블루투스 HFP, 스피커)을 켜고 통화·경로 변경 알림을 `Recorder.handle`로 넘긴다. 마이크 권한 문구(`NSMicrophoneUsageDescription`)와 백그라운드 오디오(`UIBackgroundModes: audio`)는 `project.yml`에 있다. 권한 요청(`AVAudioApplication.requestRecordPermission`)은 앱이 녹음 전에 한다.
+- `levels`(0…1, 오디오 시간 기준 초당 최대 10번)와 `silenceWarning`(녹음 시간으로 20초 무음)은 읽을 때마다 새 스트림이다. 화면과 Live Activity가 함께 읽을 수 있다.
+- 저장 공간이 200MB 아래면 시작하지 않는다. 쓰기에 실패하면 `failed`가 되고 그때까지의 파일은 지우지 않는다. m4a는 녹음 중 앱이 죽으면 읽을 수 없다(MANUAL_CHECKS 9).
 
 ## 처음 실행
 
@@ -51,6 +60,7 @@ bash apps/apple/scripts/gate.sh
 ## 규칙
 
 - `.xcodeproj`는 커밋하지 않는다. `project.yml`을 고치고 `xcodegen generate`로 다시 만든다.
+- Info.plist와 `.entitlements`는 `project.yml`의 `info.properties`·`entitlements.properties`에서 XcodeGen이 매번 다시 쓴다. 파일을 직접 고치면 다음 생성 때 사라진다.
 - 팀 id, 실제 서버 주소, 개인 이름은 저장소에 넣지 않는다(`Local.xcconfig`에만).
 - iOS 전용 API를 쓰는 패키지 코드는 `#if os(iOS)`나 `#if canImport(ActivityKit)` 안에 둔다. `swift test`는 macOS 호스트에서 돈다.
 - 기존 `apps/macos`(메뉴바 앱)와 `apps/ios`(단축어)는 그대로 둔다(D-P6-11). 이 앱이 그것을 대신할 때까지 함께 있다.
