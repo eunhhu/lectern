@@ -635,7 +635,7 @@ export function buildFixtureData(now = new Date()): FixtureData {
     person("usr_fixture_sehun", "오세훈", "sehun@example.com", TEAM_WS, "admin"),
     person(ME_ID, me.display_name, me.email, TEAM_WS, "member"),
     person("usr_fixture_seoa", "윤서아", "seoa@example.com", TEAM_WS, "member"),
-    person("usr_fixture_dohyun", "최도현", "dohyun@example.com", TEAM_WS, "member"),
+    person("usr_fixture_dohyun", "최도현", "dohyun@example.com", TEAM_WS, "viewer"),
   );
   const device = (id: string, client: "web" | "native", name: string, agent: string, lastSeen: string, current = false): Device => ({
     id: id as Device["id"],

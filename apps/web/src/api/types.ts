@@ -89,6 +89,11 @@ export type CreatedAccessToken = z.infer<typeof D.CreatedAccessToken>;
 export type Identity = z.infer<typeof D.IdentityDto>;
 export type DataExport = z.infer<typeof D.DataExportDto>;
 export type AccountDeletionInfo = z.infer<typeof D.AccountDeletionInfo>;
+// Team workspaces (P5-06/07): invitations and usage.
+export type Invite = z.infer<typeof D.InviteDto>;
+export type AcceptInviteResponse = z.infer<typeof D.AcceptInviteResponse>;
+export type WorkspaceUsage = z.infer<typeof D.WorkspaceUsage>;
+export type WorkspaceQuota = z.infer<typeof D.WorkspaceQuota>;
 
 // Requests
 export type UpdateMeRequest = z.infer<typeof D.UpdateMeRequest>;
@@ -106,6 +111,7 @@ export type CreateShareLinkRequest = z.infer<typeof D.CreateShareLinkRequest>;
 export type ReprocessRequest = z.infer<typeof D.ReprocessRequest>;
 export type CreateAccessTokenRequest = z.infer<typeof D.CreateAccessTokenRequest>;
 export type CreateExportRequest = z.infer<typeof D.CreateExportRequest>;
+export type CreateInviteRequest = z.infer<typeof D.CreateInviteRequest>;
 export type ReprocessResponse = z.infer<typeof D.ReprocessResponse>;
 export type AssetPages = z.infer<typeof D.AssetPages>;
 export type OcrAssetRequest = z.infer<typeof D.OcrAssetRequest>;
@@ -150,6 +156,7 @@ export type IntegrationPage = Page<Integration>;
 export type AccessTokenPage = Page<AccessToken>;
 export type IdentityPage = Page<Identity>;
 export type DataExportPage = Page<DataExport>;
+export type InvitePage = Page<Invite>;
 
 export type {
   ActionItemStatus,

@@ -34,6 +34,7 @@ import { openOverlay, useOverlay } from "./overlays.ts";
 import { cycleTheme } from "./preferences.ts";
 import { useWorkspace, WorkspaceProvider } from "./workspace.tsx";
 import s from "./layout.module.css";
+import { ROLE_LABEL } from "../lib/roles.ts";
 
 
 export function RootLayout() {
@@ -245,7 +246,7 @@ function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
         <Avatar id={me.id} name={me.display_name} />
         <span className={s.userText}>
           <span className={s.userName}>{me.display_name}</span>
-          <span className={s.userMeta}>{current?.workspace.name} · {current?.role === "owner" ? "Owner" : current?.role === "admin" ? "Admin" : current?.role === "viewer" ? "Viewer" : "Member"}</span>
+          <span className={s.userMeta}>{current?.workspace.name} · {current ? ROLE_LABEL[current.role] : ""}</span>
         </span>
         <Icon name="more" />
       </AriaButton>

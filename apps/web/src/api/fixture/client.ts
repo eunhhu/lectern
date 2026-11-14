@@ -5,6 +5,10 @@
 // in memory only and are gone after a reload.
 
 import type {
+  Invite,
+  MembershipRole,
+  WorkspaceMember,
+  WorkspaceUsage,
   AccessToken,
   AccountDeletionInfo,
   DataExport,
@@ -569,6 +573,47 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
   const exports: DataExport[] = [];
   let deletion: AccountDeletionInfo = { state: "none", requested_at: null, execute_after: null };
   const oauthOff = fixtureFlag("fixture-oauth") === "off";
+
+  // Team workspaces (P5-11): `?fixture-role=owner|admin|member|viewer` is my role in the team.
+  const wantedRole = fixtureFlag("fixture-role");
+  if (wantedRole === "owner" || wantedRole === "admin" || wantedRole === "member" || wantedRole === "viewer") {
+    for (const w of data.workspaces) if (w.workspace.kind === "team") w.role = wantedRole;
+    for (const m of data.members) {
+      if (m.user_id === data.me.id && data.workspaces.some((w) => w.workspace.id === m.workspace_id && w.workspace.kind === "team")) m.role = wantedRole;
+    }
+  }
+  const teamWs = data.workspaces.find((w) => w.workspace.kind === "team")?.workspace.id as WorkspaceId | undefined;
+  let invites: Invite[] = teamWs
+    ? [
+        {
+          id: "inv_fixture_1",
+          workspace_id: teamWs,
+          email: "newcomer@example.com",
+          role: "member",
+          invited_by: data.members.find((m) => m.workspace_id === teamWs && m.role === "owner")?.user_id ?? data.me.id,
+          created_at: new Date(startedAt.getTime() - 86_400_000).toISOString(),
+          expires_at: new Date(startedAt.getTime() + 6 * 86_400_000).toISOString(),
+          accepted_at: null,
+          revoked_at: null,
+        } as Invite,
+      ]
+    : [];
+  let invitesAccepted = 0;
+  const LAST_OWNER = "owner가 한 명은 있어야 합니다. 다른 멤버를 먼저 owner로 지정해 주세요.";
+  const ADMIN_LIMIT = "관리자는 owner나 다른 관리자의 역할을 바꾸거나 내보낼 수 없습니다.";
+  const managerOf = (ws: WorkspaceId) => {
+    const r = role(ws);
+    if (r !== "owner" && r !== "admin") throw new ApiClientError(403, "forbidden", "멤버를 관리할 권한이 없습니다.");
+    return r;
+  };
+  const memberOf = (ws: WorkspaceId, userId: string) => {
+    const m = data.members.find((x) => x.workspace_id === ws && x.user_id === userId);
+    if (!m) throw notFound("멤버");
+    return m;
+  };
+  const owners = (ws: WorkspaceId) => data.members.filter((m) => m.workspace_id === ws && m.role === "owner").length;
+  /** This month in Seoul, like the server's ledger period. */
+  const period = () => new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 7);
   const soleOwner = fixtureFlag("fixture-deletion") === "sole-owner";
   /** A queued export becomes ready EXPORT_READY_MS after it was asked for (read lazily). */
   const settleExports = () => {
@@ -760,6 +805,119 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     listWorkspaces: () => wait(() => page(data.workspaces, undefined, MAX_PAGE)),
 
     listMembers: (ws) => wait(() => page(data.members.filter((m) => m.workspace_id === ws), undefined, MAX_PAGE)),
+
+    updateMember: (ws, userId, newRole) =>
+      wait((): WorkspaceMember => {
+        const mine = managerOf(ws);
+        const target = memberOf(ws, userId);
+        if (mine === "admin") {
+          if (target.role === "owner" || target.role === "admin") throw new ApiClientError(403, "forbidden", ADMIN_LIMIT);
+          if (newRole === "owner" || newRole === "admin") throw new ApiClientError(403, "forbidden", "owner만 owner나 관리자를 지정할 수 있습니다.");
+        }
+        if (target.role === "owner" && newRole !== "owner" && owners(ws) <= 1) throw new ApiClientError(409, "conflict", LAST_OWNER);
+        target.role = newRole;
+        target.updated_at = nowIso();
+        if (userId === data.me.id) {
+          const entry = data.workspaces.find((w) => w.workspace.id === ws);
+          if (entry) entry.role = newRole;
+        }
+        return structuredClone(target);
+      }),
+
+    removeMember: (ws, userId) =>
+      wait(() => {
+        const target = memberOf(ws, userId);
+        if (userId !== data.me.id) {
+          const mine = managerOf(ws);
+          if (mine === "admin" && (target.role === "owner" || target.role === "admin")) throw new ApiClientError(403, "forbidden", ADMIN_LIMIT);
+        }
+        if (target.role === "owner" && owners(ws) <= 1) throw new ApiClientError(409, "conflict", LAST_OWNER);
+        data.members = data.members.filter((m) => m !== target);
+        if (userId === data.me.id) data.workspaces = data.workspaces.filter((w) => w.workspace.id !== ws);
+      }),
+
+    listInvites: (ws) =>
+      wait(() => {
+        managerOf(ws);
+        return page(invites.filter((i) => i.workspace_id === ws && !i.accepted_at && !i.revoked_at), undefined, MAX_PAGE);
+      }),
+
+    createInvite: (ws, body) =>
+      wait((): Invite => {
+        const mine = managerOf(ws);
+        const entry = data.workspaces.find((w) => w.workspace.id === ws);
+        if (entry?.workspace.kind === "personal") throw new ApiClientError(409, "conflict", "개인 워크스페이스에는 초대할 수 없습니다.");
+        if (body.role === "admin" && mine !== "owner") throw new ApiClientError(403, "forbidden", "관리자로 초대하는 것은 owner만 할 수 있습니다.");
+        const email = body.email.trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new ApiClientError(400, "validation_failed", "이메일 주소를 확인해 주세요.");
+        if (data.members.some((m) => m.workspace_id === ws && m.email.toLowerCase() === email)) {
+          throw new ApiClientError(409, "conflict", "이미 이 워크스페이스의 멤버입니다.");
+        }
+        // A live invitation to the same address is replaced.
+        invites = invites.filter((i) => !(i.workspace_id === ws && i.email === email));
+        const now = Date.now();
+        const invite = {
+          id: newId("inv"),
+          workspace_id: ws,
+          email,
+          role: body.role,
+          invited_by: data.me.id,
+          created_at: new Date(now).toISOString(),
+          expires_at: new Date(now + 7 * 86_400_000).toISOString(),
+          accepted_at: null,
+          revoked_at: null,
+        } as Invite;
+        invites.push(invite);
+        return structuredClone(invite);
+      }),
+
+    revokeInvite: (ws, inviteId) =>
+      wait(() => {
+        managerOf(ws);
+        const invite = invites.find((i) => i.id === inviteId && i.workspace_id === ws && !i.accepted_at && !i.revoked_at);
+        if (!invite) throw notFound("초대");
+        invite.revoked_at = nowIso();
+      }),
+
+    // The invitation links of the preview: "wrong-account" was sent to another address,
+    // "expired" and "used" fail like the server; any other token joins "디자인 스터디" once.
+    acceptInvite: (token) =>
+      wait(() => {
+        if (token === "wrong-account") {
+          throw new ApiClientError(403, "forbidden", "이 초대는 다른 이메일 주소로 보낸 것입니다. 초대받은 주소로 로그인해 주세요.");
+        }
+        if (token === "expired") throw new ApiClientError(409, "conflict", "만료된 초대입니다. 다시 초대해 달라고 요청해 주세요.");
+        if (token === "used" || invitesAccepted > 0) {
+          throw new ApiClientError(404, "not_found", "초대를 찾을 수 없습니다. 이미 사용했거나 취소된 초대입니다.");
+        }
+        invitesAccepted++;
+        const at = nowIso();
+        const ws = "ws_invited" as WorkspaceId;
+        const workspace = { id: ws, name: "디자인 스터디", kind: "team", plan: "team", settings: { default_language: "ko" }, created_at: at, updated_at: at };
+        data.workspaces.push({ workspace, role: "member" } as (typeof data.workspaces)[number]);
+        data.members.push(
+          { workspace_id: ws, user_id: "usr_fixture_seoa", role: "owner", display_name: "윤서아", email: "seoa@example.com", created_at: at, updated_at: at } as WorkspaceMember,
+          { workspace_id: ws, user_id: data.me.id, role: "member", display_name: data.me.display_name, email: data.me.email, created_at: at, updated_at: at } as WorkspaceMember,
+        );
+        return { workspace: structuredClone(workspace), role: "member" as MembershipRole } as never;
+      }),
+
+    // The team has limits (one close to it, one used up); the personal workspace has none.
+    getWorkspaceUsage: (ws) =>
+      wait((): WorkspaceUsage => {
+        const entry = data.workspaces.find((w) => w.workspace.id === ws);
+        if (!entry) throw notFound("워크스페이스");
+        if (entry.workspace.kind === "personal") {
+          return { period: period(), audio_ms: 12_000_000, ai_cost_microusd: 1_234_567, storage_bytes: 1_288_490_189, quota: null };
+        }
+        return {
+          period: period(),
+          audio_ms: 66_600_000,
+          ai_cost_microusd: 10_000_000,
+          storage_bytes: 3_435_973_837,
+          quota: { audio_ms_month: 72_000_000, ai_microusd_month: 10_000_000, storage_bytes: 10 * 1024 ** 3 },
+        };
+      }),
 
     listFolders: (ws) =>
       wait(() => page([...data.folders.filter((f) => f.workspace_id === ws)].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1)), undefined, MAX_PAGE)),

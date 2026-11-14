@@ -1,18 +1,19 @@
 // 설정 (ARCHITECTURE §7): profile and the account sections (signed-in devices, access
 // tokens, linked sign-ins, data export, account deletion: account/, P5-10), the current
-// workspace and its members, integrations and reminders (Integrations.tsx, Reminders.tsx,
-// P4-07), and the options that live in this browser (theme, single-key shortcuts: WCAG
-// 2.1.4). Everything goes through the ApiClient.
+// workspace with its members, invitations and usage (workspace/, P5-11), integrations and
+// reminders (Integrations.tsx, Reminders.tsx, P4-07), and the options that live in this
+// browser (theme, single-key shortcuts: WCAG 2.1.4). Everything goes through the ApiClient.
 
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Form, Input, Label, Radio, RadioGroup, TextField } from "react-aria-components";
 import { isNotReady } from "../../api/errors.ts";
-import { useDevices, useMe, useMembers, useRecordings, useRevokeDevice, useShareLinks, useUpdateMe } from "../../api/queries.ts";
+import { useDevices, useMe, useRecordings, useRevokeDevice, useShareLinks, useUpdateMe } from "../../api/queries.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { setPreferences, usePreferences, type ThemeChoice } from "../../app/preferences.ts";
 import { useWorkspace } from "../../app/workspace.tsx";
 import { formatRelative } from "../../lib/format.ts";
+import { ROLE_LABEL } from "../../lib/roles.ts";
 import { Avatar } from "../../ui/Avatar.tsx";
 import { Icon } from "../../ui/Icon.tsx";
 import { Badge, Button, SelectField, SwitchField, uiStyles } from "../../ui/controls.tsx";
@@ -24,6 +25,9 @@ import { Exports } from "./account/Exports.tsx";
 import { Identities } from "./account/Identities.tsx";
 import { NOT_READY_TEXT, Tokens } from "./account/Tokens.tsx";
 import { Integrations } from "./Integrations.tsx";
+import { Invites } from "./workspace/Invites.tsx";
+import { Members } from "./workspace/Members.tsx";
+import { Usage } from "./workspace/Usage.tsx";
 import { Reminders } from "./Reminders.tsx";
 import layout from "../../app/layout.module.css";
 import shareStyles from "../share/share.module.css";
@@ -47,6 +51,9 @@ const SECTIONS = [
   { id: "exports", label: "데이터 내보내기" },
   { id: "delete-account", label: "계정 삭제" },
   { id: "workspace", label: "워크스페이스" },
+  { id: "members", label: "멤버" },
+  { id: "invites", label: "초대", managers: true },
+  { id: "usage", label: "사용량" },
   { id: "share-links", label: "공유 링크" },
   { id: "integrations", label: "연동" },
   { id: "reminders", label: "알림" },
@@ -55,6 +62,9 @@ const SECTIONS = [
 
 export function SettingsPage() {
   usePageTitle("설정");
+  // 초대 is drawn for owners and admins of a team workspace only (Invites.tsx).
+  const { current } = useWorkspace();
+  const canInvite = current?.workspace.kind === "team" && (current.role === "owner" || current.role === "admin");
   // Honour /settings#account and friends after the page renders.
   const hash = useRouterState({ select: (st) => st.location.hash });
   useEffect(() => {
@@ -65,7 +75,7 @@ export function SettingsPage() {
   return (
     <div className={s.layout}>
       <nav className={s.toc} aria-label="설정 목차">
-        {SECTIONS.map((sec) => (
+        {SECTIONS.filter((sec) => !("managers" in sec) || canInvite).map((sec) => (
           <a key={sec.id} href={`#${sec.id}`} className={s.tocLink}>
             {sec.label}
           </a>
@@ -82,6 +92,9 @@ export function SettingsPage() {
         <Exports />
         <DeleteAccount />
         <WorkspaceSection />
+        <Members />
+        <Invites />
+        <Usage />
         <ShareLinks />
         <Integrations />
         <Reminders />
@@ -156,9 +169,7 @@ function Profile() {
 }
 
 function WorkspaceSection() {
-  const { current, workspaceId } = useWorkspace();
-  const members = useMembers(workspaceId).data ?? [];
-  const me = useMe().data;
+  const { current } = useWorkspace();
   if (!current) return null;
   return (
     <section id="workspace" className={s.section} aria-labelledby="set-workspace">
@@ -176,30 +187,13 @@ function WorkspaceSection() {
         </div>
         <div>
           <dt>내 역할</dt>
-          <dd>{ROLE[current.role]}</dd>
+          <dd>{ROLE_LABEL[current.role]}</dd>
         </div>
         <div>
           <dt>요금제</dt>
           <dd>{current.workspace.plan}</dd>
         </div>
       </dl>
-      <h3 className={s.subheading}>멤버 {members.length}명</h3>
-      <ul className={s.members} role="list">
-        {members.map((m) => (
-          <li key={m.user_id} className={s.member}>
-            <Avatar id={m.user_id} name={m.display_name} />
-            <span className={s.memberText}>
-              <span className={s.memberName}>
-                {m.display_name}
-                {m.user_id === me?.id && <span className={s.muted}> (나)</span>}
-              </span>
-              <span className={s.muted}>{m.email}</span>
-            </span>
-            <Badge tone={m.role === "owner" ? "accent" : m.role === "admin" ? "info" : "neutral"}>{ROLE[m.role]}</Badge>
-          </li>
-        ))}
-      </ul>
-      {current.workspace.kind === "team" && <p className={uiStyles.hint}>멤버 초대와 역할 변경은 팀 기능과 함께 추가됩니다.</p>}
     </section>
   );
 }

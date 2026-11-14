@@ -305,6 +305,13 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     },
     listWorkspaces: () => call("listWorkspaces"),
     listMembers: (workspaceId) => call("listWorkspaceMembers", { params: { workspace_id: workspaceId } }),
+    updateMember: (workspaceId, userId, role) => call("updateMember", { params: { workspace_id: workspaceId, user_id: userId }, body: { role } }),
+    removeMember: (workspaceId, userId) => call("removeMember", { params: { workspace_id: workspaceId, user_id: userId } }),
+    listInvites: (workspaceId) => call("listInvites", { params: { workspace_id: workspaceId } }),
+    createInvite: (workspaceId, body) => call("createInvite", { params: { workspace_id: workspaceId }, body }),
+    revokeInvite: (workspaceId, inviteId) => call("revokeInvite", { params: { workspace_id: workspaceId, invite_id: inviteId } }),
+    acceptInvite: (token) => call("acceptInvite", { body: { token } }),
+    getWorkspaceUsage: (workspaceId) => call("getWorkspaceUsage", { params: { workspace_id: workspaceId } }),
 
     listFolders: (workspaceId) => call("listFolders", { query: { workspace_id: workspaceId, limit: 200 } }),
     createFolder: (body) => call("createFolder", { body }),
