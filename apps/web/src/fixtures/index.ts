@@ -651,7 +651,7 @@ export function buildFixtureData(now = new Date()): FixtureData {
     current,
   });
   data.devices.push(
-    device("ses_fixture_web", "web", "이 브라우저", "Mozilla/5.0 (Macintosh) Safari", new Date(now.getTime() - 60_000).toISOString(), true),
+    device("ses_fixture_web", "web", "Mac의 Chrome", "Mozilla/5.0 (Macintosh) Chrome/131", new Date(now.getTime() - 60_000).toISOString(), true),
     device("ses_fixture_mac", "native", "Lectern for Mac", "Lectern/2.0 macOS", clock.at(1, 18)),
     device("ses_fixture_android", "native", "Android 빠른 녹음", "Lectern/1.6 Android", clock.at(4, 9)),
   );

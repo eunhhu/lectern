@@ -14,6 +14,7 @@ import { Button, uiStyles } from "../../ui/controls.tsx";
 import { Icon } from "../../ui/Icon.tsx";
 import s from "./account.module.css";
 import { useSendCode } from "./useSendCode.ts";
+import { OAuthButtons } from "../login/OAuthButtons.tsx";
 
 export const MIN_PASSWORD = 6;
 
@@ -132,6 +133,7 @@ export function SignupPage() {
                 {pending ? "가입하는 중…" : "가입하기"}
               </Button>
             </Form>
+            <OAuthButtons next="/app" />
             <p className={s.note}>
               이미 계정이 있나요? <Link to="/login">로그인</Link>
             </p>

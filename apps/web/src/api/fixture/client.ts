@@ -5,6 +5,10 @@
 // in memory only and are gone after a reload.
 
 import type {
+  AccessToken,
+  AccountDeletionInfo,
+  DataExport,
+  Identity,
   AskScope,
   AskStreamEvent,
   AskThread,
@@ -134,6 +138,24 @@ function saveCalendarState(state: CalendarState): void {
   } catch {
     // Storage blocked: the state lasts until the tab reloads.
   }
+}
+
+/** `?fixture-oauth=off`, `?fixture-deletion=sole-owner` and the like, read once when the client is made (e2e). */
+function fixtureFlag(name: string): string | null {
+  try {
+    return typeof location === "undefined" ? null : new URLSearchParams(location.search).get(name);
+  } catch {
+    return null;
+  }
+}
+
+/** How long a fixture export takes to become ready (the e2e waits for it). */
+const EXPORT_READY_MS = 10_000;
+const EXPORT_TTL_MS = 7 * 86_400_000;
+
+function randomSecret(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function page<T>(items: T[], cursor: string | undefined, limit: unknown) {
@@ -500,13 +522,71 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     emit(rec.workspace_id, null, { type: "recording.deleted", payload: { recording_id: rec.id } } as never);
   };
 
-  // The preview starts signed in as the fixture user; signing out shows the login screen,
-  // and signing in again takes that user's email with any password (there is no server).
-  let signedIn = true;
+  // The preview starts signed in as the fixture user (signed out with
+  // `?fixture-session=none`, for the login screen's e2e); signing out shows the login
+  // screen, and signing in again takes that user's email with any password (there is no
+  // server).
+  let signedIn = fixtureFlag("fixture-session") !== "none";
   const shareLinks: ShareLinkDto[] = [];
   let shareSeq = 0;
   const calendar = loadCalendarState(data);
   const unauthorized = new Set<() => void>();
+
+  // Account (P5): the v1 API token comes first like on the server, then personal access
+  // tokens. The secret of a token made here is returned once and never kept.
+  const personalWs = (data.me.personal_workspace_id ?? data.workspaces[0]!.workspace.id) as WorkspaceId;
+  const startedAt = new Date();
+  const accountAt = new Date(startedAt.getTime() - 40 * 86_400_000).toISOString();
+  let tokens: AccessToken[] = [
+    {
+      id: "tok_fixture0000000000000000000000",
+      workspace_id: personalWs,
+      user_id: data.me.id,
+      name: "API 토큰",
+      prefix: "lct_v1ab",
+      scopes: ["recordings:read", "recordings:write"],
+      expires_at: null,
+      last_used_at: null,
+      created_at: accountAt,
+      revoked_at: null,
+    } as AccessToken,
+    {
+      id: "pat_fixture_sync",
+      workspace_id: personalWs,
+      user_id: data.me.id,
+      name: "노트 동기화 스크립트",
+      prefix: "lct_pat_3f9a",
+      scopes: ["recordings:read"],
+      expires_at: new Date(startedAt.getTime() + 60 * 86_400_000).toISOString(),
+      last_used_at: new Date(startedAt.getTime() - 2 * 86_400_000).toISOString(),
+      created_at: new Date(startedAt.getTime() - 30 * 86_400_000).toISOString(),
+      revoked_at: null,
+    } as AccessToken,
+  ];
+  let identities: Identity[] = [
+    { id: "idn_fixture_google", provider: "google", email: data.me.email, created_at: accountAt } as Identity,
+  ];
+  const exports: DataExport[] = [];
+  let deletion: AccountDeletionInfo = { state: "none", requested_at: null, execute_after: null };
+  const oauthOff = fixtureFlag("fixture-oauth") === "off";
+  const soleOwner = fixtureFlag("fixture-deletion") === "sole-owner";
+  /** A queued export becomes ready EXPORT_READY_MS after it was asked for (read lazily). */
+  const settleExports = () => {
+    const now = Date.now();
+    for (const e of exports) {
+      if ((e.state === "queued" || e.state === "running") && now - Date.parse(e.requested_at) >= EXPORT_READY_MS) {
+        const readyAt = new Date(Date.parse(e.requested_at) + EXPORT_READY_MS);
+        Object.assign(e, {
+          state: "ready",
+          bytes: e.include_audio ? 184_320_000 : 2_457_600,
+          ready_at: readyAt.toISOString(),
+          expires_at: new Date(readyAt.getTime() + EXPORT_TTL_MS).toISOString(),
+        });
+      } else if (e.state === "queued" && now - Date.parse(e.requested_at) >= 1_000) {
+        e.state = "running";
+      }
+    }
+  };
   const session = (): SessionUser => ({ id: data.me.id, email: data.me.email, displayName: data.me.display_name });
 
   const client: ApiClient & { readonly data: FixtureData } = {
@@ -575,6 +655,107 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
         if (device.current) throw new ApiClientError(409, "conflict", "지금 쓰는 기기는 여기서 로그아웃할 수 없습니다.");
         data.devices = data.devices.filter((d) => d.id !== id);
       }),
+
+    listAccessTokens: () => wait(() => page(tokens, undefined, MAX_PAGE)),
+
+    createAccessToken: (body) =>
+      wait(() => {
+        const name = body.name.trim();
+        if (!name) throw new ApiClientError(400, "bad_request", "토큰 이름을 입력해 주세요.");
+        if (!data.workspaces.some((w) => w.workspace.id === body.workspace_id)) throw notFound("워크스페이스");
+        const secret = `lct_pat_${randomSecret()}`;
+        const token = {
+          id: newId("pat"),
+          workspace_id: body.workspace_id,
+          user_id: data.me.id,
+          name,
+          prefix: secret.slice(0, 12),
+          scopes: [...body.scopes],
+          expires_at: body.expires_at ?? null,
+          last_used_at: null,
+          created_at: nowIso(),
+          revoked_at: null,
+        } as AccessToken;
+        // Newest first, after the v1 token.
+        tokens = [tokens[0]!, token, ...tokens.slice(1)];
+        return { token: structuredClone(token), secret };
+      }),
+
+    revokeAccessToken: (tokenId) =>
+      wait(() => {
+        if (tokenId.startsWith("tok_")) {
+          throw new ApiClientError(409, "conflict", "이 토큰은 여기서 회수할 수 없습니다. 예전 설정 화면에서 다시 발급해 주세요.");
+        }
+        if (!tokens.some((t) => t.id === tokenId)) throw notFound("토큰");
+        tokens = tokens.filter((t) => t.id !== tokenId);
+      }),
+
+    listIdentities: () => wait(() => page(identities, undefined, MAX_PAGE)),
+
+    // The fixture user also has a password, so no identity is the last way to sign in.
+    unlinkIdentity: (identityId) =>
+      wait(() => {
+        if (!identities.some((i) => i.id === identityId)) throw notFound("로그인 연결");
+        identities = identities.filter((i) => i.id !== identityId);
+      }),
+
+    listExports: () =>
+      wait(() => {
+        settleExports();
+        return page([...exports].reverse(), undefined, MAX_PAGE);
+      }),
+
+    createExport: (body) =>
+      wait(() => {
+        settleExports();
+        if (!data.workspaces.some((w) => w.workspace.id === body.workspace_id)) throw notFound("워크스페이스");
+        if (exports.some((e) => e.state === "queued" || e.state === "running")) {
+          throw new ApiClientError(409, "conflict", "이미 만들고 있는 내보내기가 있습니다.");
+        }
+        const row = {
+          id: newId("exp"),
+          workspace_id: body.workspace_id,
+          include_audio: body.include_audio,
+          state: "queued",
+          bytes: null,
+          requested_at: nowIso(),
+          ready_at: null,
+          expires_at: null,
+          error: null,
+        } as DataExport;
+        exports.push(row);
+        return structuredClone(row);
+      }),
+
+    // There is no server behind the preview: the link has the real shape but answers 404.
+    exportContentUrl: (exportId) => `/api/v2/me/exports/${encodeURIComponent(exportId)}/content`,
+
+    getAccountDeletion: () => wait(() => structuredClone(deletion)),
+
+    requestAccountDeletion: () =>
+      wait(() => {
+        if (soleOwner) {
+          const team = data.workspaces.find((w) => w.workspace.kind === "team")?.workspace.name ?? "팀";
+          throw new ApiClientError(
+            409,
+            "conflict",
+            `"${team}" 워크스페이스의 유일한 owner입니다. 다른 멤버를 owner로 지정하거나 워크스페이스를 비운 뒤 다시 시도해 주세요.`,
+          );
+        }
+        if (deletion.state !== "scheduled") {
+          const now = Date.now();
+          deletion = { state: "scheduled", requested_at: new Date(now).toISOString(), execute_after: new Date(now + 7 * 86_400_000).toISOString() };
+        }
+        return structuredClone(deletion);
+      }),
+
+    cancelAccountDeletion: () =>
+      wait(() => {
+        deletion = { state: "none", requested_at: null, execute_after: null };
+        return structuredClone(deletion);
+      }),
+
+    oauthProviders: () => wait(() => ({ google: !oauthOff, apple: !oauthOff })),
 
     listWorkspaces: () => wait(() => page(data.workspaces, undefined, MAX_PAGE)),
 

@@ -197,6 +197,20 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     return parsed.data as T;
   }
 
+  // The sign-in start URL answers a redirect when the provider is on, 404/501 when it is
+  // off. `redirect: "manual"` stops at the redirect (an opaque response in a browser).
+  // Anything else (network error, 429, 5xx) is no answer: null.
+  let providers: Promise<{ google: boolean; apple: boolean }> | null = null;
+  async function probeProvider(provider: "google" | "apple"): Promise<boolean | null> {
+    try {
+      const res = await doFetch(`${API_BASE_PATH}/auth/${provider}/start`, { method: "GET", redirect: "manual" });
+      if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) return true;
+      return res.status === 404 || res.status === 501 ? false : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function auth(path: string, init: RequestInit): Promise<Response> {
     return send(`${authBase}${path}`, { ...init, headers: { Accept: "application/json", ...(init.headers as Record<string, string>) } });
   }
@@ -270,6 +284,25 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     updateMe: (body) => call("updateMe", { body }),
     listDevices: () => call("listDevices"),
     revokeDevice: (deviceId) => call("revokeDevice", { params: { device_id: deviceId } }),
+    listAccessTokens: () => call("listAccessTokens"),
+    createAccessToken: (body) => call("createAccessToken", { body }),
+    revokeAccessToken: (tokenId) => call("revokeAccessToken", { params: { token_id: tokenId } }),
+    listIdentities: () => call("listIdentities"),
+    unlinkIdentity: (identityId) => call("unlinkIdentity", { params: { identity_id: identityId } }),
+    listExports: () => call("listExports"),
+    createExport: (body) => call("createExport", { body }),
+    exportContentUrl: (exportId) => routeUrl(ROUTES_BY_OPERATION.getExportContent!, { export_id: exportId }),
+    getAccountDeletion: () => call("getAccountDeletion"),
+    requestAccountDeletion: (password) => call("requestAccountDeletion", { body: password === undefined ? {} : { password } }),
+    cancelAccountDeletion: () => call("cancelAccountDeletion"),
+    oauthProviders() {
+      providers ??= Promise.all([probeProvider("google"), probeProvider("apple")]).then(([google, apple]) => {
+        // Only a definite answer is remembered; a network error, 429 or 5xx asks again next time.
+        if (google === null || apple === null) providers = null;
+        return { google: google === true, apple: apple === true };
+      });
+      return providers;
+    },
     listWorkspaces: () => call("listWorkspaces"),
     listMembers: (workspaceId) => call("listWorkspaceMembers", { params: { workspace_id: workspaceId } }),
 

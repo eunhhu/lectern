@@ -11,6 +11,9 @@ import type {
   AskScope,
   ActionItem,
   BatchRecordingsRequest,
+  CreateAccessTokenRequest,
+  CreateExportRequest,
+  DataExport,
   RecordingProgress,
   CreateFolderRequest,
   CreateShareLinkRequest,
@@ -56,6 +59,11 @@ export const queryKeys = {
   jobProgress: (jobId: string) => ["job-progress", jobId] as const,
   members: (ws: string) => ["members", ws] as const,
   devices: ["devices"] as const,
+  accessTokens: ["access-tokens"] as const,
+  identities: ["identities"] as const,
+  exports: ["exports"] as const,
+  accountDeletion: ["account-deletion"] as const,
+  oauthProviders: ["oauth-providers"] as const,
   workspaceActionItems: (ws: string) => ["workspace-action-items", ws] as const,
   calendar: (ws: string) => ["calendar", ws] as const,
   shareLinks: (ws: string) => ["share-links", ws] as const,
@@ -320,6 +328,106 @@ export function useMembers(ws: WorkspaceId) {
 export function useDevices() {
   const api = useApi();
   return useQuery({ queryKey: queryKeys.devices, queryFn: () => allPages(() => api.listDevices()) });
+}
+
+// --- account (P5-10) -----------------------------------------------------------------
+
+export function useAccessTokens() {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.accessTokens, queryFn: () => allPages(() => api.listAccessTokens()) });
+}
+
+/**
+ * The secret is only in the mutation result: it never goes into the query cache, and
+ * `gcTime: 0` drops the mutation (and the secret) as soon as the dialog that made it closes.
+ */
+export function useCreateAccessToken() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    gcTime: 0,
+    mutationFn: (body: CreateAccessTokenRequest) => api.createAccessToken(body),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.accessTokens }),
+  });
+}
+
+export function useRevokeAccessToken() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tokenId: string) => api.revokeAccessToken(tokenId),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.accessTokens }),
+  });
+}
+
+export function useIdentities() {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.identities, queryFn: () => allPages(() => api.listIdentities()) });
+}
+
+export function useUnlinkIdentity() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (identityId: string) => api.unlinkIdentity(identityId),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.identities }),
+  });
+}
+
+const exportBusy = (e: DataExport) => e.state === "queued" || e.state === "running";
+
+/** Re-reads every 10 s while an export is being made, and stops when none is. */
+export function useExports() {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.exports,
+    queryFn: () => allPages(() => api.listExports()),
+    refetchInterval: (query) => (query.state.data?.some(exportBusy) ? 10_000 : false),
+  });
+}
+
+export function useCreateExport() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateExportRequest) => api.createExport(body),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.exports }),
+  });
+}
+
+export function useAccountDeletion() {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.accountDeletion, queryFn: () => api.getAccountDeletion() });
+}
+
+/** The password is the mutation's variable: `gcTime: 0` forgets it once the dialog closes. */
+export function useRequestAccountDeletion() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    gcTime: 0,
+    mutationFn: (password?: string) => api.requestAccountDeletion(password),
+    onSuccess: (info) => qc.setQueryData(queryKeys.accountDeletion, info),
+  });
+}
+
+export function useCancelAccountDeletion() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.cancelAccountDeletion(),
+    onSuccess: (info) => qc.setQueryData(queryKeys.accountDeletion, info),
+  });
+}
+
+/**
+ * Which "…로 계속하기" buttons to draw. The client remembers a definite answer for the
+ * session (asking again costs nothing); one spoiled by a network error is asked again
+ * when the data goes stale.
+ */
+export function useOAuthProviders() {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.oauthProviders, queryFn: () => api.oauthProviders(), staleTime: 5 * 60_000, retry: false });
 }
 
 export function useUpdateMe() {

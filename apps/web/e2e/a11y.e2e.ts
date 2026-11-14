@@ -143,3 +143,34 @@ test("a carried-over v1 note: Markdown drawn as a document, [MM:SS] marks move t
   await axe(page, "이전 노트 (legacy-markdown)");
   await page.screenshot({ path: "test-results/screens/fixture-legacy-note.png" });
 });
+
+test("settings account has no axe violations", async ({ page, axe }) => {
+  await page.goto("/app/settings#tokens");
+  await expect(page.locator("#tokens").getByText("API 토큰")).toBeVisible();
+  await expect(page.locator("#identities").getByRole("button", { name: "연결 해제: Google" })).toBeVisible();
+  await axe(page, "설정 계정");
+  await page.locator("#tokens").getByRole("button", { name: "새 토큰" }).click();
+  const tokenDialog = page.getByRole("dialog", { name: "새 토큰" });
+  await axe(page, "새 토큰");
+  await tokenDialog.getByLabel("이름").fill("axe");
+  await tokenDialog.getByRole("button", { name: "만들기" }).click();
+  await expect(tokenDialog.getByLabel("토큰", { exact: true })).toBeVisible();
+  await axe(page, "새 토큰 원문");
+  await tokenDialog.getByRole("button", { name: "완료" }).click();
+  await page.locator("#delete-account").getByRole("button", { name: "계정 삭제 요청" }).click();
+  await expect(page.getByRole("alertdialog", { name: "계정 삭제 요청" })).toBeVisible();
+  await axe(page, "계정 삭제 요청");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "계정 삭제 요청 (다크)");
+});
+
+test("login with oauth buttons has no axe violations", async ({ page, axe }) => {
+  await page.goto("/app/login?fixture-session=none&error=oauth");
+  await expect(page.getByRole("button", { name: "Google로 계속하기" })).toBeVisible();
+  await axe(page, "로그인(Google·Apple)");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "로그인(Google·Apple) (다크)");
+  await page.getByRole("link", { name: "회원가입" }).click();
+  await expect(page.getByRole("button", { name: "Apple로 계속하기" })).toBeVisible();
+  await axe(page, "회원가입(Google·Apple) (다크)");
+});

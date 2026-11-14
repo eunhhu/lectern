@@ -61,7 +61,7 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({ component: Outle
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
-  validateSearch: (search: Record<string, unknown>): LoginSearch => ({ next: str(search.next) }),
+  validateSearch: (search: Record<string, unknown>): LoginSearch => ({ next: str(search.next), error: str(search.error) }),
   beforeLoad: async ({ context, search }) => {
     if (await ensureSession(context)) throw redirect({ href: safeNext(search.next) });
   },
