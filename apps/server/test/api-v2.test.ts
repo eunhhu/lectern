@@ -24,12 +24,15 @@ import { handleRequest } from "../src/index.ts";
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/** Routes of later phases (P3 PDFs, P4 calendar sync, P5 tokens). */
+/** Routes of later phases (P4 calendar, P5 tokens). */
 const NOT_YET = new Set([
   "createAccessToken",
   "revokeAccessToken",
   "startGoogleIntegration",
   "disconnectIntegration",
+  "getCalendarFeed",
+  "createCalendarFeed",
+  "deleteCalendarFeed",
 ]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
@@ -77,6 +80,8 @@ for (const op of [
   "listIntegrations",
   "listShareLinks",
   "listAskThreads",
+  "getCalendarFeed",
+  "deleteCalendarFeed",
 ]) {
   QUERIES[op] = { workspace_id: SAMPLE_ID };
 }
@@ -107,6 +112,7 @@ const BODIES: Record<string, unknown> = {
   updateCalendarSuggestion: { status: "accepted" },
   batchCalendarSuggestions: { event_candidate_ids: [SAMPLE_ID], action: "dismiss" },
   startGoogleIntegration: { workspace_id: SAMPLE_ID },
+  createCalendarFeed: { workspace_id: SAMPLE_ID },
   createShareLink: { target_type: "document", target_id: SAMPLE_ID, scope: { transcript: false, audio: false } },
   updateShareLink: { password: null },
   createAskThread: { workspace_id: SAMPLE_ID, scope: { kind: "workspace" } },

@@ -3796,6 +3796,124 @@
         }
       }
     },
+    "/calendar/feed": {
+      "get": {
+        "operationId": "getCalendarFeed",
+        "summary": "The caller's ICS subscription",
+        "tags": [
+          "calendar"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether a subscription exists. The URL is never shown again after create.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarFeedInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCalendarFeed",
+        "summary": "Create or replace the ICS subscription",
+        "tags": [
+          "calendar"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCalendarFeedRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new subscription URL (shown once). The old URL stops working.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarFeedCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteCalendarFeed",
+        "summary": "Remove the ICS subscription",
+        "tags": [
+          "calendar"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done. No body."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
     "/integrations": {
       "get": {
         "operationId": "listIntegrations",
@@ -6260,6 +6378,58 @@
         "pattern": "^[A-Za-z0-9_-]{1,64}$",
         "description": "Opaque id of a document block, unique within its document version. New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it."
       },
+      "CalendarFeedCreated": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "url",
+          "created_at"
+        ],
+        "description": "The subscription URL with its token. Shown once; creating again replaces the old URL."
+      },
+      "CalendarFeedInfo": {
+        "type": "object",
+        "properties": {
+          "exists": {
+            "type": "boolean"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "exists",
+          "url",
+          "created_at"
+        ],
+        "description": "The caller's ICS subscription for a workspace. `url` is only sent right after it is created; later reads give `url: null`."
+      },
       "CalendarSuggestedEvent": {
         "type": "object",
         "properties": {
@@ -6490,6 +6660,17 @@
           "scope"
         ],
         "description": "Start a thread. No model is called; ask the first question with POST /ask/threads/{thread_id}/turns."
+      },
+      "CreateCalendarFeedRequest": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
       },
       "CreateDocumentVersionRequest": {
         "type": "object",
@@ -11317,6 +11498,29 @@
           },
           "default_language": {
             "$ref": "#/components/schemas/LanguageTag"
+          },
+          "reminders": {
+            "description": "E-mail reminders (ARCHITECTURE §11). Off when absent; when `email` is on and `lead_minutes` is empty the server uses [1440].",
+            "type": "object",
+            "properties": {
+              "email": {
+                "type": "boolean"
+              },
+              "lead_minutes": {
+                "minItems": 1,
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 5,
+                  "maximum": 43200
+                }
+              }
+            },
+            "required": [
+              "email",
+              "lead_minutes"
+            ]
           }
         },
         "description": "Workspace settings. Every field is optional; the server applies defaults."

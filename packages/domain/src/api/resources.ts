@@ -698,6 +698,30 @@ export const StartGoogleIntegrationResponse = named(
 export type StartGoogleIntegrationResponse = z.infer<typeof StartGoogleIntegrationResponse>;
 
 // ---------------------------------------------------------------------------
+// calendar feed (ICS subscription, CONTRACTS §4)
+// ---------------------------------------------------------------------------
+
+export const CalendarFeedQuery = z.object({ workspace_id: WorkspaceId });
+export type CalendarFeedQuery = z.infer<typeof CalendarFeedQuery>;
+
+export const CalendarFeedInfo = named(
+  "CalendarFeedInfo",
+  z.object({ exists: z.boolean(), url: z.url().nullable(), created_at: Timestamp.nullable() }),
+  "The caller's ICS subscription for a workspace. `url` is only sent right after it is created; later reads give `url: null`.",
+);
+export type CalendarFeedInfo = z.infer<typeof CalendarFeedInfo>;
+
+export const CreateCalendarFeedRequest = named("CreateCalendarFeedRequest", z.object({ workspace_id: WorkspaceId }));
+export type CreateCalendarFeedRequest = z.infer<typeof CreateCalendarFeedRequest>;
+
+export const CalendarFeedCreated = named(
+  "CalendarFeedCreated",
+  z.object({ url: z.url(), created_at: Timestamp }),
+  "The subscription URL with its token. Shown once; creating again replaces the old URL.",
+);
+export type CalendarFeedCreated = z.infer<typeof CalendarFeedCreated>;
+
+// ---------------------------------------------------------------------------
 // share links
 // ---------------------------------------------------------------------------
 

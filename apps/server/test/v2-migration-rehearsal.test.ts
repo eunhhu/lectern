@@ -16,8 +16,8 @@ const V2_TABLES = [
   "workspace", "membership", "folder", "tag", "recording", "recording_tag", "asset", "transcript_segment",
   "transcript_gap", "speaker", "document", "document_version", "question", "event_candidate", "action_item",
   "share_link", "integration", "usage_ledger", "saved_view", "upload", "upload_part", "lecture_sync_pending",
-  // Later migrations are rewound with P2, so their tables go too (0005_p3_pdf).
-  "pdf_page",
+  // Later migrations are rewound with P2, so their tables go too (0005_p3_pdf, 0006_p4_calendar).
+  "pdf_page", "calendar_feed", "calendar_event_link", "reminder", "oauth_state",
 ];
 
 function preP2Copy(): { dir: string; path: string } {
@@ -78,7 +78,7 @@ describe("v2 migration rehearsal", () => {
       expect(report.mismatches).toEqual([]);
       expect(report.rows.failures).toEqual([]);
       expect(report.ok).toBe(true);
-      expect(report.migrations).toEqual(["0003_v2_entities", "0004_p1_pipeline", "0005_p3_pdf"]);
+      expect(report.migrations).toEqual(["0003_v2_entities", "0004_p1_pipeline", "0005_p3_pdf", "0006_p4_calendar"]);
       expect(report.idempotent).toBe(true);
       expect(report.v1_unchanged).toBe(true);
       expect(report.checksums.v1).toBe(report.checksums.v2);

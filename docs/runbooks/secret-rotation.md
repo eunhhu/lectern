@@ -16,7 +16,8 @@
 | 호스트 봉인 키 | `DATA_DIR/secret.key`(0600, 자동 생성) | 사용자가 업로드에 붙인 Gemini 키를 작업 동안 AES-256-GCM으로 봉인 | 호스트 침해 의심 |
 | Android 서명 키 | GitHub 시크릿 `LECTERN_ANDROID_KEYSTORE_*` | CI 릴리스 APK 서명 | 유출 의심(키를 바꾸면 기존 설치본 업데이트 불가) |
 | (P6) Apple 서명·공증 | GitHub 시크릿 | macOS 공증 | [apple-developer-notarization.md](apple-developer-notarization.md) |
-| (P4·P5) Google OAuth 클라이언트 시크릿, OAuth 토큰 암호화 키 | 정해지면 이 표에 추가 | Google 로그인·캘린더 | — |
+| Google OAuth 클라이언트 ID·시크릿 `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | `/etc/lectern/lectern.env` | Google 캘린더 연결·(P5) Google 로그인 | 유출 의심, 연 1회(§8) |
+| Google 연동 토큰(refresh token) | DB `integration.token_enc`(호스트 봉인 키로 암호화) | 캘린더 동기화 | 호스트 봉인 키 교체 시 전부 무효(§7) |
 
 공통 사전 확인
 1. 지금 이 시크릿이 실제로 어디 있는지 확인한다. 호스트가 아직 `EnvironmentFile`로 옮겨지지 않았다면 유닛 파일의 `Environment=` 줄에 있을 수 있다.
@@ -188,6 +189,8 @@ DB 사본이 유출되면 모든 API 토큰(평문), 세션, 공유 토큰이 �
 
 사용자가 업로드에 자기 Gemini 키(`X-Gemini-Key`)를 붙이면, 그 키는 작업이 끝날 때까지 이 키로 봉인돼 `job` 테이블에 있다가 작업이 끝나면 지워진다. DB 백업에는 이 파일이 들어가지 않는다.
 
+> **주의**: Google 연동 토큰(`integration.token_enc`)도 이 키로 암호화돼 있다. 키를 지우면 서버가 그 토큰을 열 수 없어 모든 Google 연동이 `needs_reauth`가 되고, 사용자마다 설정에서 Google 캘린더를 다시 연결해야 한다.
+
 교체(호스트 침해 의심 시)
 1. 관리자 콘솔 작업 보기에서 대기·실행 중인 작업이 없을 때 진행한다. 남아 있는 작업 중 사용자 키를 가진 것은 "키를 열 수 없음" 오류로 끝나고, 사용자가 다시 시도해야 한다.
 2. 서버를 멈추고 키 파일을 지운 뒤 다시 시작한다. 첫 사용 때 새 키가 만들어진다.
@@ -205,6 +208,21 @@ DB 사본이 유출되면 모든 API 토큰(평문), 세션, 공유 토큰이 �
    ls -l /home/eunhhu/work/lectern/data/secret.key
    ```
 
-## 8. 교체 기록
+## 8. Google OAuth 클라이언트 시크릿 (`GOOGLE_OAUTH_CLIENT_SECRET`)
+
+클라이언트 시크릿을 바꿔도 사용자가 이미 받은 refresh token은 그대로 유효하다. 연결을 다시 할 필요는 없다.
+
+1. Google Cloud 콘솔 → Google Auth Platform → Clients → 해당 클라이언트 → **Add secret**으로 새 시크릿을 만든다(옛 시크릿은 아직 지우지 않는다).
+2. 환경 파일의 값을 바꾸고 다시 시작한다. 외부 워커를 쓰면 `lectern-worker`도 다시 시작한다.
+   ```bash
+   sudoedit /etc/lectern/lectern.env
+   ```
+   ```bash
+   sudo systemctl restart lectern
+   ```
+3. 검증: 설정 → 연동 → Google 캘린더 연결이 Google 동의 화면까지 가고, 동의한 뒤 Lectern으로 돌아와 연결됨으로 보이는지 확인한다.
+4. 콘솔에서 옛 시크릿을 비활성화한 뒤 삭제한다.
+
+## 9. 교체 기록
 
 교체할 때마다 날짜, 시크릿 이름, 이유, 수행자를 운영 메모에 남긴다(값은 절대 남기지 않는다). 다음 정기 교체 날짜도 적어 둔다.

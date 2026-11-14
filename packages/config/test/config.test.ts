@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { ConfigError, REPO_ROOT, describeEnv, loadConfig } from "../src/index.ts";
+import { ConfigError, REPO_ROOT, describeEnv, loadConfig, readSecret } from "../src/index.ts";
 
 describe("@lectern/config", () => {
   test("defaults resolve against the repository, never a hard-coded home directory", () => {
@@ -13,6 +13,7 @@ describe("@lectern/config", () => {
     expect(c.distillEngine).toBe("legacy");
     expect(c.transcriptEngine).toBe("off");
     expect(c.ask).toEqual({ enabled: false, monthlyLimitMicrousd: 2_000_000 });
+    expect(c.calendar).toBe(false);
     expect(c.gemini.model).toBe("gemini-3.8-flash");
     expect(c.logRequests).toBe(true);
     expect(JSON.stringify(c)).not.toContain("/home/eunhhu");
@@ -25,6 +26,34 @@ describe("@lectern/config", () => {
   test("pdf flag on and invalid", () => {
     expect(loadConfig({ LECTERN_PDF: "1" }).pdf).toBe(true);
     expect(() => loadConfig({ LECTERN_PDF: "2" })).toThrow(ConfigError);
+  });
+
+  test("calendar flag defaults off", () => {
+    expect(loadConfig({}).calendar).toBe(false);
+  });
+
+  test("calendar flag and Google secrets", () => {
+    const c = loadConfig({ LECTERN_CALENDAR: "1", GOOGLE_OAUTH_CLIENT_ID: "id-x", GOOGLE_OAUTH_CLIENT_SECRET: "sec-y" });
+    expect(c.calendar).toBe(true);
+    const raw = JSON.stringify(c.raw);
+    expect(raw).not.toContain("sec-y");
+    expect(raw).not.toContain("id-x");
+    expect(c.raw.GOOGLE_OAUTH_CLIENT_SECRET).toBe("***");
+    expect(c.raw.GOOGLE_OAUTH_CLIENT_ID).toBe("***");
+    expect(JSON.stringify(c)).not.toContain("sec-y");
+  });
+
+  test("readSecret reads Google secrets live", () => {
+    const before = process.env.GOOGLE_OAUTH_CLIENT_ID;
+    try {
+      process.env.GOOGLE_OAUTH_CLIENT_ID = "abc";
+      expect(readSecret("GOOGLE_OAUTH_CLIENT_ID")).toBe("abc");
+      delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+      expect(readSecret("GOOGLE_OAUTH_CLIENT_ID")).toBeUndefined();
+    } finally {
+      if (before === undefined) delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+      else process.env.GOOGLE_OAUTH_CLIENT_ID = before;
+    }
   });
 
   test("values are coerced, empty strings mean unset, and lists are split", () => {

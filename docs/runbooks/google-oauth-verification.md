@@ -98,7 +98,7 @@ Google Auth Platform → Branding에 다음을 넣는다.
 
 1. **Create client** → Application type **Web application**, 이름 `lectern-web-prod`.
    - Authorized JavaScript origins: `https://lectern.qucord.com`
-   - Authorized redirect URIs: P5의 Google 로그인과 P4의 캘린더 연결 구현이 정하는 콜백 경로(예: `https://lectern.qucord.com/api/v2/integrations/google/callback`). 구현 PR에서 이 문서에 실제 경로를 적는다.
+   - Authorized redirect URIs: `https://lectern.qucord.com/api/v2/integrations/google/callback`(로컬: `http://localhost:18775/api/v2/integrations/google/callback`). P4의 캘린더 연결 콜백이다. P5의 Google 로그인 콜백은 P5가 이 목록에 더한다.
 2. 로컬 개발용 클라이언트를 따로 만든다(`lectern-web-dev`, origin `http://localhost:18775`). 운영 클라이언트에 localhost를 섞지 않는다.
 3. Client ID와 Client secret은 비밀번호 관리자에 보관하고, 운영 값은 `/etc/lectern/lectern.env`에만 넣는다(변수 이름은 구현 때 `packages/config`에 추가). 저장소에 커밋하지 않는다. 교체 절차는 [secret-rotation.md](secret-rotation.md)에 추가한다.
 

@@ -786,6 +786,36 @@ export const ROUTES: RouteDef[] = [
     responses: { 200: json(R.EventCandidateList, "The updated candidates.") },
     errors: [400, 403, 404],
   },
+  {
+    method: "get",
+    path: "/calendar/feed",
+    operationId: "getCalendarFeed",
+    summary: "The caller's ICS subscription",
+    tag: "calendar",
+    query: R.CalendarFeedQuery,
+    responses: { 200: json(R.CalendarFeedInfo, "Whether a subscription exists. The URL is never shown again after create.") },
+    errors: [400, 403],
+  },
+  {
+    method: "post",
+    path: "/calendar/feed",
+    operationId: "createCalendarFeed",
+    summary: "Create or replace the ICS subscription",
+    tag: "calendar",
+    body: { schema: R.CreateCalendarFeedRequest },
+    responses: { 200: json(R.CalendarFeedCreated, "The new subscription URL (shown once). The old URL stops working.") },
+    errors: [400, 403],
+  },
+  {
+    method: "delete",
+    path: "/calendar/feed",
+    operationId: "deleteCalendarFeed",
+    summary: "Remove the ICS subscription",
+    tag: "calendar",
+    query: R.CalendarFeedQuery,
+    responses: { 204: noContent },
+    errors: [400, 403],
+  },
 
   // integrations -------------------------------------------------------------
   {

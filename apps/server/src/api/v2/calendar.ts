@@ -1,6 +1,6 @@
 import { db } from "../../db.ts";
 import { callerIn, can, requireWorkspace } from "./access.ts";
-import { apiError, defineRouter, notFound, ok, pageBounds, pageFrom, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, notImplemented, ok, pageBounds, pageFrom, type V2Request } from "./common.ts";
 import { eventCandidateDto, type EventCandidateRow, type RecordingRow } from "./rows.ts";
 import { transact } from "./store.ts";
 
@@ -74,4 +74,8 @@ export const calendarRouter = defineRouter({
     });
     return ok(req, { items: rows.map((r) => eventCandidateDto(get(r.id))) });
   },
+  // ICS subscription (CONTRACTS §4): P4-01.
+  getCalendarFeed: notImplemented,
+  createCalendarFeed: notImplemented,
+  deleteCalendarFeed: notImplemented,
 });
