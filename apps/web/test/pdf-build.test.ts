@@ -1,6 +1,6 @@
 // The web build ships pdf.js same-origin (D-P3-7): the worker is its own file under
 // /app/assets (never a script tag of index.html, never a blob: or CDN URL), the CMaps,
-// fonts and decoders are copied next to it under a versioned directory, the lazy viewer
+// fonts and image decoders are copied next to it under a versioned directory, the lazy viewer
 // chunk knows both URLs, and eval stays off.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -39,7 +39,7 @@ const scripts = () => readdirSync(assets).filter((f) => f.endsWith(".js") && !f.
 describe("pdf.js in the web build", () => {
   test("worker is bundled same-origin", () => {
     expect(readdirSync(assets).filter((f) => /^pdf-worker-[\w-]+\.js$/.test(f))).toHaveLength(1);
-    for (const dir of ["cmaps", "standard_fonts", "wasm", "iccs"]) expect(existsSync(join(assets, "pdfjs", version, dir)), dir).toBe(true);
+    for (const dir of ["cmaps", "standard_fonts", "wasm"]) expect(existsSync(join(assets, "pdfjs", version, dir)), dir).toBe(true);
     expect(existsSync(join(assets, "pdfjs", version, "cmaps", "UniKS-UCS2-H.bcmap"))).toBe(true);
     expect(readFileSync(join(out, "index.html"), "utf8")).not.toContain("pdf-worker");
   });

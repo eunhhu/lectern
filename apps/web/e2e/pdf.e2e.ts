@@ -1,8 +1,9 @@
 // The PDF viewer of the files panel (D-P3-7) on the fixture build: one canvas per view,
 // page moves by keyboard, field and source chip, zoom, selectable text, the open error,
 // a 300-page document, axe, and OCR of a scanned PDF only after its cost was shown and
-// confirmed (D-P3-3). The fixture serves no PDF bytes, so every test answers the content
-// route with a generated PDF. The `problems` fixture fails any test with a CSP violation.
+// confirmed (D-P3-3).
+// Every test answers the content route itself with a generated PDF. The `problems`
+// fixture fails any test with a CSP violation or an uncaught error.
 
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures.ts";
@@ -155,12 +156,12 @@ test.describe("OCR of a scanned PDF", () => {
     await offer.click();
     await expect(dialog).toContainText("18쪽을 AI로 읽습니다.");
 
-    // Only "OCR 시작" queues it; afterwards nothing is left to read.
+    // Only "OCR 시작" queues it; once the pages have text (the fixture reads them at once)
+    // the offer goes away.
     await dialog.getByRole("button", { name: "OCR 시작" }).click();
     await expect(dialog).toBeHidden();
     await expect(page.getByText("글자 인식을 시작했습니다.")).toBeVisible();
-    await offer.click();
-    await expect(dialog).toContainText("이미 모든 쪽의 글자를 읽었습니다.");
-    await expect(dialog.getByRole("button", { name: "OCR 시작" })).toHaveCount(0);
+    await expect(page.getByText("글자 인식으로 읽은 PDF입니다.")).toBeVisible();
+    await expect(offer).toHaveCount(0);
   });
 });

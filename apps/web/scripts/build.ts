@@ -7,7 +7,7 @@
 //                              self-hosted Pretendard (D-P2-7), see emitFonts
 //   dist/assets/pdf-worker-[hash].js
 //                              the pdf.js worker, bundled on its own (D-P3-7), see emitPdfWorker
-//   dist/assets/pdfjs/<version>/{cmaps,standard_fonts,wasm,iccs}/
+//   dist/assets/pdfjs/<version>/{cmaps,standard_fonts,wasm}/
 //                              data files pdf.js fetches at run time, see emitPdfData
 //
 // The server serves this directory at /app (apps/server/src/web-shell.ts).
@@ -127,8 +127,12 @@ export async function emitPdfWorker(assetsDir: string, dev: boolean): Promise<st
   return ASSET_PATH + basename(entry.path);
 }
 
-/** pdf.js data directories: CMaps (CJK text), the standard 14 fonts, image decoders and ICC profiles. */
-export const PDFJS_DATA_DIRS = ["cmaps", "standard_fonts", "wasm", "iccs"] as const;
+/**
+ * pdf.js data directories: CMaps (CJK text), the standard 14 fonts and the JPEG 2000 / JBIG2
+ * image decoders of scanned pages. No ICC profiles: with `useWorkerFetch: false` pdf.js
+ * keeps ICC colour management off and draws the alternate colour space.
+ */
+export const PDFJS_DATA_DIRS = ["cmaps", "standard_fonts", "wasm"] as const;
 
 /**
  * Copies the pdf.js data files into assets/pdfjs/<version>/ and returns that URL (with a

@@ -247,16 +247,30 @@ export function PdfViewer({ assetId, recordingId, name, pageCount, targetPage }:
   );
 }
 
-/** "스캔본" and the OCR offer, when most pages have no text layer and the server offers OCR. */
+/**
+ * "스캔본" and, while some pages still have no text, the OCR offer (when the server offers
+ * OCR). `scanned` describes the file and stays true after OCR, so the offer follows the
+ * pages' text instead.
+ */
 function ScanNotice({ assetId, recordingId }: { assetId: string; recordingId: string }) {
   const pages = useAssetPages(assetId);
   const [open, setOpen] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
-  if (!pages.data?.scanned || unavailable) return null;
+  if (!pages.data?.scanned) return null;
+  const unread = pages.data.pages.filter((p) => p.char_count === 0).length;
+  if (unread === 0) {
+    return (
+      <div className={s.scan}>
+        <Badge tone="neutral">스캔본</Badge>
+        <span className={s.scanText}>글자 인식으로 읽은 PDF입니다.</span>
+      </div>
+    );
+  }
+  if (unavailable) return null;
   return (
     <div className={s.scan}>
       <Badge tone="attention">스캔본</Badge>
-      <span className={s.scanText}>글자 정보가 없는 PDF라 검색과 인용에 쓰이지 않습니다.</span>
+      <span className={s.scanText}>글자 정보가 없는 쪽은 검색과 인용에 쓰이지 않습니다.</span>
       <Button size="sm" onPress={() => setOpen(true)}>
         글자 인식(OCR)…
       </Button>

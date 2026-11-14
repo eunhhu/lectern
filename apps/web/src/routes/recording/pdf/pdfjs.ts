@@ -2,7 +2,8 @@
 // the module is its own chunk and the worker is a separate same-origin file
 // (scripts/build.ts emitPdfWorker), whose URL and the data directory come from `define`.
 // Eval stays off (`script-src 'self'` has no 'unsafe-eval'), XFA forms are not rendered,
-// and the main thread fetches CMaps, fonts and decoders from /app/assets.
+// and the main thread fetches CMaps, fonts and image decoders from /app/assets, under the
+// page's `connect-src 'self'` (useWorkerFetch: false).
 
 type Pdfjs = typeof import("pdfjs-dist");
 
@@ -32,5 +33,4 @@ export const PDF_OPEN_OPTIONS = {
   cMapPacked: true,
   standardFontDataUrl: `${DATA}standard_fonts/`,
   wasmUrl: `${DATA}wasm/`,
-  iccUrl: `${DATA}iccs/`,
 } as const;
