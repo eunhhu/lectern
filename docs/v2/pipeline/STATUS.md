@@ -56,6 +56,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 녹음 엔진의 기기 점검(통화 중 일시정지, AirPods 빼기, 화면 끈 3시간, 무음 경고, 장치 바뀜, 녹음 중 강제 종료): `apps/apple/MANUAL_CHECKS.md` 4–9 | P6-A4 |
 | 화면 부품의 기기 점검(가장 큰 글자, VoiceOver로 문서 끝까지, 전사 직접 스크롤 뒤 5초 — Mac 휠·트랙패드가 스크롤 단계를 보고하는지 포함): `apps/apple/MANUAL_CHECKS.md` 10–12 | P6-A5 |
 | iOS 앱 셸의 기기 점검(만료된 토큰으로 긴 재생, VoiceOver로 목록·상세, iPad 나란히 보기, 픽스처 UI 테스트 실행): `apps/apple/MANUAL_CHECKS.md` 13–16. UI 테스트는 이 Mac의 CoreSimulator가 Xcode보다 오래돼 빌드만 했다. iPhone이 녹음 목록부터 보이는지(`preferredCompactColumn`)도 여기서 본다 | P6-A6 |
+| 녹음 표면의 기기 점검(제어 센터·동작 버튼·Siri로 시작, 잠금 화면 3시간 녹음과 잠긴 채 업로드, Dynamic Island, 통화 중 일시정지가 Live Activity에 보이는지, Live Activity를 꺼도 녹음, 녹음 뒤 재생 음질): `apps/apple/MANUAL_CHECKS.md` 17–25(25: 앱에서 정지하고 바로 잠가도 업로드가 끝나는지). 컨트롤의 인텐트(`RecordingToggleIntent`)가 위젯 확장이 아니라 앱 프로세스에서 도는지는 17에서 본다(명세의 전제). 빌드 산출물의 `Metadata.appintents`에 인텐트 다섯 개와 단축어 문구 세 개가 들어간 것까지는 확인했다 | P6-A7 |
 | 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
 | CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
 | Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
@@ -93,6 +94,8 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 계정 삭제 확인 메일(방침과 문구가 필요하다) | P5-09 |
 | iOS 앱에 문서 편집·물어보기·검색·캘린더·PDF 보기가 없다(PDF 출처는 눌러도 아무 일도 없다). 웹을 따라잡는 화면은 이 파이프라인의 WP가 아니다 | P6-A6 |
 | 업로드 대기열 항목이 계정에 묶여 있지 않다. 로그아웃 뒤 다른 계정으로 로그인하면 이전 계정의 녹음을 그 계정으로 올린다 | P6-A6 |
+| 대기열에 넣지 못한 녹음 파일과 쓰다 실패한 녹음 파일은 App Group의 `Recordings/`에 남지만 다시 넣거나 지우는 화면이 없다 | P6-A7 |
+| 새 녹음은 언제나 백그라운드 세션으로 올린다. 다만 앱이 포그라운드에서 다시 올리던 예전 항목(`run()`이 잡고 있던 것)은 백그라운드로 갈 때 넘기지 않는다. 멈추면 그 파트가 실패해 `네트워크를 기다리는 중`이 되고 다음 활성화 때 이어진다. 백그라운드 세션은 이 Mac에서 돌려 보지 못했다(빌드만) | P6-A7 |
 | 내보내기 zip의 ZIP64(4 GiB를 넘는 워크스페이스) | P5-08 |
 | v1 사용량 관리자 화면: P5-13이 P6-C보다 먼저 돌면 빠진다. P6-03 뒤에 더해야 한다 | P5-13 |
 | 관리자 콘솔 2부를 P5-16(멤버·녹음·대조표)과 P5-13(저장소·운영·설정·감사 로그)으로 나눴다(옛 콘솔 기능 85행, CONTRACTS S-33). `LECTERN_V1_BLOCK`을 켜면 새 콘솔의 녹음 동작(재시도·삭제·오디오 삭제, `/api/lectures*`)도 막힌다 | P5-16, P6-03 |
@@ -157,3 +160,6 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-A6 | 오디오는 `LecternAPI.assetContentURL`이 자격을 `?token=`에 넣은 주소로 재생한다(AVPlayer는 헤더를 못 붙인다). 접근 토큰이 1시간이라 재생 중 항목이 실패하면 새 주소로 한 번 다시 불러 같은 위치에서 잇는다 | 기록만 |
 | 2026-11-15 | P6-A6 | 백그라운드 업로드(`BackgroundUploader`, `handleEventsForBackgroundURLSession`)는 아직 없다. 앱이 활성일 때만 `run()`한다. 대기열은 프로세스마다 하나여야 하는데 지금은 `AppModel`이 만들고 서버 주소가 바뀌면 다시 만든다. 인텐트가 장면 없이 앱을 깨우면 `AppModel`이 없을 수 있다 | P6-A7에 전달 |
 | 2026-11-15 | P6-A6 | 붙여 넣은 API 토큰은 만료가 없는데 이제 `?token=`으로도 간다. 서버 v2 로그는 pathname만 남긴다(쿼리 없음). 앞단 프록시의 접근 로그가 쿼리를 남기는지 확인한다 | P5-15 보안 검토에 더함 |
+| 2026-11-15 | P6-A7 | 프로세스에 하나인 `AppServices`(`App.init`에서 만든다)가 클라이언트, 업로드 대기열과 `BackgroundUploader`, 녹음 세션을 갖는다. 업로드는 활성일 때 `run(skipping: inFlightJobIDs())`, 활성이 아닐 때 `BackgroundUploader.start(jobID:)`(`UploadQueue.claimForBackground`)로, 한 항목은 한쪽만 올린다. 공유 확장은 `enqueue`만 하고 올리지 않는다 | P6-A8·A9에 전달 |
+| 2026-11-15 | P6-A7 | 녹음 Live Activity(`RecordingActivityAttributes`, LecternIntents)는 정지 4초 뒤 끝난다. 처리 진행은 별도 활동으로 잇는다. 인텐트는 App Group `default_workspace_id`(로그인 때 앱이 개인 워크스페이스를 적는다)로 녹음한다 | P6-A11에 전달 |
+| 2026-11-15 | P6-A7 | 설치된 SDK의 `ControlWidgetToggle`은 `SetValueIntent` 하나만 받아서 컨트롤은 시작·정지 인텐트 둘이 아니라 `RecordingToggleIntent`(SetValueIntent + AudioRecordingIntent) 하나다. App Shortcuts는 앱 타깃에 두고 문구는 "Lectern으로 녹음 시작"이다 | 기록만 |
