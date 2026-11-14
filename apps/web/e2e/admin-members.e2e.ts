@@ -222,7 +222,7 @@ test("delete a recording", async ({ page }) => {
   await dialog.getByRole("button", { name: "녹음 삭제" }).click();
   await expect(page.getByText("녹음을 삭제했습니다.")).toBeVisible();
   await expect(page).toHaveURL(/\/app\/admin\/recordings$/);
-  await expect(page.getByText("54개")).toBeVisible();
+  await expect(page.getByText("54개", { exact: true })).toBeVisible();
 });
 
 test("owner link", async ({ page }) => {

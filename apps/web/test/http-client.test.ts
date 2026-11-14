@@ -649,6 +649,78 @@ describe("admin console (P5-12)", () => {
     await expect(api.retryLecture("lec_1")).rejects.toMatchObject({ status: 409, message: "이미 처리 중입니다." });
   });
 
+  test("admin storage and ops calls (P5-13): previews, runs, settings and the audit query", async () => {
+    const source = createFixtureClient({ latencyMs: 0 }).admin;
+    const storage = await source.storage();
+    const ops = await source.ops();
+    const settings = await source.settings();
+    const audit = await source.audit({});
+    const maintenance = await source.runMaintenance();
+    const index = { ...ops.jobs.running[0]!, id: "job_index", kind: "index", stage: "index" };
+    const { fn, seen } = fakeFetch((req) => {
+      if (req.url === "/api/admin/storage") return json(200, { ok: true, ...storage });
+      if (req.url === "/api/admin/storage/compact") return json(200, { ok: true, dryRun: true, candidates: 35, queued: 0, candidateBytes: 900, estimatedSavedBytes: 600 });
+      if (req.url === "/api/admin/storage/gc") return json(200, { ok: true, dryRun: false, orphans: { count: 4, bytes: 38 }, movedToTrash: 4 });
+      if (req.url === "/api/admin/storage/retention") return json(200, { ok: true, dryRun: true, retention: { days: 14, count: 17, bytes: 5 }, failedRetention: { days: 14, count: 1, bytes: 2 } });
+      // A v2 "index" job comes through the v1 queue too; a row of another shape is left out.
+      if (req.url === "/api/admin/ops") return json(200, { ok: true, ...ops, jobs: { ...ops.jobs, running: [...ops.jobs.running, index, { id: "job_broken" }] } });
+      if (req.url === "/api/admin/maintenance/run") return json(200, { ok: true, result: maintenance });
+      if (req.url === "/api/admin/overview") return json(200, { ok: true, settings });
+      if (req.url === "/api/admin/settings") return json(200, { ok: true, settings: { ...settings, audit_retention_days: 400 } });
+      return json(200, { ok: true, ...audit, logs: [...audit.logs.slice(0, 2), { id: 5 }] });
+    });
+    const api = createHttpClient({ fetch: fn }).admin;
+    expect((await api.storage()).compaction.candidates).toBe(storage.compaction.candidates);
+    expect(await api.compactAll(true)).toEqual({ dryRun: true, candidates: 35, queued: 0, candidateBytes: 900, estimatedSavedBytes: 600 });
+    expect((await api.gcStorage(false)).orphans).toEqual({ count: 4, bytes: 38, files: [] });
+    expect((await api.applyRetention(true)).failedRetention.count).toBe(1);
+    const got = await api.ops();
+    expect(got.jobs.running.map((j) => j.id)).toEqual([...ops.jobs.running.map((j) => j.id), "job_index"]);
+    expect(await api.runMaintenance()).toEqual(maintenance);
+    expect(await api.settings()).toEqual(settings);
+    expect((await api.saveSettings({ audit_retention_days: 400 })).audit_retention_days).toBe(400);
+    const page = await api.audit({ action: "storage", q: "휴지통", cursor: "2026-11-01T00:00:00.000Z|audlog_x", limit: 50 });
+    expect(page.logs.map((l) => l.id)).toEqual(audit.logs.slice(0, 2).map((l) => l.id));
+    await api.audit({ q: "" });
+
+    const [readStorage, compact, gc, retention, readOps, run, readSettings, save, list, bare] = seen;
+    expect([readStorage!.method, readStorage!.url]).toEqual(["GET", "/api/admin/storage"]);
+    expect([compact!.method, compact!.url]).toEqual(["POST", "/api/admin/storage/compact"]);
+    expect(JSON.parse(compact!.body!)).toEqual({ all: true, dryRun: true });
+    expect([gc!.method, gc!.url]).toEqual(["POST", "/api/admin/storage/gc"]);
+    expect(JSON.parse(gc!.body!)).toEqual({ dryRun: false });
+    expect([retention!.method, retention!.url]).toEqual(["POST", "/api/admin/storage/retention"]);
+    expect(JSON.parse(retention!.body!)).toEqual({ dryRun: true });
+    expect([readOps!.method, readOps!.url]).toEqual(["GET", "/api/admin/ops"]);
+    expect([run!.method, run!.url]).toEqual(["POST", "/api/admin/maintenance/run"]);
+    // The settings are read from the overview's answer; a save sends the patch it is given
+    // (the settings page gives all ten).
+    expect([readSettings!.method, readSettings!.url]).toEqual(["GET", "/api/admin/overview"]);
+    expect([save!.method, save!.url]).toEqual(["PATCH", "/api/admin/settings"]);
+    expect(JSON.parse(save!.body!)).toEqual({ audit_retention_days: 400 });
+    const listUrl = new URL(list!.url, "http://x");
+    expect([list!.method, listUrl.pathname]).toEqual(["GET", "/api/admin/audit"]);
+    expect(Object.fromEntries(listUrl.searchParams)).toEqual({ action: "storage", q: "휴지통", cursor: "2026-11-01T00:00:00.000Z|audlog_x", limit: "50" });
+    expect(bare!.url).toBe("/api/admin/audit");
+  });
+
+  test("admin settings: an answer that drifts from the ten settings is rejected, never half-read", async () => {
+    const settings = await createFixtureClient({ latencyMs: 0 }).admin.settings();
+    const storage = await createFixtureClient({ latencyMs: 0 }).admin.storage();
+    const { settings: _dropped, ...withoutSettings } = storage;
+    let answer: unknown = {};
+    const { fn } = fakeFetch((req) => (req.url === "/api/admin/storage" ? json(200, { ok: true, ...withoutSettings }) : json(200, answer)));
+    const api = createHttpClient({ fetch: fn }).admin;
+    const { audit_retention_days: _gone, ...missing } = settings;
+    for (const bad of [missing, { ...settings, default_user_role: "owner" }, { ...settings, storage_compact_bitrate_kbps: "40" }]) {
+      answer = { ok: true, settings: bad };
+      await expect(api.settings()).rejects.toMatchObject({ status: 200, code: "invalid_response" });
+      await expect(api.saveSettings({})).rejects.toMatchObject({ status: 200, code: "invalid_response" });
+    }
+    // The storage card needs only the failed-lecture retention; without it, 0 (off).
+    expect((await api.storage()).settings).toEqual({ failed_audio_retention_days: 0 });
+  });
+
   test("the fixture admin follows the server's rules", async () => {
     const api = createFixtureClient({ latencyMs: 0 }).admin;
     await expect(api.updateUser("usr_fixture_me", { role: "member" })).rejects.toMatchObject({ status: 400 });
