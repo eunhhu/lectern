@@ -2,6 +2,7 @@
 
 import type { AdminUser } from "../../api/admin.ts";
 import type { Job, StageRun } from "../../api/types.ts";
+import { formatDuration } from "../../lib/format.ts";
 
 /** "$0.0123", "$1.23", "$0": microdollars ÷ 1e6, at least three significant digits. */
 export function formatUsd(microusd: number): string {
@@ -77,4 +78,29 @@ export function recentPeriods(now = Date.now(), count = 7): string[] {
     out.push(d.toISOString().slice(0, 7));
   }
   return out;
+}
+
+/** The v1 lecture status (`lectures.status`). */
+export const LECTURE_STATUS_LABEL: Record<"processing" | "done" | "error", string> = { processing: "처리 중", done: "완료", error: "오류" };
+
+/** "1시간 4분" from seconds, "—" when unknown. */
+export function formatSeconds(sec: number): string {
+  return sec > 0 ? formatDuration(sec * 1000) : "—";
+}
+
+/** The v1 lecture stage (`lectures.stage`), as the old console wrote it. */
+const LECTURE_STAGE_LABEL: Record<string, string> = {
+  queued: "대기 중",
+  preparing: "준비 중",
+  uploading: "업로드 중",
+  analyzing: "분석 중",
+  writing: "노트 작성 중",
+  retry: "재시도 대기",
+  done: "완료",
+  error: "오류",
+  compacting: "압축 중",
+};
+
+export function lectureStageLabel(stage: string, status: keyof typeof LECTURE_STATUS_LABEL): string {
+  return LECTURE_STAGE_LABEL[stage] ?? (stage || LECTURE_STATUS_LABEL[status]);
 }

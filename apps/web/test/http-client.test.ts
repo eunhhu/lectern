@@ -578,6 +578,77 @@ describe("admin console (P5-12)", () => {
     await expect(api.jobs({})).rejects.toBeInstanceOf(ApiClientError);
   });
 
+  test("admin members and lectures calls (P5-16): the old console's v1 routes and bodies", async () => {
+    const source = createFixtureClient({ latencyMs: 0 }).admin;
+    const page = await source.lectures({ status: "error" });
+    const detail = await source.lecture("lec_fx_06");
+    const { fn, seen } = fakeFetch((req) => {
+      if (req.url === "/api/admin/users" && req.method === "POST") return json(201, { ok: true, user: { id: "usr_new" } });
+      if (req.url.startsWith("/api/admin/users/")) return json(200, { ok: true, user: null });
+      if (req.url.startsWith("/api/admin/lectures/")) return json(200, { ok: true, lecture: detail });
+      // The real server sends the queue's own kind (a v2 "index" job), not only distill/compact.
+      if (req.url.startsWith("/api/admin/lectures")) return json(200, { ok: true, ...page, lectures: [{ ...page.lectures[0]!, job_state: "queued", job_kind: "index" }] });
+      if (req.url === "/api/admin/storage/compact") return json(200, { ok: true, queued: 1, estimatedSavedBytes: 7_000_000 });
+      if (req.url.endsWith("/audio")) return json(200, { ok: true, reclaimedBytes: 12_345 });
+      return json(200, { ok: true });
+    });
+    const api = createHttpClient({ fetch: fn }).admin;
+    const newUser = {
+      email: "new@example.com",
+      displayName: "새 사람",
+      password: "secret-1",
+      role: "member" as const,
+      status: "active" as const,
+      canIngest: true,
+      canShare: false,
+      canUseServerKey: true,
+      quotaMb: 2048,
+      memo: "",
+    };
+    expect(await api.createUser(newUser)).toBe("usr_new");
+    const patch = { displayName: "오세훈", role: "member" as const, status: "active" as const, canIngest: true, canShare: true, canUseServerKey: false, quotaMb: 0, memo: "메모", revokeSessions: true };
+    await api.updateUser("usr_fixture_sehun", patch);
+    const got = await api.lectures({ status: "error", q: "자료구조", owner: "usr_fixture_sehun", limit: 50, offset: 50 });
+    expect(got.counts.error).toBe(3);
+    expect([got.lectures[0]!.job_state, got.lectures[0]!.job_kind]).toEqual(["queued", "index"]);
+    await api.lectures({ q: "" });
+    expect((await api.lecture("lec_fx_06")).error_message).toContain("Gemini");
+    await api.retryLecture("lec_fx_06");
+    expect(await api.compactLectures(["lec_fx_05"])).toEqual({ queued: 1, estimatedSavedBytes: 7_000_000 });
+    expect(await api.deleteLectureAudio("lec_fx_05")).toEqual({ reclaimedBytes: 12_345 });
+    await api.deleteLecture("lec_fx_05");
+
+    const [create, update, list, bare, one, retry, compact, dropAudio, drop] = seen;
+    expect([create!.method, create!.url]).toEqual(["POST", "/api/admin/users"]);
+    expect(JSON.parse(create!.body!)).toEqual(newUser);
+    expect([update!.method, update!.url]).toEqual(["PATCH", "/api/admin/users/usr_fixture_sehun"]);
+    // The whole form, camelCase; no new password when none was typed.
+    expect(JSON.parse(update!.body!)).toEqual(patch);
+    expect(JSON.parse(update!.body!)).not.toHaveProperty("newPassword");
+    const listUrl = new URL(list!.url, "http://x");
+    expect([list!.method, listUrl.pathname]).toEqual(["GET", "/api/admin/lectures"]);
+    expect(Object.fromEntries(listUrl.searchParams)).toEqual({ status: "error", q: "자료구조", owner: "usr_fixture_sehun", limit: "50", offset: "50" });
+    expect(bare!.url).toBe("/api/admin/lectures");
+    expect([one!.method, one!.url]).toEqual(["GET", "/api/admin/lectures/lec_fx_06"]);
+    expect([retry!.method, retry!.url]).toEqual(["POST", "/api/lectures/lec_fx_06/retry"]);
+    expect([compact!.method, compact!.url]).toEqual(["POST", "/api/admin/storage/compact"]);
+    expect(JSON.parse(compact!.body!)).toEqual({ ids: ["lec_fx_05"] });
+    expect([dropAudio!.method, dropAudio!.url, dropAudio!.body]).toEqual(["DELETE", "/api/lectures/lec_fx_05/audio", null]);
+    expect([drop!.method, drop!.url, drop!.body]).toEqual(["DELETE", "/api/lectures/lec_fx_05", null]);
+  });
+
+  test("admin lectures: a page or a new user drifting from the shape read is rejected", async () => {
+    const { fn } = fakeFetch((req) => {
+      if (req.url === "/api/admin/users") return json(201, { ok: true });
+      if (req.url.startsWith("/api/lectures/")) return json(409, { error: "이미 처리 중입니다." });
+      return json(200, { ok: true, total: 1, lectures: [{ id: "lec_1", status: "teleporting" }] });
+    });
+    const api = createHttpClient({ fetch: fn }).admin;
+    await expect(api.lectures({})).rejects.toMatchObject({ status: 200, code: "invalid_response" });
+    await expect(api.createUser({ email: "a", displayName: "", password: "secret", role: "member", status: "active", canIngest: true, canShare: true, canUseServerKey: true, quotaMb: 0, memo: "" })).rejects.toMatchObject({ code: "invalid_response" });
+    await expect(api.retryLecture("lec_1")).rejects.toMatchObject({ status: 409, message: "이미 처리 중입니다." });
+  });
+
   test("the fixture admin follows the server's rules", async () => {
     const api = createFixtureClient({ latencyMs: 0 }).admin;
     await expect(api.updateUser("usr_fixture_me", { role: "member" })).rejects.toMatchObject({ status: 400 });

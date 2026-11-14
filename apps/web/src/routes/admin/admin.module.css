@@ -3,6 +3,8 @@
 
 .layout {
   display: grid;
+  width: 100%;
+  box-sizing: border-box;
   grid-template-columns: 160px minmax(0, 1fr);
   gap: var(--space-24);
   max-width: 1280px;
@@ -350,4 +352,86 @@
 .person {
   display: flex;
   flex-direction: column;
+}
+
+/* P5-16: badges in a cell, the owner filter chip, forms on a user's page, a lecture's error. */
+.badges {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+}
+
+.chipField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.chipLabel {
+  font: var(--typography-label);
+  letter-spacing: var(--typography-label-letter-spacing);
+  color: var(--color-text-secondary);
+}
+
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-12);
+  border: 1px solid var(--color-status-danger-border);
+  border-radius: var(--radius-md);
+  background: var(--color-status-danger-subtle);
+  color: var(--color-status-danger-fg);
+  white-space: pre-wrap;
+}
+
+.excerpt {
+  max-width: 70ch;
+  color: var(--color-text-secondary);
+}
+
+.usage {
+  max-width: 28rem;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  max-width: 36rem;
+}
+
+.fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12);
+}
+
+.formActions {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.textarea {
+  min-height: 4.5em;
+  padding-block: var(--space-8);
+  resize: vertical;
+}
+
+@media (max-width: 600px) {
+  .formRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

@@ -9,9 +9,10 @@ import { Icon, type IconName } from "../../ui/Icon.tsx";
 import { NotFoundPage } from "../placeholders.tsx";
 import s from "./admin.module.css";
 
-const TABS: { to: "/admin" | "/admin/users" | "/admin/jobs" | "/admin/usage"; label: string; icon: IconName }[] = [
+const TABS: { to: "/admin" | "/admin/users" | "/admin/recordings" | "/admin/jobs" | "/admin/usage"; label: string; icon: IconName }[] = [
   { to: "/admin", label: "개요", icon: "home" },
   { to: "/admin/users", label: "사용자", icon: "users" },
+  { to: "/admin/recordings", label: "녹음", icon: "audio" },
   { to: "/admin/jobs", label: "작업", icon: "clock" },
   { to: "/admin/usage", label: "사용량", icon: "target" },
 ];
