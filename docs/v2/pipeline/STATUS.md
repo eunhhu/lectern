@@ -54,6 +54,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 실제 iPhone에서 푸시 등록, Live Activity(원격 갱신·push-to-start), 알림, 유니버설 링크, 위젯 | P6-A7, P6-A11 |
 | 서명한 빌드에서 App Group(`group.com.qucord.lectern`)과 Keychain 접근 그룹이 프로비저닝되고 앱·위젯·공유 확장이 같이 쓰는지. P6-A1부터 entitlements가 비어 있어서(XcodeGen이 매번 지웠다, 2026-11-15에 고침) 서명한 빌드로 확인된 적이 없다 | P6-A1, P6-A2, P6-A3 |
 | 녹음 엔진의 기기 점검(통화 중 일시정지, AirPods 빼기, 화면 끈 3시간, 무음 경고, 장치 바뀜, 녹음 중 강제 종료): `apps/apple/MANUAL_CHECKS.md` 4–9 | P6-A4 |
+| 화면 부품의 기기 점검(가장 큰 글자, VoiceOver로 문서 끝까지, 전사 직접 스크롤 뒤 5초 — Mac 휠·트랙패드가 스크롤 단계를 보고하는지 포함): `apps/apple/MANUAL_CHECKS.md` 10–12 | P6-A5 |
 | 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
 | CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
 | Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
@@ -147,3 +148,5 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-A1 | XcodeGen은 `info`·`entitlements`의 파일을 generate 때마다 `properties`로 다시 쓴다. properties가 없어서 P6-A1의 Info.plist 키(마이크 문구, 백그라운드 오디오, Live Activity, 확장의 NSExtension)와 entitlements 네 개가 모두 지워진 채 커밋돼 있었다. `project.yml`의 properties로 옮겼다(`e3a7ef3`). 이 파일들은 `project.yml`에서 고친다 | P6-A6~A12에 전달 |
 | 2026-11-15 | P6-A4 | 녹음 전에 `AVAudioApplication.requestRecordPermission`, iOS는 `SessionCoordinator.activate()` 뒤 `Recorder.start()`, 끝나면 `deactivate()`. 녹음마다 `Recorder`를 새로 만든다. `RecordingResult.markers`는 LecternKit `Marker`로 옮겨 업로드 항목에 넣는다(`atMs`가 같다) | P6-A6·A8에 전달 |
 | 2026-11-15 | P6-A4 | `EngineAudioInput.onInputLost`를 `recorder.handle(.routeLost)`로 잇는다(macOS는 오디오 세션이 없어 장치가 사라져도 다른 신호가 없다). 방해 뒤 사용자가 직접 재개할 때는 `resume()` 전에 `activate()`를 다시 부르고 `resume()` 뒤 `state`를 확인한다(입력을 다시 시작하지 못하면 일시정지로 남는다) | P6-A6·A8에 전달 |
+| 2026-11-15 | P6-A5 | 녹음 상세는 `DocumentView(document:transcript:onSource:)`, `TranscriptList`, `PlayerBar`를 조립한다. 전사 출처는 `SourceResolver.range(...)?.startMs`로 `seek(toMs:)` 뒤 재생. `TranscriptRow`는 `.equatable()`이라 처음 받은 `onSeek`를 계속 쓰므로 바뀌지 않는 참조만 잡게 넘긴다 | P6-A6·A9에 전달 |
+| 2026-11-15 | P6-A5 | Apple 앱의 시간 표기는 명세 테스트대로 `0:59`·`12:05`·`1:02:05`다(웹은 `00:59`). 블록 글은 Markdown으로 읽지 않는다(웹과 같다). 강조 상자 라벨은 domain 값의 시험·과제·중요·참고다 | 기록만 |
