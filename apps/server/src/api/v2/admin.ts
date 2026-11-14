@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
-import { db, getLectureById, resetLectureForRetry } from "../../db.ts";
+import { db, getLectureById, recordAuditLog, resetLectureForRetry } from "../../db.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
 import { isLectureBusy, wakeJobWorker } from "../../queue.ts";
-import { apiError, defineRouter, notFound, notImplemented, ok, pageBounds, pageFrom } from "./common.ts";
+import { quotaOf, setQuota, type Quota } from "../../usage.ts";
+import { apiError, defineRouter, notFound, ok, pageBounds, pageFrom } from "./common.ts";
 import { usageLedgerDto, type QueueJobRow, type UsageLedgerRow } from "./rows.ts";
 import { toJob } from "./store.ts";
 
@@ -184,6 +185,22 @@ export const adminRouter = defineRouter({
       .all(...(period ? [period] : [])) as UsageLedgerRow[];
     return ok(req, { items: rows.map(usageLedgerDto), next_cursor: null });
   },
-  // Operators set a workspace's limits by hand (P5-C contract; P5-07 implements it).
-  adminSetQuota: notImplemented,
+  // Operators set a workspace's limits by hand (D-P5-7, D10). Three nulls remove the row:
+  // the workspace is back to no limit.
+  adminSetQuota: (req) => {
+    const workspaceId = String(req.params.workspace_id);
+    if (!db.query(`SELECT 1 FROM workspace WHERE id = ?`).get(workspaceId)) return notFound(req, "워크스페이스");
+    const body = req.body as Quota;
+    const quota: Quota = { audio_ms_month: body.audio_ms_month, ai_microusd_month: body.ai_microusd_month, storage_bytes: body.storage_bytes };
+    const user = req.user!;
+    setQuota(workspaceId, quota, user.id);
+    recordAuditLog({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "workspace.quota.set",
+      targetId: workspaceId,
+      detail: JSON.stringify(quota),
+    });
+    return ok(req, quotaOf(workspaceId) ?? { audio_ms_month: null, ai_microusd_month: null, storage_bytes: null });
+  },
 });
