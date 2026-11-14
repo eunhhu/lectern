@@ -523,6 +523,41 @@ export const ROUTES: RouteDef[] = [
     },
     errors: [403, 404, 416],
   },
+  {
+    method: "get",
+    path: "/assets/{asset_id}/pages",
+    operationId: "listAssetPages",
+    summary: "The pages of a PDF asset",
+    tag: "recordings",
+    params: R.AssetParams,
+    responses: { 200: json(R.AssetPages, "Page count, whether it is a scan, and each page.") },
+    errors: [403, 404],
+  },
+  {
+    method: "post",
+    path: "/assets/{asset_id}/ocr",
+    operationId: "ocrAsset",
+    summary: "Estimate or queue OCR of a scanned PDF",
+    tag: "recordings",
+    params: R.AssetParams,
+    headers: idempotent,
+    body: { schema: R.OcrAssetRequest },
+    responses: {
+      200: json(R.OcrAssetResponse, "Dry run: the estimate only."),
+      202: json(R.OcrAssetResponse, "The OCR job was queued."),
+    },
+    errors: [400, 403, 404, 409, 429],
+  },
+  {
+    method: "get",
+    path: "/recordings/{recording_id}/alignment",
+    operationId: "getRecordingAlignment",
+    summary: "Transcript windows matched to PDF pages",
+    tag: "recordings",
+    params: R.RecordingParams,
+    responses: { 200: json(R.RecordingAlignment, "Windows with their best pages.") },
+    errors: [403, 404],
+  },
 
   // documents ------------------------------------------------------------------
   {

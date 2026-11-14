@@ -2,7 +2,7 @@ import { extname } from "node:path";
 import { db } from "../../db.ts";
 import { audioMimeForPath, serveFileWithRange } from "../../media-files.ts";
 import { loadRecording } from "./access.ts";
-import { defineRouter, notFound } from "./common.ts";
+import { defineRouter, notFound, notImplemented } from "./common.ts";
 import type { AssetRow } from "./rows.ts";
 import { assetPath } from "./store.ts";
 
@@ -22,4 +22,7 @@ export const assetsRouter = defineRouter({
     // Private: the bytes are a user's recording or document.
     return serveFileWithRange(req.c.req.raw, path, mime, { "Cache-Control": "private, no-store" });
   },
+  // Lecture PDFs (CONTRACTS §3): P3-03 lists the pages, P3-05 runs the confirmed OCR.
+  listAssetPages: notImplemented,
+  ocrAsset: notImplemented,
 });

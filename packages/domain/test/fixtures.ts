@@ -887,6 +887,47 @@ export const API_CASES: Record<string, Case> = {
     ],
     invalid: [{ workspace_id: ID.workspace, period: "2026-13", turn_count: 0, spent_microusd: 0, limit_microusd: null, per_turn_cap_microusd: 0 }],
   },
+  AssetPageInfo: {
+    schema: D.AssetPageInfo,
+    valid: [{ page_no: 1, has_text_layer: true, char_count: 1200 }],
+    invalid: [{ page_no: 0, has_text_layer: true, char_count: 1 }, { page_no: 1, has_text_layer: 1, char_count: 1 }],
+  },
+  AssetPages: {
+    schema: D.AssetPages,
+    valid: [
+      { page_count: 0, scanned: false, pages: [] },
+      { page_count: 2, scanned: true, pages: [{ page_no: 1, has_text_layer: false, char_count: 3 }, { page_no: 2, has_text_layer: false, char_count: 0 }] },
+    ],
+    invalid: [{ page_count: -1, scanned: false, pages: [] }, { page_count: 1, pages: [] }],
+  },
+  OcrAssetRequest: {
+    schema: D.OcrAssetRequest,
+    valid: [{ dry_run: true }, { dry_run: false }],
+    invalid: [{}, { dry_run: "yes" }],
+  },
+  OcrAssetResponse: {
+    schema: D.OcrAssetResponse,
+    valid: [
+      { pages_to_ocr: 12, estimated_cost_microusd: 4_000, job_id: null },
+      { pages_to_ocr: 12, estimated_cost_microusd: 4_000, job_id: ID.job },
+    ],
+    invalid: [{ pages_to_ocr: -1, estimated_cost_microusd: 0, job_id: null }, { pages_to_ocr: 1, estimated_cost_microusd: 0 }],
+  },
+  AlignmentPage: {
+    schema: D.AlignmentPage,
+    valid: [{ asset_id: ID.pdf, page_no: 3, score: 4.2 }],
+    invalid: [{ asset_id: ID.pdf, page_no: 0, score: 1 }],
+  },
+  AlignmentWindow: {
+    schema: D.AlignmentWindow,
+    valid: [{ start_ms: 0, end_ms: 120_000, pages: [{ asset_id: ID.pdf, page_no: 3, score: 4.2 }] }],
+    invalid: [{ start_ms: -1, end_ms: 120_000, pages: [] }],
+  },
+  RecordingAlignment: {
+    schema: D.RecordingAlignment,
+    valid: [{ windows: [] }, { windows: [{ start_ms: 0, end_ms: 120_000, pages: [] }] }],
+    invalid: [{}, { windows: [{ start_ms: 0, pages: [] }] }],
+  },
   AskSuggestions: {
     schema: D.AskSuggestions,
     valid: [{ suggestions: [] }, { suggestions: ["핵심 요약은?"] }],

@@ -18,6 +18,15 @@ describe("@lectern/config", () => {
     expect(JSON.stringify(c)).not.toContain("/home/eunhhu");
   });
 
+  test("pdf flag defaults off", () => {
+    expect(loadConfig({}).pdf).toBe(false);
+  });
+
+  test("pdf flag on and invalid", () => {
+    expect(loadConfig({ LECTERN_PDF: "1" }).pdf).toBe(true);
+    expect(() => loadConfig({ LECTERN_PDF: "2" })).toThrow(ConfigError);
+  });
+
   test("values are coerced, empty strings mean unset, and lists are split", () => {
     const c = loadConfig({
       PORT: "8080",

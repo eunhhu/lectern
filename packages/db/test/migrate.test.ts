@@ -16,7 +16,7 @@ describe("@lectern/db migrations", () => {
       const sqlite = new Database(join(dir, "fresh.sqlite"));
       expect(pendingMigrations(sqlite).length).toBeGreaterThan(0);
       const res = runMigrations(sqlite, { backupDir: join(dir, "backups") });
-      expect(res.applied).toEqual(["0000_job_queue", "0001_search_ask", "0002_search_fts", "0003_v2_entities", "0004_p1_pipeline"]);
+      expect(res.applied).toEqual(["0000_job_queue", "0001_search_ask", "0002_search_fts", "0003_v2_entities", "0004_p1_pipeline", "0005_p3_pdf"]);
       expect(res.backup).toBeNull(); // nothing to protect yet
       const tables = (sqlite.query(`SELECT name FROM sqlite_master WHERE type='table'`).all() as any[]).map((r) => r.name);
       for (const t of ["job", "stage_run", "artifact", "ai_call", "job_event", "system_state"]) {
@@ -29,6 +29,7 @@ describe("@lectern/db migrations", () => {
         "workspace", "membership", "folder", "tag", "recording", "recording_tag", "asset", "transcript_segment",
         "transcript_gap", "speaker", "document", "document_version", "question", "event_candidate", "action_item",
         "share_link", "integration", "usage_ledger", "saved_view", "upload", "upload_part", "lecture_sync_pending",
+        "pdf_page",
       ]) {
         expect(tables).toContain(t);
       }
@@ -47,6 +48,40 @@ describe("@lectern/db migrations", () => {
     const column = columns.find((c) => c.name === "cancel_requested_at");
     expect(column).toBeDefined();
     expect(column!.notnull).toBe(0);
+    sqlite.close();
+  });
+
+  test("fresh db has pdf_page", () => {
+    const sqlite = new Database(":memory:");
+    const res = runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") });
+    expect(res.applied.at(-1)?.endsWith("_p3_pdf")).toBe(true);
+    const columns = sqlite.query(`PRAGMA table_info(pdf_page)`).all() as Array<{ name: string; notnull: number; pk: number }>;
+    expect(columns.map((c) => c.name)).toEqual([
+      "asset_id", "page_no", "workspace_id", "recording_id", "text", "char_count", "has_text_layer", "ocr_source",
+    ]);
+    expect(columns.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name)).toEqual(["asset_id", "page_no"]);
+    expect(columns.find((c) => c.name === "ocr_source")!.notnull).toBe(0);
+    const indexes = (sqlite.query(`PRAGMA index_list(pdf_page)`).all() as Array<{ name: string }>).map((i) => i.name);
+    expect(indexes).toContain("idx_pdf_page_recording");
+    sqlite.close();
+  });
+
+  test("existing rows survive the p3_pdf migration", () => {
+    const sqlite = new Database(":memory:");
+    runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") });
+    // Roll the database back to just before p3_pdf, as a server that ran P2 would be.
+    const last = sqlite.query(`SELECT MAX(created_at) AS last FROM __drizzle_migrations`).get() as { last: number };
+    sqlite.query(`DELETE FROM __drizzle_migrations WHERE created_at = ?`).run(last.last);
+    sqlite.query(`DROP TABLE pdf_page`).run();
+    sqlite
+      .query(
+        `INSERT INTO asset (id, workspace_id, recording_id, kind, part_index, blob_key, bytes, mime, created_at)
+         VALUES ('ast_1', 'wsp_1', 'rec_1', 'pdf', 0, 'file:x.pdf', 10, 'application/pdf', 0)`,
+      )
+      .run();
+    expect(runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") }).applied).toEqual(["0005_p3_pdf"]);
+    expect(sqlite.query(`SELECT id, kind FROM asset`).all()).toEqual([{ id: "ast_1", kind: "pdf" }]);
+    expect(sqlite.query(`SELECT COUNT(*) AS n FROM pdf_page`).get()).toEqual({ n: 0 });
     sqlite.close();
   });
 
