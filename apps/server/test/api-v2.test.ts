@@ -26,7 +26,6 @@ const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Recor
 
 /** Routes of later phases (P3 PDFs, P4 calendar sync, P5 tokens). */
 const NOT_YET = new Set([
-  "ocrAsset",
   "createAccessToken",
   "revokeAccessToken",
   "startGoogleIntegration",
@@ -239,7 +238,7 @@ describe("API v2 routes of later phases", () => {
   });
 
   test("every other route has a real handler (no route answers 501)", async () => {
-    // Flag-gated routes answer 501 while their flag is off (listAssetPages, getRecordingAlignment: LECTERN_PDF).
+    // Flag-gated routes answer 501 while their flag is off (listAssetPages, ocrAsset, getRecordingAlignment: LECTERN_PDF).
     process.env.LECTERN_PDF = "1";
     resetConfigForTests();
     try {

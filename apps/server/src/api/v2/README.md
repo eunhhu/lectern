@@ -88,7 +88,7 @@
 | `DELETE /recordings/{recording_id}/audio` | `deleteRecordingAudio` | 실제 | 오디오만 지운다(전사·문서·노트·검색 색인은 남음). v1 강의는 `deleteLectureAudioOnly` 뒤 투영, `file:` 오디오 asset은 uploads 안의 파일과 행을 지움. 이미 없으면 204 |
 | `GET /assets/{asset_id}/content` | `getAssetContent` | 실제 | Range, 확장자 기준 MIME, `?token=` 가능 |
 | `GET /assets/{asset_id}/pages` | `listAssetPages` | 실제 | `LECTERN_PDF=1`일 때만(아니면 501). `process`의 `pdf_ingest`가 채운 쪽마다 글자 층 유무와 글자 수, `scanned` |
-| `POST /assets/{asset_id}/ocr` | `ocrAsset` | 501 | P3-05. `dry_run` 추정 뒤 사용자가 확인한 요청만 OCR |
+| `POST /assets/{asset_id}/ocr` | `ocrAsset` | 실제 | `LECTERN_PDF=1`일 때만(아니면 501). `dry_run: true`는 글자 없는 쪽 수와 추정 비용만(모델·큐를 건드리지 않음). `false`는 `pdf_ocr` 작업을 넣고 202(API에서는 `kind: "process"`). 쪽을 아직 못 읽었으면 409, 서버 키가 없으면 503, 녹음을 바꿀 권한이 없으면 403 |
 | `GET /recordings/{recording_id}/alignment` | `getRecordingAlignment` | 실제 | `LECTERN_PDF=1`일 때만(아니면 501). 마지막 `process`의 `align`(모델 없음)이 만든 2분 창마다 상위 3쪽과 점수. 아직 없으면 `windows: []` |
 | `GET /documents/{document_id}` | `getDocument` | 실제 | `ETag: "<current_version>"` |
 | `GET /documents/{document_id}/versions` | `listDocumentVersions` | 실제 | 최신순, 본문 제외 |

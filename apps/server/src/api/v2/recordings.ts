@@ -495,7 +495,8 @@ function regenerateDocument(req: V2Request, recording: RecordingRow, dryRun: boo
 }
 
 /** Same rule as the v1 retry route: the server's Gemini key, for the caller and the owner. */
-function canUseServerKey(user: { can_use_server_key: number; status?: string } | null): boolean {
+/** Whether an account may spend the server's Gemini key (admin switch, active account). */
+export function canUseServerKey(user: { can_use_server_key: number; status?: string } | null): boolean {
   return Boolean(user && user.can_use_server_key !== 0 && (user.status || "active") === "active");
 }
 

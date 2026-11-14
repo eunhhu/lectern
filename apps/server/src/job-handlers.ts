@@ -25,6 +25,7 @@ import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
 import { emitProgress, type DistillInput } from "./distill-queue.ts";
 import { defaultProcessHarness, JOB_CANCELED_MESSAGE, PROCESS_JOB_KIND, runProcessJob, type ProcessJobDeps } from "./process-job.ts";
+import { OCR_JOB_KIND, runOcrJob } from "./pdf-ocr-job.ts";
 import { REGENERATE_JOB_KIND, runRegenerateJob } from "./regenerate-job.ts";
 import { enqueueJob, isLectureBusy, registerJobHandler, type JobOutcome, type LeasedJob } from "./queue.ts";
 import { compactLectureAudio, isFfmpegAvailable } from "./storage.ts";
@@ -406,3 +407,9 @@ export function registerRegenerateJobHandler(deps: ProcessJobDeps = {}): void {
 }
 
 registerRegenerateJobHandler();
+
+/**
+ * The `pdf_ocr` handler (pdf-ocr-job.ts, P3-05): only ever queued by a user who confirmed
+ * the OCR estimate. One at a time; an interrupted one keeps the pages it already stored.
+ */
+registerJobHandler(OCR_JOB_KIND, (job) => runOcrJob(job), { concurrency: 1 });
