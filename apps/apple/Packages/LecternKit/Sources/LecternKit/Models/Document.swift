@@ -7,6 +7,12 @@ public struct Document: Sendable, Equatable, Identifiable {
         public let key: String
         public let title: String
         public let blocks: [DocumentBlock]
+
+        public init(key: String, title: String, blocks: [DocumentBlock]) {
+            self.key = key
+            self.title = title
+            self.blocks = blocks
+        }
     }
 
     public let id: String
@@ -18,6 +24,16 @@ public struct Document: Sendable, Equatable, Identifiable {
     public let sections: [Section]
     public let markdown: String
     public let updatedAt: Date
+
+    public init(id: String, recordingID: String, templateID: String, version: Int, sections: [Section], markdown: String, updatedAt: Date) {
+        self.id = id
+        self.recordingID = recordingID
+        self.templateID = templateID
+        self.version = version
+        self.sections = sections
+        self.markdown = markdown
+        self.updatedAt = updatedAt
+    }
 
     init(_ d: Components.Schemas.DocumentWithVersion) {
         id = d.document.id

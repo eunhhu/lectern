@@ -30,7 +30,7 @@ public actor UploadQueue {
     /// Every change of the queue (the whole list, oldest first).
     public nonisolated let updates: AsyncStream<[UploadJob]>
 
-    public init(store: UploadQueueStore, transport: UploadTransport, containerURL: URL, now: @escaping @Sendable () -> Date = Date.init) {
+    public init(store: UploadQueueStore, transport: UploadTransport, containerURL: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.store = store
         self.transport = transport
         self.containerURL = containerURL
