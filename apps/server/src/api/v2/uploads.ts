@@ -38,6 +38,10 @@ import { getFolderRow, getRecordingRow, sha256OfFile, toJob, transact } from "./
 
 /** Bytes per part (the client sends parts of exactly this size, the last one shorter). */
 export const PART_SIZE = 8 * 1024 * 1024;
+
+/** With LECTERN_PDF=1 a lecture PDF is checked strictly (D-P3-2): size, type and its first bytes. */
+export const MAX_PDF_BYTES = 50 * 1024 * 1024;
+export const PDF_MAGIC = "%PDF-";
 const MAX_FILE_BYTES = 4 * 1024 * 1024 * 1024;
 /** Audio files one new recording may have (part 1, part 2, …), joined by the process job. */
 const MAX_AUDIO_PARTS = 8;
@@ -188,6 +192,12 @@ export const uploadsRouter = defineRouter({
       return apiError(req.c, 400, "bad_request", `오디오는 최대 ${MAX_AUDIO_PARTS}개까지 올릴 수 있습니다.`);
     }
     for (const file of body.files) {
+      // LECTERN_PDF=1 only: with the flag off a PDF goes through the checks below as before (D-0-3).
+      if (config().pdf && file.kind === "pdf") {
+        const mime = file.mime.split(";")[0]!.trim().toLowerCase();
+        if (mime !== "application/pdf") return apiError(req.c, 415, "unsupported_media_type", "PDF 파일(application/pdf)만 올릴 수 있습니다.");
+        if (file.bytes > MAX_PDF_BYTES) return apiError(req.c, 413, "payload_too_large", "PDF는 50MB까지 올릴 수 있습니다.");
+      }
       const ext = storedExtension(file);
       if (typeof ext !== "string") return apiError(req.c, 415, "unsupported_media_type", ext.error);
       if (file.bytes > MAX_FILE_BYTES) return apiError(req.c, 413, "payload_too_large", "파일 하나는 4GB까지 올릴 수 있습니다.");
@@ -307,6 +317,14 @@ export const uploadsRouter = defineRouter({
         const path = join(FINAL_DIR, `${file.kind === "audio" ? generateId("aud") : uuidv7()}${ext}`);
         const sha256 = await assemble(upload.id, file, path);
         stored.push({ file, path, sha256 });
+        if (config().pdf && file.kind === "pdf") {
+          const head = new TextDecoder().decode(new Uint8Array(await Bun.file(path).slice(0, PDF_MAGIC.length).arrayBuffer()));
+          if (head !== PDF_MAGIC) {
+            // The session stays open, so the right file can be sent again.
+            for (const s of stored) rmSync(s.path, { force: true });
+            return apiError(req.c, 400, "bad_request", `${file.filename}은(는) PDF 파일이 아닙니다.`, { file_index: file.index });
+          }
+        }
         if (file.sha256 && file.sha256 !== sha256) {
           for (const s of stored) rmSync(s.path, { force: true });
           return apiError(req.c, 400, "bad_request", `${file.filename}의 SHA-256이 보낸 값과 다릅니다. 다시 올려 주세요.`, {
