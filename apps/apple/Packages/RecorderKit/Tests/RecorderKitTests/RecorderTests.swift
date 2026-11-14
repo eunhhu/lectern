@@ -272,3 +272,42 @@ final class RecorderTests: XCTestCase {
         XCTAssertNil(rest)  // never turned on
     }
 }
+
+final class RecorderObservationTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUp() {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("recorder-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testStateChangesKeepEveryTransition() async throws {
+        let input = FakeAudioInput()
+        let r = Recorder(input: input, sink: FakeAudioSink(), directory: directory)
+        let states = r.stateChanges
+        _ = try await r.start()
+        await r.pause()
+        await r.resume()  // right after the pause: both must arrive
+        await r.handle(.interruptionBegan)
+        _ = try await r.stop()
+        var seen: [RecorderState] = []
+        for await state in states { seen.append(state) }
+        XCTAssertEqual(seen, [.idle, .recording, .paused(reason: .user), .recording, .paused(reason: .interruption), .stopping, .finished])
+    }
+
+    func testRecordedMsCountsWrittenFramesOnly() async throws {
+        let input = FakeAudioInput()
+        let r = Recorder(input: input, sink: FakeAudioSink(), directory: directory)
+        _ = try await r.start()
+        input.send(30)
+        await r.pause()
+        input.send(20)
+        XCTAssertEqual(r.recordedMs, 3000)
+        await r.resume()
+        input.send(5)
+        XCTAssertEqual(r.recordedMs, 3500)
+    }
+}

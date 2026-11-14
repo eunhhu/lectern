@@ -1,35 +1,18 @@
+import AppIntents
+import LecternIntents
 import SwiftUI
 import WidgetKit
 
 @main
 struct LecternWidgetsBundle: WidgetBundle {
     var body: some Widget {
-        LecternPlaceholderWidget()
+        RecordingLiveActivity()
+        RecordingControl()
     }
 }
 
-/// Holds the extension's place until the real widgets and the Live Activity arrive.
-struct LecternPlaceholderWidget: Widget {
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "LecternPlaceholder", provider: PlaceholderProvider()) { _ in
-            Text("Lectern")
-        }
-        .configurationDisplayName("Lectern")
-    }
-}
-
-struct PlaceholderEntry: TimelineEntry {
-    let date: Date
-}
-
-struct PlaceholderProvider: TimelineProvider {
-    func placeholder(in context: Context) -> PlaceholderEntry { PlaceholderEntry(date: .now) }
-
-    func getSnapshot(in context: Context, completion: @escaping (PlaceholderEntry) -> Void) {
-        completion(PlaceholderEntry(date: .now))
-    }
-
-    func getTimeline(in context: Context, completion: @escaping (Timeline<PlaceholderEntry>) -> Void) {
-        completion(Timeline(entries: [PlaceholderEntry(date: .now)], policy: .never))
-    }
+/// The recording intents live in the LecternIntents package; the Live Activity's buttons and the
+/// control need their metadata in this extension too (they run in the app's process).
+struct LecternWidgetsIntents: AppIntentsPackage {
+    static var includedPackages: [any AppIntentsPackage.Type] { [LecternIntentsPackage.self] }
 }

@@ -16,6 +16,9 @@ public protocol Playback: AnyObject {
 @MainActor
 public final class PlayerViewModel: ObservableObject, Playback {
     public nonisolated static let rates: [Float] = [0.75, 1, 1.25, 1.5, 2]
+    /// Posted (on the main thread) when a recording starts: every player pauses, or it would play
+    /// into the recording.
+    public nonisolated static let pauseAllNotification = Notification.Name("com.qucord.lectern.pausePlayback")
     public static let failedMessage = "오디오를 재생하지 못했습니다."
 
     @Published public private(set) var positionMs = 0
@@ -47,6 +50,10 @@ public final class PlayerViewModel: ObservableObject, Playback {
 
     public init(loadItem: @escaping () async throws -> AVPlayerItem) {
         self.loadItem = loadItem
+        NotificationCenter.default.publisher(for: Self.pauseAllNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.pause() }
+            .store(in: &playerCancellables)
     }
 
     deinit {

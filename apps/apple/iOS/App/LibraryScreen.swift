@@ -1,3 +1,4 @@
+import LecternIntents
 import LecternKit
 import LecternUI
 import SwiftUI
@@ -25,6 +26,7 @@ private struct LibraryColumns: View {
     @State private var selectedRecording: String?
     @State private var showSettings = false
     @State private var showUploads = false
+    @State private var showRecorder = false
     /// iPhone (compact): the list of recordings first; a folder tap comes back to it.
     @State private var compactColumn = NavigationSplitViewColumn.content
 
@@ -46,6 +48,40 @@ private struct LibraryColumns: View {
         .task { await model.load() }
         .sheet(isPresented: $showSettings) { SettingsScreen() }
         .sheet(isPresented: $showUploads) { UploadQueueSheet() }
+        .fullScreenCover(isPresented: $showRecorder) {
+            if let session = app.recordingSession, let draft {
+                RecordScreen(session: session, draft: draft) { queued in
+                    if queued { showUploads = true }
+                }
+            }
+        }
+    }
+
+    /// Where a recording started here goes: the workspace and folder on screen.
+    private var draft: RecordingDraft? {
+        guard let workspaceID = model.workspaceID else { return nil }
+        let folder = model.folders.first { $0.id == model.folderID }
+        return RecordingDraft(workspaceID: workspaceID, folderID: folder?.id, folderName: folder?.name)
+    }
+
+    /// The big record button; "녹음 중" goes back to a recording in progress. Not in fixture mode
+    /// (no upload queue there).
+    @ViewBuilder
+    private var recordButton: some View {
+        if app.recordingSession != nil, draft != nil {
+            Button {
+                showRecorder = true
+            } label: {
+                Label(app.recording == nil ? "녹음" : "녹음 중 · 돌아가기", systemImage: app.recording == nil ? "record.circle" : "waveform")
+                    .lecternFont(.title)
+                    .frame(maxWidth: .infinity, minHeight: Theme.minTapTarget + LecternTokens.Space.s12)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.tone(.danger).text)
+            .padding(.horizontal, LecternTokens.Space.s16)
+            .padding(.bottom, LecternTokens.Space.s8)
+            .accessibilityIdentifier("record.button")
+        }
     }
 
     private var sidebar: some View {
@@ -128,6 +164,7 @@ private struct LibraryColumns: View {
             }
         }
         .refreshable { await model.refresh() }
+        .safeAreaInset(edge: .bottom) { recordButton }
         .navigationTitle(model.folders.first { $0.id == model.folderID }?.name ?? "전체")
     }
 

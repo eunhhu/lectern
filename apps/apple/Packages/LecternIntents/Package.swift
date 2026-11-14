@@ -8,9 +8,10 @@ let package = Package(
     products: [.library(name: "LecternIntents", targets: ["LecternIntents"])],
     dependencies: [
         .package(path: "../LecternKit"),
+        .package(path: "../RecorderKit"),
     ],
     targets: [
-        .target(name: "LecternIntents", dependencies: ["LecternKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .target(name: "LecternIntents", dependencies: ["LecternKit", "RecorderKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "LecternIntentsTests", dependencies: ["LecternIntents"], swiftSettings: [.swiftLanguageMode(.v5)]),
     ]
 )
