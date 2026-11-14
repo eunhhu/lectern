@@ -4,6 +4,8 @@
 // clients and shortcuts); both resolve to the same user record.
 
 import { getUserBySessionOrApiToken, type UserRecord } from "./db.ts";
+import { logger } from "./log.ts";
+import { touchSession } from "./session-meta.ts";
 
 function parseSessionCookie(cookieHeader: string | null): string | null {
   if (!cookieHeader) return null;
@@ -37,6 +39,15 @@ export function resolveActiveUser(token: string | null | undefined): UserRecord 
   if (!user) return null;
   if (user.status === "suspended" || user.status === "pending") {
     return null;
+  }
+  // A web session's last use, for Settings › 기기 (at most one write per 5 minutes). API
+  // tokens are not sessions. Bookkeeping never fails the sign-in.
+  if (token.trim().startsWith("ses_")) {
+    try {
+      touchSession(token.trim());
+    } catch (err) {
+      logger.warn("session touch failed", { error: String(err) });
+    }
   }
   return user;
 }

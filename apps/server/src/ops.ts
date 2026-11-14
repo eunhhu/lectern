@@ -20,7 +20,7 @@ import { BlobStore, deleteArtifactsForJobs, sweepHarnessData, type HarnessSweepR
 import type { MaintenanceResultDto } from "./admin-api.ts";
 import { pruneLectureEvents } from "./events.ts";
 import { pruneFinishedJobs } from "./queue.ts";
-import { DATA_DIR, HARNESS_BLOB_DIR, db, getSystemSettings } from "./db.ts";
+import { DATA_DIR, HARNESS_BLOB_DIR, db, deleteSession, getSystemSettings } from "./db.ts";
 import { ensurePrivateDir, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
 import {
@@ -277,9 +277,14 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
   };
   const settings = getSystemSettings();
 
-  const expiredSessions = step("sessions", 0, () =>
-    db.query(`DELETE FROM sessions WHERE expires_at < ?`).run(nowIso).changes
-  );
+  // One by one, so each session's device metadata (keyed by a hash of the token) goes too.
+  const expiredSessions = step("sessions", 0, () => {
+    const expired = db.query(`SELECT token FROM sessions WHERE expires_at < ?`).all(nowIso) as Array<{ token: string }>;
+    db.transaction(() => {
+      for (const s of expired) deleteSession(s.token);
+    })();
+    return expired.length;
+  });
   const expiredCodes = step("verification codes", 0, () =>
     db.query(`DELETE FROM email_verifications WHERE expires_at < ?`).run(nowIso).changes
   );

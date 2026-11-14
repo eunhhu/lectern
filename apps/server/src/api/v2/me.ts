@@ -1,6 +1,7 @@
 import { ensurePersonalWorkspace, personalWorkspaceId, sha256Hex } from "@lectern/db";
 import { extractAuthToken } from "../../auth.ts";
-import { db, getUserById, updateUserProfile, type UserRecord } from "../../db.ts";
+import { db, deleteSession, getUserById, updateUserProfile, type UserRecord } from "../../db.ts";
+import { sessionIdOf, sessionMetaOf } from "../../session-meta.ts";
 import { roleIn } from "./access.ts";
 import { defineRouter, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
 import { iso, meDto } from "./rows.ts";
@@ -10,9 +11,6 @@ function meOf(user: UserRecord) {
   if (!roleIn(user.id, personalWorkspaceId(user.id))) ensurePersonalWorkspace(db, user.id, Date.parse(user.created_at) || Date.now());
   return meDto(user, personalWorkspaceId(user.id));
 }
-
-/** A login session's public id: never the session token itself. */
-const deviceIdOf = (token: string) => `ses_${sha256Hex(token).slice(0, 32)}`;
 
 interface SessionRow {
   token: string;
@@ -37,8 +35,8 @@ function currentToken(req: V2Request): string | null {
 }
 
 // Devices are the v1 login sessions (web cookies; native apps use the API token, below).
-// The v1 schema records no device name, user agent or last use (ARCHITECTURE §10 adds
-// them with auth_session in P5), so those are null and last_seen_at is the sign-in time.
+// Their device name, user agent and last use come from auth_session_meta (P5-01, D-P5-2).
+// Sessions from before it have no row: null names, and last_seen_at is the sign-in time.
 export const meRouter = defineRouter({
   getMe: (req) => ok(req, meOf(req.user!)),
   updateMe: (req) => {
@@ -49,27 +47,31 @@ export const meRouter = defineRouter({
   listDevices: (req) => {
     const user = req.user!;
     const current = currentToken(req);
+    const meta = sessionMetaOf(user.id);
     return okPage(
       req,
-      sessionsOf(user.id).map((s) => ({
-        id: deviceIdOf(s.token),
-        workspace_id: personalWorkspaceId(user.id),
-        user_id: user.id,
-        client: "web",
-        device_name: null,
-        user_agent: null,
-        created_at: toIso(s.created_at),
-        last_seen_at: toIso(s.created_at),
-        expires_at: toIso(s.expires_at),
-        revoked_at: null,
-        current: s.token === current,
-      }))
+      sessionsOf(user.id).map((s) => {
+        const m = meta.get(sessionIdOf(s.token));
+        return {
+          id: sessionIdOf(s.token),
+          workspace_id: personalWorkspaceId(user.id),
+          user_id: user.id,
+          client: "web",
+          device_name: m?.deviceName ?? null,
+          user_agent: m?.userAgent ?? null,
+          created_at: toIso(s.created_at),
+          last_seen_at: m ? iso(m.lastSeenAt) : toIso(s.created_at),
+          expires_at: toIso(s.expires_at),
+          revoked_at: null,
+          current: s.token === current,
+        };
+      })
     );
   },
   revokeDevice: (req) => {
-    const session = sessionsOf(req.user!.id).find((s) => deviceIdOf(s.token) === req.params.device_id);
+    const session = sessionsOf(req.user!.id).find((s) => sessionIdOf(s.token) === req.params.device_id);
     if (!session) return notFound(req, "기기");
-    db.query(`DELETE FROM sessions WHERE token = ?`).run(session.token);
+    deleteSession(session.token); // with its auth_session_meta row
     return req.c.body(null, 204);
   },
   // The v1 API token (one per account, rotated in the v1 settings) is shown as the only
