@@ -49,7 +49,7 @@ import type {
   UploadSession,
   WorkspaceId,
 } from "../types.ts";
-import { buildFixtureData, processRecording, TEMPLATE_FOR, type FixtureData, type JobProgress } from "../../fixtures/index.ts";
+import { buildFixtureData, PDF_PAGE_TEXTS, processRecording, TEMPLATE_FOR, type FixtureData, type JobProgress } from "../../fixtures/index.ts";
 import { UPLOADED_GENERIC_DOC } from "../../fixtures/documents.ts";
 import { UPLOADED_GENERIC } from "../../fixtures/scripts.ts";
 import { parseFileName } from "../../lib/pairing.ts";
@@ -858,29 +858,44 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     search: (q: SearchParams) =>
       wait(() => {
         const needle = q.q.trim().toLowerCase();
-        const hits: SearchHit[] = [];
-        for (const rec of data.recordings.filter((r) => r.workspace_id === q.workspace_id)) {
-          if (q.recording_id && rec.id !== q.recording_id) continue;
+        const recs = data.recordings.filter((r) => r.workspace_id === q.workspace_id && (!q.recording_id || r.id === q.recording_id));
+        const titles: SearchHit[] = [];
+        const pdfPages: SearchHit[] = [];
+        const documents: SearchHit[] = [];
+        const transcripts: SearchHit[] = [];
+        for (const rec of recs) {
+          if ((!q.kind || q.kind === "recording") && rec.title.toLowerCase().includes(needle)) {
+            titles.push({ kind: "recording", recording_id: rec.id, recording_title: rec.title, snippet: snippet(rec.title, needle) });
+          }
+          if (!q.kind || q.kind === "pdf_page") {
+            for (const p of PDF_PAGE_TEXTS.filter((x) => x.recordingId === rec.id)) {
+              if (p.text.toLowerCase().includes(needle)) {
+                pdfPages.push({ kind: "pdf_page", recording_id: rec.id, recording_title: rec.title, snippet: snippet(p.text, needle), asset_id: p.assetId as AssetId, page: p.page });
+              }
+            }
+          }
           if (!q.kind || q.kind === "document") {
             const doc = data.documents.find((d) => d.recording_id === rec.id);
             const version = doc && data.versions.find((v) => v.document_id === doc.id && v.version === doc.current_version);
             for (const block of version?.body?.sections.flatMap((s) => s.blocks) ?? []) {
               const text = blockText(block);
               if (text.toLowerCase().includes(needle)) {
-                hits.push({ kind: "document", recording_id: rec.id, recording_title: rec.title, snippet: snippet(text, needle), document_id: doc!.id, block_id: block.id });
+                documents.push({ kind: "document", recording_id: rec.id, recording_title: rec.title, snippet: snippet(text, needle), document_id: doc!.id, block_id: block.id });
               }
             }
           }
-          if (!q.kind || q.kind === "transcript") {
+          if ((!q.kind || q.kind === "transcript") && transcripts.length < 200) {
             for (const seg of data.transcripts.get(rec.id)?.segments ?? []) {
               if (seg.text.toLowerCase().includes(needle)) {
-                hits.push({ kind: "transcript", recording_id: rec.id, recording_title: rec.title, snippet: snippet(seg.text, needle), segment_idx: seg.idx, start_ms: seg.start_ms });
-                if (hits.length >= 200) break;
+                transcripts.push({ kind: "transcript", recording_id: rec.id, recording_title: rec.title, snippet: snippet(seg.text, needle), segment_idx: seg.idx, start_ms: seg.start_ms });
+                if (transcripts.length >= 200) break;
               }
             }
           }
         }
-        return page(hits, q.cursor, q.limit ?? 20);
+        // The server ranks every kind together and puts title matches first; here the rarer
+        // kinds come before the many transcript lines, so a page of results shows each kind.
+        return page([...titles, ...pdfPages, ...documents, ...transcripts], q.cursor, q.limit ?? 20);
       }),
 
     createAskThread: (body) =>

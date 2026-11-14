@@ -21,6 +21,7 @@ import { SignupPage } from "../routes/account/SignupPage.tsx";
 import { NotFoundPage, SessionErrorPage } from "../routes/placeholders.tsx";
 import { SettingsPage } from "../routes/settings/SettingsPage.tsx";
 import { AskPage, type AskSearch } from "../routes/ask/AskPage.tsx";
+import { SearchPage, type SearchPageSearch } from "../routes/search/SearchPage.tsx";
 
 export interface RouterContext {
   api: ApiClient;
@@ -35,6 +36,18 @@ export interface LibrarySearch {
   view?: string;
   q?: string;
 }
+
+export interface RecordingSearch {
+  /** Start playback here (ms of the original audio). */
+  t?: number;
+  /** Ask this question in the note panel at once. */
+  ask?: string;
+  /** Open this PDF page in the files panel: `<asset id>:<page>`. */
+  pdf?: string;
+}
+
+/** `<asset id>:<page>` of the `pdf` search parameter. */
+const PDF_TARGET = /^[A-Za-z0-9_-]{1,64}:\d{1,5}$/;
 
 const str = (v: unknown) => (typeof v === "string" && v.length > 0 && v.length <= 200 ? v : undefined);
 
@@ -101,12 +114,23 @@ const libraryRoute = createRoute({
 const recordingRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/recordings/$recordingId",
-  validateSearch: (search: Record<string, unknown>): { t?: number; ask?: string } => {
+  validateSearch: (search: Record<string, unknown>): RecordingSearch => {
     const t = Number(search.t);
     const ask = str(search.ask);
-    return { ...(Number.isFinite(t) && t >= 0 ? { t } : {}), ...(ask ? { ask } : {}) };
+    const pdf = typeof search.pdf === "string" && PDF_TARGET.test(search.pdf) ? search.pdf : undefined;
+    return { ...(Number.isFinite(t) && t >= 0 ? { t } : {}), ...(ask ? { ask } : {}), ...(pdf ? { pdf } : {}) };
   },
   component: RecordingPage,
+});
+
+const searchRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/search",
+  validateSearch: (search: Record<string, unknown>): SearchPageSearch => ({
+    q: str(search.q),
+    kind: search.kind === "transcript" || search.kind === "document" || search.kind === "pdf_page" ? search.kind : undefined,
+  }),
+  component: SearchPage,
 });
 
 const askRoute = createRoute({
@@ -125,7 +149,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   signupRoute,
   resetRoute,
-  authedRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, askRoute, calendarRoute, settingsRoute]),
+  authedRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, searchRoute, askRoute, calendarRoute, settingsRoute]),
 ]);
 
 export function createAppRouter(context: RouterContext) {

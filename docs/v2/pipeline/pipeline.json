@@ -40,7 +40,7 @@
     {"id":"P3-06","title":"PDF 쪽 색인, 쪽 인용, 하이브리드 /search","deps":["P3-03"],"owns":["packages/ask/","apps/server/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P3-07","title":"물어보기 도구 루프 테스트","deps":["P3-06"],"owns":["packages/ask/","packages/harness/","apps/server/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P3-08","title":"웹: PDF 뷰어","deps":["P3-C","P3-03"],"owns":["apps/web/"],"tier":"careful","gate":"full","status":"merged"},
-    {"id":"P3-09","title":"웹: 전역 검색","deps":["P3-06"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"todo"},
+    {"id":"P3-09","title":"웹: 전역 검색","deps":["P3-06"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P3-10","title":"검색 성능 측정","deps":["P3-06"],"owns":["scripts/bench/","packages/ask/"],"tier":"basic","gate":"unit","status":"todo"},
     {"id":"P4-C","title":"계약: LECTERN_CALENDAR, 테이블, 라우트, 방침","deps":["P3-C"],"owns":["packages/config/","packages/db/","packages/domain/","docs/env.md","deploy/systemd/","docs/v2/pipeline/flags-on.env","apps/server/","docs/runbooks/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P4-01","title":"ICS 구독","deps":["P4-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},

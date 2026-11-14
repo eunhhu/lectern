@@ -11,6 +11,7 @@ const SCREENS: { path: string; label: string; ready: string | RegExp }[] = [
   { path: "/app/recordings/rec_ds04", label: "녹음 상세(일부 완료)", ready: "일부 구간을 전사하지 못했습니다." },
   { path: "/app/recordings/rec_os08", label: "녹음 상세(처리 중)", ready: /전사 중/ },
   { path: "/app/recordings/rec_test", label: "녹음 상세(실패)", ready: "이 녹음을 처리하지 못했습니다." },
+  { path: "/app/search?q=퀀텀", label: "검색", ready: /^PDF \d+$/ },
   { path: "/app/ask", label: "물어보기", ready: "노트에 물어보세요" },
   { path: "/app/ask?thread=ask_seed_os07", label: "물어보기 대화", ready: "다음 CPU 버스트 길이를 미리 알 수 없기 때문이다." },
   { path: "/app/calendar", label: "일정", ready: "캘린더 연결" },
