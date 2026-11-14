@@ -46,7 +46,7 @@
     {"id":"P4-01","title":"ICS 구독","deps":["P4-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P4-02","title":"Google OAuth와 연동 수명 주기","deps":["P4-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P4-03","title":"calendar_sync 작업","deps":["P4-02"],"owns":["apps/server/","apps/worker/"],"tier":"careful","gate":"full","status":"merged"},
-    {"id":"P4-04","title":"자동 등록과 재처리 멱등성","deps":["P4-03","P1-12"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},
+    {"id":"P4-04","title":"자동 등록과 재처리 멱등성","deps":["P4-03","P1-12"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P4-05","title":"이메일 리마인더","deps":["P4-C"],"owns":["apps/server/","apps/worker/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P4-06","title":"물어보기 list_items","deps":["P4-C","P3-07"],"owns":["packages/ask/","apps/server/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P4-07","title":"웹: 캘린더 연결, ICS, 리마인더 설정","deps":["P4-01","P4-02","P4-05"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"todo"},

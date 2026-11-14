@@ -57,7 +57,7 @@
 | `GET /workspaces` | `listWorkspaces` | 실제 | 개인 워크스페이스가 먼저 |
 | `POST /workspaces` | `createWorkspace` | 실제 | 팀 워크스페이스(초대는 P5) |
 | `GET /workspaces/{workspace_id}` | `getWorkspace` | 실제 | 비멤버는 403 |
-| `PATCH /workspaces/{workspace_id}` | `updateWorkspace` | 실제 | owner·admin |
+| `PATCH /workspaces/{workspace_id}` | `updateWorkspace` | 실제 | owner·admin. `settings`는 저장된 값에 얕게 합친다(보낸 키만 바뀐다). `calendar_auto_add`가 켜져 있으면 발행 때 파서가 해석했고 플래그 없고 신뢰도 이상인 미래 일정을 자동 수락한다(P4-04) |
 | `GET /workspaces/{workspace_id}/members` | `listWorkspaceMembers` | 실제 | |
 | `GET /folders` | `listFolders` | 실제 | 평면 목록, `sort_key` 순 |
 | `POST /folders` | `createFolder` | 실제 | 같은 부모 아래 같은 이름(공백·대소문자 무시)이면 409 |

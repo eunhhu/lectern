@@ -5,6 +5,23 @@ import { defineRouter, notFound, ok, okPage } from "./common.ts";
 import { membershipDto, workspaceDto, type MembershipRow, type WorkspaceRow } from "./rows.ts";
 import { transact } from "./store.ts";
 
+/**
+ * The stored settings with `patch` laid over them (shallow, P4-04): sending one key keeps the
+ * others. A key whose value is null is removed.
+ */
+export function mergeSettings(storedJson: string, patch: Record<string, unknown>): Record<string, unknown> {
+  let stored: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(storedJson) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) stored = parsed as Record<string, unknown>;
+  } catch {
+    // unreadable settings are replaced by the patch
+  }
+  const merged: Record<string, unknown> = { ...stored, ...patch };
+  for (const [key, value] of Object.entries(merged)) if (value === null || value === undefined) delete merged[key];
+  return merged;
+}
+
 function workspaceRow(id: string): WorkspaceRow | null {
   return db.query(`SELECT * FROM workspace WHERE id = ?`).get(id) as WorkspaceRow | null;
 }
@@ -53,7 +70,7 @@ export const workspacesRouter = defineRouter({
     const body = req.body as { name?: string; settings?: Record<string, unknown> };
     db.query(`UPDATE workspace SET name = ?, settings_json = ?, updated_at = ? WHERE id = ?`).run(
       body.name?.trim() || workspace.name,
-      body.settings ? JSON.stringify(body.settings) : workspace.settings_json,
+      body.settings ? JSON.stringify(mergeSettings(workspace.settings_json, body.settings)) : workspace.settings_json,
       Date.now(),
       workspace.id
     );
