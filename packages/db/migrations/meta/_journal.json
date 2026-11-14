@@ -57,6 +57,13 @@
       "when": 1794668553782,
       "tag": "0007_p5_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794687551718,
+      "tag": "0008_p6_devices",
+      "breakpoints": true
     }
   ]
 }

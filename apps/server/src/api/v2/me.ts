@@ -10,7 +10,7 @@ import { enqueueJob } from "../../queue.ts";
 import { authRateLimits, tooManyRequestsMessage } from "../../rate-limit.ts";
 import { sessionIdOf, sessionMetaOf } from "../../session-meta.ts";
 import { requireWorkspace, roleIn } from "./access.ts";
-import { apiError, defineRouter, notFound, ok, okPage, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
 import { iso, meDto } from "./rows.ts";
 
 function meOf(user: UserRecord) {
@@ -287,4 +287,7 @@ export const meRouter = defineRouter({
     const d = deletionOf(req.user!.id);
     return ok(req, { state: d.state, requested_at: isoOrNull(d.requestedAt), execute_after: isoOrNull(d.executeAfter) });
   },
+  // Push devices (D-P6-1): contract only until P6-01.
+  upsertPushDevice: notImplemented,
+  deletePushDevice: notImplemented,
 });

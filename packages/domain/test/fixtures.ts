@@ -38,6 +38,8 @@ export const ID = {
   identity: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a24",
   invite: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a25",
   dataExport: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a26",
+  pushDevice: "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b", // made by the app (UUIDv4)
+  marker: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a28",
 } as const;
 
 const scope = { workspace_id: ID.workspace, recording_id: ID.recording } as const;
@@ -533,6 +535,18 @@ const dataExport = {
   expires_at: null,
   error: null,
 };
+
+const apnsToken = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+const pushDevice = {
+  id: ID.pushDevice,
+  platform: "ios",
+  name: "학생의 iPhone",
+  app_version: "1.0 (12)",
+  created_at: T0,
+  last_seen_at: T1,
+};
+const marker = { id: ID.marker, recording_id: ID.recording, at_ms: 754_000, label: "시험", created_by: ID.user, created_at: T0 };
+const v1UsageRow = { day: "2026-11-15", route: "GET /api/lectures", client: "web", count: 42 };
 
 const me = {
   id: ID.user,
@@ -1122,6 +1136,47 @@ export const API_CASES: Record<string, Case> = {
     schema: D.AccountDeletionInfo,
     valid: [{ state: "none", requested_at: null, execute_after: null }, { state: "scheduled", requested_at: T0, execute_after: T1 }],
     invalid: [{ state: "done", requested_at: null, execute_after: null }],
+  },
+
+  // native apps (P6-C)
+  UpsertPushDeviceRequest: {
+    schema: D.UpsertPushDeviceRequest,
+    valid: [
+      { platform: "ios", apns_token: apnsToken, push_to_start_token: apnsToken.toUpperCase(), name: "학생의 iPhone", app_version: "1.0 (12)" },
+      { platform: "macos", apns_token: apnsToken },
+      { platform: "ios", apns_token: apnsToken, push_to_start_token: null },
+    ],
+    invalid: [
+      { platform: "android", apns_token: apnsToken },
+      { platform: "ios", apns_token: "zz" },
+      { platform: "ios", apns_token: apnsToken, name: "" },
+    ],
+  },
+  PushDevice: {
+    schema: D.PushDeviceDto,
+    valid: [pushDevice, { ...pushDevice, platform: "macos", name: null, app_version: null }],
+    invalid: [{ ...pushDevice, platform: "watchos" }, { ...pushDevice, last_seen_at: "yesterday" }],
+  },
+  SetLiveActivityRequest: {
+    schema: D.SetLiveActivityRequest,
+    valid: [{ device_id: ID.pushDevice, push_token: apnsToken }],
+    invalid: [{ device_id: ID.pushDevice, push_token: "not-hex-token-not-hex-token-not-hex" }, { device_id: "", push_token: apnsToken }],
+  },
+  RecordingMarker: {
+    schema: D.MarkerDto,
+    valid: [marker, { ...marker, label: null, at_ms: 0 }],
+    invalid: [{ ...marker, at_ms: -1 }, { ...marker, at_ms: 1.5 }],
+  },
+  RecordingMarkerPage: { schema: D.MarkerPage, valid: [page([marker]), page([])], invalid: [page([{ ...marker, recording_id: "" }])] },
+  CreateMarkerRequest: {
+    schema: D.CreateMarkerRequest,
+    valid: [{ at_ms: 754_000, label: "시험" }, { at_ms: 0 }],
+    invalid: [{ at_ms: 86_400_001 }, { at_ms: 10, label: "" }, { at_ms: 10, label: "가".repeat(81) }],
+  },
+  V1UsagePage: {
+    schema: D.V1UsagePage,
+    valid: [page([v1UsageRow]), page([])],
+    invalid: [page([{ ...v1UsageRow, count: -1 }])],
   },
 };
 

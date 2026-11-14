@@ -67,6 +67,49 @@ describe("@lectern/config", () => {
     for (const secret of ["com.example.signin", "TEAM123456", "KEY1234567"]) expect(all).not.toContain(secret);
   });
 
+  test("native flags default off", () => {
+    const c = loadConfig({});
+    expect(c.apns.enabled).toBe(false);
+    expect(c.apns.env).toBe("sandbox");
+    expect(c.apns.privateKeyFile).toBeNull();
+    expect(c.apns.topicIos).toBeNull();
+    expect(c.appleAppIds).toEqual([]);
+    expect(c.v1.sunset).toBeNull();
+    expect(c.v1.block).toBe(false);
+    const on = loadConfig({ LECTERN_APNS: "1", APNS_ENV: "production", LECTERN_V1_BLOCK: "1" });
+    expect([on.apns.enabled, on.apns.env, on.v1.block]).toEqual([true, "production", true]);
+    expect(() => loadConfig({ APNS_ENV: "staging" })).toThrow(ConfigError);
+  });
+
+  test("APPLE_APP_IDS parsing", () => {
+    const c = loadConfig({ APPLE_APP_IDS: "ABCDE12345.com.qucord.lectern.ios, bad, ABCDE12345.com.qucord.lectern.macos" });
+    expect(c.appleAppIds).toEqual(["ABCDE12345.com.qucord.lectern.ios", "ABCDE12345.com.qucord.lectern.macos"]);
+    // A lowercase or short team id is not an App ID.
+    expect(loadConfig({ APPLE_APP_IDS: "abcde12345.com.x,ABCDE1234.com.x" }).appleAppIds).toEqual([]);
+  });
+
+  test("LECTERN_V1_SUNSET must be a date", () => {
+    expect(loadConfig({ LECTERN_V1_SUNSET: "2027-03-01" }).v1.sunset).toBe("2027-03-01");
+    expect(loadConfig({ LECTERN_V1_SUNSET: "soon" }).v1.sunset).toBeNull();
+    expect(loadConfig({ LECTERN_V1_SUNSET: "2027-02-31" }).v1.sunset).toBeNull();
+  });
+
+  test("APNs secrets are masked", () => {
+    const c = loadConfig({
+      APNS_TEAM_ID: "TEAM765432",
+      APNS_KEY_ID: "APNSKEY987",
+      APNS_PRIVATE_KEY_FILE: "/etc/lectern/apns.p8",
+      APNS_TOPIC_IOS: "com.example.ios",
+    });
+    expect(c.raw.APNS_TEAM_ID).toBe("***");
+    expect(c.raw.APNS_KEY_ID).toBe("***");
+    expect(c.raw.APNS_PRIVATE_KEY_FILE).toBe("/etc/lectern/apns.p8");
+    expect(c.apns.privateKeyFile).toBe("/etc/lectern/apns.p8");
+    expect(c.apns.topicIos).toBe("com.example.ios");
+    const all = JSON.stringify(c);
+    for (const secret of ["TEAM765432", "APNSKEY987"]) expect(all).not.toContain(secret);
+  });
+
   test("readSecret reads Google secrets live", () => {
     const before = process.env.GOOGLE_OAUTH_CLIENT_ID;
     try {

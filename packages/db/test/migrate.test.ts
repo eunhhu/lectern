@@ -20,6 +20,7 @@ const ACCOUNT_TABLES = [
   "data_export",
   "account_deletion",
 ];
+const DEVICE_TABLES = ["push_device", "live_activity", "recording_marker", "v1_usage"];
 
 /** The `when` drizzle recorded for a migration tag (its __drizzle_migrations.created_at). */
 function journalWhen(tag: string): number {
@@ -42,7 +43,7 @@ describe("@lectern/db migrations", () => {
       const sqlite = new Database(join(dir, "fresh.sqlite"));
       expect(pendingMigrations(sqlite).length).toBeGreaterThan(0);
       const res = runMigrations(sqlite, { backupDir: join(dir, "backups") });
-      expect(res.applied).toEqual(["0000_job_queue", "0001_search_ask", "0002_search_fts", "0003_v2_entities", "0004_p1_pipeline", "0005_p3_pdf", "0006_p4_calendar", "0007_p5_accounts"]);
+      expect(res.applied).toEqual(["0000_job_queue", "0001_search_ask", "0002_search_fts", "0003_v2_entities", "0004_p1_pipeline", "0005_p3_pdf", "0006_p4_calendar", "0007_p5_accounts", "0008_p6_devices"]);
       expect(res.backup).toBeNull(); // nothing to protect yet
       const tables = (sqlite.query(`SELECT name FROM sqlite_master WHERE type='table'`).all() as any[]).map((r) => r.name);
       for (const t of ["job", "stage_run", "artifact", "ai_call", "job_event", "system_state"]) {
@@ -98,14 +99,14 @@ describe("@lectern/db migrations", () => {
     // Roll the database back to just before p3_pdf, as a server that ran P2 would be
     // (later migrations go too).
     sqlite.query(`DELETE FROM __drizzle_migrations WHERE created_at >= ?`).run(journalWhen("0005_p3_pdf"));
-    for (const t of ["pdf_page", ...CALENDAR_TABLES, ...ACCOUNT_TABLES]) sqlite.query(`DROP TABLE ${t}`).run();
+    for (const t of ["pdf_page", ...CALENDAR_TABLES, ...ACCOUNT_TABLES, ...DEVICE_TABLES]) sqlite.query(`DROP TABLE ${t}`).run();
     sqlite
       .query(
         `INSERT INTO asset (id, workspace_id, recording_id, kind, part_index, blob_key, bytes, mime, created_at)
          VALUES ('ast_1', 'wsp_1', 'rec_1', 'pdf', 0, 'file:x.pdf', 10, 'application/pdf', 0)`,
       )
       .run();
-    expect(runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") }).applied).toEqual(["0005_p3_pdf", "0006_p4_calendar", "0007_p5_accounts"]);
+    expect(runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") }).applied).toEqual(["0005_p3_pdf", "0006_p4_calendar", "0007_p5_accounts", "0008_p6_devices"]);
     expect(sqlite.query(`SELECT id, kind FROM asset`).all()).toEqual([{ id: "ast_1", kind: "pdf" }]);
     expect(sqlite.query(`SELECT COUNT(*) AS n FROM pdf_page`).get()).toEqual({ n: 0 });
     sqlite.close();
@@ -162,7 +163,7 @@ describe("@lectern/db migrations", () => {
   test("fresh db has the p5_accounts tables", () => {
     const sqlite = new Database(":memory:");
     const res = runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") });
-    expect(res.applied.at(-1)).toBe("0007_p5_accounts");
+    expect(res.applied).toContain("0007_p5_accounts");
     const tables = (sqlite.query(`SELECT name FROM sqlite_master WHERE type='table'`).all() as Array<{ name: string }>).map((r) => r.name);
     for (const t of ACCOUNT_TABLES) expect(tables).toContain(t);
     const columns = sqlite.query(`PRAGMA table_info(native_session)`).all() as Array<{ name: string; notnull: number }>;
@@ -203,6 +204,48 @@ describe("@lectern/db migrations", () => {
       ["inv_1"],
       ["inv_2"],
     );
+    sqlite.close();
+  });
+
+  test("fresh db has the p6_devices tables", () => {
+    const sqlite = new Database(":memory:");
+    const res = runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") });
+    expect(res.applied.at(-1)).toBe("0008_p6_devices");
+    const tables = (sqlite.query(`SELECT name FROM sqlite_master WHERE type='table'`).all() as Array<{ name: string }>).map((r) => r.name);
+    for (const t of DEVICE_TABLES) expect(tables).toContain(t);
+    const columns = sqlite.query(`PRAGMA table_info(push_device)`).all() as Array<{ name: string; notnull: number }>;
+    expect(columns.map((c) => c.name)).toEqual([
+      "id", "user_id", "platform", "name", "apns_token", "push_to_start_token", "app_version", "created_at", "last_seen_at",
+    ]);
+    const indexes = (sqlite.query(`SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'`).all() as Array<{ name: string }>).map((r) => r.name);
+    for (const i of ["idx_push_device_user", "idx_live_activity_recording", "idx_recording_marker_recording"]) expect(indexes).toContain(i);
+    sqlite.close();
+  });
+
+  test("p6_devices constraints", () => {
+    const sqlite = freshDb();
+    const twice = (sql: string, a: unknown[], b: unknown[]) => {
+      sqlite.query(sql).run(...(a as never[]));
+      expect(() => sqlite.query(sql).run(...(b as never[]))).toThrow(/UNIQUE|PRIMARY KEY/);
+    };
+    twice(
+      `INSERT INTO push_device (id, user_id, platform, apns_token, created_at, last_seen_at) VALUES (?, ?, 'ios', 'aabbcc', 0, 0)`,
+      ["pdv_1", "usr_1"],
+      ["pdv_2", "usr_2"],
+    );
+    twice(
+      `INSERT INTO live_activity (id, recording_id, device_id, push_token, state, created_at) VALUES (?, 'rec_1', 'pdv_1', 'ddeeff', 'active', 0)`,
+      ["la_1"],
+      ["la_2"],
+    );
+    // The same device may run an activity for another recording.
+    sqlite.query(`INSERT INTO live_activity (id, recording_id, device_id, push_token, state, created_at) VALUES ('la_3', 'rec_2', 'pdv_1', 'ddeeff', 'active', 0)`).run();
+    twice(
+      `INSERT INTO v1_usage (day, route, client, count) VALUES ('2026-11-15', 'GET /api/lectures', ?, 1)`,
+      ["web"],
+      ["web"],
+    );
+    sqlite.query(`INSERT INTO v1_usage (day, route, client, count) VALUES ('2026-11-15', 'GET /api/lectures', 'cli', 1)`).run();
     sqlite.close();
   });
 

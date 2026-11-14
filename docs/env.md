@@ -42,6 +42,15 @@
 | `APPLE_SIGNIN_TEAM_ID` | — | secret | Apple developer team id |
 | `APPLE_SIGNIN_KEY_ID` | — | secret | Key id of the Sign in with Apple private key |
 | `APPLE_SIGNIN_PRIVATE_KEY_FILE` | — |  | Path of the Sign in with Apple .p8 private key file (the path, never the key) |
+| `LECTERN_APNS` | `false` |  | 1: send Apple push notifications (Live Activity updates, document-ready alerts). Needs the APNS_* values |
+| `APNS_TEAM_ID` | — | secret | Apple developer team id for APNs token auth |
+| `APNS_KEY_ID` | — | secret | Key id of the APNs .p8 key |
+| `APNS_PRIVATE_KEY_FILE` | — |  | Path of the APNs .p8 private key file (the path, never the key) |
+| `APNS_TOPIC_IOS` | — |  | Bundle id of the iOS app, used as the APNs topic |
+| `APNS_ENV` | `sandbox` |  | APNs host: sandbox (api.sandbox.push.apple.com) or production (api.push.apple.com) |
+| `APPLE_APP_IDS` | — |  | Comma-separated TEAMID.bundle.id list served in /.well-known/apple-app-site-association. Empty: the route answers 404 |
+| `LECTERN_V1_SUNSET` | — |  | YYYY-MM-DD. When set, v1 API responses carry Deprecation and Sunset headers |
+| `LECTERN_V1_BLOCK` | `false` |  | 1: after the LECTERN_V1_SUNSET date, the retired v1 endpoints answer 410 |
 | `LECTERN_LEGAL_CONTACT_EMAIL` | — |  | Contact address printed on /privacy and /terms (account deletion and data requests); a role address such as privacy@, not a personal one |
 | `LECTERN_LEGAL_OFFICER_NAME` | — |  | 개인정보 보호책임자 name printed on /privacy |
 | `LECTERN_LEGAL_EFFECTIVE_DATE` | — |  | 공고·시행일 of the current /privacy and /terms (YYYY-MM-DD) |

@@ -72,7 +72,6 @@ const WORKSPACE_EXTRA_TABLES = [
   "saved_view",
   "pdf_page",
   "job_event",
-  "push_device",
   "recording_marker",
 ];
 
@@ -275,6 +274,11 @@ async function removeUserRows(userId: string, email: string | null, gone: readon
   db.query(`DELETE FROM upload WHERE user_id = ?`).run(userId);
 
   db.transaction(() => {
+    // Live Activities have no user column: they go with the user's push devices (D-P6-1), so
+    // before push_device below. A removed workspace only ever had the user, so this covers it.
+    if (tableExists("live_activity") && tableExists("push_device")) {
+      db.query(`DELETE FROM live_activity WHERE device_id IN (SELECT id FROM push_device WHERE user_id = ?)`).run(userId);
+    }
     for (const { table, column } of USER_TABLES) {
       if (tableExists(table)) db.query(`DELETE FROM ${table} WHERE ${column} = ?`).run(userId);
     }

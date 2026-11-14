@@ -25,8 +25,17 @@ import { handleRequest } from "../src/index.ts";
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/** Routes of later phases (none left after P5-09; a new contract-only route goes here). */
-const NOT_YET = new Set<string>([]);
+/** Routes of later phases (contract-only routes; P6-01 and P6-03 implement these). */
+const NOT_YET = new Set<string>([
+  "upsertPushDevice",
+  "deletePushDevice",
+  "setLiveActivity",
+  "endLiveActivity",
+  "listMarkers",
+  "createMarker",
+  "deleteMarker",
+  "adminListV1Usage",
+]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
 
@@ -55,6 +64,7 @@ const PATH_PARAMS: Record<string, string> = {
   invite_id: SAMPLE_ID,
   user_id: SAMPLE_ID,
   export_id: SAMPLE_ID,
+  marker_id: SAMPLE_ID,
 };
 
 const PATH_PARAM_OVERRIDES: Record<string, Record<string, string>> = {};
@@ -66,6 +76,7 @@ const QUERIES: Record<string, Record<string, string>> = {
   getAskUsage: { workspace_id: SAMPLE_ID },
   exportDocument: { format: "md" },
   listAskSuggestions: { workspace_id: SAMPLE_ID, scope_type: "workspace" },
+  endLiveActivity: { device_id: SAMPLE_ID },
 };
 for (const op of [
   "listFolders",
@@ -122,6 +133,9 @@ const BODIES: Record<string, unknown> = {
   adminSetQuota: { audio_ms_month: null, ai_microusd_month: 5_000_000, storage_bytes: null },
   createExport: { workspace_id: SAMPLE_ID, include_audio: false },
   requestAccountDeletion: { password: "correct_password_1" },
+  upsertPushDevice: { platform: "ios", apns_token: "ab".repeat(32), name: "iPhone" },
+  setLiveActivity: { device_id: SAMPLE_ID, push_token: "cd".repeat(32) },
+  createMarker: { at_ms: 60_000, label: "중요" },
 };
 
 function urlFor(route: RouteDef, query: Record<string, string> = QUERIES[route.operationId] ?? {}): string {

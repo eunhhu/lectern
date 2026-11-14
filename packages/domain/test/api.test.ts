@@ -7,7 +7,9 @@ import {
   partCount,
   ROUTES,
   ROUTES_BY_OPERATION,
+  SetLiveActivityRequest,
   toHonoPath,
+  UpsertPushDeviceRequest,
   versionETag,
 } from "../src/index.ts";
 import { API_CASES } from "./fixtures.ts";
@@ -54,6 +56,15 @@ describe("conventions", () => {
     expect(parseVersionETag('"3"')).toBe(3);
     expect(parseVersionETag("W/\"3\"")).toBeNull();
     expect(parseVersionETag("3")).toBeNull();
+  });
+
+  test("push token must be hex", () => {
+    const hex = "0123456789abcdef".repeat(4);
+    expect(UpsertPushDeviceRequest.safeParse({ platform: "ios", apns_token: "zz" }).success).toBe(false);
+    expect(UpsertPushDeviceRequest.safeParse({ platform: "ios", apns_token: "ab".repeat(15) }).success).toBe(false); // under 32
+    expect(UpsertPushDeviceRequest.safeParse({ platform: "ios", apns_token: hex, push_to_start_token: "zz" }).success).toBe(false);
+    expect(UpsertPushDeviceRequest.safeParse({ platform: "ios", apns_token: hex.toUpperCase() }).success).toBe(true);
+    expect(SetLiveActivityRequest.safeParse({ device_id: "dev_1", push_token: "zz" }).success).toBe(false);
   });
 
   test("upload part plan", () => {

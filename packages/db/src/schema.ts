@@ -913,3 +913,66 @@ export const accountDeletion = sqliteTable(
   },
   (t) => [index("idx_account_deletion_due").on(t.state, t.executeAfter)]
 );
+
+/** A device registered for Apple push (D-P6-1). Separate from login sessions; removed on logout and account deletion. */
+export const pushDevice = sqliteTable(
+  "push_device",
+  {
+    /** Client-made id (a UUID the app creates on first launch), so PUT both registers and updates. */
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    platform: text("platform", { enum: ["ios", "macos"] }).notNull(),
+    name: text("name"),
+    apnsToken: text("apns_token").notNull().unique(),
+    pushToStartToken: text("push_to_start_token"),
+    appVersion: text("app_version"),
+    createdAt: integer("created_at").notNull(),
+    lastSeenAt: integer("last_seen_at").notNull(),
+  },
+  (t) => [index("idx_push_device_user").on(t.userId)]
+);
+
+/** A Live Activity a device runs for a recording's processing (D-P6-2, D-P6-12). */
+export const liveActivity = sqliteTable(
+  "live_activity",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    deviceId: text("device_id").notNull(),
+    pushToken: text("push_token").notNull(),
+    state: text("state", { enum: ["active", "ended"] }).notNull(),
+    createdAt: integer("created_at").notNull(),
+    endedAt: integer("ended_at"),
+  },
+  (t) => [
+    uniqueIndex("idx_live_activity_recording_device").on(t.recordingId, t.deviceId),
+    index("idx_live_activity_recording").on(t.recordingId),
+  ]
+);
+
+/** A point the user marked as important while recording (D-P6-3): original-audio ms and a label. */
+export const recordingMarker = sqliteTable(
+  "recording_marker",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    atMs: integer("at_ms").notNull(),
+    label: text("label"),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("idx_recording_marker_recording").on(t.recordingId, t.atMs)]
+);
+
+/** Daily v1 API call counts per route and client (D-P6-5), read before v1 is retired. */
+export const v1Usage = sqliteTable(
+  "v1_usage",
+  {
+    day: text("day").notNull(),
+    route: text("route").notNull(),
+    client: text("client").notNull(),
+    count: integer("count").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.route, t.client] })]
+);

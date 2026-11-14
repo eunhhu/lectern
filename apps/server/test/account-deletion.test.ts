@@ -555,6 +555,25 @@ describe("no trace is left", () => {
     const editedVersion = (db.query(`SELECT id FROM document_version WHERE recording_id = ? ORDER BY version DESC LIMIT 1`).get(theirs.recordingId) as { id: string }).id;
     db.query(`UPDATE document_version SET author_id = ? WHERE id = ?`).run(u.id, editedVersion);
     setQuota(personalWorkspaceId(other.id), { audio_ms_month: null, ai_microusd_month: 1_000_000, storage_bytes: null }, u.id);
+    // Native app rows (P6-C tables): u's device and its Live Activity, u's markers in both
+    // workspaces; the other user's device following the team recording stays.
+    const device = uuidv7();
+    const otherDevice = uuidv7();
+    db.query(`INSERT INTO push_device (id, user_id, platform, name, apns_token, created_at, last_seen_at) VALUES (?, ?, 'ios', 'iPhone', ?, ?, ?)`).run(device, u.id, "ab".repeat(32), now, now);
+    db.query(`INSERT INTO push_device (id, user_id, platform, apns_token, created_at, last_seen_at) VALUES (?, ?, 'ios', ?, ?, ?)`).run(otherDevice, other.id, "cd".repeat(32), now, now);
+    const liveActivity = (deviceId: string, recordingId: string) => {
+      const id = uuidv7();
+      db.query(`INSERT INTO live_activity (id, recording_id, device_id, push_token, state, created_at) VALUES (?, ?, ?, ?, 'active', ?)`).run(id, recordingId, deviceId, "ef".repeat(32), now);
+      return id;
+    };
+    const mine = liveActivity(device, first.recordingId);
+    const mineInTeam = liveActivity(device, theirs.recordingId);
+    const theirsActivity = liveActivity(otherDevice, theirs.recordingId);
+    const marker = (workspaceId: string, recordingId: string, by: string) =>
+      db.query(`INSERT INTO recording_marker (id, workspace_id, recording_id, at_ms, label, created_by, created_at) VALUES (?, ?, ?, 1000, '중요', ?, ?)`).run(uuidv7(), workspaceId, recordingId, by, now);
+    marker(personal, first.recordingId, u.id);
+    marker(shared, theirs.recordingId, u.id);
+    marker(shared, theirs.recordingId, other.id);
 
     const archive = getLectureById(first.lectureId)?.md_source_path ?? null;
     const needles = [u.id, personal, u.email, solo];
@@ -604,6 +623,9 @@ describe("no trace is left", () => {
       "workspace.personal_user_id",
       "workspace_invite.invited_by",
       "document_version.author_id",
+      "push_device.user_id",
+      "recording_marker.workspace_id",
+      "recording_marker.created_by",
     ]) {
       expect(before[key], key).toBeGreaterThan(0);
     }
@@ -641,6 +663,10 @@ describe("no trace is left", () => {
       ai_microusd_month: 1_000_000,
     });
     expect(db.query(`SELECT status FROM event_candidate WHERE id = ?`).get(eventId)).toBeNull(); // personal: deleted with the workspace
+    // Live Activities have no user column: u's go with u's device, the other user's stays.
+    const activities = (db.query(`SELECT id FROM live_activity WHERE id IN (?, ?, ?)`).all(mine, mineInTeam, theirsActivity) as Array<{ id: string }>).map((r) => r.id);
+    expect(activities).toEqual([theirsActivity]);
+    expect(db.query(`SELECT COUNT(*) AS n FROM recording_marker WHERE recording_id = ?`).get(theirs.recordingId)).toEqual({ n: 1 });
     // Logs carry neither the e-mail, the name nor the raw id.
     const text = JSON.stringify(logged, (_k, v) => (v instanceof Error ? v.message : v));
     for (const secret of [u.email, u.display_name, u.id]) expect(text.includes(secret), `${secret} in ${text}`).toBe(false);

@@ -4,7 +4,7 @@ import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
 import { isLectureBusy, wakeJobWorker } from "../../queue.ts";
 import { quotaOf, setQuota, type Quota } from "../../usage.ts";
-import { apiError, defineRouter, notFound, ok, pageBounds, pageFrom } from "./common.ts";
+import { apiError, defineRouter, notFound, notImplemented, ok, pageBounds, pageFrom } from "./common.ts";
 import { usageLedgerDto, type QueueJobRow, type UsageLedgerRow } from "./rows.ts";
 import { toJob } from "./store.ts";
 
@@ -203,4 +203,6 @@ export const adminRouter = defineRouter({
     });
     return ok(req, quotaOf(workspaceId) ?? { audio_ms_month: null, ai_microusd_month: null, storage_bytes: null });
   },
+  // v1 usage per day, route and client (D-P6-5): contract only until P6-03 counts it.
+  adminListV1Usage: notImplemented,
 });
