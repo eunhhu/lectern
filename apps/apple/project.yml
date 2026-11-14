@@ -12,12 +12,30 @@ packages:
   LecternUI: { path: Packages/LecternUI }
   LecternIntents: { path: Packages/LecternIntents }
 targets:
+  # XcodeGen writes each Info.plist and .entitlements from `properties` on every generate: keys
+  # added to those files by hand are lost. Change them here.
   LecterniOS:
     type: application
     platform: iOS
     sources: [iOS/App]
-    info: { path: iOS/App/Info.plist }
-    entitlements: { path: iOS/App/Lectern.entitlements }
+    info:
+      path: iOS/App/Info.plist
+      properties:
+        CFBundleDisplayName: Lectern
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSceneManifest: { UIApplicationSupportsMultipleScenes: false }
+        NSMicrophoneUsageDescription: 강의와 회의를 녹음하려면 마이크가 필요합니다.
+        UIBackgroundModes: [audio]
+        NSSupportsLiveActivities: true
+        LecternServerURL: $(LECTERN_SERVER_URL)
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: iOS/App/Lectern.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.qucord.lectern]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.qucord.lectern"]
     settings:
       base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios, PRODUCT_NAME: Lectern, TARGETED_DEVICE_FAMILY: "1,2" }
     dependencies:
@@ -31,8 +49,18 @@ targets:
     type: app-extension
     platform: iOS
     sources: [iOS/Widgets]
-    info: { path: iOS/Widgets/Info.plist }
-    entitlements: { path: iOS/Widgets/LecternWidgets.entitlements }
+    info:
+      path: iOS/Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Lectern
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension: { NSExtensionPointIdentifier: com.apple.widgetkit-extension }
+    entitlements:
+      path: iOS/Widgets/LecternWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.qucord.lectern]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.qucord.lectern"]
     settings:
       base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios.widgets }
     dependencies:
@@ -42,8 +70,22 @@ targets:
     type: app-extension
     platform: iOS
     sources: [iOS/Share]
-    info: { path: iOS/Share/Info.plist }
-    entitlements: { path: iOS/Share/LecternShare.entitlements }
+    info:
+      path: iOS/Share/Info.plist
+      properties:
+        CFBundleDisplayName: Lectern
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule: { NSExtensionActivationSupportsFileWithMaxCount: 10 }
+    entitlements:
+      path: iOS/Share/LecternShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.qucord.lectern]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.qucord.lectern"]
     settings:
       base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios.share }
     dependencies:
@@ -52,8 +94,24 @@ targets:
     type: application
     platform: macOS
     sources: [macOS/App]
-    info: { path: macOS/App/Info.plist }
-    entitlements: { path: macOS/App/LecternMac.entitlements }
+    info:
+      path: macOS/App/Info.plist
+      properties:
+        CFBundleDisplayName: Lectern
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSMicrophoneUsageDescription: 강의와 회의를 녹음하려면 마이크가 필요합니다.
+        LSUIElement: false
+        LecternServerURL: $(LECTERN_SERVER_URL)
+    entitlements:
+      path: macOS/App/LecternMac.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.qucord.lectern]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.qucord.lectern"]
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.audio-input: true
+        com.apple.security.network.client: true
     settings:
       base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.macos, PRODUCT_NAME: Lectern }
     dependencies:

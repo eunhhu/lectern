@@ -116,6 +116,7 @@ public actor UploadQueue {
             return fail(&job, Self.missingFileMessage)
         }
         do {
+            var completedOnServer = false
             if job.uploadID == nil {
                 try await createSession(&job)
             } else {
@@ -125,7 +126,12 @@ public actor UploadQueue {
                 } catch APIError.notFound {
                     status = nil
                 }
-                if let status, !status.isDead {
+                if let status, status.isCompleted {
+                    // The complete response was lost. The server dropped the parts and answers the
+                    // same complete again with its stored result; sending parts would get 409 and
+                    // start a second recording under a new key.
+                    completedOnServer = true
+                } else if let status, !status.isDead {
                     job.partsDone = status.partsDone.sorted()
                 } else {
                     abandonSession(&job)
@@ -135,7 +141,7 @@ public actor UploadQueue {
             job.state = .uploading
             try write(job)
             let total = job.files.reduce(0) { $0 + $1.partCount }
-            for part in remainingParts(total: total, done: job.partsDone) {
+            for part in completedOnServer ? [] : remainingParts(total: total, done: job.partsDone) {
                 guard let (file, range) = locate(part, in: job) else { throw APIError.decoding("part \(part) is outside the session's files") }
                 try await transport.putPart(uploadID: job.uploadID!, part: part, fileURL: containerURL.appendingPathComponent(file.relativePath), range: range)
                 job.partsDone = (job.partsDone + [part]).sorted()

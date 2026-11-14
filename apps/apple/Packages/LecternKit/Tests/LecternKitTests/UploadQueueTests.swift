@@ -362,5 +362,20 @@ final class UploadQueueTests: XCTestCase {
         XCTAssertEqual(left, [])
         XCTAssertEqual(UploadQueueStore.inContainer(container).load(), [])
     }
-}
 
+    func testLostCompleteResponseDoesNotStartASecondRecording() async throws {
+        server.dropNextCompleteResponse = true
+        let q = queue()
+        let j = try job()
+        try await q.enqueue(j)
+        await q.run()
+        let waiting = await state(q, j.id)
+        XCTAssertEqual(waiting, .waitingForNetwork)
+        await q.run()
+        let done = await state(q, j.id)
+        XCTAssertEqual(done, .done(recordingID: "rec_upl_1"))
+        XCTAssertEqual(server.calls.filter { if case .create = $0 { true } else { false } }.count, 1)
+        XCTAssertEqual(server.calls.filter { if case .put = $0 { true } else { false } }.count, 3)
+        XCTAssertEqual(server.calls.last, .complete(uploadID: "upl_1", key: j.id))
+    }
+}
