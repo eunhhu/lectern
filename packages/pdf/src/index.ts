@@ -3,3 +3,4 @@
 // pdf-lib only builds test PDFs. Nothing here shells out to system PDF tools.
 
 export const PDF_PACKAGE = "@lectern/pdf";
+export * from "./extract.ts";
