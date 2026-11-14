@@ -1,0 +1,13 @@
+{
+  "aps": {
+    "alert": {
+      "title": "문서가 준비되었습니다",
+      "body": "자료구조 3주차"
+    },
+    "sound": "default",
+    "thread-id": "recording-0199f0a0-1000-7000-8000-00000000abcd",
+    "interruption-level": "active"
+  },
+  "recording_id": "0199f0a0-1000-7000-8000-00000000abcd",
+  "url": "https://lectern.example/app/recordings/0199f0a0-1000-7000-8000-00000000abcd"
+}

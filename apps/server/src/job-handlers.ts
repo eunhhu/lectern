@@ -2,6 +2,7 @@
 // Like queue.ts, this module must not import index.ts.
 
 import { config } from "@lectern/config";
+import { lectureRecordingId } from "@lectern/db";
 import {
   classifyGeminiError,
   Harness,
@@ -20,6 +21,7 @@ import {
   type LectureRecord,
   updateLectureProgress,
 } from "./db.ts";
+import { endAllLiveActivities, notifyFinished } from "./apns/notify.ts";
 import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
@@ -383,9 +385,14 @@ export function registerProcessJobHandler(deps: ProcessJobDeps = {}): void {
             error_message: failed.error_message,
             lecture: toLectureSummaryDto(failed),
           });
+          void notifyFinished(lectureRecordingId(subjectId), "failed"); // the Live Activity must not stay "processing"
         }
       },
-      onCanceled: (job) => failCanceledLecture(job),
+      onCanceled: (job) => {
+        failCanceledLecture(job);
+        // An activity the app started at upload ends as canceled (no alert).
+        if (job.subjectId) void endAllLiveActivities(lectureRecordingId(job.subjectId));
+      },
     }
   );
 }
