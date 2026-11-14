@@ -139,7 +139,7 @@ jobs:
 
   macos-native:
     name: "macOS Menu Bar App (Native SwiftUI/AppKit)"
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Build & sign Lectern.app

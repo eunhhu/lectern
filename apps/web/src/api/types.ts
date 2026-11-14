@@ -75,6 +75,30 @@ export type CompleteUploadResponse = z.infer<typeof D.CompleteUploadResponse>;
 
 export type Device = z.infer<typeof D.DeviceDto>;
 export type WorkspaceMember = z.infer<typeof D.WorkspaceMember>;
+export type ShareLinkDto = z.infer<typeof D.ShareLinkDto>;
+export type CreatedShareLink = z.infer<typeof D.CreatedShareLink>;
+export type ShareScope = z.infer<typeof D.ShareScope>;
+export type WorkspaceSettings = z.infer<typeof D.WorkspaceSettings>;
+export type Integration = z.infer<typeof D.IntegrationDto>;
+export type CalendarFeedInfo = z.infer<typeof D.CalendarFeedInfo>;
+export type CalendarFeedCreated = z.infer<typeof D.CalendarFeedCreated>;
+// Account (P5): tokens, sign-in identities, exports, deletion.
+export type AccessToken = z.infer<typeof D.AccessTokenDto>;
+export type AccessTokenScope = z.infer<typeof D.AccessTokenScope>;
+export type CreatedAccessToken = z.infer<typeof D.CreatedAccessToken>;
+export type Identity = z.infer<typeof D.IdentityDto>;
+export type DataExport = z.infer<typeof D.DataExportDto>;
+export type AccountDeletionInfo = z.infer<typeof D.AccountDeletionInfo>;
+// Team workspaces (P5-06/07): invitations and usage.
+export type Invite = z.infer<typeof D.InviteDto>;
+export type AcceptInviteResponse = z.infer<typeof D.AcceptInviteResponse>;
+export type WorkspaceUsage = z.infer<typeof D.WorkspaceUsage>;
+export type WorkspaceQuota = z.infer<typeof D.WorkspaceQuota>;
+// Admin console (P5-12).
+export type JobDetail = z.infer<typeof D.JobDetail>;
+export type StageRun = z.infer<typeof D.StageRun>;
+export type AiCall = z.infer<typeof D.AiCall>;
+export type UsageLedger = z.infer<typeof D.UsageLedger>;
 
 // Requests
 export type UpdateMeRequest = z.infer<typeof D.UpdateMeRequest>;
@@ -88,10 +112,22 @@ export type UpdateEventCandidateRequest = z.infer<typeof D.UpdateEventCandidateR
 export type CreateUploadRequest = z.infer<typeof D.CreateUploadRequest>;
 export type UploadFileSpec = z.infer<typeof D.UploadFileSpec>;
 export type CreateDocumentVersionRequest = z.infer<typeof D.CreateDocumentVersionRequest>;
+export type CreateShareLinkRequest = z.infer<typeof D.CreateShareLinkRequest>;
+export type ReprocessRequest = z.infer<typeof D.ReprocessRequest>;
+export type CreateAccessTokenRequest = z.infer<typeof D.CreateAccessTokenRequest>;
+export type CreateExportRequest = z.infer<typeof D.CreateExportRequest>;
+export type CreateInviteRequest = z.infer<typeof D.CreateInviteRequest>;
+export type ReprocessResponse = z.infer<typeof D.ReprocessResponse>;
+export type AssetPages = z.infer<typeof D.AssetPages>;
+export type OcrAssetRequest = z.infer<typeof D.OcrAssetRequest>;
+export type OcrAssetResponse = z.infer<typeof D.OcrAssetResponse>;
+export type AskSuggestions = z.infer<typeof D.AskSuggestions>;
+export type ListAskSuggestionsParams = z.infer<typeof D.ListAskSuggestionsQuery>;
 export type ListRecordingsParams = z.infer<typeof D.ListRecordingsQuery>;
 export type ListSuggestionsParams = z.infer<typeof D.ListCalendarSuggestionsQuery>;
 export type ListActionItemsQuery = z.infer<typeof D.ListActionItemsQuery>;
 export type SearchParams = z.infer<typeof D.SearchQuery>;
+export type SearchKind = z.infer<typeof D.SearchKind>;
 
 // 물어보기 (docs/adr/0009-ask-rag.md, packages/domain/src/api/ask.ts)
 export type AskScope = z.infer<typeof D.AskScope>;
@@ -116,10 +152,18 @@ export type RecordingPage = Page<RecordingListItem>;
 export type QuestionPage = Page<Question>;
 export type EventCandidatePage = Page<EventCandidate>;
 export type ActionItemPage = Page<ActionItem>;
+export type ShareLinkPage = Page<ShareLinkDto>;
 export type SearchHitPage = Page<SearchHit>;
 export type DevicePage = Page<Device>;
 export type WorkspaceMemberPage = Page<WorkspaceMember>;
 export type AskThreadPage = Page<AskThread>;
+export type IntegrationPage = Page<Integration>;
+export type AccessTokenPage = Page<AccessToken>;
+export type IdentityPage = Page<Identity>;
+export type DataExportPage = Page<DataExport>;
+export type InvitePage = Page<Invite>;
+export type JobPage = Page<Job>;
+export type UsageLedgerPage = Page<UsageLedger>;
 
 export type {
   ActionItemStatus,
@@ -130,6 +174,7 @@ export type {
   EventCandidateStatus,
   EventKind,
   GapKind,
+  JobKind,
   JobState,
   MembershipRole,
   QuestionKind,

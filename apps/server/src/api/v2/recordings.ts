@@ -1,15 +1,22 @@
-import { existsSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { deleteRecordingIndex, deleteRecordingThreads } from "@lectern/ask";
 import { deleteRecordingRows } from "@lectern/db";
+import { costMicrousd, DEFAULT_PRICING, priceFor } from "@lectern/harness";
+import { config } from "@lectern/config";
 import type { ErrorCode } from "@lectern/domain";
 import { DEFAULT_GEMINI_MODEL } from "../../../../../packages/core/src/index.ts";
-import { db, deleteLectureById, getLectureById, getUserById, resetLectureForRetry } from "../../db.ts";
+import { enqueueCalendarSyncForWorkspace } from "../../calendar/sync-job.ts";
+import { DATA_DIR, db, deleteLectureAudioOnly, deleteLectureById, getLectureById, getUserById, resetLectureForRetry } from "../../db.ts";
+import { logger } from "../../log.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
-import { enqueueDistillation } from "../../job-handlers.ts";
+import { deleteAlignment, readAlignment } from "../../pdf-align-file.ts";
+import { enqueueRecordingProcessing } from "../../process-job.ts";
+import { enqueueRegenerate } from "../../regenerate-job.ts";
 import { isLectureBusy } from "../../queue.ts";
 import { callerIn, can, loadRecording, requireWorkspace, VISIBLE_RECORDING_SQL } from "./access.ts";
-import { apiError, defineRouter, notFound, ok, okPage, pageBounds, pageFrom, type Handler, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, notImplemented, ok, okPage, pageBounds, pageFrom, type Handler, type V2Request } from "./common.ts";
 import {
   actionItemDto,
   eventCandidateDto,
@@ -32,6 +39,7 @@ import {
   activeJobRow,
   announceDeleted,
   announceLectures,
+  assetPath,
   documentsOf,
   folderSubtree,
   getFolderRow,
@@ -146,17 +154,24 @@ function addTags(recording: RecordingRow, tagIds: string[], now: number): void {
   }
 }
 
-/** Deletes a recording: its lecture (files, archive, search index, threads) or just the v2 rows. */
+/**
+ * Deletes a recording: its lecture (files, archive, search index, threads) or just the v2 rows.
+ * Its events go with it; their calendar_event_link rows stay, so the queued Google Calendar
+ * sync can still find and delete the Google copies (P4-03).
+ */
 function deleteRecording(recording: RecordingRow): void {
   if (recording.lecture_id && getLectureById(recording.lecture_id)) {
     const owner = getLectureById(recording.lecture_id)!.owner_id;
-    deleteLectureById(recording.lecture_id); // projects the deletion onto the v2 rows
+    deleteLectureById(recording.lecture_id); // projects the deletion onto the v2 rows (and queues the sync, db.ts onLectureDeleted)
     announceDeleted(owner, [recording.lecture_id]);
     return;
   }
   deleteRecordingIndex(db, recording.workspace_id, recording.id);
   deleteRecordingThreads(db, recording.workspace_id, recording.id);
+  db.query("DELETE FROM pdf_page WHERE recording_id = ?").run(recording.id);
+  deleteAlignment(recording.id);
   deleteRecordingRows(db, recording.id);
+  enqueueCalendarSyncForWorkspace(recording.workspace_id);
 }
 
 type BatchBody =
@@ -359,21 +374,20 @@ export const recordingsRouter = defineRouter({
     return okPage(req, rows.map(actionItemDto));
   }),
 
-  // Migrated lectures have no transcript (ARCHITECTURE §5.3 option 1), so the only way to
-  // reprocess one is `full`: the v1 pipeline again on the stored audio, after the user saw
-  // the estimate (`dry_run`). `document` needs a transcript to rebuild from.
+  // `full`: the whole pipeline again on the stored audio (`process` under LECTERN_PIPELINE=v2,
+  // else the v1 distillation). `document`: only the notes stages again on the published
+  // transcript (`regenerate`, a new document version); migrated lectures have no transcript
+  // (ARCHITECTURE §5.3 option 1), so for them only `full` works. Both after the user saw the
+  // estimate (`dry_run`).
   reprocessRecording: withRecording((req, recording) => {
     const body = req.body as { mode: "document" | "full"; dry_run?: boolean };
-    const hasTranscript = Boolean(db.query(`SELECT 1 FROM transcript_segment WHERE recording_id = ? LIMIT 1`).get(recording.id));
-    const audioMs = body.mode === "full" ? (recording.duration_ms ?? 0) : 0;
+    if (body.mode === "document") return regenerateDocument(req, recording, body.dry_run === true);
+    const audioMs = recording.duration_ms ?? 0;
     const estimate = {
       estimated_microusd: Math.ceil((audioMs / 3_600_000) * LEGACY_MICROUSD_PER_HOUR),
       audio_ms: audioMs,
       within_quota: true, // no AI cost quota yet (ROADMAP D10); ask has its own monthly limit
     };
-    if (body.mode === "document" && !hasTranscript) {
-      return apiError(req.c, 409, "conflict", "전사가 없는 녹음이라 문서만 다시 만들 수 없습니다. 전체 재처리를 선택하세요.");
-    }
     if (body.dry_run) return ok(req, { estimate, job: null });
     const lecture = recording.lecture_id ? getLectureById(recording.lecture_id) : null;
     if (!lecture) return apiError(req.c, 409, "conflict", "아직 다시 처리할 수 없는 녹음입니다.");
@@ -396,7 +410,7 @@ export const recordingsRouter = defineRouter({
         lecture: toLectureSummaryDto(reset),
       });
     }
-    const { jobId } = enqueueDistillation(lecture.id, lecture.owner_id, {
+    const { jobId } = enqueueRecordingProcessing(lecture.id, lecture.owner_id, {
       audioPath: lecture.audio_path,
       course: lecture.course,
       title: lecture.title,
@@ -405,10 +419,90 @@ export const recordingsRouter = defineRouter({
     const job = db.query(`SELECT * FROM job WHERE id = ?`).get(jobId) as Parameters<typeof toJob>[0] | null;
     return ok(req, { estimate, job: job ? toJob(job) : null }, { status: 202 });
   }, "recording:update"),
+
+  // Only the audio goes (D-P2-4): transcript, documents, notes and the search index stay.
+  // Idempotent: a recording without audio answers 204 too.
+  deleteRecordingAudio: withRecording((req, recording) => {
+    // A lecture-backed recording: the v1 "오디오만 지우기", then the v2 rows follow by projection.
+    if (recording.lecture_id && getLectureById(recording.lecture_id)) deleteLectureAudioOnly(recording.lecture_id);
+    dropAudioFiles(recording.id);
+    if (recording.lecture_id) announceLectures([recording.lecture_id]);
+    return req.c.body(null, 204);
+  }, "recording:delete"),
+  // Transcript windows matched to PDF pages (D-P3-4): P3-04 reads the align output.
+  // The transcript–PDF alignment the last `process` run made (P3-04); none yet is no windows.
+  getRecordingAlignment: (req) => {
+    if (!config().pdf) return notImplemented(req);
+    const recording = loadRecording(req, req.params.recording_id);
+    if (recording instanceof Response) return recording;
+    return ok(req, readAlignment(recording.id));
+  },
 });
 
+/**
+ * Audio assets stored as files (`file:` blobs: the extra parts of a multi-part upload,
+ * derived audio). `lecture:` blobs are the v1 function's. Files are only removed under the
+ * uploads directory, as deleteLectureById does; the rows go either way.
+ */
+function dropAudioFiles(recordingId: string): void {
+  const rows = db
+    .query(`SELECT id, blob_key FROM asset WHERE recording_id = ? AND kind LIKE 'audio%' AND blob_key LIKE 'file:%'`)
+    .all(recordingId) as Array<{ id: string; blob_key: string }>;
+  if (!rows.length) return;
+  const uploads = join(DATA_DIR, "uploads");
+  for (const row of rows) {
+    const path = assetPath(row);
+    if (!path) continue;
+    if (!path.startsWith(uploads)) {
+      logger.warn("audio asset outside the uploads directory left on disk", { recording_id: recordingId, asset_id: row.id });
+      continue;
+    }
+    try {
+      unlinkSync(path);
+    } catch (err) {
+      logger.warn("could not remove an audio file", { recording_id: recordingId, asset_id: row.id, err });
+    }
+  }
+  transact(() => {
+    for (const row of rows) db.query(`DELETE FROM asset WHERE id = ?`).run(row.id);
+  });
+}
+
+/**
+ * Estimated notes cost of a `document` reprocess: the transcript as input (about two
+ * characters per token for Korean) plus prompts, one document's worth of output, at the
+ * structure model's price. The classify call is small and left out.
+ */
+function regenerateEstimate(recordingId: string) {
+  const chars = (db.query(`SELECT COALESCE(SUM(LENGTH(text)), 0) AS n FROM transcript_segment WHERE recording_id = ?`).get(recordingId) as { n: number })
+    .n;
+  const price = priceFor(DEFAULT_PRICING, "gemini", "gemini-3.8-flash", Date.now());
+  const usage = { inputTokens: Math.ceil(chars / 2) + 4_000, cachedTokens: 0, outputTokens: 6_000 };
+  return { estimated_microusd: price ? costMicrousd(usage, price) : 0, audio_ms: 0, within_quota: true };
+}
+
+function regenerateDocument(req: V2Request, recording: RecordingRow, dryRun: boolean): Response {
+  const hasTranscript = Boolean(db.query(`SELECT 1 FROM transcript_segment WHERE recording_id = ? LIMIT 1`).get(recording.id));
+  if (!hasTranscript) {
+    return apiError(req.c, 409, "conflict", "전사가 없는 녹음이라 문서만 다시 만들 수 없습니다. 전체 재처리를 선택하세요.");
+  }
+  const estimate = regenerateEstimate(recording.id);
+  if (dryRun) return ok(req, { estimate, job: null });
+  const lecture = recording.lecture_id ? getLectureById(recording.lecture_id) : null;
+  if (!lecture) return apiError(req.c, 409, "conflict", "아직 다시 처리할 수 없는 녹음입니다.");
+  if (isLectureBusy(lecture.id)) return apiError(req.c, 409, "conflict", "이미 처리 중인 녹음입니다.");
+  if (!canUseServerKey(req.user!) || !canUseServerKey(getUserById(lecture.owner_id))) {
+    return apiError(req.c, 403, "forbidden", "서버 AI 키 사용 권한이 없는 계정입니다.");
+  }
+  // The recording keeps its current notes while this runs (no reset): the new version replaces them.
+  const { jobId } = enqueueRegenerate(lecture.id, lecture.owner_id, estimate.estimated_microusd * 3 + 200_000);
+  const job = db.query(`SELECT * FROM job WHERE id = ?`).get(jobId) as Parameters<typeof toJob>[0];
+  return ok(req, { estimate, job: toJob(job) }, { status: 202 });
+}
+
 /** Same rule as the v1 retry route: the server's Gemini key, for the caller and the owner. */
-function canUseServerKey(user: { can_use_server_key: number; status?: string } | null): boolean {
+/** Whether an account may spend the server's Gemini key (admin switch, active account). */
+export function canUseServerKey(user: { can_use_server_key: number; status?: string } | null): boolean {
   return Boolean(user && user.can_use_server_key !== 0 && (user.status || "active") === "active");
 }
 

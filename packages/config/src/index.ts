@@ -116,14 +116,70 @@ const ENV = {
     description:
       "v2 transcript pipeline (packages/harness: ingest → … → speakers, AI_HARNESS §11 step 3). off: not run. shadow: after a distill on the server key succeeds, a `transcribe` job transcribes the recording again (Gemini, about $0.2 per hour of audio) and keeps the transcript as a harness artifact nobody sees. on: will publish the transcript once the transcript tables exist; until then it runs as shadow",
   },
+  LECTERN_PIPELINE: {
+    schema: z.enum(["v1", "v2"]).default("v1"),
+    description:
+      "v1: a finished upload runs the distill job (audio in, Markdown out). v2: it runs the `process` job (transcript, then structured notes, CONTRACTS §1). Costs more than v1 per recording",
+  },
   LECTERN_ASK: {
     schema: bool(false),
     description:
       "1: turn on 물어보기 (/api/v2/ask) and its search index over each user's lectures (ADR-0009); index jobs and answers call Gemini (cost). 0: the ask routes answer 501",
   },
+  LECTERN_PDF: {
+    schema: bool(false),
+    description:
+      "1: accept PDF uploads, extract their pages, show the PDF viewer and cite pages. 0: PDF uploads are refused as today",
+  },
   LECTERN_ASK_MONTHLY_LIMIT_MICROUSD: {
     schema: int(0, 1_000_000_000, 2_000_000),
     description: "Per-workspace monthly ask budget in micro-USD (2000000 = $2, ROADMAP D14); 0 blocks asking",
+  },
+  LECTERN_CALENDAR: {
+    schema: bool(false),
+    description:
+      "1: turn on ICS subscription (/cal/<token>.ics), Google Calendar sync and e-mail reminders. 0: the calendar routes answer 501",
+  },
+  GOOGLE_OAUTH_CLIENT_ID: {
+    schema: optionalString,
+    description: "Google OAuth client id (calendar, later sign-in)",
+    secret: true,
+  },
+  GOOGLE_OAUTH_CLIENT_SECRET: {
+    schema: optionalString,
+    description: "Google OAuth client secret",
+    secret: true,
+  },
+  LECTERN_GOOGLE_LOGIN: {
+    schema: bool(false),
+    description: "1: Google sign-in (button and /api/v2/auth/google/*). Needs GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET",
+  },
+  LECTERN_APPLE_LOGIN: {
+    schema: bool(false),
+    description: "1: Sign in with Apple (button and /api/v2/auth/apple/*). Needs the APPLE_SIGNIN_* values",
+  },
+  LECTERN_TEAMS: {
+    schema: bool(false),
+    description: "1: team workspaces: invites, role changes and uploads into a team workspace. 0: those routes answer 501",
+  },
+  APPLE_SIGNIN_CLIENT_ID: {
+    schema: optionalString,
+    description: "Apple Services ID used as the OAuth client id",
+    secret: true,
+  },
+  APPLE_SIGNIN_TEAM_ID: {
+    schema: optionalString,
+    description: "Apple developer team id",
+    secret: true,
+  },
+  APPLE_SIGNIN_KEY_ID: {
+    schema: optionalString,
+    description: "Key id of the Sign in with Apple private key",
+    secret: true,
+  },
+  APPLE_SIGNIN_PRIVATE_KEY_FILE: {
+    schema: optionalString,
+    description: "Path of the Sign in with Apple .p8 private key file (the path, never the key)",
   },
   LECTERN_LEGAL_CONTACT_EMAIL: {
     schema: optionalString.refine((v) => v === undefined || z.email().safeParse(v).success, {
@@ -206,8 +262,20 @@ export interface Config {
   distillEngine: "legacy" | "harness";
   /** The v2 transcript pipeline (AI_HARNESS §11 step 3); off by default because it costs a second Gemini pass. */
   transcriptEngine: "off" | "shadow" | "on";
+  /** Which recording pipeline a finished upload starts: v1 distill or the v2 `process` job. */
+  pipeline: "v1" | "v2";
   /** 물어보기 (ADR-0009): off by default because indexing and answers cost money. */
   ask: { enabled: boolean; monthlyLimitMicrousd: number };
+  /** Lecture PDFs (CONTRACTS §3): uploads, page extraction, the viewer and page citations. */
+  pdf: boolean;
+  /** ICS feed, Google Calendar sync, reminders (P4). */
+  calendar: boolean;
+  /** Sign-in providers and team workspaces (P5). */
+  googleLogin: boolean;
+  appleLogin: boolean;
+  teams: boolean;
+  /** Sign in with Apple: where the .p8 key is (its ids are secrets, read with readSecret). */
+  appleSignin: { privateKeyFile: string | null };
   /** Operator-specific values for /privacy and /terms (null = not set yet). */
   legal: { contactEmail: string | null; officerName: string | null; effectiveDate: string | null };
   owner: {
@@ -274,10 +342,17 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     distillEngine: p.LECTERN_DISTILL_ENGINE,
     transcriptEngine: p.LECTERN_TRANSCRIPT_ENGINE,
+    pipeline: p.LECTERN_PIPELINE,
     ask: {
       enabled: p.LECTERN_ASK,
       monthlyLimitMicrousd: p.LECTERN_ASK_MONTHLY_LIMIT_MICROUSD,
     },
+    pdf: p.LECTERN_PDF,
+    calendar: p.LECTERN_CALENDAR,
+    googleLogin: p.LECTERN_GOOGLE_LOGIN,
+    appleLogin: p.LECTERN_APPLE_LOGIN,
+    teams: p.LECTERN_TEAMS,
+    appleSignin: { privateKeyFile: p.APPLE_SIGNIN_PRIVATE_KEY_FILE ?? null },
     legal: {
       contactEmail: p.LECTERN_LEGAL_CONTACT_EMAIL ?? null,
       officerName: p.LECTERN_LEGAL_OFFICER_NAME ?? null,
@@ -301,7 +376,17 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
 /** Reads a secret at the moment it is needed (never cached). Empty strings count as unset. */
 export function readSecret(
-  name: "GEMINI_API_KEY" | "RESEND_API_KEY" | "LECTERN_DEPLOY_TOKEN" | "LECTERN_OWNER_PASSWORD" | "LECTERN_OWNER_API_TOKEN"
+  name:
+    | "GEMINI_API_KEY"
+    | "RESEND_API_KEY"
+    | "LECTERN_DEPLOY_TOKEN"
+    | "LECTERN_OWNER_PASSWORD"
+    | "LECTERN_OWNER_API_TOKEN"
+    | "GOOGLE_OAUTH_CLIENT_ID"
+    | "GOOGLE_OAUTH_CLIENT_SECRET"
+    | "APPLE_SIGNIN_CLIENT_ID"
+    | "APPLE_SIGNIN_TEAM_ID"
+    | "APPLE_SIGNIN_KEY_ID"
 ): string | undefined {
   const v = (process.env[name] || "").trim();
   return v || undefined;

@@ -16,9 +16,28 @@ import { LibraryPage } from "../routes/library/LibraryPage.tsx";
 import { RecordingPage } from "../routes/recording/RecordingPage.tsx";
 import { CalendarPage } from "../routes/calendar/CalendarPage.tsx";
 import { LoginPage, safeNext, type LoginSearch } from "../routes/login/LoginPage.tsx";
+import { ResetPage } from "../routes/account/ResetPage.tsx";
+import { SignupPage } from "../routes/account/SignupPage.tsx";
 import { NotFoundPage, SessionErrorPage } from "../routes/placeholders.tsx";
 import { SettingsPage } from "../routes/settings/SettingsPage.tsx";
+import { InvitePage, type InviteSearch } from "../routes/invite/InvitePage.tsx";
+import { AdminUserRole, AdminUserStatus, AUDIT_PREFIXES, LectureStatus } from "../api/admin.ts";
+import { AuditPage, type AdminAuditSearch } from "../routes/admin/AuditPage.tsx";
+import { AdminLayout } from "../routes/admin/AdminLayout.tsx";
+import { JobDetailPage } from "../routes/admin/JobDetailPage.tsx";
+import { JobsPage, type AdminJobsSearch } from "../routes/admin/JobsPage.tsx";
+import { OverviewPage } from "../routes/admin/OverviewPage.tsx";
+import { OpsPage, type AdminOpsSearch } from "../routes/admin/OpsPage.tsx";
+import { RecordingDetailPage } from "../routes/admin/RecordingDetailPage.tsx";
+import { RecordingsPage, type AdminRecordingsSearch } from "../routes/admin/RecordingsPage.tsx";
+import { SettingsPage as AdminSettingsPage } from "../routes/admin/SettingsPage.tsx";
+import { StoragePage, type AdminStorageSearch } from "../routes/admin/StoragePage.tsx";
+import { UserDetailPage } from "../routes/admin/UserDetailPage.tsx";
+import { UsagePage, type AdminUsageSearch } from "../routes/admin/UsagePage.tsx";
+import { UsersPage, type AdminUsersSearch } from "../routes/admin/UsersPage.tsx";
+import { JobKind as JobKindSchema, JobState as JobStateSchema } from "@lectern/domain";
 import { AskPage, type AskSearch } from "../routes/ask/AskPage.tsx";
+import { SearchPage, type SearchPageSearch } from "../routes/search/SearchPage.tsx";
 
 export interface RouterContext {
   api: ApiClient;
@@ -34,6 +53,18 @@ export interface LibrarySearch {
   q?: string;
 }
 
+export interface RecordingSearch {
+  /** Start playback here (ms of the original audio). */
+  t?: number;
+  /** Ask this question in the note panel at once. */
+  ask?: string;
+  /** Open this PDF page in the files panel: `<asset id>:<page>`. */
+  pdf?: string;
+}
+
+/** `<asset id>:<page>` of the `pdf` search parameter. */
+const PDF_TARGET = /^[A-Za-z0-9_-]{1,64}:\d{1,5}$/;
+
 const str = (v: unknown) => (typeof v === "string" && v.length > 0 && v.length <= 200 ? v : undefined);
 
 /** The signed-in user, asked once and then kept until a 401 or a sign-out clears it. */
@@ -46,11 +77,30 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({ component: Outle
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
-  validateSearch: (search: Record<string, unknown>): LoginSearch => ({ next: str(search.next) }),
+  validateSearch: (search: Record<string, unknown>): LoginSearch => ({ next: str(search.next), error: str(search.error) }),
   beforeLoad: async ({ context, search }) => {
     if (await ensureSession(context)) throw redirect({ href: safeNext(search.next) });
   },
   component: LoginPage,
+});
+
+// Sign-up and password reset are for visitors: someone already signed in goes home.
+const signupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/signup",
+  beforeLoad: async ({ context }) => {
+    if (await ensureSession(context)) throw redirect({ href: "/" });
+  },
+  component: SignupPage,
+});
+
+const resetRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/reset",
+  beforeLoad: async ({ context }) => {
+    if (await ensureSession(context)) throw redirect({ href: "/" });
+  },
+  component: ResetPage,
 });
 
 const authedRoute = createRoute({
@@ -80,12 +130,23 @@ const libraryRoute = createRoute({
 const recordingRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/recordings/$recordingId",
-  validateSearch: (search: Record<string, unknown>): { t?: number; ask?: string } => {
+  validateSearch: (search: Record<string, unknown>): RecordingSearch => {
     const t = Number(search.t);
     const ask = str(search.ask);
-    return { ...(Number.isFinite(t) && t >= 0 ? { t } : {}), ...(ask ? { ask } : {}) };
+    const pdf = typeof search.pdf === "string" && PDF_TARGET.test(search.pdf) ? search.pdf : undefined;
+    return { ...(Number.isFinite(t) && t >= 0 ? { t } : {}), ...(ask ? { ask } : {}), ...(pdf ? { pdf } : {}) };
   },
   component: RecordingPage,
+});
+
+const searchRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/search",
+  validateSearch: (search: Record<string, unknown>): SearchPageSearch => ({
+    q: str(search.q),
+    kind: search.kind === "transcript" || search.kind === "document" || search.kind === "pdf_page" ? search.kind : undefined,
+  }),
+  component: SearchPage,
 });
 
 const askRoute = createRoute({
@@ -99,10 +160,106 @@ const askRoute = createRoute({
 });
 const calendarRoute = createRoute({ getParentRoute: () => authedRoute, path: "/calendar", component: CalendarPage });
 const settingsRoute = createRoute({ getParentRoute: () => authedRoute, path: "/settings", component: SettingsPage });
+// The invitation mail's link (P5-11). Signed out, authedRoute sends it through /login and back.
+const inviteRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/invite",
+  validateSearch: (search: Record<string, unknown>): InviteSearch => ({
+    token: typeof search.token === "string" && search.token.length > 0 && search.token.length <= 256 ? search.token : undefined,
+  }),
+  component: InvitePage,
+});
+
+// The admin console (P5-12, P5-16, P5-13). AdminLayout draws "not found" for anyone who is not an operator.
+const searchText = (v: unknown, max = 200) => (typeof v === "string" && v.trim() && v.length <= max ? v : undefined);
+const adminRoute = createRoute({ getParentRoute: () => authedRoute, path: "/admin", component: AdminLayout });
+const adminOverviewRoute = createRoute({ getParentRoute: () => adminRoute, path: "/", component: OverviewPage });
+const adminUsersRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/users",
+  validateSearch: (search: Record<string, unknown>): AdminUsersSearch => ({
+    role: AdminUserRole.safeParse(search.role).data,
+    status: AdminUserStatus.safeParse(search.status).data,
+    q: searchText(search.q),
+    new: search.new === 1 || search.new === "1" || search.new === true ? 1 : undefined,
+  }),
+  component: UsersPage,
+});
+const adminUserRoute = createRoute({ getParentRoute: () => adminRoute, path: "/users/$userId", component: UserDetailPage });
+const adminRecordingsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/recordings",
+  validateSearch: (search: Record<string, unknown>): AdminRecordingsSearch => ({
+    status: LectureStatus.safeParse(search.status).data,
+    q: searchText(search.q),
+    owner: searchText(search.owner, 100),
+  }),
+  component: RecordingsPage,
+});
+const adminRecordingRoute = createRoute({ getParentRoute: () => adminRoute, path: "/recordings/$lectureId", component: RecordingDetailPage });
+const adminJobsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/jobs",
+  validateSearch: (search: Record<string, unknown>): AdminJobsSearch => ({
+    state: JobStateSchema.safeParse(search.state).data,
+    kind: JobKindSchema.safeParse(search.kind).data,
+  }),
+  component: JobsPage,
+});
+const adminJobRoute = createRoute({ getParentRoute: () => adminRoute, path: "/jobs/$jobId", component: JobDetailPage });
+const adminUsageRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/usage",
+  validateSearch: (search: Record<string, unknown>): AdminUsageSearch => ({
+    period: typeof search.period === "string" && /^\d{4}-\d{2}$/.test(search.period) ? search.period : undefined,
+  }),
+  component: UsagePage,
+});
+const adminStorageRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/storage",
+  validateSearch: (search: Record<string, unknown>): AdminStorageSearch => ({
+    run: search.run === "compact" || search.run === "gc" || search.run === "retention" ? search.run : undefined,
+  }),
+  component: StoragePage,
+});
+const adminOpsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/ops",
+  validateSearch: (search: Record<string, unknown>): AdminOpsSearch => ({ run: search.run === "maintenance" ? "maintenance" : undefined }),
+  component: OpsPage,
+});
+const adminSettingsRoute = createRoute({ getParentRoute: () => adminRoute, path: "/settings", component: AdminSettingsPage });
+const adminAuditRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/audit",
+  validateSearch: (search: Record<string, unknown>): AdminAuditSearch => ({
+    action: AUDIT_PREFIXES.find((p) => p === search.action),
+    q: searchText(search.q),
+  }),
+  component: AuditPage,
+});
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
-  authedRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, askRoute, calendarRoute, settingsRoute]),
+  signupRoute,
+  resetRoute,
+  authedRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, searchRoute, askRoute, calendarRoute, settingsRoute, inviteRoute,
+    adminRoute.addChildren([
+      adminOverviewRoute,
+      adminUsersRoute,
+      adminUserRoute,
+      adminRecordingsRoute,
+      adminRecordingRoute,
+      adminJobsRoute,
+      adminJobRoute,
+      adminUsageRoute,
+      adminStorageRoute,
+      adminOpsRoute,
+      adminSettingsRoute,
+      adminAuditRoute,
+    ]),
+  ]),
 ]);
 
 export function createAppRouter(context: RouterContext) {

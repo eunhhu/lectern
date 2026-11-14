@@ -23,8 +23,10 @@ import {
   drainLectureSync,
   ensurePersonalWorkspace,
   installLectureSyncTriggers,
+  lectureRecordingId,
   projectLecture,
   runMigrations,
+  sha256Hex,
   verifyLegacy,
   type BackfillReport,
   type LegacyVerifyReport,
@@ -35,6 +37,7 @@ import { personalWorkspaceId } from "./ask/workspace.ts";
 import { BlobStore, deleteArtifactsForJobs } from "@lectern/harness";
 import { ensurePrivateDir, hardenPrivateTree, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
+import { deleteAlignment } from "./pdf-align-file.ts";
 
 export const USER_ROLES = ["owner", "admin", "member", "viewer"] as const;
 export const USER_STATUSES = ["active", "pending", "suspended"] as const;
@@ -562,6 +565,13 @@ export function updateUserPassword(userId: string, newPassword: string): void {
     passwordHash,
     userId
   );
+  // A new password signs every native app out (P5-03): reset, change, operator, owner bootstrap.
+  revokeNativeSessionsOfUser(userId);
+}
+
+/** Ends every native app sign-in of the user (native-auth.ts, D-P5-4). Kept here so db.ts needs no import of it. */
+export function revokeNativeSessionsOfUser(userId: string, now = Date.now()): void {
+  db.query(`UPDATE native_session SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`).run(now, userId);
 }
 
 export function updateUserProfile(
@@ -596,9 +606,13 @@ export function deleteAllUserSessions(
       userId,
       exceptToken
     );
+    db.query(`DELETE FROM auth_session_meta WHERE user_id = ? AND session_id != ?`).run(userId, sessionIdOf(exceptToken));
   } else {
     db.query(`DELETE FROM sessions WHERE user_id = ?`).run(userId);
+    db.query(`DELETE FROM auth_session_meta WHERE user_id = ?`).run(userId);
   }
+  // Signing a user out everywhere includes the native apps (P5-03).
+  revokeNativeSessionsOfUser(userId);
 }
 
 export function rotateUserApiToken(userId: string): string {
@@ -909,10 +923,43 @@ export function deleteUserAndData(targetUserId: string): boolean {
   }
   deleteAllUserSessions(targetUserId);
   deleteWorkspaceAskData(db, personalWorkspaceId(targetUserId));
+  // Lecture PDF pages and alignments of recordings without a lecture (P3-03, P3-04).
+  const workspaceRecordings = db.query(`SELECT id FROM recording WHERE workspace_id = ?`).all(personalWorkspaceId(targetUserId)) as Array<{ id: string }>;
+  for (const rec of workspaceRecordings) deleteAlignment(rec.id);
+  db.query(`DELETE FROM pdf_page WHERE workspace_id = ?`).run(personalWorkspaceId(targetUserId));
+  // Their export zips (P5-08, export/job.ts): the files under <data dir>/exports, then the rows.
+  const exportIds = db.query(`SELECT id FROM data_export WHERE user_id = ?`).all(targetUserId) as Array<{ id: string }>;
+  for (const { id } of exportIds) {
+    for (const name of [`${id}.zip`, `${id}.zip.tmp`]) {
+      const path = join(config().dataDir, "exports", name);
+      if (existsSync(path)) unlinkSync(path);
+    }
+  }
+  db.query(`DELETE FROM data_export WHERE user_id = ?`).run(targetUserId);
+  // Calendar rows keyed by the user, in any workspace (P4): reminders addressed to them, their
+  // ICS feeds, and the event links of their Google integrations (deleted with the workspace).
+  db.query(`DELETE FROM reminder WHERE user_id = ?`).run(targetUserId);
+  db.query(`DELETE FROM calendar_feed WHERE user_id = ?`).run(targetUserId);
+  db.query(`DELETE FROM calendar_event_link WHERE integration_id IN (SELECT id FROM integration WHERE user_id = ?)`).run(targetUserId);
+  // Their personal access tokens (P5-02), native app sign-ins (P5-03), and Google/Apple
+  // sign-in identities (P5-04/05: else the provider account stays claimed by nobody).
+  db.query(`DELETE FROM access_token WHERE user_id = ?`).run(targetUserId);
+  db.query(`DELETE FROM native_session WHERE user_id = ?`).run(targetUserId);
+  db.query(`DELETE FROM oauth_identity WHERE user_id = ?`).run(targetUserId);
   deleteWorkspaceRows(db, personalWorkspaceId(targetUserId));
   db.query(`DELETE FROM membership WHERE user_id = ?`).run(targetUserId);
   const res = db.query(`DELETE FROM users WHERE id = ?`).run(targetUserId);
   return res.changes > 0;
+}
+
+/**
+ * Gives a lecture to another user (account deletion, P5-09: a deleted member's shared team
+ * recording stays with the team). The projection then names the new owner as the recording's
+ * creator and keeps it in its team workspace.
+ */
+export function transferLectureOwner(lectureId: string, newOwnerId: string): void {
+  db.query(`UPDATE lectures SET owner_id = ? WHERE id = ?`).run(newOwnerId, lectureId);
+  syncLecture(lectureId);
 }
 
 export function createSession(userId: string, ttlDays = 30): string {
@@ -925,8 +972,16 @@ export function createSession(userId: string, ttlDays = 30): string {
   return token;
 }
 
+/**
+ * A login session's public id (`ses_` + the first 32 hex digits of the token's SHA-256), also
+ * the key of its `auth_session_meta` row (D-P5-2). The token itself is never stored there.
+ */
+export const sessionIdOf = (token: string) => `ses_${sha256Hex(token).slice(0, 32)}`;
+
+/** Ends one session, with its device metadata (logout, expiry, device revocation). */
 export function deleteSession(token: string): void {
   db.query(`DELETE FROM sessions WHERE token = ?`).run(token);
+  db.query(`DELETE FROM auth_session_meta WHERE session_id = ?`).run(sessionIdOf(token));
 }
 
 export function getUserBySessionOrApiToken(rawToken: string): UserRecord | null {
@@ -1518,6 +1573,15 @@ export function updateLectureProgress(
 
 type LectureContentListener = (lectureId: string, ownerId: string) => void;
 const lectureContentListeners: LectureContentListener[] = [];
+const lectureDeletedListeners: LectureContentListener[] = [];
+
+/**
+ * Called after a lecture and its v2 rows are deleted. The Google Calendar sync
+ * (calendar/sync-job.ts) subscribes to remove the deleted events from Google.
+ */
+export function onLectureDeleted(listener: LectureContentListener): void {
+  lectureDeletedListeners.push(listener);
+}
 
 /**
  * Called after a lecture's notes are written (distill finished, user edit). The ask index
@@ -1769,6 +1833,8 @@ export function deleteLectureById(id: string): boolean {
     // (ADR-0009 §9); they go with it whether or not LECTERN_ASK is on now.
     const workspaceId = personalWorkspaceId(rec.owner_id);
     deleteRecordingIndex(db, workspaceId, id);
+    db.query("DELETE FROM pdf_page WHERE recording_id = ?").run(lectureRecordingId(id));
+    deleteAlignment(lectureRecordingId(id));
     deleteRecordingThreads(db, workspaceId, id);
   }
   if (rec) {
@@ -1802,9 +1868,31 @@ export function deleteLectureById(id: string): boolean {
         // ignore
       }
     }
+    // The other parts of a multi-part recording (D-P1-9) are files of their own.
+    const parts = db
+      .query(`SELECT blob_key FROM asset WHERE recording_id = ? AND kind = 'audio' AND blob_key LIKE 'file:%'`)
+      .all(lectureRecordingId(id)) as Array<{ blob_key: string }>;
+    for (const { blob_key } of parts) {
+      const path = blob_key.slice("file:".length);
+      if (!path.startsWith(join(DATA_DIR, "uploads"))) continue;
+      try {
+        unlinkSync(path);
+      } catch {
+        // already gone
+      }
+    }
   }
   const res = db.query(`DELETE FROM lectures WHERE id = ?`).run(id);
   syncLecture(id);
+  if (rec && res.changes > 0) {
+    for (const listener of lectureDeletedListeners) {
+      try {
+        listener(id, rec.owner_id);
+      } catch (err) {
+        logger.error("lecture deleted listener failed", { lecture_id: id, err });
+      }
+    }
+  }
   return res.changes > 0;
 }
 

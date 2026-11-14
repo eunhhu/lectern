@@ -1,0 +1,7 @@
+{
+  "classify":  { "provider": "gemini", "model": "gemini-3.5-flash-lite", "maxOutputTokens": 1024 },
+  "structure": { "provider": "gemini", "model": "gemini-3.8-flash",      "maxOutputTokens": 16384 },
+  "extract":   { "provider": "gemini", "model": "gemini-3.8-flash",      "maxOutputTokens": 8192 },
+  "repair":    { "provider": "gemini", "model": "gemini-3.8-flash",      "maxOutputTokens": 8192 },
+  "ocr":       { "provider": "gemini", "model": "gemini-3.8-flash",      "maxOutputTokens": 8192 }
+}

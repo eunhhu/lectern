@@ -6,12 +6,16 @@
 // - an owner account and two synthetic v1 lectures (accounts.ts), each with a short WAV;
 // - LECTERN_ASK=1 and the real ask service, whose Gemini calls are answered here by a
 //   fake at the fetch boundary (deterministic embeddings and a model that quotes the best
-//   passage with its [cN] marker). Every other outbound request is refused, so nothing
-//   leaves the machine and no real key is ever read;
-// - LECTERN_WORKER_MODE=external, so no job runs (the lectures are indexed directly).
+//   passage with its [cN] marker). The same fake answers the v2 pipeline's calls: chunk
+//   transcription (three fixed Korean sentences) and the notes stages' JSON (classify,
+//   structure, extract). Every other outbound request is refused, so nothing leaves the
+//   machine and no real key is ever read;
+// - LECTERN_WORKER_MODE=external, so no job runs until a test turns the v2 pipeline on
+//   (POST /__e2e/pipeline), which starts a job worker in this process (the lectures are
+//   indexed directly).
 //
 // Nothing in apps/server is changed for this; it only sets the environment the server
-// already reads.
+// already reads. The /__e2e/* routes exist only in this process.
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -119,10 +123,70 @@ function geminiSse(text: string): Response {
   return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
 }
 
+/** What the fake "hears" in any chunk (clip-relative MM:SS, as the transcription prompt asks). */
+const FAKE_TRANSCRIPT = [
+  { start: "00:00", end: "00:04", text: "오늘은 블록 암호의 운영 모드를 살펴봅니다." },
+  { start: "00:04", end: "00:08", text: "ECB 모드는 같은 평문 블록을 같은 암호문으로 바꿉니다." },
+  { start: "00:08", end: "00:12", text: "그래서 실제로는 CBC 모드처럼 이전 블록을 섞는 방식을 씁니다." },
+];
+
+function geminiJson(value: unknown, usage = { promptTokenCount: 900, candidatesTokenCount: 120, totalTokenCount: 1020 }): Response {
+  return Response.json({
+    candidates: [{ content: { role: "model", parts: [{ text: JSON.stringify(value) }] }, finishReason: "STOP" }],
+    usageMetadata: usage,
+    modelVersion: "gemini-3.8-flash",
+    responseId: "e2e-fake",
+  });
+}
+
+const provenance = { sources: ["#0-#1"], pdf_pages: [] as number[] };
+
+/** Notes-stage answers, told apart by the top-level properties of the request's responseSchema. */
+function notesAnswer(properties: string[]): unknown {
+  if (properties.includes("domain")) {
+    return {
+      domain: "lecture",
+      language: "ko",
+      title: "블록 암호 운영 모드 강의",
+      participants: [],
+      folder_suggestion: { folder_id: null, new_name: null },
+      tags: [],
+      confidence: 0.9,
+    };
+  }
+  if (properties.includes("sections")) {
+    return {
+      sections: [
+        { key: "summary", blocks: [{ type: "paragraph", heading: null, text: "ECB 모드의 한계와 CBC 모드가 쓰이는 이유를 다뤘다.", ...provenance }] },
+        { key: "topics", blocks: [{ type: "paragraph", heading: "운영 모드", text: "ECB는 같은 평문 블록을 같은 암호문으로 바꾸고, CBC는 이전 블록을 섞는다.", ...provenance }] },
+      ],
+    };
+  }
+  // Extract: every field the template asks for, empty (no events, no glossary entries).
+  if (["events", "action_items", "decisions", "glossary"].some((p) => properties.includes(p))) {
+    return Object.fromEntries(properties.map((p) => [p, []]));
+  }
+  // The verifier's repair call: nothing to fix.
+  if (properties.includes("fixes")) return { fixes: [] };
+  return null;
+}
+
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   if (url.startsWith(GEMINI)) {
     const body = JSON.parse(String(init?.body ?? "{}"));
+    if (url.includes(":generateContent")) {
+      const parts = (body.contents?.[0]?.parts ?? []) as Array<{ inlineData?: unknown }>;
+      if (parts.some((p) => p.inlineData)) {
+        const segments = FAKE_TRANSCRIPT.map((s) => ({ ...s, speaker: "S1" }));
+        return geminiJson({ language: "ko", segments }, { promptTokenCount: 700, candidatesTokenCount: 90, totalTokenCount: 790 });
+      }
+      if (body.generationConfig?.responseMimeType === "application/json") {
+        const answer = notesAnswer(Object.keys(body.generationConfig.responseSchema?.properties ?? {}));
+        if (answer !== null) return geminiJson(answer);
+      }
+      return Response.json({ error: { code: 400, message: "not faked in e2e" } }, { status: 400 });
+    }
     if (url.includes(":batchEmbedContents")) {
       const embeddings = (body.requests as { content: { parts: { text: string }[] }; outputDimensionality: number }[]).map((r) => ({
         values: embed(r.content.parts.map((p) => p.text).join(" "), r.outputDimensionality),
@@ -200,5 +264,50 @@ function seedTranscript(recordingId: string, rows: NonNullable<(typeof E2E_LECTU
   );
 }
 
-const server = Bun.serve({ port, hostname: "127.0.0.1", idleTimeout: 120, fetch: (req) => handleRequest(req) });
+// --- e2e control (this process only) -----------------------------------------------------
+const { resetConfigForTests } = await import("../../../../packages/config/src/index.ts");
+const { isFfmpegAvailable } = await import("../../../../packages/media/src/index.ts");
+const queue = await import("../../../server/src/queue.ts");
+let worker: InstanceType<typeof queue.JobWorker> | null = null;
+
+/**
+ * v2: LECTERN_PIPELINE=v2 and a job worker in this process. Jobs left queued under v1 (the
+ * upload test's distill job) are canceled first, through the queue's own cancel path, so the
+ * worker only runs what the v2 test enqueues. v1: back to the defaults, worker drained.
+ */
+async function setPipeline(mode: "v1" | "v2"): Promise<void> {
+  if (mode === "v2") {
+    process.env.LECTERN_PIPELINE = "v2";
+    resetConfigForTests();
+    db.db.query(`UPDATE job SET cancel_requested_at = ? WHERE state = 'queued' AND cancel_requested_at IS NULL`).run(Date.now());
+    queue.cancelQueuedJobs();
+    worker ??= new queue.JobWorker({ pollMs: 200 });
+    worker.start();
+    return;
+  }
+  delete process.env.LECTERN_PIPELINE;
+  resetConfigForTests();
+  const running = worker;
+  worker = null;
+  await running?.drain(10_000);
+}
+
+async function controlRoute(req: Request): Promise<Response | null> {
+  const { pathname } = new URL(req.url);
+  if (req.method === "GET" && pathname === "/__e2e/info") return Response.json({ ffmpeg: isFfmpegAvailable() });
+  if (req.method === "POST" && pathname === "/__e2e/pipeline") {
+    const mode = ((await req.json().catch(() => null)) as { mode?: unknown } | null)?.mode;
+    if (mode !== "v1" && mode !== "v2") return Response.json({ error: "mode must be v1 or v2" }, { status: 400 });
+    await setPipeline(mode);
+    return Response.json({ mode });
+  }
+  return null;
+}
+
+const server = Bun.serve({
+  port,
+  hostname: "127.0.0.1",
+  idleTimeout: 120,
+  fetch: async (req) => (await controlRoute(req)) ?? handleRequest(req),
+});
 console.log(`e2e server: http://127.0.0.1:${server.port}/app/ (owner ${E2E_OWNER_EMAIL}, data in ${root})`);

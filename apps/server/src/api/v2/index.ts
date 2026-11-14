@@ -12,16 +12,20 @@ import { actionItemsRouter } from "./action-items.ts";
 import { adminRouter } from "./admin.ts";
 import { createAskRouter } from "./ask.ts";
 import { assetsRouter } from "./assets.ts";
+import { authNativeRouter } from "./auth-native.ts";
 import { calendarRouter } from "./calendar.ts";
 import { apiError, type V2Env } from "./common.ts";
 import { documentsRouter } from "./documents.ts";
 import { eventsRouter } from "./events.ts";
 import { foldersRouter } from "./folders.ts";
+import { googleCalendarCallback } from "./google-callback.ts";
+import { googleLoginCallback, googleLoginStart } from "./auth-google.ts";
+import { appleLoginCallback, appleLoginStart } from "./auth-apple.ts";
 import { integrationsRouter } from "./integrations.ts";
 import { jobsRouter } from "./jobs.ts";
 import { meRouter } from "./me.ts";
 import { recordingsRouter } from "./recordings.ts";
-import { searchRouter } from "./search.ts";
+import { createSearchRouter } from "./search.ts";
 import { shareLinksRouter } from "./share-links.ts";
 import { tagsRouter } from "./tags.ts";
 import { digestPendingAssets } from "./store.ts";
@@ -33,6 +37,7 @@ export { API_BASE_PATH };
 
 export const RESOURCE_ROUTERS = [
   meRouter,
+  authNativeRouter,
   workspacesRouter,
   foldersRouter,
   viewsRouter,
@@ -43,7 +48,6 @@ export const RESOURCE_ROUTERS = [
   documentsRouter,
   actionItemsRouter,
   jobsRouter,
-  searchRouter,
   calendarRouter,
   integrationsRouter,
   shareLinksRouter,
@@ -103,6 +107,18 @@ export function createApiV2App(options: ApiV2Options = {}) {
 
   for (const router of RESOURCE_ROUTERS) v2.route("/", router);
   v2.route("/", createAskRouter(options.askService ?? askService));
+  v2.route("/", createSearchRouter(options.askService ?? askService));
+
+  // Google's redirect back after the calendar consent (P4-02): a browser navigation, outside
+  // the domain route table.
+  v2.get("/integrations/google/callback", googleCalendarCallback);
+  // "Google로 계속하기" (P5-04): browser navigations too.
+  v2.get("/auth/google/start", googleLoginStart);
+  v2.get("/auth/google/callback", googleLoginCallback);
+  // "Apple로 계속하기" (P5-05). The callback is a cross-site form_post from appleid.apple.com;
+  // it is protected by the single-use state (v2 has no cookie-origin middleware to exempt it from).
+  v2.get("/auth/apple/start", appleLoginStart);
+  v2.post("/auth/apple/callback", appleLoginCallback);
 
   // Unknown /api/v2 paths (and known paths with another method) answer in the v2 error
   // shape instead of falling through to the legacy router.

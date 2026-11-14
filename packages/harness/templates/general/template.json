@@ -1,0 +1,60 @@
+{
+  "id": "general",
+  "version": 1,
+  "name": "일반 노트",
+  "domains": [
+    "other"
+  ],
+  "sections": [
+    {
+      "key": "summary",
+      "title": "요약",
+      "fill": "structure",
+      "instructions": "전체 내용을 짧게 요약한다.",
+      "block_types": [
+        "paragraph",
+        "list"
+      ],
+      "required": true
+    },
+    {
+      "key": "topics",
+      "title": "주제별 요점",
+      "fill": "structure",
+      "instructions": "주제마다 heading을 두고 요점을 정리한다.",
+      "block_types": [
+        "paragraph",
+        "list"
+      ],
+      "required": true
+    },
+    {
+      "key": "action_items",
+      "title": "할 일",
+      "fill": "action_items",
+      "instructions": "",
+      "block_types": [
+        "list"
+      ],
+      "required": false
+    },
+    {
+      "key": "events",
+      "title": "일정",
+      "fill": "events",
+      "instructions": "",
+      "block_types": [
+        "list"
+      ],
+      "required": false
+    }
+  ],
+  "extract": {
+    "events": true,
+    "action_items": true,
+    "questions": false,
+    "decisions": false,
+    "glossary": false
+  },
+  "question_kinds": []
+}

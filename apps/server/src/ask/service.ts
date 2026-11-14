@@ -24,6 +24,7 @@ import {
 } from "@lectern/harness";
 import { db } from "../db.ts";
 import { logger } from "../log.ts";
+import { listItemsSource } from "./list-items.ts";
 
 export interface AskService {
   deps: AskDeps;
@@ -74,6 +75,8 @@ export function createAskService(options: {
       embedder: options.embedder,
       vectorIndex: options.embedder ? new SqliteVectorIndex(db, options.embedder.model, options.embedder.dim) : undefined,
       queryCache: new QueryEmbeddingCache(),
+      // Events and action items exist without LECTERN_CALENDAR, so the tool is always offered (P4-06).
+      listItems: listItemsSource,
       onModelCall: ledger,
       limits: { monthlyLimitMicrousd: options.monthlyLimitMicrousd },
       now: options.now,

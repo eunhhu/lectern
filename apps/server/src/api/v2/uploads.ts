@@ -1,6 +1,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, unlinkSync, writeSync } from "node:fs";
 import { extname, join } from "node:path";
-import { lectureRecordingId, personalWorkspaceId, uuidv7 } from "@lectern/db";
+import { config } from "@lectern/config";
+import { lectureRecordingId, personalWorkspaceId, sha256Hex, uuidv7 } from "@lectern/db";
 import { HEADER, partCount, type CreateUploadRequest, type UploadFile } from "@lectern/domain";
 import { DEFAULT_GEMINI_MODEL } from "../../../../../packages/core/src/index.ts";
 import {
@@ -16,11 +17,12 @@ import {
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
 import { ensurePrivateDir, makePrivate } from "../../fsperm.ts";
-import { enqueueDistillation } from "../../job-handlers.ts";
+import { enqueueRecordingProcessing } from "../../process-job.ts";
 import { logger } from "../../log.ts";
 import { AUDIO_EXT_BY_MIME, AUDIO_MIME_BY_EXT } from "../../media-files.ts";
 import { isLectureBusy } from "../../queue.ts";
-import { loadRecording, requireWorkspace } from "./access.ts";
+import { quotaProblem } from "../../usage.ts";
+import { callerIn, loadRecording, requireWorkspace } from "./access.ts";
 import { createRecordingForAudio } from "./ingest.ts";
 import { apiError, defineRouter, notFound, ok, type V2Request } from "./common.ts";
 import { recordingDto, uploadSessionDto, type QueueJobRow, type RecordingRow, type UploadRow } from "./rows.ts";
@@ -37,7 +39,13 @@ import { getFolderRow, getRecordingRow, sha256OfFile, toJob, transact } from "./
 
 /** Bytes per part (the client sends parts of exactly this size, the last one shorter). */
 export const PART_SIZE = 8 * 1024 * 1024;
+
+/** With LECTERN_PDF=1 a lecture PDF is checked strictly (D-P3-2): size, type and its first bytes. */
+export const MAX_PDF_BYTES = 50 * 1024 * 1024;
+export const PDF_MAGIC = "%PDF-";
 const MAX_FILE_BYTES = 4 * 1024 * 1024 * 1024;
+/** Audio files one new recording may have (part 1, part 2, …), joined by the process job. */
+const MAX_AUDIO_PARTS = 8;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 const UPLOAD_ROOT = join(DATA_DIR, "uploads", "v2");
@@ -59,7 +67,8 @@ function receivedParts(uploadId: string): number[] {
   return (db.query(`SELECT part FROM upload_part WHERE upload_id = ? ORDER BY part`).all(uploadId) as Array<{ part: number }>).map((r) => r.part);
 }
 
-function removeParts(uploadId: string): void {
+/** Deletes an upload's part files (account deletion removes the uploads of one user, P5-09). */
+export function removeParts(uploadId: string): void {
   try {
     rmSync(partDir(uploadId), { recursive: true, force: true });
   } catch {
@@ -80,7 +89,7 @@ function sweepExpired(now = Date.now()): void {
 /** The caller's own session (anyone else's is "not found"), its expiry applied. */
 function ownUpload(req: V2Request): UploadRow | Response {
   const upload = getUpload(String(req.params.upload_id));
-  if (!upload || upload.user_id !== req.user!.id) return notFound(req, "업로드");
+  if (!upload || upload.user_id !== req.user!.id || !callerIn(req, upload.workspace_id).role) return notFound(req, "업로드");
   if (upload.status === "open" && upload.expires_at < Date.now()) {
     sweepExpired();
     return getUpload(upload.id)!;
@@ -168,20 +177,30 @@ export const uploadsRouter = defineRouter({
       }
     }
 
-    // A lecture-backed recording lives in its owner's personal workspace (packages/db
-    // legacy.ts); team workspaces get uploads once the harness writes v2 rows (P5).
-    if (body.workspace_id !== personalWorkspaceId(user.id)) {
+    // Team workspaces take uploads with LECTERN_TEAMS=1 (D-P2-8, P5-06): the recording is put
+    // in the team (packages/db placeRecordingInWorkspace). Otherwise only the personal one.
+    if (body.workspace_id !== personalWorkspaceId(user.id) && !config().teams) {
       return apiError(req.c, 400, "bad_request", "지금은 개인 워크스페이스에만 업로드할 수 있습니다.");
     }
     const audio = body.files.filter((f) => f.kind === "audio");
     if (body.recording_id) {
       const recording = loadRecording(req, body.recording_id, "recording:update");
       if (recording instanceof Response) return recording;
+      if (recording.workspace_id !== body.workspace_id) return notFound(req, "녹음");
       if (audio.length) return apiError(req.c, 400, "bad_request", "이미 있는 녹음에 오디오를 더 붙이는 것은 아직 지원하지 않습니다.");
-    } else if (audio.length !== 1) {
+    } else if (audio.length === 0 || (audio.length > 1 && config().pipeline !== "v2")) {
+      // Several parts of one recording (D-P1-9) need the v2 pipeline, which joins them.
       return apiError(req.c, 400, "bad_request", "새 녹음에는 오디오 파일이 하나 있어야 합니다.");
+    } else if (audio.length > MAX_AUDIO_PARTS) {
+      return apiError(req.c, 400, "bad_request", `오디오는 최대 ${MAX_AUDIO_PARTS}개까지 올릴 수 있습니다.`);
     }
     for (const file of body.files) {
+      // LECTERN_PDF=1 only: with the flag off a PDF goes through the checks below as before (D-0-3).
+      if (config().pdf && file.kind === "pdf") {
+        const mime = file.mime.split(";")[0]!.trim().toLowerCase();
+        if (mime !== "application/pdf") return apiError(req.c, 415, "unsupported_media_type", "PDF 파일(application/pdf)만 올릴 수 있습니다.");
+        if (file.bytes > MAX_PDF_BYTES) return apiError(req.c, 413, "payload_too_large", "PDF는 50MB까지 올릴 수 있습니다.");
+      }
       const ext = storedExtension(file);
       if (typeof ext !== "string") return apiError(req.c, 415, "unsupported_media_type", ext.error);
       if (file.bytes > MAX_FILE_BYTES) return apiError(req.c, 413, "payload_too_large", "파일 하나는 4GB까지 올릴 수 있습니다.");
@@ -192,6 +211,9 @@ export const uploadsRouter = defineRouter({
     if (user.quota_mb > 0 && getUserStorageUsageBytes(user.id) + total > user.quota_mb * 1024 * 1024) {
       return apiError(req.c, 403, "quota_exceeded", `계정 오디오 저장 용량 한도(${user.quota_mb}MB)를 초과했습니다.`);
     }
+    // The workspace's limits (D-P5-7). No quota row: no limit, nothing is counted.
+    const quota = quotaProblem(body.workspace_id, { bytes: total });
+    if (quota) return apiError(req.c, 409, quota.code, quota.message, quota.details);
 
     const now = Date.now();
     sweepExpired(now);
@@ -301,6 +323,14 @@ export const uploadsRouter = defineRouter({
         const path = join(FINAL_DIR, `${file.kind === "audio" ? generateId("aud") : uuidv7()}${ext}`);
         const sha256 = await assemble(upload.id, file, path);
         stored.push({ file, path, sha256 });
+        if (config().pdf && file.kind === "pdf") {
+          const head = new TextDecoder().decode(new Uint8Array(await Bun.file(path).slice(0, PDF_MAGIC.length).arrayBuffer()));
+          if (head !== PDF_MAGIC) {
+            // The session stays open, so the right file can be sent again.
+            for (const s of stored) rmSync(s.path, { force: true });
+            return apiError(req.c, 400, "bad_request", `${file.filename}은(는) PDF 파일이 아닙니다.`, { file_index: file.index });
+          }
+        }
         if (file.sha256 && file.sha256 !== sha256) {
           for (const s of stored) rmSync(s.path, { force: true });
           return apiError(req.c, 400, "bad_request", `${file.filename}의 SHA-256이 보낸 값과 다릅니다. 다시 올려 주세요.`, {
@@ -316,7 +346,14 @@ export const uploadsRouter = defineRouter({
 
     const meta = JSON.parse(upload.recording_json ?? "{}") as { hints?: CreateUploadRequest["recording"] | null };
     const hints = meta.hints ?? {};
-    const audio = stored.find((s) => s.file.kind === "audio");
+    // Parts in upload order (D-P1-9); the first is the lecture's audio, the rest are assets.
+    const audios = stored.filter((s) => s.file.kind === "audio");
+    const audio = audios[0];
+    const team = upload.workspace_id !== personalWorkspaceId(user.id) ? upload.workspace_id : null;
+    const fileKey = audios.length > 1 ? sha256Hex(audios.map((a) => a.sha256).join("\n")) : audio?.sha256;
+    // The same audio in a team and in the personal workspace are two recordings: a team
+    // upload dedupes within that team only.
+    const dedupeKey = team && fileKey ? sha256Hex(`${team}\n${fileKey}`) : fileKey;
     const now = Date.now();
     let result: UploadResult;
     const announce: Array<() => void> = [];
@@ -328,13 +365,13 @@ export const uploadsRouter = defineRouter({
       result = { recording_id: recording.id, job_id: null, deduplicated: false };
     } else {
       // Same dedupe as v1 ingest: this account already uploaded this audio.
-      const existing = getLectureByAudioSha256(user.id, audio!.sha256);
+      const existing = getLectureByAudioSha256(user.id, dedupeKey!);
       if (existing) {
-        rmSync(audio!.path, { force: true });
+        for (const a of audios) rmSync(a.path, { force: true });
         let jobId: string | null = null;
         if (existing.status === "error" && existing.audio_path && existsSync(existing.audio_path) && !isLectureBusy(existing.id)) {
           resetLectureForRetry(existing.id);
-          jobId = enqueueDistillation(existing.id, user.id, {
+          jobId = enqueueRecordingProcessing(existing.id, user.id, {
             audioPath: existing.audio_path,
             course: existing.course,
             title: existing.title,
@@ -352,7 +389,7 @@ export const uploadsRouter = defineRouter({
           audioPath: audio!.path,
           audioMime: AUDIO_MIME_BY_EXT[extname(audio!.path)] ?? "application/octet-stream",
           audioSize: audio!.file.bytes,
-          dedupeKey: audio!.sha256,
+          dedupeKey: dedupeKey!,
           sha256: audio!.sha256,
           title: hints.title ?? "",
           folderId: hints.folder_id ?? null,
@@ -363,13 +400,16 @@ export const uploadsRouter = defineRouter({
           templateId: hints.template_id ?? null,
           language: hints.language ?? null,
           tagIds: hints.tag_ids,
+          teamWorkspaceId: team,
         });
-        const extra = stored.filter((s) => s !== audio);
-        if (extra.length) transact(() => insertDocumentAssets(getRecordingRow(lectureRecordingId(lectureId))!, extra, now));
+        const recordingRow = getRecordingRow(lectureRecordingId(lectureId))!;
+        if (audios.length > 1) transact(() => insertAudioPartAssets(recordingRow, audios.slice(1), now));
+        const extra = stored.filter((s) => s.file.kind !== "audio");
+        if (extra.length) transact(() => insertDocumentAssets(recordingRow, extra, now));
         const course = getLectureById(lectureId)!.course;
         const lecture = getLectureById(lectureId)!;
         announce.push(() => emitLectureEvent(user.id, { type: "created", id: lectureId, lecture: toLectureSummaryDto(lecture) }));
-        const { jobId } = enqueueDistillation(lectureId, user.id, {
+        const { jobId } = enqueueRecordingProcessing(lectureId, user.id, {
           audioPath: audio!.path,
           course,
           title: hints.title ?? "",
@@ -401,6 +441,30 @@ export const uploadsRouter = defineRouter({
     return req.c.body(null, 204);
   },
 });
+
+/**
+ * Audio parts after the first (D-P1-9): `part_index` 1.. in upload order. Their durations
+ * are filled by the process job when it joins them (concatAudio).
+ */
+function insertAudioPartAssets(recording: RecordingRow, parts: Array<{ file: UploadFile; path: string; sha256: string }>, now: number): void {
+  parts.forEach((s, i) => {
+    db.query(
+      `INSERT INTO asset (id, workspace_id, recording_id, kind, part_index, blob_key, sha256, bytes, mime, duration_ms, page_count, meta_json, created_at)
+       VALUES (?, ?, ?, 'audio', ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`
+    ).run(
+      uuidv7(now),
+      recording.workspace_id,
+      recording.id,
+      i + 1,
+      `file:${s.path}`,
+      s.sha256,
+      s.file.bytes,
+      AUDIO_MIME_BY_EXT[extname(s.path)] ?? "application/octet-stream",
+      JSON.stringify({ filename: s.file.filename, path: s.path }),
+      now
+    );
+  });
+}
 
 /** PDF and image files of an upload become assets of the recording. */
 function insertDocumentAssets(recording: RecordingRow, stored: Array<{ file: UploadFile; path: string; sha256: string }>, now: number): void {

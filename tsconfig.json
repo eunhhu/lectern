@@ -23,7 +23,8 @@
     "apps/server/**/*.ts",
     "apps/worker/**/*.ts",
     "apps/web/**/*.ts",
-    "apps/web/**/*.tsx"
+    "apps/web/**/*.tsx",
+    "scripts/**/*.ts"
   ],
   "exclude": [
     "apps/web/dist",

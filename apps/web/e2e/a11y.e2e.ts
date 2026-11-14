@@ -11,9 +11,10 @@ const SCREENS: { path: string; label: string; ready: string | RegExp }[] = [
   { path: "/app/recordings/rec_ds04", label: "녹음 상세(일부 완료)", ready: "일부 구간을 전사하지 못했습니다." },
   { path: "/app/recordings/rec_os08", label: "녹음 상세(처리 중)", ready: /전사 중/ },
   { path: "/app/recordings/rec_test", label: "녹음 상세(실패)", ready: "이 녹음을 처리하지 못했습니다." },
+  { path: "/app/search?q=퀀텀", label: "검색", ready: /^PDF \d+$/ },
   { path: "/app/ask", label: "물어보기", ready: "노트에 물어보세요" },
   { path: "/app/ask?thread=ask_seed_os07", label: "물어보기 대화", ready: "다음 CPU 버스트 길이를 미리 알 수 없기 때문이다." },
-  { path: "/app/calendar", label: "일정", ready: "캘린더 연결" },
+  { path: "/app/calendar", label: "일정", ready: "연결 설정" },
   { path: "/app/settings", label: "설정", ready: "한 글자 단축키 사용" },
 ];
 
@@ -43,6 +44,20 @@ test("the team workspace meeting view has no axe violations", async ({ page, axe
   await page.getByRole("tab", { name: "일정·할 일" }).click();
   await expect(page.getByRole("tabpanel").getByText("QA 체크리스트 정리")).toBeVisible();
   await axe(page, "회의 상세");
+});
+
+test("settings integrations and reminders have no axe violations", async ({ page, axe }) => {
+  await page.goto("/app/settings?fixture-integration=needs_reauth#integrations");
+  await expect(page.getByText("Google 연결이 만료되었습니다.", { exact: false })).toBeVisible();
+  await page.locator("#reminders").locator("label", { hasText: "일정과 할 일 마감을 이메일로 알려 주기" }).click();
+  await expect(page.locator("#reminders").getByRole("button", { name: /알림 시각/ })).toBeVisible();
+  await page.locator("#integrations").getByRole("button", { name: "구독 주소 만들기" }).click();
+  await expect(page.getByLabel("구독 주소", { exact: true })).toBeVisible();
+  await axe(page, "설정 연동·알림");
+  await page.goto("/app/settings?fixture-integration=active#integrations");
+  await page.locator("#integrations").getByRole("button", { name: "연결 해제" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await axe(page, "연결 해제 확인");
 });
 
 test("overlays have no axe violations", async ({ page, axe }) => {
@@ -127,4 +142,164 @@ test("a carried-over v1 note: Markdown drawn as a document, [MM:SS] marks move t
   await expect(page.getByRole("slider", { name: "재생 위치" })).toHaveValue("3760");
   await axe(page, "이전 노트 (legacy-markdown)");
   await page.screenshot({ path: "test-results/screens/fixture-legacy-note.png" });
+});
+
+test("settings account has no axe violations", async ({ page, axe }) => {
+  await page.goto("/app/settings#tokens");
+  await expect(page.locator("#tokens").getByText("API 토큰")).toBeVisible();
+  await expect(page.locator("#identities").getByRole("button", { name: "연결 해제: Google" })).toBeVisible();
+  await axe(page, "설정 계정");
+  await page.locator("#tokens").getByRole("button", { name: "새 토큰" }).click();
+  const tokenDialog = page.getByRole("dialog", { name: "새 토큰" });
+  await axe(page, "새 토큰");
+  await tokenDialog.getByLabel("이름").fill("axe");
+  await tokenDialog.getByRole("button", { name: "만들기" }).click();
+  await expect(tokenDialog.getByLabel("토큰", { exact: true })).toBeVisible();
+  await axe(page, "새 토큰 원문");
+  await tokenDialog.getByRole("button", { name: "완료" }).click();
+  await page.locator("#delete-account").getByRole("button", { name: "계정 삭제 요청" }).click();
+  await expect(page.getByRole("alertdialog", { name: "계정 삭제 요청" })).toBeVisible();
+  await axe(page, "계정 삭제 요청");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "계정 삭제 요청 (다크)");
+});
+
+test("login with oauth buttons has no axe violations", async ({ page, axe }) => {
+  await page.goto("/app/login?fixture-session=none&error=oauth");
+  await expect(page.getByRole("button", { name: "Google로 계속하기" })).toBeVisible();
+  await axe(page, "로그인(Google·Apple)");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "로그인(Google·Apple) (다크)");
+  await page.getByRole("link", { name: "회원가입" }).click();
+  await expect(page.getByRole("button", { name: "Apple로 계속하기" })).toBeVisible();
+  await axe(page, "회원가입(Google·Apple) (다크)");
+});
+
+test("workspace settings have no axe violations", async ({ page, axe }) => {
+  await page.addInitScript(() => localStorage.setItem("lectern.web.workspace", "ws_team"));
+  await page.goto("/app/settings?fixture-role=owner#members");
+  await expect(page.locator("#members").getByRole("row", { name: /한지민/ })).toBeVisible();
+  await expect(page.locator("#invites").getByText("newcomer@example.com")).toBeVisible();
+  await expect(page.locator("#usage").getByRole("progressbar")).toHaveCount(3);
+  await axe(page, "워크스페이스 설정");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "워크스페이스 설정 (다크)");
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.locator("#members").getByRole("button", { name: "내보내기: 윤서아" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await axe(page, "멤버 내보내기 확인");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "멤버 내보내기 확인 (다크)");
+});
+
+test("invite page has no axe violations", async ({ page, axe }) => {
+  await page.goto("/app/invite?token=wrong-account");
+  await expect(page.getByRole("heading", { level: 1, name: "워크스페이스 초대를 받았습니다." })).toBeVisible();
+  await axe(page, "초대 수락");
+  await page.getByRole("button", { name: "초대 수락" }).click();
+  await expect(page.getByRole("button", { name: "다른 계정으로 로그인" })).toBeVisible();
+  await axe(page, "초대 수락 오류");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "초대 수락 오류 (다크)");
+});
+
+test("admin overview/users/jobs/job detail/usage have no axe violations", async ({ page, axe }) => {
+  const screens: { path: string; label: string; ready: string }[] = [
+    { path: "/app/admin", label: "관리 개요", ready: "전체 사용자" },
+    { path: "/app/admin/users", label: "관리 사용자", ready: "seoa@example.com" },
+    { path: "/app/admin/jobs", label: "관리 작업", ready: "시스템" },
+    { path: "/app/admin/jobs/job_fx_01", label: "관리 작업 상세", ready: "verify_failed" },
+    { path: "/app/admin/usage", label: "관리 사용량", ready: "ws_lab" },
+  ];
+  for (const screen of screens) {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(screen.path);
+    await expect(page.getByText(screen.ready).first()).toBeVisible();
+    await axe(page, screen.label);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await axe(page, `${screen.label} (다크)`);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.getByRole("button", { name: "한도 설정: 제품팀" }).click();
+  await expect(page.getByRole("textbox", { name: "월 녹음 시간(시간)" })).toHaveValue("20");
+  await axe(page, "한도 설정");
+  await page.goto("/app/admin/users");
+  await page.getByRole("button", { name: "삭제: sehun@example.com" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await axe(page, "사용자 삭제 확인");
+});
+
+test("admin user detail/new user/recordings/recording detail have no axe violations", async ({ page, axe }) => {
+  const screens: { path: string; label: string; ready: string | RegExp }[] = [
+    { path: "/app/admin/users/usr_fixture_sehun", label: "관리 사용자 상세", ready: "sehun@example.com" },
+    { path: "/app/admin/recordings", label: "관리 녹음", ready: /^55개$/ },
+    { path: "/app/admin/recordings/lec_fx_04", label: "관리 녹음 상세", ready: "압축 전" },
+    { path: "/app/admin/recordings/lec_fx_06", label: "관리 녹음 상세(오류)", ready: "Gemini 응답이 비어 있습니다." },
+  ];
+  for (const screen of screens) {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(screen.path);
+    await expect(page.getByText(screen.ready).first()).toBeVisible();
+    await axe(page, screen.label);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await axe(page, `${screen.label} (다크)`);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.getByRole("button", { name: "녹음 삭제" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await axe(page, "녹음 삭제 확인");
+  await page.goto("/app/admin/users?role=member");
+  await page.getByRole("button", { name: "새 사용자" }).click();
+  await expect(page.getByRole("dialog", { name: "새 사용자" })).toBeVisible();
+  await axe(page, "새 사용자");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "새 사용자 (다크)");
+});
+
+test("admin storage/ops/settings/audit have no axe violations", async ({ page, axe }) => {
+  const screens: { path: string; label: string; ready: string }[] = [
+    { path: "/app/admin/storage", label: "관리 저장소", ready: "회수 가능 공간" },
+    { path: "/app/admin/ops", label: "관리 운영", ready: "최근 완료된 v1 작업" },
+    { path: "/app/admin/settings", label: "관리 설정", ready: "공개 회원가입 허용" },
+    { path: "/app/admin/audit", label: "관리 감사 로그", ready: "64건" },
+    { path: "/app/admin?fixture-admin=trouble", label: "관리 개요(문제 있음)", ready: "최근 배포 실패" },
+  ];
+  for (const screen of screens) {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(screen.path);
+    await expect(page.getByText(screen.ready).first()).toBeVisible();
+    await axe(page, screen.label);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await axe(page, `${screen.label} (다크)`);
+  }
+
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/app/admin/storage");
+  await page.getByRole("button", { name: "전체 압축" }).click();
+  await expect(page.getByRole("dialog", { name: "전체 압축" })).toBeVisible();
+  await axe(page, "전체 압축 미리보기");
+  await page.getByRole("button", { name: "취소" }).click();
+  await page.getByRole("button", { name: "정리: 보존 기간이 지난 오디오" }).click();
+  await expect(page.getByRole("alertdialog", { name: "보존 정책 적용" })).toBeVisible();
+  await axe(page, "보존 정책 확인");
+  await page.getByRole("button", { name: "취소" }).click();
+
+  await page.goto("/app/admin/ops");
+  await page.getByRole("button", { name: "유지보수 지금 실행" }).click();
+  await page.getByRole("dialog", { name: "유지보수 실행" }).getByRole("button", { name: "실행" }).click();
+  await expect(page.getByRole("dialog", { name: "유지보수 완료" })).toBeVisible();
+  await axe(page, "유지보수 결과");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "유지보수 결과 (다크)");
+
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/app/admin/settings");
+  await page.getByRole("textbox", { name: "감사 로그 보존 일수" }).fill("90");
+  await page.getByRole("link", { name: "감사 로그", exact: true }).click();
+  await expect(page.getByRole("alertdialog", { name: "저장하지 않은 변경" })).toBeVisible();
+  await axe(page, "저장하지 않은 변경");
+  await page.getByRole("button", { name: "버리고 떠나기" }).click();
+  await page.getByRole("button", { name: /^자세히:/ }).first().click();
+  await expect(page.getByRole("dialog", { name: "감사 로그" })).toBeVisible();
+  await axe(page, "감사 로그 항목");
 });

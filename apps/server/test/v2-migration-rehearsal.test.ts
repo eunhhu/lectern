@@ -16,6 +16,10 @@ const V2_TABLES = [
   "workspace", "membership", "folder", "tag", "recording", "recording_tag", "asset", "transcript_segment",
   "transcript_gap", "speaker", "document", "document_version", "question", "event_candidate", "action_item",
   "share_link", "integration", "usage_ledger", "saved_view", "upload", "upload_part", "lecture_sync_pending",
+  // Later migrations are rewound with P2, so their tables go too (0005_p3_pdf, 0006_p4_calendar, 0007_p5_accounts).
+  "pdf_page", "calendar_feed", "calendar_event_link", "reminder", "oauth_state",
+  "oauth_identity", "auth_session_meta", "access_token", "native_session", "workspace_invite", "workspace_quota",
+  "data_export", "account_deletion",
 ];
 
 function preP2Copy(): { dir: string; path: string } {
@@ -30,6 +34,12 @@ function preP2Copy(): { dir: string; path: string } {
   };
   const p2 = journal.entries.find((e) => e.tag === "0003_v2_entities")!;
   copy.query(`DELETE FROM __drizzle_migrations WHERE created_at >= ?`).run(p2.when);
+  // Later migrations are rewound too, so their columns must go or re-applying them fails.
+  try {
+    copy.exec(`ALTER TABLE job DROP COLUMN cancel_requested_at`);
+  } catch {
+    /* column absent */
+  }
   copy.close();
   return { dir, path };
 }
@@ -70,7 +80,7 @@ describe("v2 migration rehearsal", () => {
       expect(report.mismatches).toEqual([]);
       expect(report.rows.failures).toEqual([]);
       expect(report.ok).toBe(true);
-      expect(report.migrations).toEqual(["0003_v2_entities"]);
+      expect(report.migrations).toEqual(["0003_v2_entities", "0004_p1_pipeline", "0005_p3_pdf", "0006_p4_calendar", "0007_p5_accounts"]);
       expect(report.idempotent).toBe(true);
       expect(report.v1_unchanged).toBe(true);
       expect(report.checksums.v1).toBe(report.checksums.v2);

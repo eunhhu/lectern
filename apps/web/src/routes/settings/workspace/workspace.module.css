@@ -1,0 +1,106 @@
+/* 설정 › 워크스페이스 구역 (P5-11): members, invitations, usage. */
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.caption {
+  text-align: start;
+  padding-bottom: var(--space-8);
+  font: var(--typography-label);
+  color: var(--color-text-secondary);
+}
+
+.table th,
+.table td {
+  padding: var(--space-8) var(--space-8) var(--space-8) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  text-align: start;
+  vertical-align: middle;
+}
+
+.table thead th {
+  font: var(--typography-label);
+  color: var(--color-text-tertiary);
+}
+
+.table tbody tr:last-child th,
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.nameCell {
+  font-weight: var(--font-weight-medium);
+}
+
+.person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.meMark {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-regular);
+}
+
+.roleCell {
+  min-width: 9em;
+}
+
+.cellHint {
+  margin-top: var(--space-4);
+  font: var(--typography-caption);
+  color: var(--color-text-secondary);
+}
+
+.actionCell {
+  text-align: end;
+  white-space: nowrap;
+}
+
+.inviteForm {
+  display: grid;
+  grid-template-columns: minmax(12em, 2fr) minmax(8em, 1fr) auto;
+  align-items: end;
+  gap: var(--space-12);
+}
+
+@media (max-width: 640px) {
+  .inviteForm {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.usageList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.usageRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.usageNear,
+.usageFull {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  font: var(--typography-caption);
+}
+
+.usageNear {
+  color: var(--color-status-attention-fg);
+}
+
+.usageFull {
+  color: var(--color-status-danger-fg);
+}

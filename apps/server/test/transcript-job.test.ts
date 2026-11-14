@@ -329,7 +329,7 @@ describe.skipIf(!isFfmpegAvailable())("transcribe job end to end (scripted provi
           expect(done!.state).toBe("succeeded");
           expect(done!.attempts).toBe(1); // one interruption: the SIGKILL
           const result = JSON.parse(done!.result!) as Record<string, any>;
-          expect(result).toMatchObject({ mode: "on", published: false, failed_chunks: [], gaps: expect.any(Number) });
+          expect(result).toMatchObject({ mode: "on", published: true, failed_chunks: [], gaps: expect.any(Number) });
           expect(result.chunks).toBeGreaterThanOrEqual(3);
           expect(result.segments).toBeGreaterThan(0);
           expect(result.speakers).toBe(1);

@@ -31,6 +31,7 @@ import {
   waitForJob,
 } from "../src/queue.ts";
 import { PROCESS_ORIGIN, emitLectureEvent, tailForeignLectureEvents } from "../src/events.ts";
+import { recordSessionMeta, sessionIdOf } from "../src/session-meta.ts";
 import {
   TRASH_DIR,
   UPLOADS_DIR,
@@ -393,6 +394,7 @@ describe("maintenance", () => {
   test("purges expired rows, prunes audit history, and writes a rotated backup", async () => {
     const token = ownerToken();
     const member = memberToken();
+    recordSessionMeta(member.token, member.userId, new Request("http://localhost/", { headers: { "User-Agent": "curl/8.7.1" } }));
     db.query(`UPDATE sessions SET expires_at = ? WHERE token = ?`).run(
       new Date(Date.now() - 1000).toISOString(),
       member.token
@@ -408,6 +410,8 @@ describe("maintenance", () => {
     const { result }: any = await res.json();
     expect(result.errors).toEqual([]);
     expect(result.expiredSessions).toBeGreaterThanOrEqual(1);
+    // The expired session's device metadata goes with it (P5-01).
+    expect(db.query(`SELECT 1 FROM auth_session_meta WHERE session_id = ?`).get(sessionIdOf(member.token))).toBeNull();
     expect(result.prunedAuditLogs).toBeGreaterThanOrEqual(1);
     expect(result.walCheckpointed).toBe(true);
     expect(result.backup?.file).toMatch(/^lectern-\d{8}-\d{6}\.sqlite$/);
@@ -688,6 +692,19 @@ describe("deploy & logging safety", () => {
     expect(line).not.toContain("lct_secret");
     expect(line).not.toContain("share=abc");
     expect(line).toContain("q=keep");
+  });
+
+  test("the OAuth callback's code and state are redacted in request logs", () => {
+    const line = redactUrlForLog(new URL("http://localhost/api/v2/integrations/google/callback?code=4/abc-secret&state=st-secret&scope=x"));
+    expect(line).not.toContain("abc-secret");
+    expect(line).not.toContain("st-secret");
+    expect(line).toContain("scope=x");
+  });
+
+  test("the ICS subscription token in the path is redacted in request logs", () => {
+    const line = redactUrlForLog(new URL("http://localhost/cal/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcd.ics"));
+    expect(line).toBe("/cal/***");
+    expect(redactUrlForLog(new URL("http://localhost/calendar?x=1"))).toBe("/calendar?x=1");
   });
 });
 

@@ -29,6 +29,34 @@
       "when": 1792414202288,
       "tag": "0003_v2_entities",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794587074086,
+      "tag": "0004_p1_pipeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794637137008,
+      "tag": "0005_p3_pdf",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794643646231,
+      "tag": "0006_p4_calendar",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794668553782,
+      "tag": "0007_p5_accounts",
+      "breakpoints": true
     }
   ]
 }

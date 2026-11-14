@@ -1,5 +1,10 @@
-import { db } from "../../db.ts";
-import { defineRouter, notFound, notImplemented, ok, pageBounds, pageFrom } from "./common.ts";
+import { existsSync } from "node:fs";
+import { db, getLectureById, recordAuditLog, resetLectureForRetry } from "../../db.ts";
+import { toLectureSummaryDto } from "../../dto.ts";
+import { emitLectureEvent } from "../../events.ts";
+import { isLectureBusy, wakeJobWorker } from "../../queue.ts";
+import { quotaOf, setQuota, type Quota } from "../../usage.ts";
+import { apiError, defineRouter, notFound, ok, pageBounds, pageFrom } from "./common.ts";
 import { usageLedgerDto, type QueueJobRow, type UsageLedgerRow } from "./rows.ts";
 import { toJob } from "./store.ts";
 
@@ -93,6 +98,9 @@ function aiCallDto(a: AiCallRow, workspaceId: string | null, recordingId: string
   };
 }
 
+/** Job kinds that run on the harness runner, so a retry under the same id resumes. */
+const RETRYABLE_KINDS = new Set(["process", "regenerate"]);
+
 // defineRouter answers 403 on every `admin`-tagged route unless the caller is an operator.
 export const adminRouter = defineRouter({
   adminListJobs: (req) => {
@@ -132,12 +140,67 @@ export const adminRouter = defineRouter({
       ai_calls: calls.filter((a) => a.workspace_id ?? job.workspace_id).map((a) => aiCallDto(a, job.workspace_id, job.recording_id)),
     });
   },
-  adminRetryJob: notImplemented,
+  // Same job id, so the runner's memo skips the stages that finished: the job resumes at the
+  // stage that failed. Only for the harness kinds whose stages are memoized.
+  adminRetryJob: (req) => {
+    const row = db.query(`SELECT * FROM job WHERE id = ?`).get(String(req.params.job_id)) as QueueJobRow | null;
+    if (!row) return notFound(req, "작업");
+    if (!RETRYABLE_KINDS.has(row.kind) || row.state !== "failed" || !row.subject_id) {
+      return apiError(req.c, 409, "conflict", "다시 시도할 수 없는 작업입니다.");
+    }
+    const subject = row.subject_id;
+    if (isLectureBusy(subject, row.kind)) return apiError(req.c, 409, "conflict", "같은 녹음의 작업이 이미 대기 중이거나 실행 중입니다.");
+    if (row.kind === "process") {
+      const lecture = getLectureById(subject);
+      if (!lecture?.audio_path || !existsSync(lecture.audio_path)) {
+        return apiError(req.c, 409, "conflict", "원본 오디오가 없어 다시 시도할 수 없습니다.");
+      }
+      const reset = resetLectureForRetry(subject);
+      if (reset) {
+        emitLectureEvent(reset.owner_id, {
+          type: "progress",
+          id: subject,
+          stage: reset.stage,
+          stage_message: reset.stage_message,
+          progress: reset.progress,
+          lecture: toLectureSummaryDto(reset),
+        });
+      }
+    }
+    const requeued = db
+      .query(
+        `UPDATE job SET state = 'queued', attempts = 0, error = NULL, error_code = NULL, result = NULL, finished_at = NULL,
+           lease_owner = NULL, lease_until = NULL, cancel_requested_at = NULL, run_after = ?, idempotency_key = ?
+         WHERE id = ? AND state = 'failed'`
+      )
+      .run(Date.now(), `${row.kind}:${subject}`, row.id).changes;
+    if (!requeued) return apiError(req.c, 409, "conflict", "다시 시도할 수 없는 작업입니다.");
+    wakeJobWorker();
+    return ok(req, toJob(db.query(`SELECT * FROM job WHERE id = ?`).get(row.id) as QueueJobRow));
+  },
   adminListUsage: (req) => {
     const { period } = req.query as { period?: string };
     const rows = db
       .query(`SELECT * FROM usage_ledger ${period ? "WHERE period = ?" : ""} ORDER BY period DESC, workspace_id`)
       .all(...(period ? [period] : [])) as UsageLedgerRow[];
     return ok(req, { items: rows.map(usageLedgerDto), next_cursor: null });
+  },
+  // Operators set a workspace's limits by hand (D-P5-7, D10). Three nulls remove the row:
+  // the workspace is back to no limit.
+  adminSetQuota: (req) => {
+    const workspaceId = String(req.params.workspace_id);
+    if (!db.query(`SELECT 1 FROM workspace WHERE id = ?`).get(workspaceId)) return notFound(req, "워크스페이스");
+    const body = req.body as Quota;
+    const quota: Quota = { audio_ms_month: body.audio_ms_month, ai_microusd_month: body.ai_microusd_month, storage_bytes: body.storage_bytes };
+    const user = req.user!;
+    setQuota(workspaceId, quota, user.id);
+    recordAuditLog({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "workspace.quota.set",
+      targetId: workspaceId,
+      detail: JSON.stringify(quota),
+    });
+    return ok(req, quotaOf(workspaceId) ?? { audio_ms_month: null, ai_microusd_month: null, storage_bytes: null });
   },
 });

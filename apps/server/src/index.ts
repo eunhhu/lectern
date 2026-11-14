@@ -96,8 +96,13 @@ import { emitLectureEvent, onLectureEvent, tailForeignLectureEvents, type Lectur
 import { toLectureSummaryDto } from "./dto.ts";
 import { authenticateRequest, extractAuthToken, isAdminUser, resolveActiveUser } from "./auth.ts";
 import { emitRetentionOutcome, runMaintenanceNow, startMaintenanceSchedule } from "./maintenance.ts";
+import { resolveResendApiKey, sendMail } from "./mail.ts";
 import { liveWorkers, publishApiRelease } from "./coordination.ts";
 import { makePrivate } from "./fsperm.ts";
+import { recordSessionMeta } from "./session-meta.ts";
+import { sessionCookieHeader } from "./oauth/login.ts";
+import { authRateLimits, firstRateLimitWait, getClientIp, recordRateLimitHits, tooManyRequestsMessage } from "./rate-limit.ts";
+export { getClientIp, resetAuthRateLimits } from "./rate-limit.ts";
 import { createHttpApp } from "./http.ts";
 import { promoteStagedWebBuild } from "./web-build.ts";
 import { WEB_SHELL_DIST_DIR } from "./web-shell.ts";
@@ -318,114 +323,10 @@ function applySecurityHeaders(res: Response): Response {
   return res;
 }
 
-// The server only listens on 127.0.0.1 behind a reverse proxy, and each trusted proxy
-// appends the address it accepted the connection from to X-Forwarded-For. Entries to the
-// left of those are whatever the client sent and cannot be trusted.
-const TRUSTED_PROXY_HOPS = config().trustedProxyHops;
-
-let warnedMissingForwardedFor = false;
-
-/**
- * The client address reported by the trusted proxy, or null when there is none. Callers
- * then skip per-IP limits (per-email limits still apply) rather than lumping every client
- * into one shared bucket that a single abuser could exhaust for everyone.
- */
-export function getClientIp(req: Request): string | null {
-  if (TRUSTED_PROXY_HOPS === 0) return null;
-  const hops = (req.headers.get("x-forwarded-for") || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (hops.length > 0) {
-    return hops[Math.max(0, hops.length - TRUSTED_PROXY_HOPS)];
-  }
-  if (!warnedMissingForwardedFor) {
-    warnedMissingForwardedFor = true;
-    logger.warn(
-      "no X-Forwarded-For on an auth request: per-IP rate limits are inactive until the proxy sets it"
-    );
-  }
-  return null;
-}
-
-/** In-memory fixed-window counter; fine for this single-process server. */
-class RateLimiter {
-  private readonly windows = new Map<string, { count: number; resetAt: number }>();
-  private static readonly MAX_KEYS = 50_000;
-
-  constructor(readonly limit: number, readonly windowMs: number) {}
-
-  /** Seconds until `key` may try again, or 0 when it is under the limit. */
-  retryAfterSec(key: string, now = Date.now()): number {
-    const w = this.windows.get(key);
-    if (!w || w.resetAt <= now || w.count < this.limit) return 0;
-    return Math.max(1, Math.ceil((w.resetAt - now) / 1000));
-  }
-
-  hit(key: string, now = Date.now()): void {
-    let w = this.windows.get(key);
-    if (!w || w.resetAt <= now) {
-      if (this.windows.size >= RateLimiter.MAX_KEYS) this.prune(now);
-      w = { count: 0, resetAt: now + this.windowMs };
-      this.windows.set(key, w);
-    }
-    w.count++;
-  }
-
-  clear(): void {
-    this.windows.clear();
-  }
-
-  private prune(now: number): void {
-    for (const [key, w] of this.windows) {
-      if (w.resetAt <= now) this.windows.delete(key);
-    }
-    // Still full of live windows: drop the oldest so memory stays bounded.
-    for (const key of this.windows.keys()) {
-      if (this.windows.size < RateLimiter.MAX_KEYS) break;
-      this.windows.delete(key);
-    }
-  }
-}
-
-const MINUTE_MS = 60_000;
-const authRateLimits = {
-  // Failed password attempts only, so normal sign-ins on many devices never trip it.
-  loginEmail: new RateLimiter(10, 15 * MINUTE_MS),
-  loginIp: new RateLimiter(30, 15 * MINUTE_MS),
-  // Every send-code request: each one mails a code.
-  sendCodeEmail: new RateLimiter(5, 15 * MINUTE_MS),
-  sendCodeIp: new RateLimiter(20, 60 * MINUTE_MS),
-  resetEmail: new RateLimiter(10, 15 * MINUTE_MS),
-  resetIp: new RateLimiter(30, 15 * MINUTE_MS),
-};
-
-export function resetAuthRateLimits(): void {
-  for (const limiter of Object.values(authRateLimits)) limiter.clear();
-}
-
-// A null key (no known client IP) is skipped.
-type RateLimitCheck = [RateLimiter, string | null];
-
-function firstRateLimitWait(checks: RateLimitCheck[]): number {
-  for (const [limiter, key] of checks) {
-    if (key === null) continue;
-    const wait = limiter.retryAfterSec(key);
-    if (wait > 0) return wait;
-  }
-  return 0;
-}
-
-function recordRateLimitHits(checks: RateLimitCheck[]): void {
-  for (const [limiter, key] of checks) {
-    if (key !== null) limiter.hit(key);
-  }
-}
-
 function tooManyRequestsResponse(retryAfterSec: number): Response {
   return jsonResponse(
     {
-      error: `요청이 너무 많습니다. ${Math.ceil(retryAfterSec / 60)}분 후 다시 시도해주세요.`,
+      error: tooManyRequestsMessage(retryAfterSec),
     },
     429,
     { "Retry-After": String(retryAfterSec) }
@@ -440,36 +341,11 @@ const RESET_CODE_SENT_MESSAGE =
   "가입된 계정이라면 이메일로 6자리 인증번호가 발송됩니다. (10분간 유효)";
 const INVALID_CODE_MESSAGE = "인증번호가 올바르지 않거나 만료되었습니다.";
 
-// The Resend key comes from the environment, or else from the host's credentials file
-// (overridable so tests never read the real one). The legacy host path stays the default
-// until the production unit sets LECTERN_RESEND_CREDENTIALS_FILE or RESEND_API_KEY.
-const RESEND_CREDENTIALS_FILE =
-  config().resend.credentialsFile ?? "/home/eunhhu/.hermes/credentials/accounts.json";
-
-function resolveResendApiKey(): string {
-  const envKey = readSecret("RESEND_API_KEY");
-  if (envKey) return envKey;
-  try {
-    if (RESEND_CREDENTIALS_FILE && existsSync(RESEND_CREDENTIALS_FILE)) {
-      const parsed = JSON.parse(readFileSync(RESEND_CREDENTIALS_FILE, "utf8"));
-      const fileKey = String(parsed?.resend?.api_key || "").trim();
-      if (fileKey) return fileKey;
-    }
-  } catch {}
-  return "";
-}
-
 async function sendResendVerificationEmail(
   toEmail: string,
   code: string,
   purpose: "signup" | "reset"
 ): Promise<{ sent: boolean; id?: string }> {
-  const apiKey = resolveResendApiKey();
-  const from = config().resend.fromEmail;
-  if (!apiKey) {
-    throw new Error("이메일 발송 API 키(RESEND_API_KEY)가 설정되지 않았습니다.");
-  }
-
   const subject =
     purpose === "reset"
       ? `[Lectern] 비밀번호 재설정 인증번호 (${code})`
@@ -495,26 +371,8 @@ async function sendResendVerificationEmail(
     </div>
   `;
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [toEmail],
-      subject,
-      html,
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`이메일 발송 실패 (${res.status}): ${errText}`);
-  }
-  const data: any = await res.json();
-  return { sent: true, id: data?.id };
+  const { id } = await sendMail({ to: toEmail, subject, html });
+  return { sent: true, id };
 }
 
 function safeTokenCompare(a: string, b: string): boolean {
@@ -558,14 +416,9 @@ function canSharePublicly(user: UserRecord | null): boolean {
 
 const SHARE_RESTRICTED_MESSAGE = "외부 공유 링크 공개 권한이 제한된 계정입니다.";
 
-// Only a deployment explicitly served over plain http (local dev) drops `Secure`.
-const SESSION_COOKIE_SECURE = !PUBLIC_BASE_URL.toLowerCase().startsWith("http://");
-
-function makeSessionCookieHeader(sessionToken: string, maxAgeSec = 30 * 86400): string {
-  return `lectern_session=${encodeURIComponent(
-    sessionToken
-  )}; Path=/; HttpOnly;${SESSION_COOKIE_SECURE ? " Secure;" : ""} SameSite=Lax; Max-Age=${maxAgeSec}`;
-}
+// One definition with the Google and Apple sign-in (oauth/login.ts). Only a deployment
+// explicitly served over plain http (local dev) drops `Secure`.
+const makeSessionCookieHeader = sessionCookieHeader;
 
 interface IncomingAudio {
   /** The upload body as a Blob: written to disk without another copy in JS memory. */
@@ -1097,6 +950,7 @@ async function routeRequest(req: Request): Promise<Response> {
         touchUserLastLogin(user.id);
         const freshUser = getUserById(user.id) || user;
         const sessionToken = createSession(freshUser.id);
+        recordSessionMeta(sessionToken, freshUser.id, req);
         recordAuditLog({
           actorId: freshUser.id,
           actorEmail: freshUser.email,
@@ -1349,6 +1203,7 @@ async function routeRequest(req: Request): Promise<Response> {
 
         touchUserLastLogin(user.id);
         const sessionToken = createSession(user.id);
+        recordSessionMeta(sessionToken, user.id, req);
         return jsonResponse(
           {
             ok: true,

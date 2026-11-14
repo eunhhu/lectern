@@ -1,0 +1,45 @@
+.estimate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  margin-top: var(--space-12);
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  margin: 0;
+}
+
+.facts > div {
+  display: flex;
+  gap: var(--space-12);
+}
+
+.facts dt {
+  min-width: 7em;
+  color: var(--color-text-secondary);
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--color-text-secondary);
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  color: var(--color-status-danger-fg);
+}
+
+.error > svg {
+  flex: none;
+  margin-top: 3px;
+}

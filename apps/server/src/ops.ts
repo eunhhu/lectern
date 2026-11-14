@@ -20,7 +20,11 @@ import { BlobStore, deleteArtifactsForJobs, sweepHarnessData, type HarnessSweepR
 import type { MaintenanceResultDto } from "./admin-api.ts";
 import { pruneLectureEvents } from "./events.ts";
 import { pruneFinishedJobs } from "./queue.ts";
-import { DATA_DIR, HARNESS_BLOB_DIR, db, getSystemSettings } from "./db.ts";
+import { DATA_DIR, HARNESS_BLOB_DIR, db, deleteSession, getSystemSettings } from "./db.ts";
+import { pruneNativeSessions } from "./native-auth.ts";
+import { refreshAllLedgers } from "./usage.ts";
+import { expireExports } from "./export/job.ts";
+import { enqueueDueDeletions } from "./account-deletion.ts";
 import { ensurePrivateDir, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
 import {
@@ -72,14 +76,20 @@ export function requestStats(): { total: number; errors5xx: number } {
   return { ...requestCounters };
 }
 
-/** Query parameters that carry credentials are never written to logs. */
+/** Path prefixes whose remainder is a credential (the ICS subscription token, P4-01). */
+const SECRET_PATH_PREFIXES = ["/cal/"];
+
+/** Query parameters and path segments that carry credentials are never written to logs. */
 export function redactUrlForLog(url: URL): string {
   const params = new URLSearchParams(url.search);
-  for (const key of ["token", "share", "key"]) {
+  // code and state: the OAuth callback (P4-02).
+  for (const key of ["token", "share", "key", "code", "state"]) {
     if (params.has(key)) params.set(key, "redacted");
   }
   const qs = params.toString();
-  return qs ? `${url.pathname}?${qs}` : url.pathname;
+  const prefix = SECRET_PATH_PREFIXES.find((p) => url.pathname.startsWith(p));
+  const path = prefix ? `${prefix}***` : url.pathname;
+  return qs ? `${path}?${qs}` : path;
 }
 
 // MARK: - Gauges
@@ -271,9 +281,21 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
   };
   const settings = getSystemSettings();
 
-  const expiredSessions = step("sessions", 0, () =>
-    db.query(`DELETE FROM sessions WHERE expires_at < ?`).run(nowIso).changes
-  );
+  // One by one, so each session's device metadata (keyed by a hash of the token) goes too.
+  const expiredSessions = step("sessions", 0, () => {
+    const expired = db.query(`SELECT token FROM sessions WHERE expires_at < ?`).all(nowIso) as Array<{ token: string }>;
+    db.transaction(() => {
+      for (const s of expired) deleteSession(s.token);
+    })();
+    return expired.length;
+  });
+  step("native sessions", 0, () => pruneNativeSessions(now));
+  // This month's usage_ledger row per workspace (P5-07), for the operator's usage list.
+  step("usage ledger", 0, () => refreshAllLedgers(now));
+  // Export zips past their 7 days, and temp files a crash left (P5-08).
+  step("data exports", 0, () => expireExports(now));
+  // Account deletions past their 7 days of grace (P5-09): one `account_deletion` job each.
+  step("account deletions", 0, () => enqueueDueDeletions(now));
   const expiredCodes = step("verification codes", 0, () =>
     db.query(`DELETE FROM email_verifications WHERE expires_at < ?`).run(nowIso).changes
   );

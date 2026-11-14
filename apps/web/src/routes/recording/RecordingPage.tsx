@@ -6,24 +6,31 @@
 
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Menu, MenuItem, MenuTrigger, Popover, Tab, TabList, TabPanel, Tabs, ToggleButton } from "react-aria-components";
+import { Menu, MenuItem, MenuTrigger, Popover, Separator, Tab, TabList, TabPanel, Tabs, ToggleButton, type Key } from "react-aria-components";
 import { useApi, useDocument, useFolders, useLiveProgress, useRecording, useTags, useTranscript } from "../../api/queries.ts";
 import { ApiClientError } from "../../api/client.ts";
 import type { AskScope, RecordingDetail } from "../../api/types.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { setPreferences, usePreferences, type RecordingPanel } from "../../app/preferences.ts";
-import { DOMAIN_LABEL, progressLabel, STATUS } from "../../app/labels.ts";
+import { DOMAIN_LABEL, partialNote, progressLabel, STATUS } from "../../app/labels.ts";
+import { primaryDocument } from "../../lib/documents.ts";
+import { saveBlob } from "../../lib/download.ts";
 import { formatDateTime, formatDuration } from "../../lib/format.ts";
 import { createAudioClock, SimulatedClock, type AudioPart, type MediaClock } from "../../lib/media-clock.ts";
 import { Icon, type IconName } from "../../ui/Icon.tsx";
 import { Badge, Button, Dot, EmptyState, ErrorBox, Progress, Segmented, Spinner, uiStyles } from "../../ui/controls.tsx";
 import { BulkDialogs, type BulkAction } from "../library/BulkDialogs.tsx";
+import { toastError } from "../library/organise.ts";
+import { ShareDialog } from "../share/ShareDialog.tsx";
 import { folderPath } from "../library/folders.ts";
 import { useAskSession } from "../ask/session.ts";
 import { AskPanel } from "./AskPanel.tsx";
 import { AudioPlayer } from "./AudioPlayer.tsx";
+import { DeleteAudioDialog } from "./DeleteAudioDialog.tsx";
 import { DocumentPane } from "./DocumentPane.tsx";
-import { PlaybackProvider, type SidePanel } from "./playback.tsx";
+import { DocumentEditor } from "./edit/DocumentEditor.tsx";
+import { PlaybackProvider, usePlayback, type SidePanel } from "./playback.tsx";
+import { ReprocessDialog, type ReprocessMode } from "./ReprocessDialog.tsx";
 import { SidePane } from "./SidePane.tsx";
 import { TranscriptPane } from "./TranscriptPane.tsx";
 import s from "./recording.module.css";
@@ -101,17 +108,27 @@ function playableParts(assets: RecordingDetail["assets"], urlOf: (id: string) =>
   return out;
 }
 
+const EDIT_BUTTON_ID = "document-edit";
+
 function RecordingView({ detail }: { detail: RecordingDetail }) {
   const api = useApi();
   const navigate = useNavigate();
   const search = useSearch({ from: "/_authed/recordings/$recordingId" });
   const rec = detail.recording;
-  const hasTranscript = rec.status === "ready" || rec.status === "partial" || (rec.status === "processing" && detail.documents.length > 0);
+  // A reprocess keeps the old document on screen while it is queued or running.
+  const hasTranscript =
+    rec.status === "ready" || rec.status === "partial" || ((rec.status === "processing" || rec.status === "queued") && detail.documents.length > 0);
   const transcript = useTranscript(rec.id, hasTranscript);
-  const doc = useDocument(detail.documents[0]?.id);
+  const primary = primaryDocument(detail.documents);
+  const doc = useDocument(primary?.id);
   const folders = useFolders(rec.workspace_id).data ?? [];
   const tags = useTags(rec.workspace_id).data ?? [];
   const [action, setAction] = useState<BulkAction>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  // Reprocess, audio deletion and export (D-P2-4).
+  const [reprocess, setReprocess] = useState<ReprocessMode | null>(null);
+  const [lastReprocess, setLastReprocess] = useState<ReprocessMode>("full");
+  const [deleteAudio, setDeleteAudio] = useState(false);
   const wide = useMediaQuery(WIDE);
   const now = useMemo(() => new Date(), []);
   const prefs = usePreferences();
@@ -123,6 +140,21 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const [backToAsk, setBackToAsk] = useState(false);
   // Focus the composer only when the reader opened 물어보기, not on page load.
   const [askFocus, setAskFocus] = useState(false);
+  // Document editing (D-P2-2); closing it puts focus back on "편집".
+  const [editing, setEditing] = useState(false);
+  const [refocusEdit, setRefocusEdit] = useState(false);
+  const closeEditor = useCallback(() => {
+    setEditing(false);
+    setRefocusEdit(true);
+  }, []);
+  useEffect(() => {
+    if (!refocusEdit || editing) return;
+    const button = document.getElementById(EDIT_BUTTON_ID);
+    if (button) {
+      button.focus();
+      setRefocusEdit(false);
+    }
+  });
   const setPanel = (next: RecordingPanel) => {
     setBackToAsk(false);
     setAskFocus(next === "ask");
@@ -176,6 +208,36 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   const path = folderPath(folders, rec.folder_id);
   const pdfs = detail.assets.filter((a) => a.kind === "pdf");
 
+  const hasAudio = detail.assets.some((a) => a.kind.startsWith("audio"));
+  const busy = rec.status === "processing" || rec.status === "queued";
+  const disabledKeys = [
+    ...(hasAudio ? [] : ["delete-audio", "reprocess"]),
+    ...(detail.documents.length ? [] : ["export", "regenerate"]),
+    ...(busy ? ["reprocess", "regenerate"] : []),
+  ];
+  const exportMarkdown = async () => {
+    const target = primary ?? detail.documents[0];
+    if (!target) return;
+    try {
+      const { blob, filename } = await api.exportDocument(target.id);
+      saveBlob(blob, filename);
+    } catch (err) {
+      toastError("내려받지 못했습니다.", err);
+    }
+  };
+  const openReprocess = (mode: ReprocessMode) => {
+    setLastReprocess(mode);
+    setReprocess(mode);
+  };
+  const onMenuAction = (key: Key) => {
+    if (key === "share") setShareOpen(true);
+    else if (key === "reprocess") openReprocess("full");
+    else if (key === "regenerate") openReprocess("document");
+    else if (key === "delete-audio") setDeleteAudio(true);
+    else if (key === "export") void exportMarkdown();
+    else setAction({ kind: key as "move" | "tag" | "delete", ids: [rec.id] });
+  };
+
   const header = (
     <header className={s.header}>
       <nav aria-label="이동 경로" className={s.breadcrumbs}>
@@ -196,13 +258,30 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
         <MenuTrigger>
           <Button variant="ghost" icon="more" iconOnly aria-label="녹음 작업" />
           <Popover className={uiStyles.popover} placement="bottom end">
-            <Menu className={uiStyles.menu} onAction={(key) => setAction({ kind: key as "move" | "tag" | "delete", ids: [rec.id] })}>
+            <Menu className={uiStyles.menu} onAction={onMenuAction} disabledKeys={disabledKeys}>
               <MenuItem id="move" className={uiStyles.menuItem}>
                 <Icon name="folder" /> 폴더로 이동…
               </MenuItem>
               <MenuItem id="tag" className={uiStyles.menuItem}>
                 <Icon name="tag" /> 태그…
               </MenuItem>
+              <MenuItem id="share" className={uiStyles.menuItem}>
+                <Icon name="send" /> 공유…
+              </MenuItem>
+              <Separator className={uiStyles.menuSeparator} />
+              <MenuItem id="reprocess" className={uiStyles.menuItem}>
+                <Icon name="forward" /> 다시 처리…
+              </MenuItem>
+              <MenuItem id="regenerate" className={uiStyles.menuItem}>
+                <Icon name="spark" /> 문서만 다시 만들기
+              </MenuItem>
+              <MenuItem id="delete-audio" className={uiStyles.menuItem}>
+                <Icon name="trash" /> 오디오만 삭제…
+              </MenuItem>
+              <MenuItem id="export" className={uiStyles.menuItem}>
+                Markdown 내려받기
+              </MenuItem>
+              <Separator className={uiStyles.menuSeparator} />
               <MenuItem id="delete" className={uiStyles.menuItem}>
                 <Icon name="trash" /> 삭제…
               </MenuItem>
@@ -249,15 +328,20 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
   );
 
   const dialogs = (
-    <BulkDialogs
-      action={action}
-      onClose={() => {
-        const deleted = action?.kind === "delete";
-        setAction(null);
-        if (deleted) setTimeout(() => void navigate({ to: "/library" }), 0);
-      }}
-      onFailed={() => {}}
-    />
+    <>
+      <BulkDialogs
+        action={action}
+        onClose={() => {
+          const deleted = action?.kind === "delete";
+          setAction(null);
+          if (deleted) setTimeout(() => void navigate({ to: "/library" }), 0);
+        }}
+        onFailed={() => {}}
+      />
+      <ShareDialog recording={rec} isOpen={shareOpen} onOpenChange={setShareOpen} />
+      <ReprocessDialog recording={rec} mode={reprocess ?? lastReprocess} isOpen={reprocess !== null} onOpenChange={(open) => !open && setReprocess(null)} />
+      <DeleteAudioDialog recording={rec} isOpen={deleteAudio} onOpenChange={setDeleteAudio} />
+    </>
   );
 
   if (!hasTranscript) {
@@ -270,7 +354,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
     );
   }
 
-  if (transcript.isPending || (detail.documents[0] && doc.isPending)) {
+  if (transcript.isPending || (primary && doc.isPending)) {
     return (
       <div className={s.page}>
         {header}
@@ -310,8 +394,10 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
           문서
         </h2>
         <div className={s.docScroll}>
-          {doc.data ? (
-            <DocumentPane doc={doc.data} pdfs={pdfs} headingId="pane-document" />
+          {doc.data && editing ? (
+            <DocumentEditor doc={doc.data} recordingId={rec.id} onClose={closeEditor} />
+          ) : doc.data ? (
+            <DocumentPane doc={doc.data} pdfs={pdfs} headingId="pane-document" onEdit={() => setEditing(true)} editButtonId={EDIT_BUTTON_ID} />
           ) : (
             <EmptyState icon="pdf" title="문서가 아직 없습니다.">
               전사는 준비됐고 문서를 만드는 중입니다.
@@ -370,12 +456,13 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
 
   return (
     <PlaybackProvider clock={clock} segments={t.segments} gaps={t.gaps} speakers={t.speakers} onRequestPanel={requestPanel}>
+      <PdfDeepLink recordingId={rec.id} pdf={search.pdf} t={search.t} />
       <div className={s.page}>
         {header}
         {rec.status === "partial" && (
           <p className={s.partialNote} role="note">
             <Icon name="alert" />
-            일부 구간을 전사하지 못했습니다. 빠진 구간은 전사와 문서에 표시됩니다.
+            {partialNote(detail.failure)}
           </p>
         )}
         {wide ? (
@@ -413,11 +500,25 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
             </TabPanel>
           </Tabs>
         )}
-        <AudioPlayer />
+        <AudioPlayer audioDeleted={!hasAudio} />
         {dialogs}
       </div>
     </PlaybackProvider>
   );
+}
+
+/** `?pdf=<asset>:<page>` (a PDF search hit): show that page once, then drop the parameter. */
+function PdfDeepLink({ recordingId, pdf, t }: { recordingId: string; pdf?: string; t?: number }) {
+  const { showPdfPage } = usePlayback();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!pdf) return;
+    const [assetId, page] = pdf.split(":");
+    showPdfPage(assetId!, Number(page));
+    void navigate({ to: "/recordings/$recordingId", params: { recordingId }, search: t !== undefined ? { t } : {}, replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdf]);
+  return null;
 }
 
 function ProcessingState({ detail }: { detail: RecordingDetail }) {

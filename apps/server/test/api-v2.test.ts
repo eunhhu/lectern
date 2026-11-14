@@ -2,11 +2,13 @@ import "./preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { resetConfigForTests } from "@lectern/config";
 import {
   API_BASE_PATH,
   ApiError,
   HEADER,
   ROUTES,
+  ROUTES_BY_OPERATION,
   toHonoPath,
   versionETag,
   type RouteDef,
@@ -23,18 +25,8 @@ import { handleRequest } from "../src/index.ts";
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/** Routes of later phases (P4 calendar sync, P5 tokens and sharing, the harness's cancel). */
-const NOT_YET = new Set([
-  "createAccessToken",
-  "revokeAccessToken",
-  "cancelJob",
-  "startGoogleIntegration",
-  "disconnectIntegration",
-  "createShareLink",
-  "updateShareLink",
-  "revokeShareLink",
-  "adminRetryJob",
-]);
+/** Routes of later phases (none left after P5-09; a new contract-only route goes here). */
+const NOT_YET = new Set<string>([]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
 
@@ -59,6 +51,10 @@ const PATH_PARAMS: Record<string, string> = {
   integration_id: SAMPLE_ID,
   share_link_id: SAMPLE_ID,
   thread_id: SAMPLE_ID,
+  identity_id: SAMPLE_ID,
+  invite_id: SAMPLE_ID,
+  user_id: SAMPLE_ID,
+  export_id: SAMPLE_ID,
 };
 
 const PATH_PARAM_OVERRIDES: Record<string, Record<string, string>> = {};
@@ -68,6 +64,8 @@ const QUERIES: Record<string, Record<string, string>> = {
   search: { workspace_id: SAMPLE_ID, q: "FCFS" },
   streamEvents: { workspace_id: SAMPLE_ID },
   getAskUsage: { workspace_id: SAMPLE_ID },
+  exportDocument: { format: "md" },
+  listAskSuggestions: { workspace_id: SAMPLE_ID, scope_type: "workspace" },
 };
 for (const op of [
   "listFolders",
@@ -79,6 +77,8 @@ for (const op of [
   "listIntegrations",
   "listShareLinks",
   "listAskThreads",
+  "getCalendarFeed",
+  "deleteCalendarFeed",
 ]) {
   QUERIES[op] = { workspace_id: SAMPLE_ID };
 }
@@ -103,15 +103,25 @@ const BODIES: Record<string, unknown> = {
   updateRecording: { title: "새 제목" },
   updateSpeaker: { display_name: null },
   reprocessRecording: { mode: "document", dry_run: true },
+  ocrAsset: { dry_run: true },
   createDocumentVersion: { markdown: "# 고친 노트" },
   updateActionItem: { status: "done" },
   updateCalendarSuggestion: { status: "accepted" },
   batchCalendarSuggestions: { event_candidate_ids: [SAMPLE_ID], action: "dismiss" },
   startGoogleIntegration: { workspace_id: SAMPLE_ID },
+  createCalendarFeed: { workspace_id: SAMPLE_ID },
   createShareLink: { target_type: "document", target_id: SAMPLE_ID, scope: { transcript: false, audio: false } },
   updateShareLink: { password: null },
   createAskThread: { workspace_id: SAMPLE_ID, scope: { kind: "workspace" } },
   askQuestion: { question: "시험 범위가 어디까지야?" },
+  issueNativeToken: { grant_type: "password", email: "student@example.com", password: "correct_password_1" },
+  revokeNativeToken: { refresh_token: "rt_0123456789abcdef" },
+  createInvite: { email: "friend@example.com", role: "member" },
+  acceptInvite: { token: "inv_0123456789abcdef" },
+  updateMember: { role: "viewer" },
+  adminSetQuota: { audio_ms_month: null, ai_microusd_month: 5_000_000, storage_bytes: null },
+  createExport: { workspace_id: SAMPLE_ID, include_audio: false },
+  requestAccountDeletion: { password: "correct_password_1" },
 };
 
 function urlFor(route: RouteDef, query: Record<string, string> = QUERIES[route.operationId] ?? {}): string {
@@ -169,12 +179,23 @@ describe("API v2 route table", () => {
     expect(fromOpenApi.sort()).toEqual(fromRoutes.sort());
   });
 
+  const OUTSIDE_TABLE = new Set([
+    "/openapi.json",
+    "/integrations/google/callback",
+    "/auth/google/start",
+    "/auth/google/callback",
+    "/auth/apple/start",
+    "/auth/apple/callback",
+  ]);
+
   test("every openapi.json operation is mounted exactly once, and nothing else is", () => {
     const expected = Object.entries(openapi.paths)
       .flatMap(([path, ops]) => Object.keys(ops).map((method) => `${method.toUpperCase()} ${toHonoPath(path)}`))
       .sort();
     const mounted = createApiV2App()
-      .routes.filter((r) => r.method !== "ALL" && r.path !== "/openapi.json")
+      // Outside the route table: the schema itself and the browser navigations of OAuth: the
+      // calendar's redirect back (P4-02), Google sign-in (P5-04) and Apple sign-in (P5-05).
+      .routes.filter((r) => r.method !== "ALL" && !OUTSIDE_TABLE.has(r.path))
       .map((r) => `${r.method} ${r.path}`)
       .sort();
     expect(mounted).toEqual(expected);
@@ -192,7 +213,8 @@ describe("API v2 route table", () => {
 
 describe("API v2 authentication", () => {
   test("every route answers 401 in the ApiError shape without credentials", async () => {
-    for (const route of ROUTES) {
+    // Except the public ones (native sign-in), checked in "public routes answer without a session".
+    for (const route of ROUTES.filter((r) => !r.public)) {
       const attempts: Record<string, string>[] = [{}, { "X-Lectern-Token": "lct_not_a_real_token" }, { Cookie: "lectern_session=ses_nope" }];
       for (const auth of attempts) {
         const res = await call(requestFor(route, auth));
@@ -238,11 +260,41 @@ describe("API v2 routes of later phases", () => {
     }
   });
 
+  test("public routes answer without a session", async () => {
+    const publicRoutes = ROUTES.filter((r) => r.public);
+    expect(publicRoutes.map((r) => r.operationId).sort()).toEqual(["issueNativeToken", "revokeNativeToken"]);
+    // Native sign-in (P5-03): an unknown account is refused as a bad password, not as a
+    // missing session; revoking an unknown refresh token is a quiet 204.
+    const issued = await call(requestFor(ROUTES_BY_OPERATION.issueNativeToken!, {}));
+    expect(issued.status).toBe(401);
+    expect(ApiError.parse(await issued.json()).error.message).toBe("이메일 또는 비밀번호가 올바르지 않습니다.");
+    const revoked = await call(requestFor(ROUTES_BY_OPERATION.revokeNativeToken!, {}));
+    expect(revoked.status).toBe(204);
+  });
+
   test("every other route has a real handler (no route answers 501)", async () => {
-    for (const route of ROUTES.filter((r) => !NOT_YET.has(r.operationId) && !r.path.startsWith("/ask"))) {
-      const res = await call(requestFor(route, ownerAuth));
-      expect(res.status, route.operationId).not.toBe(501);
-      await res.body?.cancel();
+    // Flag-gated routes answer 501 while their flag is off (listAssetPages, ocrAsset,
+    // getRecordingAlignment: LECTERN_PDF; the calendar feed routes: LECTERN_CALENDAR).
+    process.env.LECTERN_PDF = "1";
+    process.env.LECTERN_CALENDAR = "1";
+    process.env.LECTERN_TEAMS = "1"; // invitations and members (P5-06)
+    // startGoogleIntegration also needs an OAuth client (fake values; nothing is called).
+    process.env.GOOGLE_OAUTH_CLIENT_ID = "test-id";
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = "test-secret";
+    resetConfigForTests();
+    try {
+      for (const route of ROUTES.filter((r) => !NOT_YET.has(r.operationId) && !r.path.startsWith("/ask"))) {
+        const res = await call(requestFor(route, ownerAuth));
+        expect(res.status, route.operationId).not.toBe(501);
+        await res.body?.cancel();
+      }
+    } finally {
+      delete process.env.LECTERN_PDF;
+      delete process.env.LECTERN_CALENDAR;
+      delete process.env.LECTERN_TEAMS;
+      delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+      delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+      resetConfigForTests();
     }
   });
 });

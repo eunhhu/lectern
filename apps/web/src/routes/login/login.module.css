@@ -71,3 +71,31 @@
   color: var(--color-accent-fg);
   text-decoration: underline;
 }
+
+/* Google and Apple sign-in (P5-10) */
+.oauth {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  margin: var(--space-4) 0;
+  font: var(--typography-caption);
+  color: var(--color-text-tertiary);
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.oauthButton {
+  width: 100%;
+  justify-content: center;
+}

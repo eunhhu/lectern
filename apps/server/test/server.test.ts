@@ -170,17 +170,17 @@ describe("@lectern/server HTTP, Auth Isolation & SQLite E2E", () => {
     const visJson: any = await visRes.json();
     expect(visJson.lecture.is_public).toBe(true);
 
-    // Now Share page endpoint (/s/:token) works publicly
+    // Now Share page endpoint (/s/:token) works publicly: the v2 page (share-page.ts) draws
+    // the migrated v1 link, with its stylesheet and script from /share-assets/.
     const shareRes = await handleRequest(
       new Request(`http://localhost/s/${done.share_token}`)
     );
     expect(shareRes.status).toBe(200);
     const shareHtml = await shareRes.text();
     expect(shareHtml).toContain("AES-GCM 인증 암호화");
-    expect(shareHtml).toContain("--elysium-surface-canvas: #F8F9FA");
-    expect(shareHtml).toContain("--elysium-surface-canvas: #111214");
-    expect(shareHtml).toContain("--elysium-action-primary: #4F46E5");
-    expect(shareHtml).toContain("Pretendard Variable");
+    expect(shareHtml).toMatch(/<link rel="stylesheet" href="\/share-assets\/share\.css\?v=[0-9a-f]+">/);
+    expect(shareHtml).toMatch(/<script src="\/share-assets\/share\.js\?v=[0-9a-f]+" defer><\/script>/);
+    expect(shareHtml).not.toContain("<style");
     expect(shareHtml).not.toContain("gemini-3.8-flash");
 
     // SSE endpoint (/api/events) requires auth (401 without token, 200 text/event-stream with token)

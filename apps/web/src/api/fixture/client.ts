@@ -5,6 +5,15 @@
 // in memory only and are gone after a reload.
 
 import type {
+  WorkspaceQuota,
+  Invite,
+  MembershipRole,
+  WorkspaceMember,
+  WorkspaceUsage,
+  AccessToken,
+  AccountDeletionInfo,
+  DataExport,
+  Identity,
   AskScope,
   AskStreamEvent,
   AskThread,
@@ -13,6 +22,7 @@ import type {
   AskTurnId,
   AssetDto,
   AssetId,
+  AssetPages,
   CompleteUploadResponse,
   CreateUploadRequest,
   DocumentBlock,
@@ -26,6 +36,9 @@ import type {
   RecordingDetail,
   RecordingId,
   SearchHit,
+  ReprocessResponse,
+  OcrAssetResponse,
+  ShareLinkDto,
   ServerEvent,
   TagId,
   Transcript,
@@ -44,13 +57,16 @@ import type {
   UploadPartReceipt,
   UploadSession,
   WorkspaceId,
+  Integration,
+  WorkspaceSettings,
 } from "../types.ts";
-import { buildFixtureData, processRecording, TEMPLATE_FOR, type FixtureData, type JobProgress } from "../../fixtures/index.ts";
+import { buildFixtureData, PDF_PAGE_TEXTS, processRecording, TEMPLATE_FOR, type FixtureData, type JobProgress } from "../../fixtures/index.ts";
 import { UPLOADED_GENERIC_DOC } from "../../fixtures/documents.ts";
 import { UPLOADED_GENERIC } from "../../fixtures/scripts.ts";
 import { parseFileName } from "../../lib/pairing.ts";
 import { ApiClientError, type ApiClient, type SessionUser } from "../client.ts";
 import { composeAnswer, streamChunks, type ComposedAnswer } from "./ask.ts";
+import { createFixtureAdmin } from "./admin.ts";
 import { asId, type ListRecordingsParams, type ListSuggestionsParams, type RecordingFailure, type RecordingProgress, type SearchParams } from "../types.ts";
 
 export interface FixtureClientOptions {
@@ -62,6 +78,8 @@ export interface FixtureClientOptions {
 }
 
 const PART_SIZE = 8 * 1024 * 1024;
+/** What the fixture charges per OCR page (made up; the server estimates from the model's price). */
+const FIXTURE_OCR_MICROUSD_PER_PAGE = 2_818;
 
 /** Why the fixture's failed and partial recordings ended that way (RecordingDetail.failure). */
 const FAILURES: Record<"failed" | "partial", RecordingFailure> = {
@@ -71,6 +89,80 @@ const FAILURES: Record<"failed" | "partial", RecordingFailure> = {
 const MAX_PAGE = 200;
 
 const notFound = (what: string) => new ApiClientError(404, "not_found", `${what}을 찾을 수 없습니다.`);
+
+// The fixture's calendar state (P4-07): integrations, which workspaces have an ICS feed
+// (and since when), and workspace settings changed in this tab.
+interface CalendarState {
+  integrations: Integration[];
+  feeds: Record<string, string>;
+  settings: Record<string, WorkspaceSettings>;
+}
+const CALENDAR_KEY = "lectern.fixture.calendar";
+
+function fixtureIntegration(ws: WorkspaceId, userId: string, status: Integration["status"], at: string): Integration {
+  return {
+    id: `int_fx_${ws}`,
+    workspace_id: ws,
+    user_id: userId,
+    provider: "google",
+    scopes: ["https://www.googleapis.com/auth/calendar.app.created"],
+    calendar_id: "fixture-calendar@group.calendar.google.com",
+    status,
+    created_at: at,
+    updated_at: at,
+  } as Integration;
+}
+
+/** Reads the tab's saved state; `?fixture-integration=needs_reauth` starts with an expired connection (e2e). */
+function loadCalendarState(data: FixtureData): CalendarState {
+  let state: CalendarState = { integrations: [], feeds: {}, settings: {} };
+  try {
+    const raw = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(CALENDAR_KEY);
+    if (raw) state = { ...state, ...(JSON.parse(raw) as Partial<CalendarState>) };
+  } catch {
+    // Storage blocked or unreadable: start empty.
+  }
+  try {
+    const wanted = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("fixture-integration");
+    if (wanted === "needs_reauth" || wanted === "active") {
+      const ws = (data.me.personal_workspace_id ?? data.workspaces[0]!.workspace.id) as WorkspaceId;
+      state.integrations = [fixtureIntegration(ws, data.me.id, wanted, new Date().toISOString())];
+    }
+  } catch {
+    // No location (tests).
+  }
+  for (const entry of data.workspaces) {
+    const saved = state.settings[entry.workspace.id];
+    if (saved) entry.workspace.settings = saved;
+  }
+  return state;
+}
+
+function saveCalendarState(state: CalendarState): void {
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(CALENDAR_KEY, JSON.stringify(state));
+  } catch {
+    // Storage blocked: the state lasts until the tab reloads.
+  }
+}
+
+/** `?fixture-oauth=off`, `?fixture-deletion=sole-owner` and the like, read once when the client is made (e2e). */
+function fixtureFlag(name: string): string | null {
+  try {
+    return typeof location === "undefined" ? null : new URLSearchParams(location.search).get(name);
+  } catch {
+    return null;
+  }
+}
+
+/** How long a fixture export takes to become ready (the e2e waits for it). */
+const EXPORT_READY_MS = 10_000;
+const EXPORT_TTL_MS = 7 * 86_400_000;
+
+function randomSecret(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 function page<T>(items: T[], cursor: string | undefined, limit: unknown) {
   const size = Math.min(Math.max(Number(limit ?? 50) || 50, 1), MAX_PAGE);
@@ -197,6 +289,12 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     if (!rec) throw notFound("녹음");
     return rec;
   };
+  const pdfAsset = (id: string) => {
+    const asset = data.assets.find((a) => a.id === id && a.kind === "pdf");
+    if (!asset) throw notFound("PDF");
+    return asset;
+  };
+
   const role = (ws: WorkspaceId) => data.workspaces.find((w) => w.workspace.id === ws)?.role ?? "viewer";
   const tagIdsOf = (id: string) => data.recordingTags.filter((t) => t.recording_id === id).map((t) => t.tag_id);
 
@@ -430,10 +528,118 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     emit(rec.workspace_id, null, { type: "recording.deleted", payload: { recording_id: rec.id } } as never);
   };
 
-  // The preview starts signed in as the fixture user; signing out shows the login screen,
-  // and signing in again takes that user's email with any password (there is no server).
-  let signedIn = true;
+  // The preview starts signed in as the fixture user (signed out with
+  // `?fixture-session=none`, for the login screen's e2e); signing out shows the login
+  // screen, and signing in again takes that user's email with any password (there is no
+  // server).
+  let signedIn = fixtureFlag("fixture-session") !== "none";
+  const shareLinks: ShareLinkDto[] = [];
+  let shareSeq = 0;
+  const calendar = loadCalendarState(data);
   const unauthorized = new Set<() => void>();
+
+  // Account (P5): the v1 API token comes first like on the server, then personal access
+  // tokens. The secret of a token made here is returned once and never kept.
+  const personalWs = (data.me.personal_workspace_id ?? data.workspaces[0]!.workspace.id) as WorkspaceId;
+  const startedAt = new Date();
+  const accountAt = new Date(startedAt.getTime() - 40 * 86_400_000).toISOString();
+  let tokens: AccessToken[] = [
+    {
+      id: "tok_fixture0000000000000000000000",
+      workspace_id: personalWs,
+      user_id: data.me.id,
+      name: "API 토큰",
+      prefix: "lct_v1ab",
+      scopes: ["recordings:read", "recordings:write"],
+      expires_at: null,
+      last_used_at: null,
+      created_at: accountAt,
+      revoked_at: null,
+    } as AccessToken,
+    {
+      id: "pat_fixture_sync",
+      workspace_id: personalWs,
+      user_id: data.me.id,
+      name: "노트 동기화 스크립트",
+      prefix: "lct_pat_3f9a",
+      scopes: ["recordings:read"],
+      expires_at: new Date(startedAt.getTime() + 60 * 86_400_000).toISOString(),
+      last_used_at: new Date(startedAt.getTime() - 2 * 86_400_000).toISOString(),
+      created_at: new Date(startedAt.getTime() - 30 * 86_400_000).toISOString(),
+      revoked_at: null,
+    } as AccessToken,
+  ];
+  let identities: Identity[] = [
+    { id: "idn_fixture_google", provider: "google", email: data.me.email, created_at: accountAt } as Identity,
+  ];
+  const exports: DataExport[] = [];
+  let deletion: AccountDeletionInfo = { state: "none", requested_at: null, execute_after: null };
+  const oauthOff = fixtureFlag("fixture-oauth") === "off";
+
+  // Team workspaces (P5-11): `?fixture-role=owner|admin|member|viewer` is my role in the team.
+  const wantedRole = fixtureFlag("fixture-role");
+  if (wantedRole === "owner" || wantedRole === "admin" || wantedRole === "member" || wantedRole === "viewer") {
+    for (const w of data.workspaces) if (w.workspace.kind === "team") w.role = wantedRole;
+    for (const m of data.members) {
+      if (m.user_id === data.me.id && data.workspaces.some((w) => w.workspace.id === m.workspace_id && w.workspace.kind === "team")) m.role = wantedRole;
+    }
+  }
+  const teamWs = data.workspaces.find((w) => w.workspace.kind === "team")?.workspace.id as WorkspaceId | undefined;
+  // Workspace limits (P5-07/P5-12): the team has some, the personal workspace none. The admin
+  // fixture sets them, 설정 › 사용량 reads them.
+  const quotas = new Map<string, WorkspaceQuota>();
+  if (teamWs) quotas.set(teamWs, { audio_ms_month: 72_000_000, ai_microusd_month: 10_000_000, storage_bytes: 10 * 1024 ** 3 });
+  // `?fixture-operator=off`: the preview user is not an operator (no admin console).
+  if (fixtureFlag("fixture-operator") === "off") data.me.system_role = "member";
+  let invites: Invite[] = teamWs
+    ? [
+        {
+          id: "inv_fixture_1",
+          workspace_id: teamWs,
+          email: "newcomer@example.com",
+          role: "member",
+          invited_by: data.members.find((m) => m.workspace_id === teamWs && m.role === "owner")?.user_id ?? data.me.id,
+          created_at: new Date(startedAt.getTime() - 86_400_000).toISOString(),
+          expires_at: new Date(startedAt.getTime() + 6 * 86_400_000).toISOString(),
+          accepted_at: null,
+          revoked_at: null,
+        } as Invite,
+      ]
+    : [];
+  let invitesAccepted = 0;
+  const LAST_OWNER = "owner가 한 명은 있어야 합니다. 다른 멤버를 먼저 owner로 지정해 주세요.";
+  const ADMIN_LIMIT = "관리자는 owner나 다른 관리자의 역할을 바꾸거나 내보낼 수 없습니다.";
+  const managerOf = (ws: WorkspaceId) => {
+    const r = role(ws);
+    if (r !== "owner" && r !== "admin") throw new ApiClientError(403, "forbidden", "멤버를 관리할 권한이 없습니다.");
+    return r;
+  };
+  const memberOf = (ws: WorkspaceId, userId: string) => {
+    const m = data.members.find((x) => x.workspace_id === ws && x.user_id === userId);
+    if (!m) throw notFound("멤버");
+    return m;
+  };
+  const owners = (ws: WorkspaceId) => data.members.filter((m) => m.workspace_id === ws && m.role === "owner").length;
+  /** This month in Seoul, like the server's ledger period. */
+  const period = () => new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 7);
+  const soleOwner = fixtureFlag("fixture-deletion") === "sole-owner";
+  /** A queued export becomes ready EXPORT_READY_MS after it was asked for (read lazily). */
+  const settleExports = () => {
+    const now = Date.now();
+    for (const e of exports) {
+      if ((e.state === "queued" || e.state === "running") && now - Date.parse(e.requested_at) >= EXPORT_READY_MS) {
+        const readyAt = new Date(Date.parse(e.requested_at) + EXPORT_READY_MS);
+        Object.assign(e, {
+          state: "ready",
+          bytes: e.include_audio ? 184_320_000 : 2_457_600,
+          ready_at: readyAt.toISOString(),
+          expires_at: new Date(readyAt.getTime() + EXPORT_TTL_MS).toISOString(),
+        });
+      } else if (e.state === "queued" && now - Date.parse(e.requested_at) >= 1_000) {
+        e.state = "running";
+      }
+    }
+  };
   const session = (): SessionUser => ({ id: data.me.id, email: data.me.email, displayName: data.me.display_name });
 
   const client: ApiClient & { readonly data: FixtureData } = {
@@ -452,6 +658,27 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     logout: () =>
       wait(() => {
         signedIn = false;
+      }),
+    // No mail in the preview: the code is always 000000.
+    sendCode: (_email, purpose) =>
+      wait(() =>
+        purpose === "reset"
+          ? "가입된 계정이라면 이메일로 6자리 인증번호가 발송됩니다. (10분간 유효)"
+          : "이메일로 6자리 인증번호를 발송했습니다. (10분간 유효)",
+      ),
+    register: ({ email, password, verificationCode }) =>
+      wait(() => {
+        if (email.trim().toLowerCase() === data.me.email) throw new ApiClientError(400, "bad_request", "이미 가입된 이메일 주소입니다.");
+        if (password.length < 6) throw new ApiClientError(400, "bad_request", "비밀번호는 최소 6자 이상이어야 합니다.");
+        if (verificationCode !== "000000") throw new ApiClientError(400, "bad_request", "이메일 인증번호가 올바르지 않거나 만료되었습니다.");
+        signedIn = true;
+        return { kind: "signedIn" as const, user: session() };
+      }),
+    resetPassword: ({ verificationCode, newPassword }) =>
+      wait(() => {
+        if (verificationCode !== "000000") throw new ApiClientError(400, "bad_request", "인증번호가 올바르지 않거나 만료되었습니다.");
+        if (newPassword.length < 6) throw new ApiClientError(400, "bad_request", "새 비밀번호는 최소 6자 이상이어야 합니다.");
+        return "비밀번호가 재설정되었습니다. 새 비밀번호로 로그인해주세요.";
       }),
     onUnauthorized(listener) {
       unauthorized.add(listener);
@@ -482,9 +709,228 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
         data.devices = data.devices.filter((d) => d.id !== id);
       }),
 
+    listAccessTokens: () => wait(() => page(tokens, undefined, MAX_PAGE)),
+
+    createAccessToken: (body) =>
+      wait(() => {
+        const name = body.name.trim();
+        if (!name) throw new ApiClientError(400, "bad_request", "토큰 이름을 입력해 주세요.");
+        if (!data.workspaces.some((w) => w.workspace.id === body.workspace_id)) throw notFound("워크스페이스");
+        const secret = `lct_pat_${randomSecret()}`;
+        const token = {
+          id: newId("pat"),
+          workspace_id: body.workspace_id,
+          user_id: data.me.id,
+          name,
+          prefix: secret.slice(0, 12),
+          scopes: [...body.scopes],
+          expires_at: body.expires_at ?? null,
+          last_used_at: null,
+          created_at: nowIso(),
+          revoked_at: null,
+        } as AccessToken;
+        // Newest first, after the v1 token.
+        tokens = [tokens[0]!, token, ...tokens.slice(1)];
+        return { token: structuredClone(token), secret };
+      }),
+
+    revokeAccessToken: (tokenId) =>
+      wait(() => {
+        if (tokenId.startsWith("tok_")) {
+          throw new ApiClientError(409, "conflict", "이 토큰은 여기서 회수할 수 없습니다. 예전 설정 화면에서 다시 발급해 주세요.");
+        }
+        if (!tokens.some((t) => t.id === tokenId)) throw notFound("토큰");
+        tokens = tokens.filter((t) => t.id !== tokenId);
+      }),
+
+    listIdentities: () => wait(() => page(identities, undefined, MAX_PAGE)),
+
+    // The fixture user also has a password, so no identity is the last way to sign in.
+    unlinkIdentity: (identityId) =>
+      wait(() => {
+        if (!identities.some((i) => i.id === identityId)) throw notFound("로그인 연결");
+        identities = identities.filter((i) => i.id !== identityId);
+      }),
+
+    listExports: () =>
+      wait(() => {
+        settleExports();
+        return page([...exports].reverse(), undefined, MAX_PAGE);
+      }),
+
+    createExport: (body) =>
+      wait(() => {
+        settleExports();
+        if (!data.workspaces.some((w) => w.workspace.id === body.workspace_id)) throw notFound("워크스페이스");
+        if (exports.some((e) => e.state === "queued" || e.state === "running")) {
+          throw new ApiClientError(409, "conflict", "이미 만들고 있는 내보내기가 있습니다.");
+        }
+        const row = {
+          id: newId("exp"),
+          workspace_id: body.workspace_id,
+          include_audio: body.include_audio,
+          state: "queued",
+          bytes: null,
+          requested_at: nowIso(),
+          ready_at: null,
+          expires_at: null,
+          error: null,
+        } as DataExport;
+        exports.push(row);
+        return structuredClone(row);
+      }),
+
+    // There is no server behind the preview: the link has the real shape but answers 404.
+    exportContentUrl: (exportId) => `/api/v2/me/exports/${encodeURIComponent(exportId)}/content`,
+
+    getAccountDeletion: () => wait(() => structuredClone(deletion)),
+
+    requestAccountDeletion: () =>
+      wait(() => {
+        if (soleOwner) {
+          const team = data.workspaces.find((w) => w.workspace.kind === "team")?.workspace.name ?? "팀";
+          throw new ApiClientError(
+            409,
+            "conflict",
+            `"${team}" 워크스페이스의 유일한 owner입니다. 다른 멤버를 owner로 지정하거나 워크스페이스를 비운 뒤 다시 시도해 주세요.`,
+          );
+        }
+        if (deletion.state !== "scheduled") {
+          const now = Date.now();
+          deletion = { state: "scheduled", requested_at: new Date(now).toISOString(), execute_after: new Date(now + 7 * 86_400_000).toISOString() };
+        }
+        return structuredClone(deletion);
+      }),
+
+    cancelAccountDeletion: () =>
+      wait(() => {
+        deletion = { state: "none", requested_at: null, execute_after: null };
+        return structuredClone(deletion);
+      }),
+
+    oauthProviders: () => wait(() => ({ google: !oauthOff, apple: !oauthOff })),
+
     listWorkspaces: () => wait(() => page(data.workspaces, undefined, MAX_PAGE)),
 
     listMembers: (ws) => wait(() => page(data.members.filter((m) => m.workspace_id === ws), undefined, MAX_PAGE)),
+
+    admin: createFixtureAdmin({
+      me: () => data.me,
+      wait,
+      quotas,
+      personalWs: personalWs,
+      teamWs,
+      // `?fixture-admin=trouble|unavailable` (see FixtureAdminDeps.mode).
+      mode: (["trouble", "unavailable"] as const).find((m) => m === fixtureFlag("fixture-admin")) ?? null,
+    }),
+
+    updateMember: (ws, userId, newRole) =>
+      wait((): WorkspaceMember => {
+        const mine = managerOf(ws);
+        const target = memberOf(ws, userId);
+        if (mine === "admin") {
+          if (target.role === "owner" || target.role === "admin") throw new ApiClientError(403, "forbidden", ADMIN_LIMIT);
+          if (newRole === "owner" || newRole === "admin") throw new ApiClientError(403, "forbidden", "owner만 owner나 관리자를 지정할 수 있습니다.");
+        }
+        if (target.role === "owner" && newRole !== "owner" && owners(ws) <= 1) throw new ApiClientError(409, "conflict", LAST_OWNER);
+        target.role = newRole;
+        target.updated_at = nowIso();
+        if (userId === data.me.id) {
+          const entry = data.workspaces.find((w) => w.workspace.id === ws);
+          if (entry) entry.role = newRole;
+        }
+        return structuredClone(target);
+      }),
+
+    removeMember: (ws, userId) =>
+      wait(() => {
+        const target = memberOf(ws, userId);
+        if (userId !== data.me.id) {
+          const mine = managerOf(ws);
+          if (mine === "admin" && (target.role === "owner" || target.role === "admin")) throw new ApiClientError(403, "forbidden", ADMIN_LIMIT);
+        }
+        if (target.role === "owner" && owners(ws) <= 1) throw new ApiClientError(409, "conflict", LAST_OWNER);
+        data.members = data.members.filter((m) => m !== target);
+        if (userId === data.me.id) data.workspaces = data.workspaces.filter((w) => w.workspace.id !== ws);
+      }),
+
+    listInvites: (ws) =>
+      wait(() => {
+        managerOf(ws);
+        return page(invites.filter((i) => i.workspace_id === ws && !i.accepted_at && !i.revoked_at), undefined, MAX_PAGE);
+      }),
+
+    createInvite: (ws, body) =>
+      wait((): Invite => {
+        const mine = managerOf(ws);
+        const entry = data.workspaces.find((w) => w.workspace.id === ws);
+        if (entry?.workspace.kind === "personal") throw new ApiClientError(409, "conflict", "개인 워크스페이스에는 초대할 수 없습니다.");
+        if (body.role === "admin" && mine !== "owner") throw new ApiClientError(403, "forbidden", "관리자로 초대하는 것은 owner만 할 수 있습니다.");
+        const email = body.email.trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new ApiClientError(400, "validation_failed", "이메일 주소를 확인해 주세요.");
+        if (data.members.some((m) => m.workspace_id === ws && m.email.toLowerCase() === email)) {
+          throw new ApiClientError(409, "conflict", "이미 이 워크스페이스의 멤버입니다.");
+        }
+        // A live invitation to the same address is replaced.
+        invites = invites.filter((i) => !(i.workspace_id === ws && i.email === email));
+        const now = Date.now();
+        const invite = {
+          id: newId("inv"),
+          workspace_id: ws,
+          email,
+          role: body.role,
+          invited_by: data.me.id,
+          created_at: new Date(now).toISOString(),
+          expires_at: new Date(now + 7 * 86_400_000).toISOString(),
+          accepted_at: null,
+          revoked_at: null,
+        } as Invite;
+        invites.push(invite);
+        return structuredClone(invite);
+      }),
+
+    revokeInvite: (ws, inviteId) =>
+      wait(() => {
+        managerOf(ws);
+        const invite = invites.find((i) => i.id === inviteId && i.workspace_id === ws && !i.accepted_at && !i.revoked_at);
+        if (!invite) throw notFound("초대");
+        invite.revoked_at = nowIso();
+      }),
+
+    // The invitation links of the preview: "wrong-account" was sent to another address,
+    // "expired" and "used" fail like the server; any other token joins "디자인 스터디" once.
+    acceptInvite: (token) =>
+      wait(() => {
+        if (token === "wrong-account") {
+          throw new ApiClientError(403, "forbidden", "이 초대는 다른 이메일 주소로 보낸 것입니다. 초대받은 주소로 로그인해 주세요.");
+        }
+        if (token === "expired") throw new ApiClientError(409, "conflict", "만료된 초대입니다. 다시 초대해 달라고 요청해 주세요.");
+        if (token === "used" || invitesAccepted > 0) {
+          throw new ApiClientError(404, "not_found", "초대를 찾을 수 없습니다. 이미 사용했거나 취소된 초대입니다.");
+        }
+        invitesAccepted++;
+        const at = nowIso();
+        const ws = "ws_invited" as WorkspaceId;
+        const workspace = { id: ws, name: "디자인 스터디", kind: "team", plan: "team", settings: { default_language: "ko" }, created_at: at, updated_at: at };
+        data.workspaces.push({ workspace, role: "member" } as (typeof data.workspaces)[number]);
+        data.members.push(
+          { workspace_id: ws, user_id: "usr_fixture_seoa", role: "owner", display_name: "윤서아", email: "seoa@example.com", created_at: at, updated_at: at } as WorkspaceMember,
+          { workspace_id: ws, user_id: data.me.id, role: "member", display_name: data.me.display_name, email: data.me.email, created_at: at, updated_at: at } as WorkspaceMember,
+        );
+        return { workspace: structuredClone(workspace), role: "member" as MembershipRole } as never;
+      }),
+
+    // The team has limits (one close to it, one used up); the personal workspace has none.
+    getWorkspaceUsage: (ws) =>
+      wait((): WorkspaceUsage => {
+        const entry = data.workspaces.find((w) => w.workspace.id === ws);
+        if (!entry) throw notFound("워크스페이스");
+        const quota = structuredClone(quotas.get(ws) ?? null);
+        if (entry.workspace.kind === "personal") {
+          return { period: period(), audio_ms: 12_000_000, ai_cost_microusd: 1_234_567, storage_bytes: 1_288_490_189, quota };
+        }
+        return { period: period(), audio_ms: 66_600_000, ai_cost_microusd: 10_000_000, storage_bytes: 3_435_973_837, quota };
+      }),
 
     listFolders: (ws) =>
       wait(() => page([...data.folders.filter((f) => f.workspace_id === ws)].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1)), undefined, MAX_PAGE)),
@@ -713,6 +1159,147 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
         return structuredClone(version);
       }),
 
+    // Share links: in memory, never persisted. The URL (with its token) is only returned here.
+    listShareLinks: (ws, targetId) =>
+      wait(() => page(shareLinks.filter((l) => l.workspace_id === ws && !l.revoked_at && (!targetId || l.target_id === targetId)), undefined, MAX_PAGE)),
+    createShareLink: (body) =>
+      wait(() => {
+        const rec = data.recordings.find((r) => r.id === body.target_id);
+        if (body.target_type === "recording" && !rec) throw notFound("녹음");
+        shareSeq += 1;
+        const link = {
+          id: `shl_fx${shareSeq}`,
+          workspace_id: rec?.workspace_id ?? data.workspaces[0]!.workspace.id,
+          target_type: body.target_type,
+          target_id: body.target_id,
+          scope: { transcript: body.scope.transcript, audio: body.scope.audio },
+          expires_at: body.expires_at ?? null,
+          has_password: Boolean(body.password),
+          created_by: data.me.id,
+          created_at: nowIso(),
+          revoked_at: null,
+        } as ShareLinkDto;
+        shareLinks.unshift(link);
+        return { link: structuredClone(link), url: `https://lectern.example/s/fixture-token-${shareSeq}` };
+      }),
+    // Calendar connections (P4-07): no Google and no server. Kept in sessionStorage so a
+    // reload shows what a real server would (the feed exists, its URL is gone).
+    listIntegrations: (ws) => wait(() => page(calendar.integrations.filter((i) => i.workspace_id === ws), undefined, MAX_PAGE)),
+    startGoogleIntegration: (ws) =>
+      wait(() => {
+        const at = nowIso();
+        calendar.integrations = calendar.integrations.filter((i) => i.workspace_id !== ws);
+        calendar.integrations.push(fixtureIntegration(ws, data.me.id, "active", at));
+        saveCalendarState(calendar);
+        return { authorization_url: "/app/settings?google=connected#integrations" };
+      }),
+    disconnectIntegration: (id) =>
+      wait(() => {
+        if (!calendar.integrations.some((i) => i.id === id)) throw notFound("연동");
+        calendar.integrations = calendar.integrations.filter((i) => i.id !== id);
+        saveCalendarState(calendar);
+      }),
+    getCalendarFeed: (ws) =>
+      wait(() => {
+        const feed = calendar.feeds[ws];
+        return { exists: Boolean(feed), url: null, created_at: (feed ?? null) as never };
+      }),
+    createCalendarFeed: (ws) =>
+      wait(() => {
+        const at = nowIso();
+        calendar.feeds[ws] = at;
+        saveCalendarState(calendar);
+        const origin = typeof location === "undefined" ? "https://lectern.example" : location.origin;
+        return { url: `${origin}/cal/fixture-${Math.random().toString(36).slice(2, 12)}.ics`, created_at: at as never };
+      }),
+    deleteCalendarFeed: (ws) =>
+      wait(() => {
+        delete calendar.feeds[ws];
+        saveCalendarState(calendar);
+      }),
+    updateWorkspaceSettings: (ws, settings) =>
+      wait(() => {
+        const entry = data.workspaces.find((w) => w.workspace.id === ws);
+        if (!entry) throw notFound("워크스페이스");
+        if (entry.role !== "owner" && entry.role !== "admin") throw new ApiClientError(403, "forbidden", "워크스페이스 관리자만 바꿀 수 있습니다.");
+        const merged: Record<string, unknown> = { ...entry.workspace.settings };
+        for (const [key, value] of Object.entries(settings)) {
+          if (value === null || value === undefined) delete merged[key];
+          else merged[key] = value;
+        }
+        entry.workspace.settings = merged as WorkspaceSettings;
+        entry.workspace.updated_at = nowIso() as never;
+        calendar.settings[ws] = entry.workspace.settings;
+        saveCalendarState(calendar);
+        return structuredClone(entry.workspace);
+      }),
+
+    revokeShareLink: (id) =>
+      wait(() => {
+        const link = shareLinks.find((l) => l.id === id && !l.revoked_at);
+        if (!link) throw notFound("공유 링크");
+        link.revoked_at = nowIso() as ShareLinkDto["revoked_at"];
+      }),
+
+    deleteRecordingAudio: (id) =>
+      wait(() => {
+        recording(id);
+        data.assets = data.assets.filter((a) => a.recording_id !== id || !a.kind.startsWith("audio"));
+      }),
+
+    reprocessRecording: (id, body) =>
+      wait((): ReprocessResponse => {
+        const rec = recording(id);
+        if (body.mode === "document" && !data.transcripts.has(rec.id)) {
+          throw new ApiClientError(409, "conflict", "전사가 없는 녹음이라 문서만 다시 만들 수 없습니다. 전체 재처리를 선택하세요.");
+        }
+        const full = body.mode === "full";
+        const estimate = {
+          estimated_microusd: full ? Math.ceil(((rec.duration_ms ?? 0) / 3_600_000) * 120_000) : 2_000,
+          audio_ms: full ? (rec.duration_ms ?? 0) : 0,
+          within_quota: true,
+        } as ReprocessResponse["estimate"];
+        if (body.dry_run) return { estimate, job: null };
+        const stamp = nowIso() as Recording["updated_at"];
+        const job = {
+          id: newId("job_re") as JobId,
+          workspace_id: rec.workspace_id,
+          recording_id: rec.id,
+          kind: "process" as const,
+          state: "queued" as const,
+          priority: 0,
+          run_after: stamp,
+          attempts: 0,
+          lease_owner: null,
+          lease_until: null,
+          budget_microusd: 400_000,
+          spent_microusd: 0,
+          idempotency_key: null,
+          error_code: null,
+          created_at: stamp,
+          updated_at: stamp,
+        };
+        data.jobs.push(job);
+        rec.status = "queued";
+        rec.updated_at = stamp;
+        emit(rec.workspace_id, rec.id, { type: "recording.updated", payload: { recording: structuredClone(rec) } } as never);
+        return structuredClone({ estimate, job }) as ReprocessResponse;
+      }),
+
+    exportDocument: (documentId) =>
+      wait(() => {
+        const document = data.documents.find((d) => d.id === documentId);
+        if (!document) throw notFound("문서");
+        const version = data.versions.find((v) => v.document_id === documentId && v.version === document.current_version)!;
+        const title = data.recordings.find((r) => r.id === document.recording_id)?.title ?? "note";
+        return { filename: `${title}.md`, blob: new Blob([`${version.rendered_md}\n`], { type: "text/markdown" }) };
+      }),
+
+    // The fixture keeps the screen's own rule (lib/ask-suggestions.ts): no server list.
+    listAskSuggestions: () => wait((): never => {
+      throw new ApiClientError(501, "not_implemented", "아직 준비 중인 기능입니다.");
+    }),
+
     listCalendarSuggestions: (q: ListSuggestionsParams) =>
       wait(() => {
         const statuses = q.statuses ? q.statuses.split(",") : [q.status ?? "suggested"];
@@ -734,29 +1321,44 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     search: (q: SearchParams) =>
       wait(() => {
         const needle = q.q.trim().toLowerCase();
-        const hits: SearchHit[] = [];
-        for (const rec of data.recordings.filter((r) => r.workspace_id === q.workspace_id)) {
-          if (q.recording_id && rec.id !== q.recording_id) continue;
+        const recs = data.recordings.filter((r) => r.workspace_id === q.workspace_id && (!q.recording_id || r.id === q.recording_id));
+        const titles: SearchHit[] = [];
+        const pdfPages: SearchHit[] = [];
+        const documents: SearchHit[] = [];
+        const transcripts: SearchHit[] = [];
+        for (const rec of recs) {
+          if ((!q.kind || q.kind === "recording") && rec.title.toLowerCase().includes(needle)) {
+            titles.push({ kind: "recording", recording_id: rec.id, recording_title: rec.title, snippet: snippet(rec.title, needle) });
+          }
+          if (!q.kind || q.kind === "pdf_page") {
+            for (const p of PDF_PAGE_TEXTS.filter((x) => x.recordingId === rec.id)) {
+              if (p.text.toLowerCase().includes(needle)) {
+                pdfPages.push({ kind: "pdf_page", recording_id: rec.id, recording_title: rec.title, snippet: snippet(p.text, needle), asset_id: p.assetId as AssetId, page: p.page });
+              }
+            }
+          }
           if (!q.kind || q.kind === "document") {
             const doc = data.documents.find((d) => d.recording_id === rec.id);
             const version = doc && data.versions.find((v) => v.document_id === doc.id && v.version === doc.current_version);
             for (const block of version?.body?.sections.flatMap((s) => s.blocks) ?? []) {
               const text = blockText(block);
               if (text.toLowerCase().includes(needle)) {
-                hits.push({ kind: "document", recording_id: rec.id, recording_title: rec.title, snippet: snippet(text, needle), document_id: doc!.id, block_id: block.id });
+                documents.push({ kind: "document", recording_id: rec.id, recording_title: rec.title, snippet: snippet(text, needle), document_id: doc!.id, block_id: block.id });
               }
             }
           }
-          if (!q.kind || q.kind === "transcript") {
+          if ((!q.kind || q.kind === "transcript") && transcripts.length < 200) {
             for (const seg of data.transcripts.get(rec.id)?.segments ?? []) {
               if (seg.text.toLowerCase().includes(needle)) {
-                hits.push({ kind: "transcript", recording_id: rec.id, recording_title: rec.title, snippet: snippet(seg.text, needle), segment_idx: seg.idx, start_ms: seg.start_ms });
-                if (hits.length >= 200) break;
+                transcripts.push({ kind: "transcript", recording_id: rec.id, recording_title: rec.title, snippet: snippet(seg.text, needle), segment_idx: seg.idx, start_ms: seg.start_ms });
+                if (transcripts.length >= 200) break;
               }
             }
           }
         }
-        return page(hits, q.cursor, q.limit ?? 20);
+        // The server ranks every kind together and puts title matches first; here the rarer
+        // kinds come before the many transcript lines, so a page of results shows each kind.
+        return page([...titles, ...pdfPages, ...documents, ...transcripts], q.cursor, q.limit ?? 20);
       }),
 
     createAskThread: (body) =>
@@ -973,7 +1575,38 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
         return structuredClone({ upload: session, recording: rec, job, deduplicated: false });
       }),
 
-    assetContentUrl: () => null,
+    // Fixture PDFs have no bytes either; the URL is the real route so the e2e suite can
+    // answer it (page.route) with a generated PDF. Audio stays null (no player source).
+    assetContentUrl: (assetId) => (assetId.endsWith("_pdf") ? `/api/v2/assets/${encodeURIComponent(assetId)}/content` : null),
+
+    listAssetPages: (assetId) =>
+      wait((): AssetPages => {
+        const asset = pdfAsset(assetId);
+        const scanned = asset.meta.scanned === true;
+        const read = typeof asset.meta.ocr_pages === "number";
+        const count = asset.page_count ?? 0;
+        return {
+          page_count: count,
+          scanned,
+          pages: Array.from({ length: count }, (_, i) => ({
+            page_no: i + 1,
+            has_text_layer: !scanned,
+            char_count: scanned && !read ? 0 : 800,
+          })),
+        };
+      }),
+
+    ocrAsset: (assetId, body) =>
+      wait((): OcrAssetResponse => {
+        const asset = pdfAsset(assetId);
+        if (role(asset.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        // Pages a scan still needs: none once an OCR ran (the fixture finishes it at once).
+        const pages = asset.meta.scanned === true && typeof asset.meta.ocr_pages !== "number" ? (asset.page_count ?? 0) : 0;
+        const estimate = { pages_to_ocr: pages, estimated_cost_microusd: FIXTURE_OCR_MICROUSD_PER_PAGE * pages };
+        if (body.dry_run || pages === 0) return { ...estimate, job_id: null };
+        asset.meta = { ...asset.meta, ocr_pages: pages };
+        return { ...estimate, job_id: "job_fixture_ocr" as JobId };
+      }),
 
     subscribe(workspaceId, onEvent) {
       const set = listeners.get(workspaceId) ?? new Set();

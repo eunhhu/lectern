@@ -20,6 +20,8 @@ const PATHS = {
   forward: "M8.5 4.5 12 8l-3.5 3.5M12 8H6.5a3 3 0 0 0 0 6",
   chevronRight: "m6 3.5 4.5 4.5L6 12.5",
   chevronDown: "M3.5 6 8 10.5 12.5 6",
+  chevronUp: "M3.5 10 8 5.5 12.5 10",
+  shield: "M8 1.8 13 3.8v4c0 3-2.2 5.3-5 6.4-2.8-1.1-5-3.4-5-6.4v-4z",
   more: "M3.5 8h.1M8 8h.1M12.5 8h.1",
   check: "m3 8.5 3.2 3L13 4.5",
   close: "m4 4 8 8M12 4l-8 8",

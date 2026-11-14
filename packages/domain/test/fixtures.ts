@@ -35,6 +35,9 @@ export const ID = {
   usage: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a21",
   upload: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a22",
   savedView: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a23",
+  identity: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a24",
+  invite: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a25",
+  dataExport: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a26",
 } as const;
 
 const scope = { workspace_id: ID.workspace, recording_id: ID.recording } as const;
@@ -417,7 +420,7 @@ export const savedView = {
 } satisfies In<typeof D.SavedView>;
 
 export const ENTITY_FIXTURES: Record<D.EntityName, unknown[]> = {
-  workspace: [workspace],
+  workspace: [workspace, { ...workspace, settings: { reminders: { email: true, lead_minutes: [1440] } } }],
   membership: [membership],
   folder: [folder, { ...folder, parent_id: ID.folder }],
   tag: [tag],
@@ -445,7 +448,12 @@ export const ENTITY_FIXTURES: Record<D.EntityName, unknown[]> = {
 
 /** Hand-written invalid rows; the tests also drop every required key of each valid fixture. */
 export const ENTITY_INVALID: Record<D.EntityName, unknown[]> = {
-  workspace: [{ ...workspace, kind: "org" }, { ...workspace, settings: { calendar_auto_add: { enabled: true, min_confidence: 2 } } }],
+  workspace: [
+    { ...workspace, kind: "org" },
+    { ...workspace, settings: { calendar_auto_add: { enabled: true, min_confidence: 2 } } },
+    { ...workspace, settings: { reminders: { email: true, lead_minutes: [] } } },
+    { ...workspace, settings: { reminders: { email: true, lead_minutes: [0] } } },
+  ],
   membership: [{ ...membership, role: "guest" }],
   folder: [{ ...folder, name: "" }],
   tag: [{ ...tag, color: "#ff0000" }],
@@ -501,6 +509,30 @@ export const ENTITY_INVALID: Record<D.EntityName, unknown[]> = {
 // ---------------------------------------------------------------------------
 
 const page = <T>(items: T[]) => ({ items, next_cursor: null });
+
+const invite = {
+  id: ID.invite,
+  workspace_id: ID.workspace,
+  email: "friend@example.com",
+  role: "member",
+  invited_by: ID.user,
+  created_at: T0,
+  expires_at: T1,
+  accepted_at: null,
+  revoked_at: null,
+};
+const quota = { audio_ms_month: 36_000_000, ai_microusd_month: 5_000_000, storage_bytes: null };
+const dataExport = {
+  id: ID.dataExport,
+  workspace_id: ID.workspace,
+  include_audio: false,
+  state: "queued",
+  bytes: null,
+  requested_at: T0,
+  ready_at: null,
+  expires_at: null,
+  error: null,
+};
 
 const me = {
   id: ID.user,
@@ -695,8 +727,13 @@ export const API_CASES: Record<string, Case> = {
   CreateWorkspaceRequest: { schema: D.CreateWorkspaceRequest, valid: [{ name: "연구실" }], invalid: [{ name: "" }] },
   UpdateWorkspaceRequest: {
     schema: D.UpdateWorkspaceRequest,
-    valid: [{ settings: {} }, { name: "새 이름" }],
-    invalid: [{ settings: { default_language: "Korean" } }],
+    valid: [{ settings: {} }, { name: "새 이름" }, { settings: { reminders: { email: true, lead_minutes: [1440] } } }],
+    invalid: [
+      { settings: { default_language: "Korean" } },
+      { settings: { reminders: { email: true, lead_minutes: [] } } },
+      { settings: { reminders: { email: true, lead_minutes: [0] } } },
+      { settings: { reminders: { email: true, lead_minutes: [5, 10, 15, 20, 25, 30] } } },
+    ],
   },
   WorkspaceMemberPage: {
     schema: D.WorkspaceMemberPage,
@@ -887,6 +924,52 @@ export const API_CASES: Record<string, Case> = {
     ],
     invalid: [{ workspace_id: ID.workspace, period: "2026-13", turn_count: 0, spent_microusd: 0, limit_microusd: null, per_turn_cap_microusd: 0 }],
   },
+  AssetPageInfo: {
+    schema: D.AssetPageInfo,
+    valid: [{ page_no: 1, has_text_layer: true, char_count: 1200 }],
+    invalid: [{ page_no: 0, has_text_layer: true, char_count: 1 }, { page_no: 1, has_text_layer: 1, char_count: 1 }],
+  },
+  AssetPages: {
+    schema: D.AssetPages,
+    valid: [
+      { page_count: 0, scanned: false, pages: [] },
+      { page_count: 2, scanned: true, pages: [{ page_no: 1, has_text_layer: false, char_count: 3 }, { page_no: 2, has_text_layer: false, char_count: 0 }] },
+    ],
+    invalid: [{ page_count: -1, scanned: false, pages: [] }, { page_count: 1, pages: [] }],
+  },
+  OcrAssetRequest: {
+    schema: D.OcrAssetRequest,
+    valid: [{ dry_run: true }, { dry_run: false }],
+    invalid: [{}, { dry_run: "yes" }],
+  },
+  OcrAssetResponse: {
+    schema: D.OcrAssetResponse,
+    valid: [
+      { pages_to_ocr: 12, estimated_cost_microusd: 4_000, job_id: null },
+      { pages_to_ocr: 12, estimated_cost_microusd: 4_000, job_id: ID.job },
+    ],
+    invalid: [{ pages_to_ocr: -1, estimated_cost_microusd: 0, job_id: null }, { pages_to_ocr: 1, estimated_cost_microusd: 0 }],
+  },
+  AlignmentPage: {
+    schema: D.AlignmentPage,
+    valid: [{ asset_id: ID.pdf, page_no: 3, score: 4.2 }],
+    invalid: [{ asset_id: ID.pdf, page_no: 0, score: 1 }],
+  },
+  AlignmentWindow: {
+    schema: D.AlignmentWindow,
+    valid: [{ start_ms: 0, end_ms: 120_000, pages: [{ asset_id: ID.pdf, page_no: 3, score: 4.2 }] }],
+    invalid: [{ start_ms: -1, end_ms: 120_000, pages: [] }],
+  },
+  RecordingAlignment: {
+    schema: D.RecordingAlignment,
+    valid: [{ windows: [] }, { windows: [{ start_ms: 0, end_ms: 120_000, pages: [] }] }],
+    invalid: [{}, { windows: [{ start_ms: 0, pages: [] }] }],
+  },
+  AskSuggestions: {
+    schema: D.AskSuggestions,
+    valid: [{ suggestions: [] }, { suggestions: ["핵심 요약은?"] }],
+    invalid: [{ suggestions: [""] }, { suggestions: ["a", "b", "c", "d", "e", "f", "g"] }],
+  },
   AskStreamEvent: {
     schema: D.AskStreamEvent,
     valid: askStreamEvents,
@@ -926,6 +1009,24 @@ export const API_CASES: Record<string, Case> = {
     valid: [{ authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=x" }],
     invalid: [{ authorization_url: "not a url" }],
   },
+  CalendarFeedInfo: {
+    schema: D.CalendarFeedInfo,
+    valid: [
+      { exists: true, url: null, created_at: T0 },
+      { exists: false, url: null, created_at: null },
+    ],
+    invalid: [{ exists: true, url: "not a url", created_at: T0 }, { exists: "yes", url: null, created_at: null }],
+  },
+  CreateCalendarFeedRequest: {
+    schema: D.CreateCalendarFeedRequest,
+    valid: [{ workspace_id: ID.workspace }],
+    invalid: [{ workspace_id: "" }, {}],
+  },
+  CalendarFeedCreated: {
+    schema: D.CalendarFeedCreated,
+    valid: [{ url: "https://lectern.example/cal/abcDEF123.ics", created_at: T0 }],
+    invalid: [{ url: null, created_at: T0 }, { url: "https://lectern.example/cal/x.ics", created_at: "yesterday" }],
+  },
   ShareLinkPage: { schema: D.ShareLinkPage, valid: [page([shareLinkDto])], invalid: [page([shareLink])] },
   ShareLink: { schema: D.ShareLinkDto, valid: [shareLinkDto], invalid: [{ ...shareLinkDto, target_type: "folder" }] },
   CreateShareLinkRequest: {
@@ -959,6 +1060,69 @@ export const API_CASES: Record<string, Case> = {
     invalid: [{ job, stage_runs: [{ ...stageRun, input_hash: "abc" }], ai_calls: [] }],
   },
   UsageLedgerPage: { schema: D.UsageLedgerPage, valid: [page([usageLedger])], invalid: [page([{ ...usageLedger, audio_ms: -5 }])] },
+
+  // accounts (P5-C)
+  NativeTokenRequest: {
+    schema: D.NativeTokenRequest,
+    valid: [
+      { grant_type: "password", email: "student@example.com", password: "correct_password_1", device_name: "MacBook", platform: "macos" },
+      { grant_type: "refresh_token", refresh_token: "rt_0123456789abcdef" },
+    ],
+    invalid: [{ grant_type: "x", email: "a@b.c", password: "p" }, { grant_type: "refresh_token", refresh_token: "short" }, { grant_type: "password", email: "a@b.c", password: "p", platform: "linux" }],
+  },
+  NativeTokenResponse: {
+    schema: D.NativeTokenResponse,
+    valid: [{ token_type: "Bearer", access_token: "lct_at_abc", refresh_token: "lct_rt_def", expires_in: 3600, user: me }],
+    invalid: [{ token_type: "bearer", access_token: "a", refresh_token: "b", expires_in: 3600, user: me }, { token_type: "Bearer", access_token: "a", refresh_token: "b", expires_in: 0, user: me }],
+  },
+  RevokeNativeTokenRequest: {
+    schema: D.RevokeNativeTokenRequest,
+    valid: [{ refresh_token: "rt_0123456789abcdef" }],
+    invalid: [{ refresh_token: "" }, {}],
+  },
+  IdentityPage: {
+    schema: D.IdentityPage,
+    valid: [page([{ id: ID.identity, provider: "google", email: "student@example.com", created_at: T0 }]), page([{ id: ID.identity, provider: "apple", email: null, created_at: T0 }])],
+    invalid: [page([{ id: ID.identity, provider: "github", email: null, created_at: T0 }])],
+  },
+  WorkspaceInvite: {
+    schema: D.InviteDto,
+    valid: [invite, { ...invite, accepted_at: T1 }],
+    invalid: [{ ...invite, role: "boss" }, { ...invite, expires_at: "next week" }],
+  },
+  WorkspaceInvitePage: { schema: D.InvitePage, valid: [page([invite])], invalid: [page([{ ...invite, workspace_id: "" }])] },
+  CreateInviteRequest: {
+    schema: D.CreateInviteRequest,
+    valid: [{ email: "friend@example.com", role: "member" }, { email: "lead@example.com", role: "admin" }],
+    invalid: [{ email: "friend@example.com", role: "owner" }, { email: "not an email", role: "viewer" }],
+  },
+  AcceptInviteRequest: { schema: D.AcceptInviteRequest, valid: [{ token: "inv_0123456789abcdef" }], invalid: [{ token: "short" }, {}] },
+  AcceptInviteResponse: { schema: D.AcceptInviteResponse, valid: [{ workspace, role: "member" }], invalid: [{ workspace, role: "guest" }] },
+  WorkspaceMember: {
+    schema: D.WorkspaceMember,
+    valid: [{ ...membership, display_name: "김학생", email: "student@example.com" }],
+    invalid: [{ ...membership, display_name: "김학생", email: "nope" }, { ...membership, role: "guest", display_name: "김학생", email: "student@example.com" }],
+  },
+  UpdateMemberRequest: { schema: D.UpdateMemberRequest, valid: [{ role: "viewer" }, { role: "owner" }], invalid: [{ role: "guest" }, {}] },
+  WorkspaceQuota: {
+    schema: D.WorkspaceQuota,
+    valid: [quota, { audio_ms_month: null, ai_microusd_month: null, storage_bytes: null }],
+    invalid: [{ ...quota, storage_bytes: -1 }, { ...quota, audio_ms_month: 1.5 }],
+  },
+  WorkspaceUsage: {
+    schema: D.WorkspaceUsage,
+    valid: [{ period: "2026-10", audio_ms: 3_600_000, ai_cost_microusd: 120_000, storage_bytes: 10_000_000, quota }, { period: "2026-11", audio_ms: 0, ai_cost_microusd: 0, storage_bytes: 0, quota: null }],
+    invalid: [{ period: "2026-1", audio_ms: 0, ai_cost_microusd: 0, storage_bytes: 0, quota: null }],
+  },
+  DataExport: { schema: D.DataExportDto, valid: [dataExport, { ...dataExport, state: "ready", bytes: 2048, ready_at: T1, expires_at: T1 }], invalid: [{ ...dataExport, state: "done" }] },
+  DataExportPage: { schema: D.DataExportPage, valid: [page([dataExport])], invalid: [page([{ ...dataExport, include_audio: "yes" }])] },
+  CreateExportRequest: { schema: D.CreateExportRequest, valid: [{ workspace_id: ID.workspace, include_audio: false }], invalid: [{ workspace_id: ID.workspace }, { include_audio: true }] },
+  RequestAccountDeletionRequest: { schema: D.RequestAccountDeletionRequest, valid: [{ password: "correct_password_1" }, {}], invalid: [{ password: "" }] },
+  AccountDeletionInfo: {
+    schema: D.AccountDeletionInfo,
+    valid: [{ state: "none", requested_at: null, execute_after: null }, { state: "scheduled", requested_at: T0, execute_after: T1 }],
+    invalid: [{ state: "done", requested_at: null, execute_after: null }],
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,122 @@
+# 상태표 (STATUS)
+
+단계별로 **지금 사실인 것**만 적는다. 네 칸을 섞지 않는다.
+
+- **만듦**: 코드가 통합 브랜치에 있다.
+- **가짜로 테스트함**: 자동 테스트가 통과한다. 외부 서비스는 가짜가 답했다.
+- **실측 필요**: 실제 공급자·기기·운영 호스트에서 확인해야 한다. 아직 안 했다.
+- **사용자 필요**: 사용자가 준비·승인·결정해야 진행된다.
+
+WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단계가 끝날 때 오케스트레이터가 고친다.
+
+기준: 2026-11-15, 통합 브랜치 `p0-foundations`. **P0·P1·P3·P4의 WP를 모두 병합했다**(P0 1개, P1 17개, P3 11개, P4 8개, 모두 게이트 통과). P2는 11개 중 9개를 병합했고 P2-09는 사용자 결정 대기(`BLOCKED`), P2-10은 그 뒤다. P5부터는 아직 `todo`다. P5 이후 행의 "만듦"은 파이프라인을 시작하기 전부터 있던 것이다.
+
+| 단계 | 만듦 | 가짜로 테스트함 | 실측 필요 | 사용자 필요 |
+|---|---|---|---|---|
+| P0 기반 | 작업 큐·워커 분리, 마이그레이션 러너, Hono 진입점, JSON 로그, 설정 패키지, 디자인 토큰, 법적 페이지, CD 사전 점검 | 단위 테스트 794개 | 운영에는 `5b0ef75`까지만 배포됨. 그 뒤 커밋(v2 테이블 이전 포함)은 운영 DB에서 돌려 본 적이 없다 | 운영 호스트 복구, `lectern-worker` 유닛 설치, Google OAuth 검증 신청 |
+| P1 하네스 | 단계 실행기, 미디어 처리(정규화·말소리 지도·청크·여러 오디오 파트 잇기), 전사 → 병합 → 화자, 노트 단계(분류·구조화·추출·검증), Gemini 전사·LLM 어댑터, v2 처리 작업(`process`)과 다시 만들기(`regenerate`)·작업 취소·관리자 재시도, v1 다리(`lectures.markdown` = 구조화 문서), 평가 CLI(전사 지표, `--notes` 문서·추출 지표), 웹의 v2 처리 상태 | 단위 테스트 1082개(스크립트 공급자, 합성 세트, 노트 오라클), 웹 e2e 56개(가짜 Gemini로 v2 올리기 → 전사 → 문서 → 출처 이동), axe 0건 | Gemini 전사·노트 요청 형식(실제 호출로 확인한 적 없음), 1시간당 비용, 실제 녹음의 구조화·추출 품질 지표 | 평가 세트(동의받은 녹음 10건 이상과 주석), D11 비용 목표 확정, 운영에서 `LECTERN_PIPELINE=v2` 켜기 |
+| P2 데이터·웹 | v2 테이블과 이전, API v2, 새 웹 앱(`/app`), 물어보기 v1, `/` → `/app` 리다이렉트(플래그 켬일 때). 파이프라인에서 더한 것: 오디오만 삭제, 문서 Markdown 내보내기, 서버 추천 질문, 공유 링크(만들기·바꾸기·회수)와 공개 페이지 `/s/:token`, 웹 회원가입·이메일 인증·비밀번호 재설정, 문서 편집(블록 글자, legacy Markdown, 저장 충돌), 공유 UI, 다시 처리·Markdown 내려받기, Pretendard 직접 호스팅, v1 화면 기능 대조표(`PARITY.md`)와 빠진 e2e | 단위 테스트(전체 1357개), 웹 e2e(전체 129개, fixture 107개), axe 0건, v1 계약 테스트 | 운영 DB 사본에서의 이전 리허설, 물어보기 평가(재현율·인용 정밀도) | **대조표 `없음` 8행(#4 #6 #7 #21 #22 #27 #30 #31)을 만들지 정하기(P2-09가 여기서 멈춤)**, `LECTERN_WEB_SHELL=1`·`LECTERN_ASK=1` 켜기, 옛 화면 삭제 승인(P2-10) |
+| P3 PDF·검색 | PDF 업로드(`LECTERN_PDF`), 쪽 글자 추출(`packages/pdf`), `pdf_ingest` 단계와 `pdf_page` 저장, `align` 단계와 노트 문맥의 PDF 쪽, 스캔본 OCR(dry run 견적 → 사용자 승인 뒤에만 Gemini), PDF 쪽 색인·쪽 인용·하이브리드 `GET /search`, 물어보기 도구 루프 테스트, 웹 PDF 뷰어(pdf.js, 파일 패널, OCR 비용 확인), 전역 검색 화면 `/app/search`와 ⌘K의 PDF 적중·IME 가드, 검색 성능 측정 스크립트(`scripts/bench/`) | 가짜 Gemini(스크립트 응답)로 OCR·도구 루프·PDF 인용, 웹 e2e(PDF 뷰어 12개, 검색 10개), axe 0건. 검색 측정: Apple M3에서 합성 1000건(조각 21,660개) p95 53 ms | Pi에서 검색 p95 200 ms, 실제 Gemini OCR의 비용·품질, PDF 포함 평가 | PDF 포함 평가 녹음 5건, 운영에서 `LECTERN_PDF=1` 켜기 |
+| P4 캘린더 | `LECTERN_CALENDAR` 플래그와 P4 테이블(`calendar_feed`, `calendar_event_link`, `reminder`, `oauth_state`), ICS 구독 주소(`/cal/<토큰>.ics`, 해시만 저장), Google 캘린더 OAuth(PKCE)·다시 연결·해제(토큰 폐기)와 `needs_reauth`, `calendar_sync` 작업(전용 "Lectern" 캘린더에 넣기·고치기·지우기, 401 한 번 재시도, 일시 오류 지연 재시도), 일정 자동 수락(설정 `calendar_auto_add`)과 재처리 멱등성, 이메일 리마인더(`reminder` 작업, 5분 주기, 한 번만 발송, 90일 뒤 정리)와 `mail.ts`, 물어보기 `list_items` 도구의 데이터, 웹 설정 "연동"·"알림"과 일정 화면의 연결 상태 | 단위 테스트(전체 1471개, 가짜 Google 서버·가짜 Resend), 웹 e2e(전체 138개, 캘린더 설정 7개와 캘린더 꺼짐 서버 e2e), axe 0건 | 실제 Google 동의 화면과 전용 캘린더 생성·동기화, 실제 Resend로 리마인더 메일 발송, Apple 캘린더·Outlook에서 ICS 구독 | Google OAuth 클라이언트와 검증, `calendar.app.created` 범위 승인, 운영에서 `LECTERN_CALENDAR=1` 켜기 |
+| P5 계정 | — | — | Google·Apple 로그인 실제 흐름, 보안 리뷰 | Apple Developer 계정(Sign in with Apple), 보안 리뷰어, 쿼터 기본값 |
+| P6 네이티브 | 기존 macOS·Android·Windows 클라이언트(v1 API) | Android 단위 테스트 | 실제 기기 전부(3시간 백그라운드 녹음, Dynamic Island, APNs, 시스템 오디오 권한), Windows 빌드 | Apple Developer ID(D7), APNs 키, TestFlight, v1 차단 시점 결정 |
+| P7 하드닝 | 런북 7종 | — | Pi 부하 시험, 백업 복원 리허설, VoiceOver 수동 점검 | 인계 점검을 해 볼 사람 |
+
+## 알려진 결함 (파이프라인이 고친다)
+
+| 결함 | 고치는 WP |
+|---|---|
+| (없음. `LECTERN_WEB_SHELL=1`일 때 배포 사전 점검이 실패하던 것은 P0-01이 고쳤다) | — |
+
+## 로드맵에서 뺀 것
+
+| 항목 | 이유 |
+|---|---|
+| Claude·전용 STT 어댑터와 D1·D3·D13 비교 실험 | Gemini만 쓴다(2026-10-19 사용자 결정) |
+| N5 온디바이스(실시간 자막, 기기 OCR, 기기 제안) | 평가 게이트와 실제 기기 확인이 먼저다(CONTRACTS D-P6-10) |
+| IETF Resumable Uploads 호환 | 지금의 파트 업로드를 네이티브 큐가 재개한다(D-P6-6) |
+| 브라우저 응답에서 세션 토큰 빼기 | 네이티브 클라이언트가 같은 응답을 쓴다(D-P2-5) |
+
+## 명세를 쓰며 드러난 열린 항목
+
+명세(`wp/*.md`)의 10절이 "STATUS에 적는다"고 한 것을 모았다. 구현이 끝나도 남는 일이다. 오케스트레이터는 해당 WP가 합쳐질 때 이 표를 고친다(확인됐으면 날짜와 누가, 아니면 그대로).
+
+### 실측 필요 (실제 공급자·기기·운영 호스트·CI)
+
+| 항목 | WP |
+|---|---|
+| Raspberry Pi에서 검색 p95 200 ms. `bun scripts/bench/search.ts --recordings 1000 --max-p95-ms 200`으로 잰다. 참고: Apple M3에서 p95 53 ms(2026-11-14) | P3-10 |
+| 실제 Google 동의 화면과 전용 캘린더 생성·동기화 | P4-02, P4-03 |
+| Bun의 `node:http2` 클라이언트가 Apple의 실제 APNs 서버(TLS, ALPN h2)와 붙는지. 테스트의 가짜는 평문 h2다 | P6-02 |
+| 옛 macOS 앱으로 로그인한 Mac에서 새 빌드로 토큰이 키체인으로 옮겨지는지 | P6-A0 |
+| `swift-openapi-generator`가 이 저장소의 `openapi.json`을 처리하는지(확인하지 않았다. 안 되면 P6-A2가 `BLOCKED`로 멈추고 Apple 줄 전체가 선다) | P6-A2 |
+| 샌드박스 앱에서 시스템 오디오 탭이 되는지, 추가 entitlement가 필요한지 | P6-A10 |
+| 실제 iPhone에서 푸시 등록, Live Activity(원격 갱신·push-to-start), 알림, 유니버설 링크, 위젯 | P6-A7, P6-A11 |
+| 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
+| CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
+| Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
+| Windows 앱의 컴파일(이 명세의 C# 코드는 컴파일해 보지 못했다)과 실제 녹음 → 업로드 | P6-W1 |
+| Pi에서 부하 시험 세 가지(동시 업로드, 3시간, 디스크 부족)의 수치 | P7-01 |
+| 운영 백업 파일로 하는 복원 리허설 | P7-02 |
+| 시간 예산(전사 스크롤 프레임, 검색 p95)을 CI의 첫 측정값으로 보정 | P7-03 |
+| VoiceOver 수동 점검표(`A11Y-AUDIT.md`)와 Apple 앱의 `MANUAL_CHECKS.md` | P7-04, P6-A* |
+| CI는 `main`으로 가는 PR이 있어야 통합 브랜치에서 돈다. 2026-11-13에 초안 PR [eunhhu/lectern#1](https://github.com/eunhhu/lectern/pull/1)을 열었다. `windows` 게이트, Apple CI 작업, 시간 예산 보정은 이 PR의 체크로 확인한다(해당 WP가 합쳐진 뒤. 아직 확인된 것은 없다) | P6-W1, P6-CI, P7-03 |
+| 운영의 프록시 단 수(`LECTERN_TRUSTED_PROXY_HOPS`, 기본 1)와 cloudflared가 붙이는 `X-Forwarded-For`, 배포된 `/app`의 CSP(보안 테스트는 프록시 1단을 가정했고 `/app` 셸은 테스트 프로세스에서 꺼져 있다) | P5-15 |
+
+### 사용자 필요 (결정·승인·준비)
+
+| 항목 | WP |
+|---|---|
+| 초안 PR [eunhhu/lectern#1](https://github.com/eunhhu/lectern/pull/1)을 **합칠지와 언제 합칠지**. 합치면 `main`에 push되고 운영에 배포된다. 오케스트레이터와 워커는 이 PR을 합치지 않고, 초안 상태도 풀지 않는다 | 전체 |
+| 사람이 하는 보안 리뷰(테스트 통과가 안전하다는 뜻은 아니다) | P5-15 |
+| Apple의 서버 간 알림(계정 삭제·이메일 변경 통지)과 토큰 폐기를 받지 않는다. 필요한지 정한다 | P5-05 |
+| App Store에 올리려면 앱 안에서 계정 삭제를 시작할 수 있어야 할 수 있다(지침 5.1.1(v)). 지금은 "웹에서 열기"다 | P6-A6 |
+| 마이크·시스템 오디오 2채널을 서버가 화자 구분에 쓰게 할지(평가가 필요하다) | P6-A10 |
+| 옛 관리자 콘솔을 지우면 롤백 수단이 "웹 셸 끄기"에서 "이전 릴리스로 되돌리기"로 바뀐다. 승인할 때 알고 있어야 한다 | P5-14 |
+| `LECTERN_V1_BLOCK`을 켜는 시점. **Android와 Windows 앱은 목록·상세를 아직 `/api/lectures`로 읽는다.** 차단을 켜면 그 화면이 깨진다(아래 "후속 작업"의 첫 줄이 먼저다) | P6-03 |
+| 처음 온 사람이 인계 점검표를 실제로 따라 해 보는 것 | P7-05 |
+| P5-15 보안 테스트의 발견 1건(중간, CSRF: 쿠키로 인증한 변경 요청에 출처 검사 없음)을 고칠 작업을 만들지. 테스트 49개와 보고서 `SECURITY-REVIEW.md`는 로컬 브랜치 `wp/P5-15`에만 있다(`p0-foundations`만 push한다). 실패하는 테스트를 통합 브랜치에 합치지 않았다. 브랜치를 올릴지, 고친 뒤 합칠지 | P5-15 |
+
+### 후속 작업 (이 파이프라인에 WP가 없다)
+
+| 항목 | 나온 곳 |
+|---|---|
+| Android·Windows의 읽기 경로(`/api/lectures`)를 v2로 옮기기. v1 차단의 전제 조건이다 | P6-D1, P6-W1 |
+| 만료·취소된 업로드 세션과 같은 `Idempotency-Key`로 `createUpload`를 부르면 서버가 죽은 세션을 돌려준다. 클라이언트는 키에 세대 번호를 붙여 피한다(CONTRACTS S-21). 서버에서 고치는 편이 낫다 | P6-D1 |
+| OAuth로만 가입한(비밀번호 없는) 계정의 네이티브 앱 로그인 | P5-03 |
+| "어떤 로그인 수단이 켜져 있는지" 알려 주는 라우트. 지금은 웹이 start 주소를 찔러 본다 | P5-10 |
+| 계정 삭제 확인 메일(방침과 문구가 필요하다) | P5-09 |
+| 내보내기 zip의 ZIP64(4 GiB를 넘는 워크스페이스) | P5-08 |
+| v1 사용량 관리자 화면: P5-13이 P6-C보다 먼저 돌면 빠진다. P6-03 뒤에 더해야 한다 | P5-13 |
+| 관리자 콘솔 2부를 P5-16(멤버·녹음·대조표)과 P5-13(저장소·운영·설정·감사 로그)으로 나눴다(옛 콘솔 기능 85행, CONTRACTS S-33). `LECTERN_V1_BLOCK`을 켜면 새 콘솔의 녹음 동작(재시도·삭제·오디오 삭제, `/api/lectures*`)도 막힌다 | P5-16, P6-03 |
+| macOS 앱의 APNs 토픽(`APNS_TOPIC_MACOS`)과 macOS 푸시 | P6-C |
+| iOS 앱의 문서 편집, 물어보기, 검색, 캘린더 화면 | P6-A6 |
+| `BGContinuedProcessingTask`, IETF 재개 업로드 | P6-A3 |
+| 디스크가 부족할 때 업로드를 거절하는 서버 규칙(`disk-full.ts`의 관찰 결과를 보고 정한다) | P7-01 |
+| 관리자 강의의 아카이브 `.md` 파일을 v2 처리 결과로도 쓰기 | P1-11 |
+| 다시 만들기(`regenerate`)가 PDF 문맥 없이 노트를 만든다. PDF 쪽 출처(`pdf_pages` 라벨)가 모두 지워진다 | P3-04 |
+| 이미 처리된 녹음에 나중에 붙인 PDF는 `pdf_ingest`를 타지 않는다(쪽 추출은 `process` 작업 안에서만 돈다) | P3-03 |
+| 작업 단계 이름(`StageName`)에 `pdf_ocr`이 없다. OCR 작업의 진행이 단계 이름 없이 보인다 | P3-05 |
+| 같은 녹음의 다른 PDF OCR이 큐에 있으면 409다(큐가 녹음 단위로 중복을 막는다). PDF 단위로 풀지 정한다 | P3-05 |
+| 웹 fixture 물어보기에 `pdf_page` 인용 경로가 없어 "인용을 누르면 그 쪽이 열린다" e2e가 없다. PDF 콘텐츠의 Range 요청 경로도 e2e로 보지 않았다 | P3-08 |
+| `calendar_event_link`의 기본 키가 `event_candidate_id`라 일정 하나가 연동 하나에만 링크된다. 팀 워크스페이스에서 두 사람이 각자 Google을 연결하면 공유 일정을 번갈아 찾아 입양(PATCH)한다(중복은 없고 호출만 는다). 표 정의를 `(event_candidate_id, integration_id)`로 바꾸는 계약 변경이 필요하다 | P4-03 |
+| 계정을 지울 때 Google 토큰을 폐기하지 않는다(`integration` 행만 지운다) | P4-03, P5 계정 삭제 |
+| `packages/db`의 `WORKSPACE_TABLES`(`deleteWorkspaceRows`)에 P4 표가 없다. 계정 삭제는 `deleteUserAndData`가 사용자 기준으로 지우지만, 팀 워크스페이스를 지울 때는 남는다 | P4-05 |
+| domain 설명 문구 두 곳: `UpdateWorkspaceRequest.settings`는 "Replaces"라고 하지만 서버는 얕게 합친다. `StartGoogleIntegrationRequest.return_to` 예시는 `/settings/integrations`지만 실제 경로는 `/app/settings#integrations`다 | P4-02, P4-04 |
+| 물어보기 runner는 검색이 질문을 노트에 근거 짓지 못하면 모델을 부르지 않는다. 그래서 "이번 주 마감이 뭐야?"처럼 노트 본문과 겹치지 않는 질문은 `list_items`에 닿지 못한다. 근거가 없어도 도구 라운드를 한 번 열지 정한다 | P4-06 |
+| 쿠키로 인증한 변경 요청의 출처 검사: v2 전체와 v1 `/api/auth/*`·`/api/admin/*`·`/api/lectures/*`. `Sec-Fetch-Site`가 same-origin·none이거나 `Origin`이 `LECTERN_BASE_URL`일 때만, 토큰 요청과 Apple 콜백은 제외(`SECURITY-REVIEW.md` 발견 1). 고친 뒤 `wp/P5-15`의 `csrf.test.ts`가 통과하고 새 관리자 콘솔 e2e를 다시 돈다 | P5-15 |
+| 서버 타입 `OpsJob.kind`·`stage`와 `AdminLectureDto.job_kind`는 `"distill" \| "compact"`인데 v2 `"index"` 작업이 온다. 웹은 아무 문자열이나 받는다 | P5-13, P5-16 |
+| v1 로그인 응답 본문의 세션 토큰(`token`) 제거 검토: `HttpOnly` 쿠키와 같은 값을 스크립트가 읽을 수 있다(v1 계약) | P5-15 |
+
+### 명세 자체의 한계
+
+- 명세 89개 가운데 31개는 에이전트가 썼고, 그 10절(작성자 메모)을 사람이 다시 읽지 않았다. 워커가 `BLOCKED`로 멈추면 먼저 그 명세의 10절을 본다.
+- 명세가 가리키는 심볼 가운데 "앞선 WP가 만든다"고 적힌 것은 아직 없는 코드다. 앞선 WP가 다른 이름으로 만들면 뒤의 명세가 사전 점검(3절)에서 멈춘다. 그것이 의도한 동작이다.
+- 명세를 쓰며 계약에 더한 결정은 [CONTRACTS §8 보충](CONTRACTS.md#8-보충--명세를-쓰며-정한-것)에 있다.
+
+## 넘겨받은 요청
+
+워커 보고의 `NEEDS`·`DEVIATIONS`를 오케스트레이터가 여기에 옮겨 적는다.
+
+| 날짜 | WP | 내용 | 처리 |
+|---|---|---|---|

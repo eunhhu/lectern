@@ -1,0 +1,84 @@
+{
+  "id": "lecture",
+  "version": 1,
+  "name": "강의 노트",
+  "domains": [
+    "lecture"
+  ],
+  "sections": [
+    {
+      "key": "summary",
+      "title": "핵심 요약",
+      "fill": "structure",
+      "instructions": "강의 전체의 핵심을 짧은 문단이나 목록으로 요약한다.",
+      "block_types": [
+        "paragraph",
+        "list"
+      ],
+      "required": true
+    },
+    {
+      "key": "exam_points",
+      "title": "시험·과제 포인트",
+      "fill": "structure",
+      "instructions": "시험, 과제, 강조된 내용만 모은다. 말하지 않았으면 이 섹션을 비운다.",
+      "block_types": [
+        "callout",
+        "list"
+      ],
+      "required": false
+    },
+    {
+      "key": "topics",
+      "title": "주제별 상세",
+      "fill": "structure",
+      "instructions": "주제마다 heading을 두고 용어, 공식, 예시를 들은 순서대로 정리한다.",
+      "block_types": [
+        "paragraph",
+        "list",
+        "term",
+        "formula",
+        "callout"
+      ],
+      "required": true
+    },
+    {
+      "key": "quotes",
+      "title": "주요 발언",
+      "fill": "structure",
+      "instructions": "그대로 옮길 가치가 있는 발언만 고른다.",
+      "block_types": [
+        "quote"
+      ],
+      "required": false
+    },
+    {
+      "key": "glossary",
+      "title": "용어",
+      "fill": "glossary",
+      "instructions": "",
+      "block_types": [
+        "list"
+      ],
+      "required": false
+    },
+    {
+      "key": "events",
+      "title": "일정",
+      "fill": "events",
+      "instructions": "",
+      "block_types": [
+        "list"
+      ],
+      "required": false
+    }
+  ],
+  "extract": {
+    "events": true,
+    "action_items": false,
+    "questions": false,
+    "decisions": false,
+    "glossary": true
+  },
+  "question_kinds": []
+}

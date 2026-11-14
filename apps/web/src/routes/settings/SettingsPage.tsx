@@ -1,22 +1,36 @@
-// 설정 (ARCHITECTURE §7): profile, the current workspace and its members, signed-in
-// devices, integrations, and the options that live in this browser (theme, single-key
-// shortcuts: WCAG 2.1.4). Profile and devices go through the ApiClient (PATCH /me,
-// DELETE /me/devices/{id}); integrations are a placeholder until P4.
+// 설정 (ARCHITECTURE §7): profile and the account sections (signed-in devices, access
+// tokens, linked sign-ins, data export, account deletion: account/, P5-10), the current
+// workspace with its members, invitations and usage (workspace/, P5-11), integrations and
+// reminders (Integrations.tsx, Reminders.tsx, P4-07), and the options that live in this
+// browser (theme, single-key shortcuts: WCAG 2.1.4). Everything goes through the ApiClient.
 
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Form, Input, Label, Radio, RadioGroup, TextField } from "react-aria-components";
-import { useDevices, useMe, useMembers, useRevokeDevice, useUpdateMe } from "../../api/queries.ts";
+import { isNotReady } from "../../api/errors.ts";
+import { useDevices, useMe, useRecordings, useRevokeDevice, useShareLinks, useUpdateMe } from "../../api/queries.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { setPreferences, usePreferences, type ThemeChoice } from "../../app/preferences.ts";
 import { useWorkspace } from "../../app/workspace.tsx";
 import { formatRelative } from "../../lib/format.ts";
+import { ROLE_LABEL } from "../../lib/roles.ts";
 import { Avatar } from "../../ui/Avatar.tsx";
 import { Icon } from "../../ui/Icon.tsx";
 import { Badge, Button, SelectField, SwitchField, uiStyles } from "../../ui/controls.tsx";
 import { showToast } from "../../ui/toast.tsx";
 import { toastError } from "../library/organise.ts";
+import { ShareLinkRow } from "../share/ShareLinkRow.tsx";
+import { DeleteAccount } from "./account/DeleteAccount.tsx";
+import { Exports } from "./account/Exports.tsx";
+import { Identities } from "./account/Identities.tsx";
+import { NOT_READY_TEXT, Tokens } from "./account/Tokens.tsx";
+import { Integrations } from "./Integrations.tsx";
+import { Invites } from "./workspace/Invites.tsx";
+import { Members } from "./workspace/Members.tsx";
+import { Usage } from "./workspace/Usage.tsx";
+import { Reminders } from "./Reminders.tsx";
 import layout from "../../app/layout.module.css";
+import shareStyles from "../share/share.module.css";
 import s from "./settings.module.css";
 
 const ROLE: Record<string, string> = { owner: "Owner", admin: "Admin", member: "Member", viewer: "Viewer" };
@@ -28,16 +42,29 @@ const TIME_ZONES = [
   { id: "America/Los_Angeles", label: "로스앤젤레스" },
 ];
 
+// The account sections (P5-10) follow the profile: devices, tokens, sign-ins, export, deletion.
 const SECTIONS = [
   { id: "account", label: "프로필" },
-  { id: "workspace", label: "워크스페이스" },
   { id: "devices", label: "기기" },
+  { id: "tokens", label: "액세스 토큰" },
+  { id: "identities", label: "연결된 로그인" },
+  { id: "exports", label: "데이터 내보내기" },
+  { id: "delete-account", label: "계정 삭제" },
+  { id: "workspace", label: "워크스페이스" },
+  { id: "members", label: "멤버" },
+  { id: "invites", label: "초대", managers: true },
+  { id: "usage", label: "사용량" },
+  { id: "share-links", label: "공유 링크" },
   { id: "integrations", label: "연동" },
+  { id: "reminders", label: "알림" },
   { id: "browser", label: "이 브라우저" },
 ];
 
 export function SettingsPage() {
   usePageTitle("설정");
+  // 초대 is drawn for owners and admins of a team workspace only (Invites.tsx).
+  const { current } = useWorkspace();
+  const canInvite = current?.workspace.kind === "team" && (current.role === "owner" || current.role === "admin");
   // Honour /settings#account and friends after the page renders.
   const hash = useRouterState({ select: (st) => st.location.hash });
   useEffect(() => {
@@ -48,7 +75,7 @@ export function SettingsPage() {
   return (
     <div className={s.layout}>
       <nav className={s.toc} aria-label="설정 목차">
-        {SECTIONS.map((sec) => (
+        {SECTIONS.filter((sec) => !("managers" in sec) || canInvite).map((sec) => (
           <a key={sec.id} href={`#${sec.id}`} className={s.tocLink}>
             {sec.label}
           </a>
@@ -59,9 +86,18 @@ export function SettingsPage() {
           <h1 className={layout.pageTitle}>설정</h1>
         </header>
         <Profile />
-        <WorkspaceSection />
         <Devices />
+        <Tokens />
+        <Identities />
+        <Exports />
+        <DeleteAccount />
+        <WorkspaceSection />
+        <Members />
+        <Invites />
+        <Usage />
+        <ShareLinks />
         <Integrations />
+        <Reminders />
         <BrowserOptions />
       </div>
     </div>
@@ -133,9 +169,7 @@ function Profile() {
 }
 
 function WorkspaceSection() {
-  const { current, workspaceId } = useWorkspace();
-  const members = useMembers(workspaceId).data ?? [];
-  const me = useMe().data;
+  const { current } = useWorkspace();
   if (!current) return null;
   return (
     <section id="workspace" className={s.section} aria-labelledby="set-workspace">
@@ -153,103 +187,102 @@ function WorkspaceSection() {
         </div>
         <div>
           <dt>내 역할</dt>
-          <dd>{ROLE[current.role]}</dd>
+          <dd>{ROLE_LABEL[current.role]}</dd>
         </div>
         <div>
           <dt>요금제</dt>
           <dd>{current.workspace.plan}</dd>
         </div>
       </dl>
-      <h3 className={s.subheading}>멤버 {members.length}명</h3>
-      <ul className={s.members} role="list">
-        {members.map((m) => (
-          <li key={m.user_id} className={s.member}>
-            <Avatar id={m.user_id} name={m.display_name} />
-            <span className={s.memberText}>
-              <span className={s.memberName}>
-                {m.display_name}
-                {m.user_id === me?.id && <span className={s.muted}> (나)</span>}
-              </span>
-              <span className={s.muted}>{m.email}</span>
-            </span>
-            <Badge tone={m.role === "owner" ? "accent" : m.role === "admin" ? "info" : "neutral"}>{ROLE[m.role]}</Badge>
-          </li>
-        ))}
-      </ul>
-      {current.workspace.kind === "team" && <p className={uiStyles.hint}>멤버 초대와 역할 변경은 팀 기능과 함께 추가됩니다.</p>}
     </section>
   );
 }
 
+// Every live share link in the workspace (D-P2-3), with what it points at and 회수.
+function ShareLinks() {
+  const { workspaceId } = useWorkspace();
+  const links = useShareLinks(workspaceId);
+  const recordings = useRecordings(workspaceId).data ?? [];
+  const titleOf = (targetType: string, targetId: string) =>
+    targetType === "recording" ? (recordings.find((r) => r.id === targetId)?.title ?? "녹음") : "문서 링크";
+  return (
+    <section id="share-links" className={s.section} aria-labelledby="set-share-links">
+      <h2 id="set-share-links" className={s.heading}>
+        공유 링크
+      </h2>
+      <p className={s.muted}>링크 주소는 만든 직후에만 볼 수 있습니다.</p>
+      {links.data && links.data.length > 0 ? (
+        <ul className={shareStyles.list}>
+          {links.data.map((link) => (
+            <ShareLinkRow key={link.id} link={link} ws={workspaceId} title={titleOf(link.target_type, link.target_id)} />
+          ))}
+        </ul>
+      ) : (
+        <p className={s.muted}>{links.isPending ? "불러오는 중…" : "만든 공유 링크가 없습니다."}</p>
+      )}
+    </section>
+  );
+}
+
+// Signed-in browsers and apps (D-P5-2). The current one cannot be signed out from here:
+// that is the 로그아웃 in the account menu.
 function Devices() {
-  const devices = useDevices().data ?? [];
+  const devices = useDevices();
   const revoke = useRevokeDevice();
   const now = new Date();
+  let body;
+  if (isNotReady(devices.error)) {
+    body = <p className={s.muted}>{NOT_READY_TEXT}</p>;
+  } else if (!devices.data) {
+    body = <p className={s.muted}>{devices.isPending ? "불러오는 중…" : "기기 목록을 불러오지 못했습니다."}</p>;
+  } else {
+    body = (
+      <ul className={s.members} role="list">
+        {devices.data.map((d) => {
+          const name = d.device_name ?? "알 수 없는 기기";
+          return (
+            <li key={d.id} className={s.member}>
+              <span className={s.deviceIcon}>
+                <Icon name={d.client === "web" ? "workspace" : "audio"} />
+              </span>
+              <span className={s.memberText}>
+                <span className={s.memberName}>
+                  {name}
+                  {d.current && <Badge tone="success">이 기기</Badge>}
+                </span>
+                <span className={s.muted}>
+                  {d.client === "web" ? "웹" : "앱"} · 마지막 사용 {formatRelative(d.last_seen_at, now)}
+                </span>
+              </span>
+              {!d.current && (
+                <Button
+                  size="sm"
+                  variant="dangerText"
+                  aria-label={`로그아웃시키기: ${name}`}
+                  onPress={async () => {
+                    try {
+                      await revoke.mutateAsync(d.id);
+                      showToast({ title: `${name}에서 로그아웃했습니다.` });
+                    } catch (err) {
+                      toastError("로그아웃시키지 못했습니다.", err);
+                    }
+                  }}
+                >
+                  로그아웃시키기
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
   return (
     <section id="devices" className={s.section} aria-labelledby="set-devices">
       <h2 id="set-devices" className={s.heading}>
         기기
       </h2>
-      <ul className={s.members} role="list">
-        {devices.map((d) => (
-          <li key={d.id} className={s.member}>
-            <span className={s.deviceIcon}>
-              <Icon name={d.client === "web" ? "workspace" : "audio"} />
-            </span>
-            <span className={s.memberText}>
-              <span className={s.memberName}>
-                {d.device_name ?? (d.client === "web" ? "브라우저" : "앱")}
-                {d.current && <Badge tone="success">지금 쓰는 기기</Badge>}
-              </span>
-              <span className={s.muted}>
-                {d.client === "web" ? "웹" : "앱"} · 마지막 사용 {formatRelative(d.last_seen_at, now)}
-              </span>
-            </span>
-            {!d.current && (
-              <Button
-                size="sm"
-                variant="dangerText"
-                aria-label={`로그아웃: ${d.device_name ?? "기기"}`}
-                onPress={async () => {
-                  try {
-                    await revoke.mutateAsync(d.id);
-                    showToast({ title: `${d.device_name ?? "기기"}에서 로그아웃했습니다.` });
-                  } catch (err) {
-                    toastError("로그아웃하지 못했습니다.", err);
-                  }
-                }}
-              >
-                로그아웃
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function Integrations() {
-  return (
-    <section id="integrations" className={s.section} aria-labelledby="set-integrations">
-      <h2 id="set-integrations" className={s.heading}>
-        연동
-      </h2>
-      <div className={s.member}>
-        <span className={s.deviceIcon}>
-          <Icon name="calendar" />
-        </span>
-        <span className={s.memberText}>
-          <span className={s.memberName}>Google 캘린더</span>
-          <span className={s.muted}>연결하면 확정한 일정이 ‘Lectern’ 캘린더에 들어갑니다. 다른 일정은 읽지 않습니다.</span>
-        </span>
-        <Button
-          size="sm"
-          onPress={() => showToast({ title: "미리보기에서는 연결할 수 없습니다.", description: "실제 서버에 연결되면 Google 동의 화면으로 이동합니다.", tone: "info" })}
-        >
-          연결
-        </Button>
-      </div>
+      {body}
     </section>
   );
 }

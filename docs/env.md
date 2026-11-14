@@ -28,8 +28,20 @@
 | `LECTERN_GEMINI_TIMEOUT_MS` | `900000` |  | Deadline for one generateContent call |
 | `LECTERN_DISTILL_ENGINE` | `legacy` |  | legacy: the distill job calls packages/core directly; harness: the same Gemini call runs as one stage on packages/harness (stage_run, artifact and ai_call cost rows, resume without a second Gemini call) |
 | `LECTERN_TRANSCRIPT_ENGINE` | `off` |  | v2 transcript pipeline (packages/harness: ingest → … → speakers, AI_HARNESS §11 step 3). off: not run. shadow: after a distill on the server key succeeds, a `transcribe` job transcribes the recording again (Gemini, about $0.2 per hour of audio) and keeps the transcript as a harness artifact nobody sees. on: will publish the transcript once the transcript tables exist; until then it runs as shadow |
+| `LECTERN_PIPELINE` | `v1` |  | v1: a finished upload runs the distill job (audio in, Markdown out). v2: it runs the `process` job (transcript, then structured notes, CONTRACTS §1). Costs more than v1 per recording |
 | `LECTERN_ASK` | `false` |  | 1: turn on 물어보기 (/api/v2/ask) and its search index over each user's lectures (ADR-0009); index jobs and answers call Gemini (cost). 0: the ask routes answer 501 |
+| `LECTERN_PDF` | `false` |  | 1: accept PDF uploads, extract their pages, show the PDF viewer and cite pages. 0: PDF uploads are refused as today |
 | `LECTERN_ASK_MONTHLY_LIMIT_MICROUSD` | `2000000` |  | Per-workspace monthly ask budget in micro-USD (2000000 = $2, ROADMAP D14); 0 blocks asking |
+| `LECTERN_CALENDAR` | `false` |  | 1: turn on ICS subscription (/cal/<token>.ics), Google Calendar sync and e-mail reminders. 0: the calendar routes answer 501 |
+| `GOOGLE_OAUTH_CLIENT_ID` | — | secret | Google OAuth client id (calendar, later sign-in) |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | — | secret | Google OAuth client secret |
+| `LECTERN_GOOGLE_LOGIN` | `false` |  | 1: Google sign-in (button and /api/v2/auth/google/*). Needs GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET |
+| `LECTERN_APPLE_LOGIN` | `false` |  | 1: Sign in with Apple (button and /api/v2/auth/apple/*). Needs the APPLE_SIGNIN_* values |
+| `LECTERN_TEAMS` | `false` |  | 1: team workspaces: invites, role changes and uploads into a team workspace. 0: those routes answer 501 |
+| `APPLE_SIGNIN_CLIENT_ID` | — | secret | Apple Services ID used as the OAuth client id |
+| `APPLE_SIGNIN_TEAM_ID` | — | secret | Apple developer team id |
+| `APPLE_SIGNIN_KEY_ID` | — | secret | Key id of the Sign in with Apple private key |
+| `APPLE_SIGNIN_PRIVATE_KEY_FILE` | — |  | Path of the Sign in with Apple .p8 private key file (the path, never the key) |
 | `LECTERN_LEGAL_CONTACT_EMAIL` | — |  | Contact address printed on /privacy and /terms (account deletion and data requests); a role address such as privacy@, not a personal one |
 | `LECTERN_LEGAL_OFFICER_NAME` | — |  | 개인정보 보호책임자 name printed on /privacy |
 | `LECTERN_LEGAL_EFFECTIVE_DATE` | — |  | 공고·시행일 of the current /privacy and /terms (YYYY-MM-DD) |

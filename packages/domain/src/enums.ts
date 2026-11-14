@@ -101,9 +101,15 @@ export type DocumentAuthor = z.infer<typeof DocumentAuthor>;
 
 export const JobKind = named(
   "JobKind",
-  z.enum(["process", "regenerate", "compact", "calendar_sync", "reminder", "maintenance", "index"]),
+  z.enum(["process", "regenerate", "compact", "calendar_sync", "reminder", "maintenance", "index", "export", "account_deletion"]),
 );
 export type JobKind = z.infer<typeof JobKind>;
+
+export const IdentityProvider = named("IdentityProvider", z.enum(["google", "apple"]), "Sign-in provider linked to a user (D-P5-1).");
+export type IdentityProvider = z.infer<typeof IdentityProvider>;
+
+export const DataExportState = named("DataExportState", z.enum(["queued", "running", "ready", "failed", "expired"]));
+export type DataExportState = z.infer<typeof DataExportState>;
 
 export const JobState = named("JobState", z.enum(["queued", "running", "succeeded", "failed", "canceled"]));
 export type JobState = z.infer<typeof JobState>;
