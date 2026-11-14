@@ -13,7 +13,7 @@ import { enqueueRecordingProcessing } from "../../process-job.ts";
 import { enqueueRegenerate } from "../../regenerate-job.ts";
 import { isLectureBusy } from "../../queue.ts";
 import { callerIn, can, loadRecording, requireWorkspace, VISIBLE_RECORDING_SQL } from "./access.ts";
-import { apiError, defineRouter, notFound, ok, okPage, pageBounds, pageFrom, type Handler, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, notImplemented, ok, okPage, pageBounds, pageFrom, type Handler, type V2Request } from "./common.ts";
 import {
   actionItemDto,
   eventCandidateDto,
@@ -419,6 +419,8 @@ export const recordingsRouter = defineRouter({
     if (recording.lecture_id) announceLectures([recording.lecture_id]);
     return req.c.body(null, 204);
   }, "recording:delete"),
+  // Transcript windows matched to PDF pages (D-P3-4): P3-04 reads the align output.
+  getRecordingAlignment: notImplemented,
 });
 
 /**

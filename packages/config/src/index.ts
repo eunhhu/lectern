@@ -126,6 +126,11 @@ const ENV = {
     description:
       "1: turn on 물어보기 (/api/v2/ask) and its search index over each user's lectures (ADR-0009); index jobs and answers call Gemini (cost). 0: the ask routes answer 501",
   },
+  LECTERN_PDF: {
+    schema: bool(false),
+    description:
+      "1: accept PDF uploads, extract their pages, show the PDF viewer and cite pages. 0: PDF uploads are refused as today",
+  },
   LECTERN_ASK_MONTHLY_LIMIT_MICROUSD: {
     schema: int(0, 1_000_000_000, 2_000_000),
     description: "Per-workspace monthly ask budget in micro-USD (2000000 = $2, ROADMAP D14); 0 blocks asking",
@@ -215,6 +220,8 @@ export interface Config {
   pipeline: "v1" | "v2";
   /** 물어보기 (ADR-0009): off by default because indexing and answers cost money. */
   ask: { enabled: boolean; monthlyLimitMicrousd: number };
+  /** Lecture PDFs (CONTRACTS §3): uploads, page extraction, the viewer and page citations. */
+  pdf: boolean;
   /** Operator-specific values for /privacy and /terms (null = not set yet). */
   legal: { contactEmail: string | null; officerName: string | null; effectiveDate: string | null };
   owner: {
@@ -286,6 +293,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       enabled: p.LECTERN_ASK,
       monthlyLimitMicrousd: p.LECTERN_ASK_MONTHLY_LIMIT_MICROUSD,
     },
+    pdf: p.LECTERN_PDF,
     legal: {
       contactEmail: p.LECTERN_LEGAL_CONTACT_EMAIL ?? null,
       officerName: p.LECTERN_LEGAL_OFFICER_NAME ?? null,

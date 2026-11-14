@@ -23,8 +23,11 @@ import { handleRequest } from "../src/index.ts";
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/** Routes of later phases (P4 calendar sync, P5 tokens). */
+/** Routes of later phases (P3 PDFs, P4 calendar sync, P5 tokens). */
 const NOT_YET = new Set([
+  "listAssetPages",
+  "ocrAsset",
+  "getRecordingAlignment",
   "createAccessToken",
   "revokeAccessToken",
   "startGoogleIntegration",
@@ -100,6 +103,7 @@ const BODIES: Record<string, unknown> = {
   updateRecording: { title: "새 제목" },
   updateSpeaker: { display_name: null },
   reprocessRecording: { mode: "document", dry_run: true },
+  ocrAsset: { dry_run: true },
   createDocumentVersion: { markdown: "# 고친 노트" },
   updateActionItem: { status: "done" },
   updateCalendarSuggestion: { status: "accepted" },

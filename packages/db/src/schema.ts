@@ -436,6 +436,27 @@ export const asset = sqliteTable(
   (t) => [index("idx_asset_recording").on(t.recordingId, t.kind, t.partIndex)]
 );
 
+/**
+ * The text of each page of a lecture PDF asset (CONTRACTS §3, D-P3-2). `has_text_layer` is 0
+ * for a page with under 20 characters (D-P3-3); `ocr_source` says where OCR text came from.
+ */
+export const pdfPage = sqliteTable(
+  "pdf_page",
+  {
+    assetId: text("asset_id").notNull(),
+    /** From 1. */
+    pageNo: integer("page_no").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    text: text("text").notNull(),
+    charCount: integer("char_count").notNull(),
+    /** 0 | 1 */
+    hasTextLayer: integer("has_text_layer").notNull(),
+    ocrSource: text("ocr_source", { enum: ["device", "model"] }),
+  },
+  (t) => [primaryKey({ columns: [t.assetId, t.pageNo] }), index("idx_pdf_page_recording").on(t.recordingId)]
+);
+
 export const transcriptSegment = sqliteTable(
   "transcript_segment",
   {

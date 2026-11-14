@@ -2384,6 +2384,175 @@
         }
       }
     },
+    "/assets/{asset_id}/pages": {
+      "get": {
+        "operationId": "listAssetPages",
+        "summary": "The pages of a PDF asset",
+        "tags": [
+          "recordings"
+        ],
+        "parameters": [
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AssetId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page count, whether it is a scan, and each page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetPages"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/assets/{asset_id}/ocr": {
+      "post": {
+        "operationId": "ocrAsset",
+        "summary": "Estimate or queue OCR of a scanned PDF",
+        "tags": [
+          "recordings"
+        ],
+        "parameters": [
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AssetId"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Client-chosen key; repeating a mutation with the same key returns the first result.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OcrAssetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Dry run: the estimate only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OcrAssetResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The OCR job was queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OcrAssetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/recordings/{recording_id}/alignment": {
+      "get": {
+        "operationId": "getRecordingAlignment",
+        "summary": "Transcript windows matched to PDF pages",
+        "tags": [
+          "recordings"
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/RecordingId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Windows with their best pages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingAlignment"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
     "/documents/{document_id}": {
       "get": {
         "operationId": "getDocument",
@@ -4781,6 +4950,54 @@
           "empty"
         ]
       },
+      "AlignmentPage": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "$ref": "#/components/schemas/AssetId"
+          },
+          "page_no": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "score": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "asset_id",
+          "page_no",
+          "score"
+        ]
+      },
+      "AlignmentWindow": {
+        "type": "object",
+        "properties": {
+          "start_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "end_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlignmentPage"
+            }
+          }
+        },
+        "required": [
+          "start_ms",
+          "end_ms",
+          "pages"
+        ],
+        "description": "A two-minute transcript window and its best-matching PDF pages (D-P3-4)."
+      },
       "ApiError": {
         "type": "object",
         "properties": {
@@ -5781,6 +5998,56 @@
           "pdf",
           "image"
         ]
+      },
+      "AssetPageInfo": {
+        "type": "object",
+        "properties": {
+          "page_no": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "has_text_layer": {
+            "type": "boolean",
+            "description": "False for a page with under 20 characters of text (D-P3-3)."
+          },
+          "char_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "page_no",
+          "has_text_layer",
+          "char_count"
+        ]
+      },
+      "AssetPages": {
+        "type": "object",
+        "properties": {
+          "page_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "scanned": {
+            "type": "boolean",
+            "description": "At least half of the pages have no text layer (D-P3-3)."
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetPageInfo"
+            }
+          }
+        },
+        "required": [
+          "page_count",
+          "scanned",
+          "pages"
+        ],
+        "description": "The pages of a PDF asset and whether each has text."
       },
       "AuthSessionId": {
         "type": "string",
@@ -8176,6 +8443,47 @@
         },
         "description": "User hints for the recording an upload creates. Everything else is classified."
       },
+      "OcrAssetRequest": {
+        "type": "object",
+        "properties": {
+          "dry_run": {
+            "type": "boolean",
+            "description": "Only return the estimate; never OCR silently (D-P3-3)."
+          }
+        },
+        "required": [
+          "dry_run"
+        ]
+      },
+      "OcrAssetResponse": {
+        "type": "object",
+        "properties": {
+          "pages_to_ocr": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "estimated_cost_microusd": {
+            "$ref": "#/components/schemas/MicroUsd"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for dry runs."
+          }
+        },
+        "required": [
+          "pages_to_ocr",
+          "estimated_cost_microusd",
+          "job_id"
+        ]
+      },
       "ParagraphBlock": {
         "type": "object",
         "properties": {
@@ -8548,6 +8856,21 @@
           "created_at",
           "updated_at"
         ]
+      },
+      "RecordingAlignment": {
+        "type": "object",
+        "properties": {
+          "windows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlignmentWindow"
+            }
+          }
+        },
+        "required": [
+          "windows"
+        ],
+        "description": "Transcript windows matched to PDF pages without a model (D-P3-4)."
       },
       "RecordingCreatedEvent": {
         "type": "object",

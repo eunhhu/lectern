@@ -322,6 +322,65 @@ export const AssetDto = named(
 export type AssetDto = z.infer<typeof AssetDto>;
 export const AssetParams = z.object({ asset_id: AssetId });
 
+// Lecture PDFs (CONTRACTS §3) -------------------------------------------------------
+
+export const AssetPageInfo = named(
+  "AssetPageInfo",
+  z.object({
+    page_no: z.int().min(1),
+    has_text_layer: z.boolean().describe("False for a page with under 20 characters of text (D-P3-3)."),
+    char_count: z.int().nonnegative(),
+  }),
+);
+export type AssetPageInfo = z.infer<typeof AssetPageInfo>;
+
+export const AssetPages = named(
+  "AssetPages",
+  z.object({
+    page_count: z.int().nonnegative(),
+    scanned: z.boolean().describe("At least half of the pages have no text layer (D-P3-3)."),
+    pages: z.array(AssetPageInfo),
+  }),
+  "The pages of a PDF asset and whether each has text.",
+);
+export type AssetPages = z.infer<typeof AssetPages>;
+
+export const OcrAssetRequest = named(
+  "OcrAssetRequest",
+  z.object({ dry_run: z.boolean().describe("Only return the estimate; never OCR silently (D-P3-3).") }),
+);
+export type OcrAssetRequest = z.infer<typeof OcrAssetRequest>;
+
+export const OcrAssetResponse = named(
+  "OcrAssetResponse",
+  z.object({
+    pages_to_ocr: z.int().nonnegative(),
+    estimated_cost_microusd: MicroUsd,
+    job_id: JobId.nullable().describe("Null for dry runs."),
+  }),
+);
+export type OcrAssetResponse = z.infer<typeof OcrAssetResponse>;
+
+export const AlignmentPage = named(
+  "AlignmentPage",
+  z.object({ asset_id: AssetId, page_no: z.int().min(1), score: z.number() }),
+);
+export type AlignmentPage = z.infer<typeof AlignmentPage>;
+
+export const AlignmentWindow = named(
+  "AlignmentWindow",
+  z.object({ start_ms: Milliseconds, end_ms: Milliseconds, pages: z.array(AlignmentPage) }),
+  "A two-minute transcript window and its best-matching PDF pages (D-P3-4).",
+);
+export type AlignmentWindow = z.infer<typeof AlignmentWindow>;
+
+export const RecordingAlignment = named(
+  "RecordingAlignment",
+  z.object({ windows: z.array(AlignmentWindow) }),
+  "Transcript windows matched to PDF pages without a model (D-P3-4).",
+);
+export type RecordingAlignment = z.infer<typeof RecordingAlignment>;
+
 export const RecordingDetail = named(
   "RecordingDetail",
   z.object({
