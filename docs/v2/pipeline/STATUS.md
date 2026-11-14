@@ -86,6 +86,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 계정 삭제 확인 메일(방침과 문구가 필요하다) | P5-09 |
 | 내보내기 zip의 ZIP64(4 GiB를 넘는 워크스페이스) | P5-08 |
 | v1 사용량 관리자 화면: P5-13이 P6-C보다 먼저 돌면 빠진다. P6-03 뒤에 더해야 한다 | P5-13 |
+| 관리자 콘솔 2부를 P5-16(멤버·녹음·대조표)과 P5-13(저장소·운영·설정·감사 로그)으로 나눴다(옛 콘솔 기능 85행, CONTRACTS S-33). `LECTERN_V1_BLOCK`을 켜면 새 콘솔의 녹음 동작(재시도·삭제·오디오 삭제, `/api/lectures*`)도 막힌다 | P5-16, P6-03 |
 | macOS 앱의 APNs 토픽(`APNS_TOPIC_MACOS`)과 macOS 푸시 | P6-C |
 | iOS 앱의 문서 편집, 물어보기, 검색, 캘린더 화면 | P6-A6 |
 | `BGContinuedProcessingTask`, IETF 재개 업로드 | P6-A3 |
