@@ -8,6 +8,7 @@ import {
   ApiError,
   HEADER,
   ROUTES,
+  ROUTES_BY_OPERATION,
   toHonoPath,
   versionETag,
   type RouteDef,
@@ -26,9 +27,7 @@ const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Recor
 
 /** Routes of later phases. */
 const NOT_YET = new Set([
-  // Accounts (P5-C): contract only until P5-01..P5-09.
-  "issueNativeToken",
-  "revokeNativeToken",
+  // Accounts (P5-C): contract only until P5-04..P5-09.
   "listIdentities",
   "unlinkIdentity",
   "listInvites",
@@ -222,7 +221,7 @@ describe("API v2 route table", () => {
 
 describe("API v2 authentication", () => {
   test("every route answers 401 in the ApiError shape without credentials", async () => {
-    // Except the public ones (native sign-in), checked in "public routes answer 501 …".
+    // Except the public ones (native sign-in), checked in "public routes answer without a session".
     for (const route of ROUTES.filter((r) => !r.public)) {
       const attempts: Record<string, string>[] = [{}, { "X-Lectern-Token": "lct_not_a_real_token" }, { Cookie: "lectern_session=ses_nope" }];
       for (const auth of attempts) {
@@ -269,14 +268,16 @@ describe("API v2 routes of later phases", () => {
     }
   });
 
-  test("public routes answer 501 without a session too", async () => {
+  test("public routes answer without a session", async () => {
     const publicRoutes = ROUTES.filter((r) => r.public);
     expect(publicRoutes.map((r) => r.operationId).sort()).toEqual(["issueNativeToken", "revokeNativeToken"]);
-    for (const route of publicRoutes) {
-      const res = await call(requestFor(route, {}));
-      expect(res.status, route.operationId).toBe(501);
-      expect(ApiError.parse(await res.json()).error.code).toBe("not_implemented");
-    }
+    // Native sign-in (P5-03): an unknown account is refused as a bad password, not as a
+    // missing session; revoking an unknown refresh token is a quiet 204.
+    const issued = await call(requestFor(ROUTES_BY_OPERATION.issueNativeToken!, {}));
+    expect(issued.status).toBe(401);
+    expect(ApiError.parse(await issued.json()).error.message).toBe("이메일 또는 비밀번호가 올바르지 않습니다.");
+    const revoked = await call(requestFor(ROUTES_BY_OPERATION.revokeNativeToken!, {}));
+    expect(revoked.status).toBe(204);
   });
 
   test("every other route has a real handler (no route answers 501)", async () => {

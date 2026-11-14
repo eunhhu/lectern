@@ -53,7 +53,7 @@
     {"id":"P5-C","title":"계약: 계정 플래그, 테이블, 라우트, 방침","deps":["P4-C"],"owns":["packages/config/","packages/db/","packages/domain/","docs/env.md","deploy/systemd/","docs/v2/pipeline/flags-on.env","apps/server/","docs/runbooks/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P5-01","title":"세션 메타와 기기 목록","deps":["P5-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P5-02","title":"개인 액세스 토큰(PAT)","deps":["P5-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"merged"},
-    {"id":"P5-03","title":"네이티브 토큰 쌍","deps":["P5-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
+    {"id":"P5-03","title":"네이티브 토큰 쌍","deps":["P5-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P5-04","title":"Google 로그인","deps":["P5-C","P4-02"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P5-05","title":"Sign in with Apple","deps":["P5-04"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P5-06","title":"초대, 역할, 팀 업로드","deps":["P5-C","P4-05"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
