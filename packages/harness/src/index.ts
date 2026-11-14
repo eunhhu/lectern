@@ -25,6 +25,7 @@ export * from "./eval/notes-scripted.ts";
 export * from "./eval/report.ts";
 export * from "./eval/run.ts";
 export * from "./eval/scripted.ts";
+export * from "./eval/scripted-gemini-fetch.ts";
 export * from "./eval/scripted-llm.ts";
 export * from "./eval/set.ts";
 export * from "./eval/synth.ts";
