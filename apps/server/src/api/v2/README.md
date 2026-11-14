@@ -76,12 +76,12 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 | `GET /workspaces/{workspace_id}` | `getWorkspace` | 실제 | 비멤버는 403 |
 | `PATCH /workspaces/{workspace_id}` | `updateWorkspace` | 실제 | owner·admin. `settings`는 저장된 값에 얕게 합친다(보낸 키만 바뀐다). `calendar_auto_add`가 켜져 있으면 발행 때 파서가 해석했고 플래그 없고 신뢰도 이상인 미래 일정을 자동 수락한다(P4-04). 요청에 `settings.reminders`가 있으면 워크스페이스의 이메일 리마인더를 다시 계산한다(P4-05) |
 | `GET /workspaces/{workspace_id}/members` | `listWorkspaceMembers` | 실제 | |
-| `PATCH /workspaces/{workspace_id}/members/{user_id}` | `updateMember` | 501 | P5-06. 마지막 owner는 409 |
-| `DELETE /workspaces/{workspace_id}/members/{user_id}` | `removeMember` | 501 | P5-06 |
-| `GET /workspaces/{workspace_id}/invites` | `listInvites` | 501 | P5-06(`LECTERN_TEAMS`) |
-| `POST /workspaces/{workspace_id}/invites` | `createInvite` | 501 | P5-06. 링크는 메일로만 |
-| `DELETE /workspaces/{workspace_id}/invites/{invite_id}` | `revokeInvite` | 501 | P5-06 |
-| `POST /invites/accept` | `acceptInvite` | 501 | P5-06 |
+| `PATCH /workspaces/{workspace_id}/members/{user_id}` | `updateMember` | 실제 | P5-06(`LECTERN_TEAMS=1`, 아니면 501). owner·admin. admin은 owner·admin을 건드리거나 owner·admin을 지정할 수 없다. 마지막 owner를 내리면 409 |
+| `DELETE /workspaces/{workspace_id}/members/{user_id}` | `removeMember` | 실제 | 자기 자신은 누구나(나가기), 남은 owner·admin. 마지막 owner는 409. 내보낸 사람의 녹음은 남는다 |
+| `GET /workspaces/{workspace_id}/invites` | `listInvites` | 실제 | 대기 중인 초대만, 최신순. owner·admin |
+| `POST /workspaces/{workspace_id}/invites` | `createInvite` | 실제 | 링크는 메일로만(토큰은 응답·DB·로그에 없다). 같은 주소의 대기 초대를 바꾼다. 개인 워크스페이스·이미 멤버·대기 50개는 409, 메일 실패는 503 |
+| `DELETE /workspaces/{workspace_id}/invites/{invite_id}` | `revokeInvite` | 실제 | 대기 중인 초대만 |
+| `POST /invites/accept` | `acceptInvite` | 실제 | 초대받은 주소로 로그인한 사람만. 사용자당 15분에 10번 |
 | `GET /workspaces/{workspace_id}/usage` | `getWorkspaceUsage` | 501 | P5-07 |
 | `GET /folders` | `listFolders` | 실제 | 평면 목록, `sort_key` 순 |
 | `POST /folders` | `createFolder` | 실제 | 같은 부모 아래 같은 이름(공백·대소문자 무시)이면 409 |

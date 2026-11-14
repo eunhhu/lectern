@@ -174,6 +174,7 @@ describe("personal access tokens (P5-02)", () => {
       ["GET", "/admin/jobs"],
       ["PATCH", "/me", { timezone: "Asia/Seoul" }],
       ["POST", "/share-links", { target_type: "recording", target_id: recordingId, scope: "notes" }],
+      ["POST", "/invites/accept", { token: "x".repeat(20) }],
     ];
     for (const [method, path, body] of closed) {
       const res = await v2(method, path, bearer(secret), body);

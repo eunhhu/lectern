@@ -87,6 +87,9 @@ export const authRateLimits = {
   // Native app password sign-in (P5-03): the same numbers as the web login.
   nativeEmail: new RateLimiter(10, 15 * MINUTE_MS),
   nativeIp: new RateLimiter(30, 15 * MINUTE_MS),
+  // Accepting a workspace invitation (P5-06), per signed-in user: tokens are not guessable,
+  // and this keeps anyone from trying.
+  inviteAcceptUser: new RateLimiter(10, 15 * MINUTE_MS),
 };
 
 export function resetAuthRateLimits(): void {

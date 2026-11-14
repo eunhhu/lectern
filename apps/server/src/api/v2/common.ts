@@ -72,7 +72,7 @@ function defaultSuccessStatus(route: RouteDef): number {
 }
 
 /** P0 stub for every write and upload route (packages/domain README "Errors"). */
-export const notImplemented: Handler = (req) =>
+export const notImplemented = (req: V2Request): Response =>
   apiError(req.c, 501, "not_implemented", "아직 제공하지 않는 API입니다.", {
     operation_id: req.route.operationId,
   });
@@ -201,7 +201,15 @@ async function parseRequest(c: V2Context, route: RouteDef): Promise<Omit<V2Reque
 // stay with the signed-in user: a token made for a script cannot reach them.
 const PAT_CLOSED_TAGS = new Set(["me", "admin", "auth"]);
 const PAT_OPEN_IN_CLOSED_TAGS = new Set(["getMe"]);
-const PAT_CLOSED_OPERATIONS = new Set(["createShareLink", "updateShareLink", "revokeShareLink", "startGoogleIntegration", "disconnectIntegration"]);
+const PAT_CLOSED_OPERATIONS = new Set([
+  "createShareLink",
+  "updateShareLink",
+  "revokeShareLink",
+  "startGoogleIntegration",
+  "disconnectIntegration",
+  // Joining a workspace is the account's decision, not a script's (P5-06).
+  "acceptInvite",
+]);
 
 /** Why a personal access token may not make this call, or null when it may. */
 function patDenial(route: RouteDef, method: string, pat: PatRow): string | null {

@@ -7,7 +7,8 @@
 //   - a non-member can do nothing in a workspace;
 //   - every member reads the workspace, its folders, tags and members;
 //   - owner/admin/member create recordings and edit folders and tags; viewers only read;
-//   - owner/admin rename the workspace and change its settings;
+//   - owner/admin rename the workspace and change its settings, and invite and manage
+//     members (`member:manage`, P5-06; who may touch owners and admins is in workspaces.ts);
 //   - a `private` recording is visible to its creator only, whatever their role; a
 //     `workspace` recording to every member;
 //   - a recording is changed or deleted by its creator, or (when `workspace`-visible) by
@@ -27,7 +28,8 @@ export type Action =
   | "recording:create"
   | "recording:read"
   | "recording:update"
-  | "recording:delete";
+  | "recording:delete"
+  | "member:manage";
 
 export interface Caller {
   userId: string;
@@ -45,6 +47,7 @@ export function can(caller: Caller, action: Action, recording?: Pick<RecordingRo
     case "workspace:read":
       return true;
     case "workspace:update":
+    case "member:manage":
       return MANAGERS.includes(role);
     case "folder:write":
     case "tag:write":

@@ -27,13 +27,7 @@ const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Recor
 
 /** Routes of later phases. */
 const NOT_YET = new Set([
-  // Accounts (P5-C): contract only until P5-06..P5-09.
-  "listInvites",
-  "createInvite",
-  "revokeInvite",
-  "acceptInvite",
-  "updateMember",
-  "removeMember",
+  // Accounts (P5-C): contract only until P5-07..P5-09.
   "getWorkspaceUsage",
   "adminSetQuota",
   "createExport",
@@ -293,6 +287,7 @@ describe("API v2 routes of later phases", () => {
     // getRecordingAlignment: LECTERN_PDF; the calendar feed routes: LECTERN_CALENDAR).
     process.env.LECTERN_PDF = "1";
     process.env.LECTERN_CALENDAR = "1";
+    process.env.LECTERN_TEAMS = "1"; // invitations and members (P5-06)
     // startGoogleIntegration also needs an OAuth client (fake values; nothing is called).
     process.env.GOOGLE_OAUTH_CLIENT_ID = "test-id";
     process.env.GOOGLE_OAUTH_CLIENT_SECRET = "test-secret";
@@ -306,6 +301,7 @@ describe("API v2 routes of later phases", () => {
     } finally {
       delete process.env.LECTERN_PDF;
       delete process.env.LECTERN_CALENDAR;
+      delete process.env.LECTERN_TEAMS;
       delete process.env.GOOGLE_OAUTH_CLIENT_ID;
       delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
       resetConfigForTests();

@@ -56,7 +56,7 @@
     {"id":"P5-03","title":"네이티브 토큰 쌍","deps":["P5-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P5-04","title":"Google 로그인","deps":["P5-C","P4-02"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P5-05","title":"Sign in with Apple","deps":["P5-04"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"merged"},
-    {"id":"P5-06","title":"초대, 역할, 팀 업로드","deps":["P5-C","P4-05"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
+    {"id":"P5-06","title":"초대, 역할, 팀 업로드","deps":["P5-C","P4-05"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P5-07","title":"쿼터와 사용량","deps":["P5-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P5-08","title":"데이터 내보내기","deps":["P5-C"],"owns":["apps/server/","apps/worker/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P5-09","title":"계정 삭제","deps":["P5-08"],"owns":["apps/server/","apps/worker/"],"tier":"careful","gate":"full","status":"todo"},
