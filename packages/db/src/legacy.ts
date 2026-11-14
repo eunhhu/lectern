@@ -1,6 +1,7 @@
 // v1 lectures -> v2 rows (docs/v2/ARCHITECTURE.md §5.3).
 //
-// A lecture becomes a recording (domain `lecture`) in its owner's personal workspace, an
+// A lecture becomes a recording (domain `lecture`) in its owner's personal workspace (or the
+// team workspace it was uploaded to, `placeRecordingInWorkspace`, P5-06), an
 // audio asset, a `legacy-markdown` document whose versions hold the Markdown, a folder per
 // course name, and a share link carrying the v1 share token and public flag. No transcript
 // and no structured document are made up (option 1 of §5.3: "전사 없음 · 재처리 가능").
@@ -274,7 +275,29 @@ interface DocumentRow {
   md_source_path: string | null;
 }
 
-/** Re-scopes a recording's rows to another workspace (the lecture changed owner). */
+/** True for a team workspace: a recording placed there stays there (P5-06). */
+function isTeamWorkspace(sqlite: Database, workspaceId: string): boolean {
+  const row = sqlite.query(`SELECT kind FROM workspace WHERE id = ?`).get(workspaceId) as { kind: string } | null;
+  return row?.kind === "team";
+}
+
+/**
+ * Puts a lecture's recording in a team workspace (a team upload, P5-06): its rows move there
+ * and every later projection keeps it there, even if the uploader leaves the team. It starts
+ * with no folder, visible to the workspace unless `visibility` says otherwise.
+ */
+export function placeRecordingInWorkspace(
+  sqlite: Database,
+  recordingId: string,
+  workspaceId: string,
+  visibility: "workspace" | "private" = "workspace"
+): void {
+  if (!isTeamWorkspace(sqlite, workspaceId)) throw new Error("placeRecordingInWorkspace: not a team workspace");
+  moveRecordingWorkspace(sqlite, recordingId, workspaceId);
+  sqlite.query(`UPDATE recording SET visibility = ? WHERE id = ?`).run(visibility, recordingId);
+}
+
+/** Re-scopes a recording's rows to another workspace (the lecture changed owner, or a team upload). */
 function moveRecordingWorkspace(sqlite: Database, recordingId: string, workspaceId: string): void {
   for (const table of RECORDING_CHILD_TABLES) {
     sqlite.query(`UPDATE ${table} SET workspace_id = ? WHERE recording_id = ?`).run(workspaceId, recordingId);
@@ -311,9 +334,14 @@ function projectLectureTx(sqlite: Database, lectureId: string, options: ProjectO
   if (!l.owner_id) return "skipped";
 
   const ownerExists = sqlite.query(`SELECT 1 FROM users WHERE id = ?`).get(l.owner_id);
-  const workspaceId = ownerExists
-    ? ensurePersonalWorkspace(sqlite, l.owner_id, now)
-    : ensureOrphanWorkspace(sqlite, l.owner_id, now);
+  // A recording placed in a team workspace (P5-06) stays there; any other lives in its
+  // owner's personal workspace.
+  const workspaceId =
+    rec && isTeamWorkspace(sqlite, rec.workspace_id)
+      ? rec.workspace_id
+      : ownerExists
+        ? ensurePersonalWorkspace(sqlite, l.owner_id, now)
+        : ensureOrphanWorkspace(sqlite, l.owner_id, now);
   const recordingId = rec?.id ?? lectureRecordingId(l.id);
   const createdMs = toMs(l.created_at, now);
   const updatedMs = toMs(l.updated_at, createdMs);
@@ -749,9 +777,15 @@ export function verifyLegacy(sqlite: Database): LegacyVerifyReport {
   let documentsV2 = 0;
   const linkOf = sqlite.query(`SELECT token_hash, revoked_at, target_id FROM share_link WHERE id = ?`);
 
+  const kindOf = sqlite.query(`SELECT kind FROM workspace WHERE id = ?`);
   for (const l of lectures) {
+    const r = recordingOf.get(l.id) as
+      | { id: string; workspace_id: string; title: string; status: string; duration_ms: number | null; created_by: string; created_at: number; folder_name: string | null }
+      | null;
+    // A team upload (P5-06) lives in its team workspace; every other lecture in its owner's.
+    const inTeam = r !== null && (kindOf.get(r.workspace_id) as { kind: string } | null)?.kind === "team";
     const v1 = {
-      owner: personalWorkspaceId(l.owner_id) + "/" + l.owner_id,
+      owner: (inTeam ? r!.workspace_id : personalWorkspaceId(l.owner_id)) + "/" + l.owner_id,
       title: l.title,
       course: isUnfiledCourse(l.course) ? UNFILED_COURSE : l.course,
       status: recordingStatusOf(l.status),
@@ -763,9 +797,6 @@ export function verifyLegacy(sqlite: Database): LegacyVerifyReport {
       created_at: String(toMs(l.created_at, 0)),
       archive: l.markdown !== "" ? (l.md_source_path ?? "-") : "-",
     };
-    const r = recordingOf.get(l.id) as
-      | { id: string; workspace_id: string; title: string; status: string; duration_ms: number | null; created_by: string; created_at: number; folder_name: string | null }
-      | null;
     const legacyDoc = documentOf.get(lectureDocumentId(l.id)) as { md_source_path: string | null; rendered_md: string } | null;
     // The bridge (D-P1-3): a lecture whose Markdown is its structured document's has no
     // (or a stale) legacy document; the structured document is what v1 shows.
