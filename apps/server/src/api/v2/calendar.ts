@@ -1,13 +1,15 @@
 import { config } from "@lectern/config";
 import { createFeed, deleteFeed, getFeed } from "../../calendar/feed.ts";
+import { enqueueCalendarSyncForWorkspace } from "../../calendar/sync-job.ts";
 import { db } from "../../db.ts";
 import { callerIn, can, requireWorkspace } from "./access.ts";
 import { apiError, defineRouter, notFound, notImplemented, ok, pageBounds, pageFrom, type V2Request } from "./common.ts";
 import { eventCandidateDto, type EventCandidateRow, iso, type RecordingRow } from "./rows.ts";
 import { transact } from "./store.ts";
 
-// The suggestion inbox over event_candidate. The extract stage that fills it is P4; until
-// then the lists are empty, and decisions work on whatever rows exist.
+// The suggestion inbox over event_candidate. Decisions and edits queue a Google Calendar
+// sync of the workspace (P4-03, D-P4-5): a synced event can still be edited (Google gets the
+// change) or dismissed (Google loses it); accepting it again keeps it `synced`.
 
 /** A candidate the caller may decide on (they may change its recording), or the error. */
 function decidable(req: V2Request, id: string): EventCandidateRow | Response {
@@ -46,10 +48,10 @@ export const calendarRouter = defineRouter({
   updateCalendarSuggestion: (req) => {
     const row = decidable(req, String(req.params.event_candidate_id));
     if (row instanceof Response) return row;
-    if (row.status === "synced") return apiError(req.c, 409, "conflict", "이미 캘린더에 등록된 일정입니다.");
     const body = req.body as { status?: string; title?: string; kind?: string; start_at?: string; end_at?: string | null; all_day?: boolean };
+    const status = body.status === undefined || (body.status === "accepted" && row.status === "synced") ? row.status : body.status;
     db.query(`UPDATE event_candidate SET status = ?, title = ?, kind = ?, start_at = ?, end_at = ?, all_day = ?, updated_at = ? WHERE id = ?`).run(
-      body.status ?? row.status,
+      status,
       body.title ?? row.title,
       body.kind ?? row.kind,
       body.start_at ? Date.parse(body.start_at) : row.start_at,
@@ -58,6 +60,7 @@ export const calendarRouter = defineRouter({
       Date.now(),
       row.id
     );
+    enqueueCalendarSyncForWorkspace(row.workspace_id);
     return ok(req, eventCandidateDto(get(row.id)));
   },
   batchCalendarSuggestions: (req) => {
@@ -71,9 +74,12 @@ export const calendarRouter = defineRouter({
     const status = body.action === "accept" ? "accepted" : "dismissed";
     transact(() => {
       for (const row of rows) {
-        if (row.status !== "synced") db.query(`UPDATE event_candidate SET status = ?, updated_at = ? WHERE id = ?`).run(status, Date.now(), row.id);
+        // Accepting an event already in Google changes nothing.
+        if (row.status === "synced" && status === "accepted") continue;
+        db.query(`UPDATE event_candidate SET status = ?, updated_at = ? WHERE id = ?`).run(status, Date.now(), row.id);
       }
     });
+    for (const workspaceId of new Set(rows.map((r) => r.workspace_id))) enqueueCalendarSyncForWorkspace(workspaceId);
     return ok(req, { items: rows.map((r) => eventCandidateDto(get(r.id))) });
   },
   // ICS subscription (P4-01, CONTRACTS §4): any member may have one per workspace. The
