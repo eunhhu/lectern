@@ -690,6 +690,13 @@ describe("deploy & logging safety", () => {
     expect(line).toContain("q=keep");
   });
 
+  test("the OAuth callback's code and state are redacted in request logs", () => {
+    const line = redactUrlForLog(new URL("http://localhost/api/v2/integrations/google/callback?code=4/abc-secret&state=st-secret&scope=x"));
+    expect(line).not.toContain("abc-secret");
+    expect(line).not.toContain("st-secret");
+    expect(line).toContain("scope=x");
+  });
+
   test("the ICS subscription token in the path is redacted in request logs", () => {
     const line = redactUrlForLog(new URL("http://localhost/cal/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcd.ics"));
     expect(line).toBe("/cal/***");

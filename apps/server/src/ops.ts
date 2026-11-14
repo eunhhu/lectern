@@ -78,7 +78,8 @@ const SECRET_PATH_PREFIXES = ["/cal/"];
 /** Query parameters and path segments that carry credentials are never written to logs. */
 export function redactUrlForLog(url: URL): string {
   const params = new URLSearchParams(url.search);
-  for (const key of ["token", "share", "key"]) {
+  // code and state: the OAuth callback (P4-02).
+  for (const key of ["token", "share", "key", "code", "state"]) {
     if (params.has(key)) params.set(key, "redacted");
   }
   const qs = params.toString();
