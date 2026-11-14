@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { UpsertPushDeviceRequest } from "@lectern/domain";
 import { ensurePersonalWorkspace, personalWorkspaceId, sha256Hex, uuidv7 } from "@lectern/db";
 import { extractAuthToken } from "../../auth.ts";
 import { cancelDeletion, deletionOf, isServerOwner, requestDeletion, soleOwnerTeams } from "../../account-deletion.ts";
@@ -8,9 +9,10 @@ import { EXPORT_JOB_KIND, exportFilePath, getExport, type DataExportRow } from "
 import { hasOwnPassword } from "../../oauth/login.ts";
 import { enqueueJob } from "../../queue.ts";
 import { authRateLimits, tooManyRequestsMessage } from "../../rate-limit.ts";
+import { deletePushDevice, upsertPushDevice, type PushDeviceRow } from "../../push-devices.ts";
 import { sessionIdOf, sessionMetaOf } from "../../session-meta.ts";
 import { requireWorkspace, roleIn } from "./access.ts";
-import { apiError, defineRouter, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, ok, okPage, type V2Request } from "./common.ts";
 import { iso, meDto } from "./rows.ts";
 
 function meOf(user: UserRecord) {
@@ -18,6 +20,15 @@ function meOf(user: UserRecord) {
   if (!roleIn(user.id, personalWorkspaceId(user.id))) ensurePersonalWorkspace(db, user.id, Date.parse(user.created_at) || Date.now());
   return meDto(user, personalWorkspaceId(user.id));
 }
+
+const pushDeviceDto = (row: PushDeviceRow) => ({
+  id: row.id,
+  platform: row.platform,
+  name: row.name,
+  app_version: row.app_version,
+  created_at: iso(row.created_at),
+  last_seen_at: iso(row.last_seen_at),
+});
 
 interface SessionRow {
   token: string;
@@ -287,7 +298,21 @@ export const meRouter = defineRouter({
     const d = deletionOf(req.user!.id);
     return ok(req, { state: d.state, requested_at: isoOrNull(d.requestedAt), execute_after: isoOrNull(d.executeAfter) });
   },
-  // Push devices (D-P6-1): contract only until P6-01.
-  upsertPushDevice: notImplemented,
-  deletePushDevice: notImplemented,
+  // Push devices (D-P6-1). The app makes the id; PUT registers and updates. Tokens never go back out.
+  upsertPushDevice: (req) => {
+    const body = req.body as UpsertPushDeviceRequest;
+    const row = upsertPushDevice(req.user!.id, String(req.params.device_id), {
+      platform: body.platform,
+      apnsToken: body.apns_token,
+      pushToStartToken: body.push_to_start_token, // omitted keeps it, null clears it
+      name: body.name,
+      appVersion: body.app_version,
+    });
+    if (row === "taken") return apiError(req.c, 409, "conflict", "다른 계정에 등록된 기기입니다.");
+    return ok(req, pushDeviceDto(row));
+  },
+  deletePushDevice: (req) => {
+    if (!deletePushDevice(req.user!.id, String(req.params.device_id))) return notFound(req, "기기");
+    return req.c.body(null, 204);
+  },
 });

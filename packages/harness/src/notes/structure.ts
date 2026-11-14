@@ -25,6 +25,57 @@ export interface StructureInput {
   language: string;
   /** Related lecture PDF pages (P3-04); without page text the prompt is the P1 one. */
   pdf?: PdfContext;
+  /**
+   * Segments the user marked as important while recording (D-P6-3, from markerSegments).
+   * Absent, not empty, when there are none: the cache key of an unmarked recording stays as it was.
+   */
+  important?: ImportantSegment[];
+}
+
+/** A transcript segment (its compact `#idx`) the user marked, and the marker's label. */
+export interface ImportantSegment {
+  idx: number;
+  label: string | null;
+}
+
+/** At most this many marked segments go into the prompt. */
+export const MAX_IMPORTANT_SEGMENTS = 40;
+
+/**
+ * The segments the markers point at (D-P6-3). For each marker: the segment playing at that
+ * moment (the last one starting at or before it), so before the first segment the first one;
+ * a marker in a gap lands on the segment that ended before it (people press after they hear
+ * it). The segment just before is added too. Deduplicated, in transcript order, at most 40.
+ */
+export function markerSegments(
+  segments: readonly CompactSegment[],
+  markers: readonly { at_ms: number; label: string | null }[]
+): ImportantSegment[] {
+  if (!segments.length || !markers.length) return [];
+  const ordered = [...segments].sort((a, b) => a.start_ms - b.start_ms || a.idx - b.idx);
+  const chosen = new Map<number, string | null>();
+  const add = (position: number, label: string | null) => {
+    const idx = ordered[position]!.idx;
+    if (!chosen.has(idx) || (chosen.get(idx) === null && label !== null)) chosen.set(idx, label);
+  };
+  for (const marker of markers) {
+    let at = 0;
+    for (let i = 0; i < ordered.length && ordered[i]!.start_ms <= marker.at_ms; i += 1) at = i;
+    if (at > 0 && !chosen.has(ordered[at - 1]!.idx)) chosen.set(ordered[at - 1]!.idx, null);
+    add(at, marker.label);
+  }
+  const positions = new Map(ordered.map((s, i) => [s.idx, i]));
+  return [...chosen.entries()]
+    .sort((a, b) => positions.get(a[0])! - positions.get(b[0])!)
+    .slice(0, MAX_IMPORTANT_SEGMENTS)
+    .map(([idx, label]) => ({ idx, label }));
+}
+
+/** The prompt lines that name the marked segments; empty without any. */
+export function importantNote(important: readonly ImportantSegment[] | undefined): string {
+  if (!important?.length) return "";
+  const list = important.map((s) => (s.label ? `#${s.idx}(${s.label})` : `#${s.idx}`)).join(", ");
+  return `\n\n사용자가 녹음 중에 "중요"라고 표시한 구간: ${list}\n이 구간의 내용은 빠뜨리지 말고 노트에 담는다. 표시가 없는 구간을 덜 중요하게 다루라는 뜻은 아니다.`;
 }
 
 export const PartialSummary = z.object({
@@ -63,7 +114,7 @@ function buildStructureInstruction(input: StructureInput, repair: { issues: stri
     )
     .join("\n");
   const pdfNote = hasPdfText(input.pdf) ? PDF_PAGES_NOTE : "";
-  return `${STRUCTURE_INSTRUCTION}\n\n${input.template.structurePrompt}\n\n출력 언어: ${input.language}\n\n섹션:\n${sections}${pdfNote}${repairSuffix(repair)}`;
+  return `${STRUCTURE_INSTRUCTION}\n\n${input.template.structurePrompt}\n\n출력 언어: ${input.language}\n\n섹션:\n${sections}${pdfNote}${importantNote(input.important)}${repairSuffix(repair)}`;
 }
 
 export function structureStage(llm: LlmProvider, routing: Routing): StageDefinition<StructureInput, TemplateOutput> {
@@ -80,6 +131,8 @@ export function structureStage(llm: LlmProvider, routing: Routing): StageDefinit
         inputs: [
           sha256Hex(formatCompactTranscript({ segments: input.segments }).text),
           ...(hasPdfText(input.pdf) ? [sha256Hex(input.pdf.text)] : []),
+          // Only when there are marks, so an unmarked recording keeps its key (D-P6-3).
+          ...(input.important?.length ? [sha256Hex(`important:${JSON.stringify(input.important)}`)] : []),
         ],
         prompt: sha256Hex(`${NOTES_SYSTEM}\u0000${STRUCTURE_INSTRUCTION}\u0000${MAP_INSTRUCTION}`),
         template: `${def.id}@${def.version}:${input.template.hash}`,
@@ -119,10 +172,14 @@ export function structureStage(llm: LlmProvider, routing: Routing): StageDefinit
 
       const lines: string[] = [];
       for (const window of splitTranscriptWindows(compact, STRUCTURE_WINDOW_CHARS)) {
+        // A window keeps the marks that fall in it, so the summaries carry those segments'
+        // numbers to the reduce, which names every mark again.
+        const inWindow = new Set(window.split("\n").map((line) => Number(/^#(\d+) /.exec(line)?.[1] ?? NaN)));
+        const marks = input.important?.filter((s) => inWindow.has(s.idx));
         const partial = await call({
           schema: PartialSummary,
           context: [{ type: "text", text: `전사(일부):\n${window}` }],
-          instruction: `${MAP_INSTRUCTION}${repairSuffix(ctx.repair)}`,
+          instruction: `${MAP_INSTRUCTION}${importantNote(marks)}${repairSuffix(ctx.repair)}`,
         });
         for (const point of partial.value.points) lines.push(`- ${point.text} [${point.sources.join(" ")}]`);
       }

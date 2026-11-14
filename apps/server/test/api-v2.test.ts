@@ -1,5 +1,6 @@
 import "./preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
 import { beforeAll, describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resetConfigForTests } from "@lectern/config";
@@ -25,17 +26,8 @@ import { handleRequest } from "../src/index.ts";
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/** Routes of later phases (contract-only routes; P6-01 and P6-03 implement these). */
-const NOT_YET = new Set<string>([
-  "upsertPushDevice",
-  "deletePushDevice",
-  "setLiveActivity",
-  "endLiveActivity",
-  "listMarkers",
-  "createMarker",
-  "deleteMarker",
-  "adminListV1Usage",
-]);
+/** Routes of later phases (contract-only routes; P6-03 implements this one). */
+const NOT_YET = new Set<string>(["adminListV1Usage"]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
 
@@ -133,8 +125,9 @@ const BODIES: Record<string, unknown> = {
   adminSetQuota: { audio_ms_month: null, ai_microusd_month: 5_000_000, storage_bytes: null },
   createExport: { workspace_id: SAMPLE_ID, include_audio: false },
   requestAccountDeletion: { password: "correct_password_1" },
-  upsertPushDevice: { platform: "ios", apns_token: "ab".repeat(32), name: "iPhone" },
-  setLiveActivity: { device_id: SAMPLE_ID, push_token: "cd".repeat(32) },
+  // APNs tokens are unique across the shared test database: never a literal.
+  upsertPushDevice: { platform: "ios", apns_token: randomBytes(32).toString("hex"), name: "iPhone" },
+  setLiveActivity: { device_id: SAMPLE_ID, push_token: randomBytes(32).toString("hex") },
   createMarker: { at_ms: 60_000, label: "중요" },
 };
 

@@ -6,7 +6,7 @@ import { randomBytes } from "node:crypto";
 import { config } from "@lectern/config";
 import { personalWorkspaceId } from "@lectern/db";
 import type { NativeTokenRequest, RevokeNativeTokenRequest } from "@lectern/domain";
-import { getUserByEmail, getUserById, hashPassword, touchUserLastLogin, verifyPassword, type UserRecord } from "../../db.ts";
+import { deletePushDevicesOfUser, getUserByEmail, getUserById, hashPassword, touchUserLastLogin, verifyPassword, type UserRecord } from "../../db.ts";
 import { issueNativePair, revokeNativeFamilyByRefresh, rotateNativePair, type NativePair } from "../../native-auth.ts";
 import { authRateLimits, firstRateLimitWait, getClientIp, recordRateLimitHits, tooManyRequestsMessage, type RateLimitCheck } from "../../rate-limit.ts";
 import { apiError, defineRouter, ok, type V2Request } from "./common.ts";
@@ -81,9 +81,11 @@ export const authNativeRouter = defineRouter({
     const body = req.body as NativeTokenRequest;
     return body.grant_type === "password" ? passwordGrant(req, body) : refreshGrant(req, body.refresh_token);
   },
-  // Always 204, known token or not.
+  // Always 204, known token or not. A signed-out app gets no more pushes (D-P6-1): the
+  // user's push devices go too; each app registers again when it signs in.
   revokeNativeToken: (req) => {
-    revokeNativeFamilyByRefresh((req.body as RevokeNativeTokenRequest).refresh_token);
+    const userId = revokeNativeFamilyByRefresh((req.body as RevokeNativeTokenRequest).refresh_token);
+    if (userId) deletePushDevicesOfUser(userId);
     return req.c.body(null, 204);
   },
 });

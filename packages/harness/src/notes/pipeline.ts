@@ -18,7 +18,7 @@ import type { CompactSegment } from "./compact.ts";
 import { extractStage } from "./extract.ts";
 import { renderDocumentMarkdown } from "./render.ts";
 import { NotesResult, type ClassifyOutput } from "./schemas.ts";
-import { structureStage } from "./structure.ts";
+import { markerSegments, structureStage } from "./structure.ts";
 import { verifyDocument, verifyStage, type VerifyInput, type VerifyOutput } from "./verify.ts";
 
 export interface NotesPipelineInput {
@@ -33,6 +33,8 @@ export interface NotesPipelineInput {
   tz: string;
   /** Related lecture PDF pages from the alignment (P3-04); structure and extract see them. */
   pdf?: PdfContext;
+  /** Points the user marked as important while recording (D-P6-3), original-audio ms. Only structure sees them. */
+  markers?: { at_ms: number; label: string | null }[];
 }
 
 export type NotesStageName = "classify" | "structure" | "extract" | "verify" | "render";
@@ -119,7 +121,15 @@ export async function runNotesPipeline(
   const language = classification.language;
 
   // structure: no document without it, so every failure ends the run.
-  const structure = await step("structure", structureStage(llm, routing), { template, segments, language, pdf: input.pdf });
+  const important = markerSegments(segments, input.markers ?? []);
+  const structure = await step("structure", structureStage(llm, routing), {
+    template,
+    segments,
+    language,
+    pdf: input.pdf,
+    // No `important` key without marks: the input (and the stage's cache key) stays as before.
+    ...(important.length ? { important } : {}),
+  });
 
   let extractFailed = false;
   let extract = {};

@@ -1,5 +1,6 @@
 import "./preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
 import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FakeEmbedder, type AskModel, type AskModelEvent } from "@lectern/ask";
@@ -44,6 +45,9 @@ import { embeddedWorker, JobWorker, type JobWorker as Worker } from "../src/queu
 import { recordSessionMeta } from "../src/session-meta.ts";
 import { refreshLedger, setQuota } from "../src/usage.ts";
 import { createFakeGoogle } from "./fakes/google.ts";
+
+/** APNs tokens are unique across the shared test database: never a literal. */
+const randomHex = () => randomBytes(32).toString("hex");
 
 // Account deletion (P5-09, D-P5-9): the request and its 7 days of grace, then the deletion
 // itself, which must leave the user's id, personal workspace id and e-mail in no text column
@@ -559,11 +563,11 @@ describe("no trace is left", () => {
     // workspaces; the other user's device following the team recording stays.
     const device = uuidv7();
     const otherDevice = uuidv7();
-    db.query(`INSERT INTO push_device (id, user_id, platform, name, apns_token, created_at, last_seen_at) VALUES (?, ?, 'ios', 'iPhone', ?, ?, ?)`).run(device, u.id, "ab".repeat(32), now, now);
-    db.query(`INSERT INTO push_device (id, user_id, platform, apns_token, created_at, last_seen_at) VALUES (?, ?, 'ios', ?, ?, ?)`).run(otherDevice, other.id, "cd".repeat(32), now, now);
+    db.query(`INSERT INTO push_device (id, user_id, platform, name, apns_token, created_at, last_seen_at) VALUES (?, ?, 'ios', 'iPhone', ?, ?, ?)`).run(device, u.id, randomHex(), now, now);
+    db.query(`INSERT INTO push_device (id, user_id, platform, apns_token, created_at, last_seen_at) VALUES (?, ?, 'ios', ?, ?, ?)`).run(otherDevice, other.id, randomHex(), now, now);
     const liveActivity = (deviceId: string, recordingId: string) => {
       const id = uuidv7();
-      db.query(`INSERT INTO live_activity (id, recording_id, device_id, push_token, state, created_at) VALUES (?, ?, ?, ?, 'active', ?)`).run(id, recordingId, deviceId, "ef".repeat(32), now);
+      db.query(`INSERT INTO live_activity (id, recording_id, device_id, push_token, state, created_at) VALUES (?, ?, ?, ?, 'active', ?)`).run(id, recordingId, deviceId, randomHex(), now);
       return id;
     };
     const mine = liveActivity(device, first.recordingId);

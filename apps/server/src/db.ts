@@ -569,9 +569,27 @@ export function updateUserPassword(userId: string, newPassword: string): void {
   revokeNativeSessionsOfUser(userId);
 }
 
-/** Ends every native app sign-in of the user (native-auth.ts, D-P5-4). Kept here so db.ts needs no import of it. */
+/**
+ * Ends every native app sign-in of the user (native-auth.ts, D-P5-4). Kept here so db.ts needs
+ * no import of it. The apps' push registrations go too (D-P6-1): a signed-out app gets no pushes.
+ */
 export function revokeNativeSessionsOfUser(userId: string, now = Date.now()): void {
   db.query(`UPDATE native_session SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`).run(now, userId);
+  deletePushDevicesOfUser(userId);
+}
+
+/** The user's push devices and their Live Activities (D-P6-1). Here, not in push-devices.ts, so db.ts can call it. */
+export function deletePushDevicesOfUser(userId: string): void {
+  db.transaction(() => {
+    db.query(`DELETE FROM live_activity WHERE device_id IN (SELECT id FROM push_device WHERE user_id = ?)`).run(userId);
+    db.query(`DELETE FROM push_device WHERE user_id = ?`).run(userId);
+  })();
+}
+
+/** A recording's native app rows: its markers (D-P6-3) and Live Activities (D-P6-2). */
+export function deleteRecordingNativeRows(recordingId: string): void {
+  db.query(`DELETE FROM recording_marker WHERE recording_id = ?`).run(recordingId);
+  db.query(`DELETE FROM live_activity WHERE recording_id = ?`).run(recordingId);
 }
 
 export function updateUserProfile(
@@ -927,6 +945,8 @@ export function deleteUserAndData(targetUserId: string): boolean {
   const workspaceRecordings = db.query(`SELECT id FROM recording WHERE workspace_id = ?`).all(personalWorkspaceId(targetUserId)) as Array<{ id: string }>;
   for (const rec of workspaceRecordings) deleteAlignment(rec.id);
   db.query(`DELETE FROM pdf_page WHERE workspace_id = ?`).run(personalWorkspaceId(targetUserId));
+  // Markers (P6) on those recordings, and the ones the user put on team recordings.
+  db.query(`DELETE FROM recording_marker WHERE workspace_id = ? OR created_by = ?`).run(personalWorkspaceId(targetUserId), targetUserId);
   // Their export zips (P5-08, export/job.ts): the files under <data dir>/exports, then the rows.
   const exportIds = db.query(`SELECT id FROM data_export WHERE user_id = ?`).all(targetUserId) as Array<{ id: string }>;
   for (const { id } of exportIds) {
@@ -946,6 +966,7 @@ export function deleteUserAndData(targetUserId: string): boolean {
   db.query(`DELETE FROM access_token WHERE user_id = ?`).run(targetUserId);
   db.query(`DELETE FROM native_session WHERE user_id = ?`).run(targetUserId);
   db.query(`DELETE FROM oauth_identity WHERE user_id = ?`).run(targetUserId);
+  deletePushDevicesOfUser(targetUserId); // and their Live Activities (P6)
   deleteWorkspaceRows(db, personalWorkspaceId(targetUserId));
   db.query(`DELETE FROM membership WHERE user_id = ?`).run(targetUserId);
   const res = db.query(`DELETE FROM users WHERE id = ?`).run(targetUserId);
@@ -1836,6 +1857,7 @@ export function deleteLectureById(id: string): boolean {
     db.query("DELETE FROM pdf_page WHERE recording_id = ?").run(lectureRecordingId(id));
     deleteAlignment(lectureRecordingId(id));
     deleteRecordingThreads(db, workspaceId, id);
+    deleteRecordingNativeRows(lectureRecordingId(id));
   }
   if (rec) {
     if (rec.md_source_path) {

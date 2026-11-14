@@ -110,6 +110,9 @@ describe("export contents", () => {
   const owner = user();
   const ws = personalWorkspaceId(owner.id);
   const first = lecture(owner, "자료구조 3주차");
+  // The export numbers recordings by created_at (ms), then id: in the same millisecond the
+  // random ids decide, and 0001/0002 can swap. Keep the two apart.
+  Bun.sleepSync(5);
   const second = lecture(owner, "자료구조: 4주차?");
 
   test("export contains the expected files", async () => {
