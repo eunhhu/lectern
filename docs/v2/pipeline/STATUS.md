@@ -58,6 +58,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | iOS 앱 셸의 기기 점검(만료된 토큰으로 긴 재생, VoiceOver로 목록·상세, iPad 나란히 보기, 픽스처 UI 테스트 실행): `apps/apple/MANUAL_CHECKS.md` 13–16. UI 테스트는 이 Mac의 CoreSimulator가 Xcode보다 오래돼 빌드만 했다. iPhone이 녹음 목록부터 보이는지(`preferredCompactColumn`)도 여기서 본다 | P6-A6 |
 | 녹음 표면의 기기 점검(제어 센터·동작 버튼·Siri로 시작, 잠금 화면 3시간 녹음과 잠긴 채 업로드, Dynamic Island, 통화 중 일시정지가 Live Activity에 보이는지, Live Activity를 꺼도 녹음, 녹음 뒤 재생 음질): `apps/apple/MANUAL_CHECKS.md` 17–25(25: 앱에서 정지하고 바로 잠가도 업로드가 끝나는지). 컨트롤의 인텐트(`RecordingToggleIntent`)가 위젯 확장이 아니라 앱 프로세스에서 도는지는 17에서 본다(명세의 전제). 빌드 산출물의 `Metadata.appintents`에 인텐트 다섯 개와 단축어 문구 세 개가 들어간 것까지는 확인했다 | P6-A7 |
 | 공유 확장의 기기 점검(음성 메모에서 공유 → 앱에서 업로드, 오디오와 PDF 짝짓기, 1GB 공유, 메타데이터 없는 옛 파일의 녹음 시각, 오디오·PDF에만 보이는지): `apps/apple/MANUAL_CHECKS.md` 26–30. 활성화 규칙(술어 문자열)은 macOS `NSPredicate`로 읽히고 빌드된 확장의 Info.plist에 한 줄로 들어간 것까지 확인했다 | P6-A8 |
+| macOS 앱의 기기 점검(서명한 빌드): 옛 앱 다음 마이크 권한·로그인 이어짐(Keychain 창이 뜰 수 있고, 못 읽으면 한 번 다시 로그인), 메뉴바 녹음 → 업로드 → `문서가 준비되었습니다` 알림 → 클릭으로 열기, 다른 앱이 앞에 있을 때 ⌥Space, 로그인 시 실행, 창을 닫아도 녹음이 이어지고 녹음 중 종료하면 저장, data protection keychain에 로그인이 남는지, 메인 창 키보드, `Lectern 열기`가 창을 하나만 여는지, HUD의 `설정…`: `apps/apple/MANUAL_CHECKS.md` 31–40 | P6-A9 |
 | 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
 | CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
 | Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
@@ -168,3 +169,5 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-A7 | 설치된 SDK의 `ControlWidgetToggle`은 `SetValueIntent` 하나만 받아서 컨트롤은 시작·정지 인텐트 둘이 아니라 `RecordingToggleIntent`(SetValueIntent + AudioRecordingIntent) 하나다. App Shortcuts는 앱 타깃에 두고 문구는 "Lectern으로 녹음 시작"이다 | 기록만 |
 | 2026-11-15 | P6-A8 | `UploadJob.audioPartRelativePaths`(1부·2부를 오디오 여러 개의 녹음 하나로, 서버는 올린 순서로 `part_index`)와 `allRelativePaths`가 생겼다. 다른 프로세스가 저장한 항목은 `UploadQueue.reloadFromStore()`로 들어오고 `run()`이 먼저 부른다. 로그인한 워크스페이스는 `AppEnvironment.defaultWorkspaceIDKey`(App Group `UserDefaults`)다 | P6-A9에 전달 |
 | 2026-11-15 | P6-A8 | 웹 짝짓기 테스트는 18개다(명세의 `git grep -c`가 19로 센 것은 `name.split(".")` 줄이 걸린 것). 18개를 옮기고 NFD 하나를 더했다. 웹 규칙이 받는 weba·caf·amr은 서버가 받지 않아 대기열에서 서버의 문장으로 실패한다(웹과 같다) | 기록만 |
+| 2026-11-15 | P6-A9 | macOS 앱은 프로세스에 하나인 `MacServices`가 클라이언트, 업로드 대기열(백그라운드 세션 없이 `run()`), 녹음 세션(`NoRecordingActivity`, 녹음 중 App Nap·유휴 잠자기 막음)과 `MacRecordingViewModel`, 전역 단축키, 알림(`ReadyNotifier`: 업로드가 끝난 녹음을 30초마다 확인)을 갖는다. 시스템 오디오(P6-A10)는 이 녹음 세션에, 푸시(P6-A11)는 `ReadyNotifier`를 대신하거나 함께 쓴다 | P6-A10·A11에 전달 |
+| 2026-11-15 | P6-A9 | `KeychainTokenStore`는 macOS에서 접근 그룹이 있으면 data protection keychain을 쓴다(명세에 없음. 접근 그룹은 그곳에만 있다. 나중에 바꾸면 사용자가 로그아웃된다). 옛 앱의 토큰은 처음 한 번만(`legacy_token_settled`) 가져온다. `MacRecordingViewModel`은 프로토콜 둘 대신 `RecordingSession`을 받는다. Space 재생은 메뉴 단축키가 아니라 창의 키 이벤트다 | 기록만 |
