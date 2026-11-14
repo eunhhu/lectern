@@ -43,22 +43,24 @@ describe("Pretendard in the build", () => {
       expect(assets.some((f) => /^pretendard-LICENSE-[a-z0-9]+\.txt$/.test(f))).toBe(true);
 
       const css = assets.filter((f) => f.endsWith(".css")).map((f) => readFileSync(join(out, "assets", f), "utf8"));
-      const faces = css.find((c) => c.includes("Pretendard Variable"));
-      expect(faces).toBeDefined();
-      expect(faces!.match(/font-display:swap/g)).toHaveLength(SUBSETS);
+      // By name: the app bundle names Pretendard Variable too (the token font stack), and
+      // directory order differs between file systems.
+      const fontSheet = assets.find((f) => /^pretendard-[a-z0-9]+\.css$/.test(f));
+      expect(fontSheet).toBeDefined();
+      const faces = readFileSync(join(out, "assets", fontSheet!), "utf8");
+      expect(faces).toContain("Pretendard Variable");
+      expect(faces.match(/font-display:swap/g)).toHaveLength(SUBSETS);
       for (const c of css) {
         expect(c).not.toMatch(/https?:\/\//);
         expect(c).not.toContain("data:font");
       }
-      const urls = [...faces!.matchAll(/url\(([^)]+)\)/g)].map((m) => m[1]!);
+      const urls = [...faces.matchAll(/url\(([^)]+)\)/g)].map((m) => m[1]!);
       expect(urls).toHaveLength(SUBSETS);
       for (const u of urls) expect(u.startsWith("/app/assets/PretendardVariable.subset.")).toBe(true);
       for (const u of urls) expect(woff2).toContain(u.slice("/app/assets/".length));
 
       // index.html links both stylesheets; the app stylesheet keeps the React Aria id.
       const html = readFileSync(join(out, "index.html"), "utf8");
-      const fontSheet = assets.find((f) => /^pretendard-[a-z0-9]+\.css$/.test(f));
-      expect(fontSheet).toBeDefined();
       expect(html).toContain(`href="/app/assets/${fontSheet}"`);
       expect(html.indexOf("react-aria-pressable-style")).toBeLessThan(html.indexOf("/pretendard-"));
     } finally {
