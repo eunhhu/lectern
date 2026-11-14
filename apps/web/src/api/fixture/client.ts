@@ -13,6 +13,7 @@ import type {
   AskTurnId,
   AssetDto,
   AssetId,
+  AssetPages,
   CompleteUploadResponse,
   CreateUploadRequest,
   DocumentBlock,
@@ -27,6 +28,7 @@ import type {
   RecordingId,
   SearchHit,
   ReprocessResponse,
+  OcrAssetResponse,
   ShareLinkDto,
   ServerEvent,
   TagId,
@@ -64,6 +66,8 @@ export interface FixtureClientOptions {
 }
 
 const PART_SIZE = 8 * 1024 * 1024;
+/** What the fixture charges per OCR page (made up; the server estimates from the model's price). */
+const FIXTURE_OCR_MICROUSD_PER_PAGE = 2_818;
 
 /** Why the fixture's failed and partial recordings ended that way (RecordingDetail.failure). */
 const FAILURES: Record<"failed" | "partial", RecordingFailure> = {
@@ -199,6 +203,12 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
     if (!rec) throw notFound("녹음");
     return rec;
   };
+  const pdfAsset = (id: string) => {
+    const asset = data.assets.find((a) => a.id === id && a.kind === "pdf");
+    if (!asset) throw notFound("PDF");
+    return asset;
+  };
+
   const role = (ws: WorkspaceId) => data.workspaces.find((w) => w.workspace.id === ws)?.role ?? "viewer";
   const tagIdsOf = (id: string) => data.recordingTags.filter((t) => t.recording_id === id).map((t) => t.tag_id);
 
@@ -1087,7 +1097,38 @@ export function createFixtureClient(options: FixtureClientOptions = {}): ApiClie
         return structuredClone({ upload: session, recording: rec, job, deduplicated: false });
       }),
 
-    assetContentUrl: () => null,
+    // Fixture PDFs have no bytes either; the URL is the real route so the e2e suite can
+    // answer it (page.route) with a generated PDF. Audio stays null (no player source).
+    assetContentUrl: (assetId) => (assetId.endsWith("_pdf") ? `/api/v2/assets/${encodeURIComponent(assetId)}/content` : null),
+
+    listAssetPages: (assetId) =>
+      wait((): AssetPages => {
+        const asset = pdfAsset(assetId);
+        const scanned = asset.meta.scanned === true;
+        const read = typeof asset.meta.ocr_pages === "number";
+        const count = asset.page_count ?? 0;
+        return {
+          page_count: count,
+          scanned,
+          pages: Array.from({ length: count }, (_, i) => ({
+            page_no: i + 1,
+            has_text_layer: !scanned,
+            char_count: scanned && !read ? 0 : 800,
+          })),
+        };
+      }),
+
+    ocrAsset: (assetId, body) =>
+      wait((): OcrAssetResponse => {
+        const asset = pdfAsset(assetId);
+        if (role(asset.workspace_id) === "viewer") throw new ApiClientError(403, "forbidden", "이 워크스페이스에서는 보기만 할 수 있습니다.");
+        // Pages a scan still needs: none once an OCR ran (the fixture finishes it at once).
+        const pages = asset.meta.scanned === true && typeof asset.meta.ocr_pages !== "number" ? (asset.page_count ?? 0) : 0;
+        const estimate = { pages_to_ocr: pages, estimated_cost_microusd: FIXTURE_OCR_MICROUSD_PER_PAGE * pages };
+        if (body.dry_run || pages === 0) return { ...estimate, job_id: null };
+        asset.meta = { ...asset.meta, ocr_pages: pages };
+        return { ...estimate, job_id: "job_fixture_ocr" as JobId };
+      }),
 
     subscribe(workspaceId, onEvent) {
       const set = listeners.get(workspaceId) ?? new Set();

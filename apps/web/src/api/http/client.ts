@@ -379,6 +379,8 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
       call("completeUpload", { params: { upload_id: uploadId }, headers: { [HEADER.idempotencyKey]: idempotencyKey } }),
 
     assetContentUrl: (assetId) => routeUrl(ROUTES_BY_OPERATION.getAssetContent!, { asset_id: assetId }),
+    listAssetPages: (assetId) => call("listAssetPages", { params: { asset_id: assetId } }),
+    ocrAsset: (assetId, body) => call("ocrAsset", { params: { asset_id: assetId }, body }),
 
     subscribe(workspaceId, onEvent) {
       return subscribeEvents({ workspaceId, onEvent, send, retry, onUnauthorized: signalUnauthorized });

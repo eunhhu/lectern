@@ -45,6 +45,9 @@ import type {
   RecordingPage,
   ReprocessRequest,
   ReprocessResponse,
+  AssetPages,
+  OcrAssetRequest,
+  OcrAssetResponse,
   SearchHitPage,
   SearchParams,
   ServerEvent,
@@ -202,6 +205,10 @@ export interface ApiClient {
 
   /** URL of an asset's bytes (`/assets/{id}/content`, Range requests), or null when there are none (fixtures). */
   assetContentUrl(assetId: string): string | null;
+  /** A PDF asset's pages: page count, whether it is a scan, and which pages have text (D-P3-3). */
+  listAssetPages(assetId: string): Promise<AssetPages>;
+  /** OCR of a scanned PDF: `dry_run: true` only estimates; `false` queues the job (only after the user confirmed the estimate). */
+  ocrAsset(assetId: string, body: OcrAssetRequest): Promise<OcrAssetResponse>;
 
   /** Workspace event stream (SSE `/events`). Returns an unsubscribe function. */
   subscribe(workspaceId: WorkspaceId, onEvent: (event: ServerEvent) => void): () => void;

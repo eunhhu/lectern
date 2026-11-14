@@ -154,7 +154,8 @@ interface RecordingSpec {
   tags?: [tag: string, source?: "user" | "ai"][];
   script?: Script;
   doc?: Docs.DocumentWriter;
-  pdf?: { name: string; pages: number };
+  /** `scanned`: a PDF without a text layer (the files panel offers OCR). */
+  pdf?: { name: string; pages: number; scanned?: boolean };
   /** For processing / queued recordings. */
   job?: JobProgress & { state: "queued" | "running" };
   createdBy?: UserId;
@@ -254,7 +255,7 @@ const RECORDINGS: RecordingSpec[] = [
     tags: [["tag_exam"]],
     script: S.OS_THREADS,
     doc: Docs.OS_THREADS_DOC,
-    pdf: { name: "운영체제_06_프로세스와스레드.pdf", pages: 18 },
+    pdf: { name: "운영체제_06_프로세스와스레드.pdf", pages: 18, scanned: true },
   },
   {
     id: "rec_ds05",
@@ -709,7 +710,7 @@ export function buildFixtureData(now = new Date()): FixtureData {
         mime: "application/pdf",
         duration_ms: null,
         page_count: spec.pdf.pages,
-        meta: { original_name: spec.pdf.name },
+        meta: { original_name: spec.pdf.name, ...(spec.pdf.scanned ? { scanned: true } : {}) },
         created_at: uploadedAt,
       });
     }

@@ -5,6 +5,10 @@
 //   dist/assets/*-[hash].css   bundled CSS: design tokens + global styles + CSS Modules
 //   dist/assets/pretendard-[hash].css + PretendardVariable.subset.N-[hash].woff2
 //                              self-hosted Pretendard (D-P2-7), see emitFonts
+//   dist/assets/pdf-worker-[hash].js
+//                              the pdf.js worker, bundled on its own (D-P3-7), see emitPdfWorker
+//   dist/assets/pdfjs/<version>/{cmaps,standard_fonts,wasm,iccs}/
+//                              data files pdf.js fetches at run time, see emitPdfData
 //
 // The server serves this directory at /app (apps/server/src/web-shell.ts).
 //
@@ -13,8 +17,8 @@
 // writes elsewhere (the fixture e2e build goes to dist-fixture/).
 
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { ASSET_PATH, renderIndexHtml } from "./html.ts";
 
 export const WEB_ROOT = join(import.meta.dir, "..");
@@ -53,6 +57,11 @@ export async function buildWeb({ outDir = DIST_DIR, dev = false, api = dev ? "fi
   const assetsDir = join(outDir, "assets");
   mkdirSync(assetsDir, { recursive: true });
 
+  // The worker is its own bundle: the main build never sees it, so index.html gets no
+  // script for it; the viewer learns its URL (and the data directory) through `define`.
+  const pdfWorker = await emitPdfWorker(assetsDir, dev);
+  const pdfData = emitPdfData(assetsDir);
+
   const result = await Bun.build({
     entrypoints: [join(WEB_ROOT, "src/main.tsx")],
     outdir: assetsDir,
@@ -66,6 +75,8 @@ export async function buildWeb({ outDir = DIST_DIR, dev = false, api = dev ? "fi
     define: {
       "process.env.NODE_ENV": JSON.stringify(dev ? "development" : "production"),
       "process.env.LECTERN_WEB_API": JSON.stringify(api),
+      "process.env.LECTERN_PDF_WORKER": JSON.stringify(pdfWorker),
+      "process.env.LECTERN_PDF_DATA": JSON.stringify(pdfData),
     },
   });
   if (!result.success) {
@@ -85,6 +96,51 @@ export async function buildWeb({ outDir = DIST_DIR, dev = false, api = dev ? "fi
     `web: built ${result.outputs.length} files (api: ${api}) (${(bytes / 1024).toFixed(0)} KiB) into ${relative(process.cwd(), outDir) || "."} in ${Math.round(performance.now() - started)} ms`,
   );
   return { scripts, styles, outputs: result.outputs.map((o) => o.path) };
+}
+
+/** The pdfjs-dist package directory (apps/web depends on it). */
+export function pdfjsRoot(): string {
+  return dirname(Bun.resolveSync("pdfjs-dist/package.json", WEB_ROOT));
+}
+
+/**
+ * Bundles the pdf.js worker into assets/pdf-worker-[hash].js and returns its URL. pdf.js
+ * starts it with `new Worker(url, { type: "module" })` from the same origin, which
+ * `script-src 'self'` (and `default-src 'self'` for workers) already allows: no blob:
+ * worker and no other origin.
+ */
+export async function emitPdfWorker(assetsDir: string, dev: boolean): Promise<string> {
+  const result = await Bun.build({
+    entrypoints: [join(pdfjsRoot(), "build/pdf.worker.mjs")],
+    outdir: assetsDir,
+    target: "browser",
+    format: "esm",
+    minify: !dev,
+    sourcemap: "none",
+    naming: { entry: "pdf-worker-[hash].[ext]" },
+  });
+  const entry = result.outputs.find((o) => o.kind === "entry-point");
+  if (!result.success || !entry) {
+    for (const message of result.logs) console.error(message);
+    throw new Error("pdf.js worker build failed");
+  }
+  return ASSET_PATH + basename(entry.path);
+}
+
+/** pdf.js data directories: CMaps (CJK text), the standard 14 fonts, image decoders and ICC profiles. */
+export const PDFJS_DATA_DIRS = ["cmaps", "standard_fonts", "wasm", "iccs"] as const;
+
+/**
+ * Copies the pdf.js data files into assets/pdfjs/<version>/ and returns that URL (with a
+ * trailing slash, as pdf.js expects). The names carry no hash, so the version in the path
+ * keeps a year-long immutable cache from serving one release's files to another's worker.
+ */
+export function emitPdfData(assetsDir: string): string {
+  const root = pdfjsRoot();
+  const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string };
+  if (!/^[\w.-]+$/.test(version)) throw new Error(`unexpected pdfjs-dist version ${version}`);
+  for (const dir of PDFJS_DATA_DIRS) cpSync(join(root, dir), join(assetsDir, "pdfjs", version, dir), { recursive: true });
+  return `${ASSET_PATH}pdfjs/${version}/`;
 }
 
 const shortHash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex").slice(0, 10);
