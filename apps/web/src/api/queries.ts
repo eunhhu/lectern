@@ -12,6 +12,8 @@ import type {
   ActionItem,
   BatchRecordingsRequest,
   CreateAccessTokenRequest,
+  CreateInviteRequest,
+  MembershipRole,
   CreateExportRequest,
   DataExport,
   RecordingProgress,
@@ -64,6 +66,8 @@ export const queryKeys = {
   exports: ["exports"] as const,
   accountDeletion: ["account-deletion"] as const,
   oauthProviders: ["oauth-providers"] as const,
+  invites: (ws: string) => ["invites", ws] as const,
+  usage: (ws: string) => ["usage", ws] as const,
   workspaceActionItems: (ws: string) => ["workspace-action-items", ws] as const,
   calendar: (ws: string) => ["calendar", ws] as const,
   shareLinks: (ws: string) => ["share-links", ws] as const,
@@ -323,6 +327,72 @@ export function useDecideSuggestion(ws: WorkspaceId) {
 export function useMembers(ws: WorkspaceId) {
   const api = useApi();
   return useQuery({ queryKey: queryKeys.members(ws), queryFn: () => allPages(() => api.listMembers(ws)) });
+}
+
+// --- team workspaces (P5-11) ---------------------------------------------------------
+
+export function useUpdateMember(ws: WorkspaceId) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: MembershipRole }) => api.updateMember(ws, userId, role),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.members(ws) });
+      // My own role may have changed.
+      void qc.invalidateQueries({ queryKey: queryKeys.workspaces });
+    },
+  });
+}
+
+export function useRemoveMember(ws: WorkspaceId) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => api.removeMember(ws, userId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.members(ws) });
+      void qc.invalidateQueries({ queryKey: queryKeys.workspaces });
+    },
+  });
+}
+
+export function useInvites(ws: WorkspaceId, enabled = true) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.invites(ws), queryFn: () => allPages(() => api.listInvites(ws)), enabled });
+}
+
+export function useCreateInvite(ws: WorkspaceId) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateInviteRequest) => api.createInvite(ws, body),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.invites(ws) }),
+  });
+}
+
+export function useRevokeInvite(ws: WorkspaceId) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (inviteId: string) => api.revokeInvite(ws, inviteId),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.invites(ws) }),
+  });
+}
+
+/** Joining adds a workspace: the list is read again. The token is never cached. */
+export function useAcceptInvite() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    gcTime: 0,
+    mutationFn: (token: string) => api.acceptInvite(token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.workspaces }),
+  });
+}
+
+export function useWorkspaceUsage(ws: WorkspaceId) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.usage(ws), queryFn: () => api.getWorkspaceUsage(ws) });
 }
 
 export function useDevices() {

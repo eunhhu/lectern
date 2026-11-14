@@ -174,3 +174,31 @@ test("login with oauth buttons has no axe violations", async ({ page, axe }) => 
   await expect(page.getByRole("button", { name: "Apple로 계속하기" })).toBeVisible();
   await axe(page, "회원가입(Google·Apple) (다크)");
 });
+
+test("workspace settings have no axe violations", async ({ page, axe }) => {
+  await page.addInitScript(() => localStorage.setItem("lectern.web.workspace", "ws_team"));
+  await page.goto("/app/settings?fixture-role=owner#members");
+  await expect(page.locator("#members").getByRole("row", { name: /한지민/ })).toBeVisible();
+  await expect(page.locator("#invites").getByText("newcomer@example.com")).toBeVisible();
+  await expect(page.locator("#usage").getByRole("progressbar")).toHaveCount(3);
+  await axe(page, "워크스페이스 설정");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "워크스페이스 설정 (다크)");
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.locator("#members").getByRole("button", { name: "내보내기: 윤서아" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await axe(page, "멤버 내보내기 확인");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "멤버 내보내기 확인 (다크)");
+});
+
+test("invite page has no axe violations", async ({ page, axe }) => {
+  await page.goto("/app/invite?token=wrong-account");
+  await expect(page.getByRole("heading", { level: 1, name: "워크스페이스 초대를 받았습니다." })).toBeVisible();
+  await axe(page, "초대 수락");
+  await page.getByRole("button", { name: "초대 수락" }).click();
+  await expect(page.getByRole("button", { name: "다른 계정으로 로그인" })).toBeVisible();
+  await axe(page, "초대 수락 오류");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "초대 수락 오류 (다크)");
+});

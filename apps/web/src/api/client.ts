@@ -6,6 +6,13 @@
 // at build time.
 
 import type {
+  AcceptInviteResponse,
+  CreateInviteRequest,
+  Invite,
+  InvitePage,
+  MembershipRole,
+  WorkspaceMember,
+  WorkspaceUsage,
   AccessTokenPage,
   AccountDeletionInfo,
   CreateAccessTokenRequest,
@@ -166,6 +173,20 @@ export interface ApiClient {
 
   listWorkspaces(): Promise<MyWorkspacePage>;
   listMembers(workspaceId: WorkspaceId): Promise<WorkspaceMemberPage>;
+  // --- team workspaces (P5-11: D-P5-6, D-P5-7) ---------------------------------------
+  /** 403 when the caller may not, 409 for the last owner. */
+  updateMember(workspaceId: WorkspaceId, userId: string, role: MembershipRole): Promise<WorkspaceMember>;
+  /** Removes someone, or leaves when `userId` is the caller. 409 for the last owner. */
+  removeMember(workspaceId: WorkspaceId, userId: string): Promise<void>;
+  /** Open invitations (owners and admins). */
+  listInvites(workspaceId: WorkspaceId): Promise<InvitePage>;
+  /** Sends the invitation mail; the link is in the mail only. */
+  createInvite(workspaceId: WorkspaceId, body: CreateInviteRequest): Promise<Invite>;
+  revokeInvite(workspaceId: WorkspaceId, inviteId: string): Promise<void>;
+  /** Joins with the token from the mail. 403 when it was sent to another address. */
+  acceptInvite(token: string): Promise<AcceptInviteResponse>;
+  /** This month's usage and the limits an operator set. */
+  getWorkspaceUsage(workspaceId: WorkspaceId): Promise<WorkspaceUsage>;
 
   listFolders(workspaceId: WorkspaceId): Promise<FolderPage>;
   createFolder(body: CreateFolderRequest): Promise<Folder>;

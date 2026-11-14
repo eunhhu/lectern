@@ -20,6 +20,7 @@ import { ResetPage } from "../routes/account/ResetPage.tsx";
 import { SignupPage } from "../routes/account/SignupPage.tsx";
 import { NotFoundPage, SessionErrorPage } from "../routes/placeholders.tsx";
 import { SettingsPage } from "../routes/settings/SettingsPage.tsx";
+import { InvitePage, type InviteSearch } from "../routes/invite/InvitePage.tsx";
 import { AskPage, type AskSearch } from "../routes/ask/AskPage.tsx";
 import { SearchPage, type SearchPageSearch } from "../routes/search/SearchPage.tsx";
 
@@ -144,12 +145,21 @@ const askRoute = createRoute({
 });
 const calendarRoute = createRoute({ getParentRoute: () => authedRoute, path: "/calendar", component: CalendarPage });
 const settingsRoute = createRoute({ getParentRoute: () => authedRoute, path: "/settings", component: SettingsPage });
+// The invitation mail's link (P5-11). Signed out, authedRoute sends it through /login and back.
+const inviteRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/invite",
+  validateSearch: (search: Record<string, unknown>): InviteSearch => ({
+    token: typeof search.token === "string" && search.token.length > 0 && search.token.length <= 256 ? search.token : undefined,
+  }),
+  component: InvitePage,
+});
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
   signupRoute,
   resetRoute,
-  authedRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, searchRoute, askRoute, calendarRoute, settingsRoute]),
+  authedRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, searchRoute, askRoute, calendarRoute, settingsRoute, inviteRoute]),
 ]);
 
 export function createAppRouter(context: RouterContext) {

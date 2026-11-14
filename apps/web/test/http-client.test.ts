@@ -458,3 +458,59 @@ describe("account (P5-10)", () => {
     expect(await api.oauthProviders()).toEqual({ google: true, apple: true });
   });
 });
+
+describe("team workspaces (P5-11)", () => {
+  test("member, invitation and usage calls", async () => {
+    const ws = asId<D.WorkspaceId>("ws_team");
+    const at = "2026-10-19T03:00:00.000Z";
+    const member = { workspace_id: ws, user_id: "usr_2", role: "viewer", created_at: at, updated_at: at, display_name: "윤서아", email: "seoa@example.com" };
+    const invite = { id: "inv_1", workspace_id: ws, email: "guest@example.com", role: "member", invited_by: "usr_1", created_at: at, expires_at: at, accepted_at: null, revoked_at: null };
+    const workspace = fixture.data.workspaces.find((w) => w.workspace.kind === "team")!.workspace;
+    const { fn, seen } = fakeFetch((req) => {
+      if (req.method === "DELETE") return new Response(null, { status: 204 });
+      if (req.method === "PATCH") return json(200, member);
+      if (req.url.endsWith("/invites") && req.method === "POST") return json(201, invite);
+      if (req.url.endsWith("/invites")) return json(200, { items: [invite], next_cursor: null });
+      if (req.url === "/api/v2/invites/accept") return json(200, { workspace, role: "member" });
+      return json(200, { period: "2026-11", audio_ms: 0, ai_cost_microusd: 0, storage_bytes: 0, quota: null });
+    });
+    const api = createHttpClient({ fetch: fn });
+    expect((await api.updateMember(ws, "usr_2", "viewer")).role).toBe("viewer");
+    await api.removeMember(ws, "usr_2");
+    expect((await api.listInvites(ws)).items).toHaveLength(1);
+    expect(String((await api.createInvite(ws, { email: "guest@example.com", role: "member" })).id)).toBe("inv_1");
+    await api.revokeInvite(ws, "inv_1");
+    expect((await api.acceptInvite("tok-abcdefghijklmnop")).role).toBe("member");
+    expect((await api.getWorkspaceUsage(ws)).quota).toBeNull();
+
+    const [patch, del, list, create, revoke, accept, usage] = seen;
+    expect([patch!.method, patch!.url]).toEqual(["PATCH", `/api/v2/workspaces/${ws}/members/usr_2`]);
+    expect(JSON.parse(patch!.body!)).toEqual({ role: "viewer" });
+    expect([del!.method, del!.url]).toEqual(["DELETE", `/api/v2/workspaces/${ws}/members/usr_2`]);
+    expect(list!.url).toBe(`/api/v2/workspaces/${ws}/invites`);
+    expect([create!.method, create!.url]).toEqual(["POST", `/api/v2/workspaces/${ws}/invites`]);
+    expect(JSON.parse(create!.body!)).toEqual({ email: "guest@example.com", role: "member" });
+    expect([revoke!.method, revoke!.url]).toEqual(["DELETE", `/api/v2/workspaces/${ws}/invites/inv_1`]);
+    expect([accept!.method, accept!.url]).toEqual(["POST", "/api/v2/invites/accept"]);
+    expect(JSON.parse(accept!.body!)).toEqual({ token: "tok-abcdefghijklmnop" });
+    expect(usage!.url).toBe(`/api/v2/workspaces/${ws}/usage`);
+  });
+
+  test("the fixture keeps roles in line with the server", async () => {
+    const api = createFixtureClient({ latencyMs: 0 });
+    const team = asId<D.WorkspaceId>("ws_team");
+    // I am a member of the team: no managing, but I may leave.
+    await expect(api.updateMember(team, "usr_fixture_seoa", "viewer")).rejects.toMatchObject({ status: 403 });
+    await expect(api.listInvites(team)).rejects.toMatchObject({ status: 403 });
+    // Alone in the personal workspace, I am its last owner.
+    await expect(api.removeMember(asId<D.WorkspaceId>(PERSONAL_WS), "usr_fixture_me")).rejects.toMatchObject({ status: 409 });
+    expect((await api.getWorkspaceUsage(team)).quota).not.toBeNull();
+    await expect(api.acceptInvite("wrong-account")).rejects.toMatchObject({ status: 403 });
+    const joined = await api.acceptInvite("any-token");
+    expect(joined.workspace.name).toBe("디자인 스터디");
+    expect((await api.listWorkspaces()).items.map((w) => w.workspace.name)).toContain("디자인 스터디");
+    await expect(api.acceptInvite("any-token")).rejects.toMatchObject({ status: 404 });
+    await api.removeMember(team, "usr_fixture_me");
+    expect((await api.listWorkspaces()).items.map((w) => w.workspace.id)).not.toContain(team);
+  });
+});
