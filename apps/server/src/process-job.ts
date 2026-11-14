@@ -42,6 +42,7 @@ import { announceQueued, emitProgress, enqueueDistillation, type DistillInput } 
 import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
+import { markersForNotes } from "./markers.ts";
 import { publishNotes } from "./notes-publish.ts";
 import { alignRecording } from "./pdf-align.ts";
 import { ingestRecordingPdfs } from "./pdf-publish.ts";
@@ -261,7 +262,9 @@ function notesContext(recording: RecordingFacts): Omit<NotesPipelineInput, "tran
   const tags = (db.query(`SELECT name FROM tag WHERE workspace_id = ? ORDER BY name`).all(recording.workspace_id) as Array<{ name: string }>).map(
     (t) => t.name
   );
-  return { filename: hints.filename, hint: { domain: hints.domain, folder_id: hints.folder_id }, folders, tags };
+  // Marks from the native app (D-P6-3); no `markers` key without any, so the notes input is unchanged.
+  const markers = markersForNotes(recording.id);
+  return { filename: hints.filename, hint: { domain: hints.domain, folder_id: hints.folder_id }, folders, tags, ...(markers.length ? { markers } : {}) };
 }
 
 /**

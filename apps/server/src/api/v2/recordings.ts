@@ -4,11 +4,13 @@ import { deleteRecordingIndex, deleteRecordingThreads } from "@lectern/ask";
 import { deleteRecordingRows } from "@lectern/db";
 import { costMicrousd, DEFAULT_PRICING, priceFor } from "@lectern/harness";
 import { config } from "@lectern/config";
-import type { ErrorCode } from "@lectern/domain";
+import type { CreateMarkerRequest, ErrorCode, SetLiveActivityRequest } from "@lectern/domain";
 import { DEFAULT_GEMINI_MODEL } from "../../../../../packages/core/src/index.ts";
 import { enqueueCalendarSyncForWorkspace } from "../../calendar/sync-job.ts";
-import { DATA_DIR, db, deleteLectureAudioOnly, deleteLectureById, getLectureById, getUserById, resetLectureForRetry } from "../../db.ts";
+import { DATA_DIR, db, deleteLectureAudioOnly, deleteLectureById, deleteRecordingNativeRows, getLectureById, getUserById, resetLectureForRetry } from "../../db.ts";
 import { logger } from "../../log.ts";
+import { createMarker, deleteMarker, getMarker, listMarkers, type MarkerRow } from "../../markers.ts";
+import { endLiveActivity, pushDeviceOf, setLiveActivity } from "../../push-devices.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
 import { deleteAlignment, readAlignment } from "../../pdf-align-file.ts";
@@ -21,6 +23,7 @@ import {
   actionItemDto,
   eventCandidateDto,
   gapDto,
+  iso,
   parseJson,
   questionDto,
   recordingDto,
@@ -53,6 +56,15 @@ import {
 } from "./store.ts";
 
 /** A handler for `/recordings/{recording_id}/...` that 404s on recordings the caller cannot see. */
+const markerDto = (m: MarkerRow) => ({
+  id: m.id,
+  recording_id: m.recording_id,
+  at_ms: m.at_ms,
+  label: m.label,
+  created_by: m.created_by,
+  created_at: iso(m.created_at),
+});
+
 function withRecording(handler: (req: V2Request, recording: RecordingRow) => Response | Promise<Response>, action: Parameters<typeof loadRecording>[2] = "recording:read"): Handler {
   return (req) => {
     const recording = loadRecording(req, req.params.recording_id, action);
@@ -170,6 +182,7 @@ function deleteRecording(recording: RecordingRow): void {
   deleteRecordingThreads(db, recording.workspace_id, recording.id);
   db.query("DELETE FROM pdf_page WHERE recording_id = ?").run(recording.id);
   deleteAlignment(recording.id);
+  deleteRecordingNativeRows(recording.id);
   deleteRecordingRows(db, recording.id);
   enqueueCalendarSyncForWorkspace(recording.workspace_id);
 }
@@ -437,12 +450,44 @@ export const recordingsRouter = defineRouter({
     if (recording instanceof Response) return recording;
     return ok(req, readAlignment(recording.id));
   },
-  // Live Activities (D-P6-2, D-P6-12) and recording markers (D-P6-3): contract only until P6-01.
-  setLiveActivity: notImplemented,
-  endLiveActivity: notImplemented,
-  listMarkers: notImplemented,
-  createMarker: notImplemented,
-  deleteMarker: notImplemented,
+  // Live Activities (D-P6-2, D-P6-12): one per recording and device, on a recording the
+  // caller can see and a device that is theirs (else 404, like an unknown recording).
+  setLiveActivity: withRecording((req, recording) => {
+    const body = req.body as SetLiveActivityRequest;
+    if (!pushDeviceOf(req.user!.id, body.device_id)) return notFound(req, "기기");
+    setLiveActivity({ recordingId: recording.id, deviceId: body.device_id, pushToken: body.push_token });
+    return req.c.body(null, 204);
+  }),
+  endLiveActivity: withRecording((req, recording) => {
+    const deviceId = String((req.query as { device_id: string }).device_id);
+    if (!pushDeviceOf(req.user!.id, deviceId) || !endLiveActivity(recording.id, deviceId)) return notFound(req, "실시간 현황");
+    return req.c.body(null, 204);
+  }),
+
+  // Markers (D-P6-3): anyone who can see the recording lists them; marking needs edit rights.
+  listMarkers: withRecording((req, recording) => ok(req, { items: listMarkers(recording.id).map(markerDto), next_cursor: null })),
+  createMarker: withRecording((req, recording) => {
+    const body = req.body as CreateMarkerRequest;
+    const result = createMarker({
+      workspaceId: recording.workspace_id,
+      recordingId: recording.id,
+      atMs: body.at_ms,
+      label: body.label ?? null,
+      userId: req.user!.id,
+    });
+    if (result === "full") return apiError(req.c, 409, "conflict", "표시는 녹음 하나에 200개까지 넣을 수 있습니다.");
+    return ok(req, markerDto(result.marker), { status: 201 });
+  }, "recording:update"),
+  // The author, or anyone who may edit the recording.
+  deleteMarker: withRecording((req, recording) => {
+    const marker = getMarker(recording.id, String(req.params.marker_id));
+    if (!marker) return notFound(req, "표시");
+    if (marker.created_by !== req.user!.id && !can(callerIn(req, recording.workspace_id), "recording:update", recording)) {
+      return apiError(req.c, 403, "forbidden", "이 표시를 지울 권한이 없습니다.");
+    }
+    deleteMarker(recording.id, marker.id);
+    return req.c.body(null, 204);
+  }),
 });
 
 /**

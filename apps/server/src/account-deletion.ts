@@ -18,7 +18,7 @@ import { config } from "@lectern/config";
 import { deleteRecordingIndex, deleteWorkspaceAskData } from "@lectern/ask";
 import { deleteRecordingRows, deleteWorkspaceRows, personalWorkspaceId, projectLecture } from "@lectern/db";
 import { BlobStore, deleteArtifactsForJobs } from "@lectern/harness";
-import { db, deleteLectureById, deleteUserAndData, getUserById, HARNESS_BLOB_DIR, transferLectureOwner } from "./db.ts";
+import { db, deleteLectureById, deleteRecordingNativeRows, deleteUserAndData, getUserById, HARNESS_BLOB_DIR, transferLectureOwner } from "./db.ts";
 import { exportFilePath } from "./export/job.ts";
 import { revokeToken } from "./google/oauth.ts";
 import { forgetAccessToken, openGoogleTokens } from "./google/tokens.ts";
@@ -160,6 +160,7 @@ function deleteLooseRecording(recordingId: string, workspaceId: string): void {
   db.query(`DELETE FROM pdf_page WHERE recording_id = ?`).run(recordingId);
   deleteAlignment(recordingId);
   deleteRecordingIndex(db, workspaceId, recordingId);
+  deleteRecordingNativeRows(recordingId);
   deleteRecordingRows(db, recordingId);
 }
 

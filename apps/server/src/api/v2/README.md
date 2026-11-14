@@ -1,6 +1,6 @@
 # API v2 (`/api/v2`)
 
-`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 계약만 있고 아직 만들지 않은 P6 네이티브 앱 라우트는 `501 not_implemented`다(아래 표).
+`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 계약만 있고 아직 만들지 않은 라우트(`adminListV1Usage`, P6-03)는 `501 not_implemented`다(아래 표).
 
 ## 요청 처리 순서
 
@@ -69,8 +69,8 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 | `POST /me/deletion` | `requestAccountDeletion` | 실제 | P5-09. 웹 세션만(PAT·네이티브·v1 토큰은 403). 비밀번호 확인(틀리면 403, 사용자당 15분 5번), 비밀번호 없는 Google·Apple 계정은 10분 안에 다시 로그인한 세션. 팀의 유일한 owner면 409. 7일 뒤 `account_deletion` 작업이 지운다. 이미 예약돼 있으면 날짜 그대로 |
 | `DELETE /me/deletion` | `cancelAccountDeletion` | 실제 | P5-09. 유예 중 취소. 다시 요청하면 새 7일 |
 | `GET /me/deletion` | `getAccountDeletion` | 실제 | P5-09 |
-| `PUT /me/push-devices/{device_id}` | `upsertPushDevice` | 501 | P6-01. 푸시 기기 등록·갱신(D-P6-1). `device_id`는 앱이 처음 실행될 때 만든 UUID. 응답에 토큰은 없다 |
-| `DELETE /me/push-devices/{device_id}` | `deletePushDevice` | 501 | P6-01. 그 기기로 더 보내지 않는다 |
+| `PUT /me/push-devices/{device_id}` | `upsertPushDevice` | 실제 | P6-01. 푸시 기기 등록·갱신(D-P6-1). `device_id`는 앱이 처음 실행될 때 만든 UUID. 다른 사용자의 id면 409. 같은 APNs 토큰을 가진 다른 행(다른 기기·다른 사용자)은 지운다. 사용자당 20개(넘으면 가장 오래 안 보인 기기를 지움). 토큰은 소문자 16진수로 저장하고 응답·로그에 없다. 앱 로그아웃(`revokeNativeToken`)과 비밀번호 변경·전체 로그아웃 때 그 사용자의 기기를 모두 지운다(웹 로그아웃은 그대로) |
+| `DELETE /me/push-devices/{device_id}` | `deletePushDevice` | 실제 | P6-01. 그 기기와 Live Activity 행을 지운다. 내 기기가 아니면 404 |
 | `POST /auth/native/token` | `issueNativeToken` | 실제 | 공개(세션 없음). 비밀번호 또는 refresh로 access(1시간)·refresh(60일) 쌍(D-P5-4). refresh는 한 번만 쓰고, 다시 오면 그 로그인 전체를 폐기 |
 | `POST /auth/native/revoke` | `revokeNativeToken` | 실제 | 공개. 그 refresh의 로그인 전체를 폐기. 모르는 토큰도 204 |
 | `GET /workspaces` | `listWorkspaces` | 실제 | 개인 워크스페이스가 먼저 |
@@ -112,11 +112,11 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 | `GET /recordings/{recording_id}/action-items` | `listRecordingActionItems` | 실제 | |
 | `POST /recordings/{recording_id}/reprocess` | `reprocessRecording` | 실제 | `full`은 오디오부터 다시(`LECTERN_PIPELINE=v2`면 `process`, 아니면 v1 재분석). `document`는 저장된 전사로 노트만 다시 만든다(`regenerate`, 새 문서 버전; 전사가 없으면 409). `dry_run`은 추정 비용 |
 | `DELETE /recordings/{recording_id}/audio` | `deleteRecordingAudio` | 실제 | 오디오만 지운다(전사·문서·노트·검색 색인은 남음). v1 강의는 `deleteLectureAudioOnly` 뒤 투영, `file:` 오디오 asset은 uploads 안의 파일과 행을 지움. 이미 없으면 204 |
-| `PUT /recordings/{recording_id}/live-activity` | `setLiveActivity` | 501 | P6-01. `{ device_id, push_token }`. 처리 단계가 바뀔 때와 끝났을 때 Live Activity를 갱신(D-P6-2, D-P6-12) |
-| `DELETE /recordings/{recording_id}/live-activity` | `endLiveActivity` | 501 | P6-01. `?device_id=`(DELETE 본문을 쓰지 않는다) |
-| `GET /recordings/{recording_id}/markers` | `listMarkers` | 501 | P6-01. 녹음 중 "중요" 표시(D-P6-3), 오디오 순서 |
-| `POST /recordings/{recording_id}/markers` | `createMarker` | 501 | P6-01. 원본 오디오 ms(최대 24시간)와 라벨(80자) |
-| `DELETE /recordings/{recording_id}/markers/{marker_id}` | `deleteMarker` | 501 | P6-01 |
+| `PUT /recordings/{recording_id}/live-activity` | `setLiveActivity` | 실제 | P6-01. `{ device_id, push_token }`. 볼 수 있는 녹음과 내 기기여야 한다(아니면 404). (녹음, 기기)마다 한 행, 다시 오면 토큰을 바꾸고 `active`. 발송은 P6-02(D-P6-2, D-P6-12) |
+| `DELETE /recordings/{recording_id}/live-activity` | `endLiveActivity` | 실제 | P6-01. `?device_id=`(DELETE 본문을 쓰지 않는다). `ended`, `ended_at`. 없으면 404 |
+| `GET /recordings/{recording_id}/markers` | `listMarkers` | 실제 | P6-01. 녹음 중 "중요" 표시(D-P6-3), `at_ms` 순서. 녹음을 볼 수 있는 사람 |
+| `POST /recordings/{recording_id}/markers` | `createMarker` | 실제 | P6-01. 녹음을 고칠 수 있어야 한다(viewer 403). 원본 오디오 ms(최대 24시간)와 라벨(80자). 같은 사용자의 ±500ms 안 마커가 있으면 그것을 201로(두 번 누름). 녹음당 200개(넘으면 409). 노트를 만들 때 `structure`에 표시 구간으로 들어간다 |
+| `DELETE /recordings/{recording_id}/markers/{marker_id}` | `deleteMarker` | 실제 | P6-01. 만든 사람 또는 녹음을 고칠 수 있는 사람(아니면 403). 녹음을 지우면 마커와 Live Activity 행도 지운다 |
 | `GET /assets/{asset_id}/content` | `getAssetContent` | 실제 | Range, 확장자 기준 MIME, `?token=` 가능 |
 | `GET /assets/{asset_id}/pages` | `listAssetPages` | 실제 | `LECTERN_PDF=1`일 때만(아니면 501). `process`의 `pdf_ingest`가 채운 쪽마다 글자 층 유무와 글자 수, `scanned` |
 | `POST /assets/{asset_id}/ocr` | `ocrAsset` | 실제 | `LECTERN_PDF=1`일 때만(아니면 501). `dry_run: true`는 글자 없는 쪽 수와 추정 비용만(모델·큐를 건드리지 않음). `false`는 `pdf_ocr` 작업을 넣고 202(API에서는 `kind: "process"`). 쪽을 아직 못 읽었으면 409, 서버 키가 없으면 503, 녹음을 바꿀 권한이 없으면 403 |

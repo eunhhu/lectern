@@ -88,12 +88,19 @@ export function rotateNativePair(refreshToken: string, now = Date.now()): Rotate
   })();
 }
 
-/** Signs the app out: revokes the family of this refresh token. Unknown tokens are ignored. */
-export function revokeNativeFamilyByRefresh(refreshToken: string, now = Date.now()): void {
-  if (!refreshToken.startsWith(REFRESH_PREFIX)) return;
-  const row = db.query(`SELECT family_id FROM native_session WHERE refresh_hash = ?`).get(sha256Hex(refreshToken)) as { family_id: string } | null;
-  if (!row) return;
+/**
+ * Signs the app out: revokes the family of this refresh token. Unknown tokens are ignored.
+ * Returns the family's user (null for an unknown token), for the sign-out's other cleanup.
+ */
+export function revokeNativeFamilyByRefresh(refreshToken: string, now = Date.now()): string | null {
+  if (!refreshToken.startsWith(REFRESH_PREFIX)) return null;
+  const row = db.query(`SELECT family_id, user_id FROM native_session WHERE refresh_hash = ?`).get(sha256Hex(refreshToken)) as {
+    family_id: string;
+    user_id: string;
+  } | null;
+  if (!row) return null;
   db.query(`UPDATE native_session SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL`).run(now, row.family_id);
+  return row.user_id;
 }
 
 // When this process last wrote last_used_at for a pair: one write per 5 minutes at most.
