@@ -9,6 +9,14 @@ public struct Transcript: Sendable, Equatable {
         public let speakerID: String?
         public let text: String
         public var id: Int { idx }
+
+        public init(idx: Int, startMs: Int, endMs: Int, speakerID: String?, text: String) {
+            self.idx = idx
+            self.startMs = startMs
+            self.endMs = endMs
+            self.speakerID = speakerID
+            self.text = text
+        }
     }
 
     /// A stretch with no transcript (a break, the tail, a chunk that failed).
@@ -16,12 +24,25 @@ public struct Transcript: Sendable, Equatable {
         public let kind: String
         public let startMs: Int
         public let endMs: Int
+
+        public init(kind: String, startMs: Int, endMs: Int) {
+            self.kind = kind
+            self.startMs = startMs
+            self.endMs = endMs
+        }
     }
 
     public let recordingID: String
     public let segments: [Segment]
     public let speakers: [Speaker]
     public let gaps: [Gap]
+
+    public init(recordingID: String, segments: [Segment], speakers: [Speaker], gaps: [Gap]) {
+        self.recordingID = recordingID
+        self.segments = segments
+        self.speakers = speakers
+        self.gaps = gaps
+    }
 
     /// The speaker of a segment, by its id.
     public func speaker(of segment: Segment) -> Speaker? {

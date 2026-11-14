@@ -16,7 +16,7 @@ apps/apple/
   MANUAL_CHECKS.md                    실제 기기에서만 확인되는 것
 ```
 
-화면은 아직 "Lectern" 글자 하나뿐이다. LecternKit에는 API 클라이언트, 인증, 업로드 큐가 있고(P6-A2·A3), RecorderKit에는 녹음 엔진이 있다(P6-A4, 아래).
+화면은 아직 "Lectern" 글자 하나뿐이다. LecternKit에는 API 클라이언트, 인증, 업로드 큐가 있고(P6-A2·A3), RecorderKit에는 녹음 엔진이(P6-A4), LecternUI에는 문서·전사·플레이어 부품이 있다(P6-A5, 아래).
 
 ## API 클라이언트 (LecternKit)
 
@@ -35,6 +35,14 @@ apps/apple/
 - iOS는 `SessionCoordinator`가 오디오 세션(`.playAndRecord`, 블루투스 HFP, 스피커)을 켜고 통화·경로 변경 알림을 `Recorder.handle`로 넘긴다. 마이크 권한 문구(`NSMicrophoneUsageDescription`)와 백그라운드 오디오(`UIBackgroundModes: audio`)는 `project.yml`에 있다. 권한 요청(`AVAudioApplication.requestRecordPermission`)은 앱이 녹음 전에 한다.
 - `levels`(0…1, 오디오 시간 기준 초당 최대 10번)와 `silenceWarning`(녹음 시간으로 20초 무음)은 읽을 때마다 새 스트림이다. 화면과 Live Activity가 함께 읽을 수 있다.
 - 저장 공간이 200MB 아래면 시작하지 않는다. 쓰기에 실패하면 `failed`가 되고 그때까지의 파일은 지우지 않는다. m4a는 녹음 중 앱이 죽으면 읽을 수 없다(MANUAL_CHECKS 9).
+
+## 화면 부품 (LecternUI)
+
+- 디자인 토큰은 `packages/design-tokens/dist/Tokens.swift`를 `Packages/LecternUI/Sources/LecternUI/Tokens/`에 **복사해 커밋한다**(SwiftPM은 패키지 밖 파일을 못 읽는다). 게이트의 `scripts/pre-gate-tokens.sh`는 두 파일이 다르면 멈추고 복사 명령을 알려 준다(대신 복사하지 않는다). 토큰을 바꾼 뒤에는 `bun run tokens:build` → 복사.
+- 화면 코드는 `Theme`의 색 이름과 `.lecternFont(<역할>)`만 쓴다. 색 16진수와 글자 크기 숫자를 쓰지 않는다. `Font.system(size:weight:)`에는 `relativeTo:`가 없어 `lecternFont`가 `@ScaledMetric(relativeTo:)`로 Dynamic Type을 따른다.
+- `DocumentView(document:transcript:onSource:)`: 웹 DocumentPane과 같은 규칙. 모르는 블록은 그리지 않는다. 블록 글은 일반 텍스트다(Markdown으로 읽지 않는다). 섹션이 없는 옛 노트는 Markdown(인라인만)으로 보인다. 출처 칩은 전사가 있어야 시각(`12:05`)을 보이고, 구간을 찾지 못하면 "원본 없음", 출처가 없으면 "출처 확인 필요".
+- `TranscriptList`는 재생 위치를 따라 현재 구간을 강조하고 스크롤한다. 사용자가 스크롤하면 멈춘 뒤 5초 동안 따라가지 않는다. `PlayerViewModel`/`PlayerBar`는 첫 재생 때 항목을 불러온다.
+- 뷰 모양은 스냅샷 테스트하지 않는다. 라벨·시간 표기·그릴 블록·출처 해석은 순수 함수로 테스트한다. 미리보기는 `Preview/PreviewData.swift`(블록 종류마다 밝은·어두운·가장 큰 글자).
 
 ## 처음 실행
 

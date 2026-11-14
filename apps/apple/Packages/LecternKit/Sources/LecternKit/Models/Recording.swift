@@ -185,6 +185,12 @@ public struct Speaker: Sendable, Equatable, Identifiable {
 
     public var name: String { displayName ?? label }
 
+    public init(id: String, label: String, displayName: String?) {
+        self.id = id
+        self.label = label
+        self.displayName = displayName
+    }
+
     init(_ s: Components.Schemas.Speaker) {
         id = s.id
         label = s.label

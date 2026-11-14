@@ -18,6 +18,11 @@ public enum SourceRef: Sendable, Equatable {
 public struct ListItem: Sendable, Equatable {
     public let text: String
     public let sources: [SourceRef]
+
+    public init(text: String, sources: [SourceRef]) {
+        self.text = text
+        self.sources = sources
+    }
 }
 
 /// One block of a document. The set of types is open: a type this app does not know decodes as
@@ -28,9 +33,9 @@ public enum DocumentBlock: Sendable, Equatable {
     case quote(id: String, heading: String?, text: String, speaker: String?, sources: [SourceRef])
     case term(id: String, heading: String?, term: String, definition: String, sources: [SourceRef])
     case formula(id: String, heading: String?, expression: String, explanation: String?, sources: [SourceRef])
-    /// `tone`: `info`, `warning`, `exam` … (open).
+    /// `tone`: `exam`, `assignment`, `important`, `note` (domain `CalloutTone`; open).
     case callout(id: String, heading: String?, tone: String, text: String, sources: [SourceRef])
-    /// A stretch the transcript does not cover.
+    /// A stretch the transcript does not cover. `kind`: `break`, `tail`, `missing_transcript` (open).
     case gap(id: String, heading: String?, kind: String, startMs: Int, endMs: Int)
     case unknown(type: String)
 
