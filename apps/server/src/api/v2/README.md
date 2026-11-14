@@ -1,15 +1,16 @@
 # API v2 (`/api/v2`)
 
-`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 뒤 단계 기능 2개(P5)는 아직 `501 not_implemented`다.
+`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 아직 만들지 않은 P5 계정 기능은 `501 not_implemented`다(아래 표).
 
 ## 요청 처리 순서
 
 모든 라우트는 리소스 라우터(`me.ts`, `recordings.ts` …)가 `defineRouter()`로 domain의 `RouteDef`에서 메서드·경로·스키마를 읽어 등록한다. 경로를 이 디렉터리에 다시 적지 않는다.
 
-1. **인증(401)**: v1과 같은 `authenticateRequest()`(`../../auth.ts`)를 쓴다. `lectern_session` 쿠키, `Authorization: Bearer`, `X-Lectern-Token`, `?token=`을 받는다.
-2. **운영자 확인(403)**: `admin` 태그 라우트는 v1 `isAdminUser()`가 참이어야 한다.
-3. **검증(400·428)**: params, query, 헤더, JSON 본문을 domain 스키마로 검증한다. 실패하면 `validation_failed`이고 `details.issues[].path` 앞에 `params`/`query`/`headers`/`body`가 붙는다. JSON 본문은 `Content-Type: application/json`이어야 한다(교차 사이트 HTML 폼 차단). `If-Match`가 필수인 라우트에서 헤더가 없으면 428이다.
-4. **처리**: 응답은 라우트의 응답 스키마로 `parse()`한 뒤 보낸다. 통과하지 못하면 500 `internal`이다.
+1. **인증(401)**: `authn.ts`의 `authenticateV2()`. `lectern_session` 쿠키, `Authorization: Bearer`, `X-Lectern-Token`, `?token=`을 받는다. 세션과 v1 API 토큰은 v1과 같은 결과(`auth.ts` `resolveActiveUser()`)이고, 개인 액세스 토큰(`lct_pat_…`, P5-02)은 v2에서만 받는다(v1 라우트에서는 401).
+2. **개인 액세스 토큰 검사(403)**: `me`(단 `getMe`는 허용)·`admin`·`auth` 태그와 공유 링크·Google 연동 시작/해제는 토큰으로 부를 수 없다. `GET`·`HEAD`는 `recordings:read`, 그 밖은 `recordings:write` 범위가 있어야 한다. 토큰은 만들 때 고른 워크스페이스에서만 멤버로 보인다(`access.ts` `callerIn`).
+3. **운영자 확인(403)**: `admin` 태그 라우트는 v1 `isAdminUser()`가 참이어야 한다.
+4. **검증(400·428)**: params, query, 헤더, JSON 본문을 domain 스키마로 검증한다. 실패하면 `validation_failed`이고 `details.issues[].path` 앞에 `params`/`query`/`headers`/`body`가 붙는다. JSON 본문은 `Content-Type: application/json`이어야 한다(교차 사이트 HTML 폼 차단). `If-Match`가 필수인 라우트에서 헤더가 없으면 428이다.
+5. **처리**: 응답은 라우트의 응답 스키마로 `parse()`한 뒤 보낸다. 통과하지 못하면 500 `internal`이다.
 
 모든 요청 앞에서 `syncPendingLectures()`가 db.ts를 거치지 않은 강의 쓰기(압축 등)를 v2 행에 반영한다. 응답에는 `Cache-Control: no-store`가 붙는다. 등록되지 않은 `/api/v2/*`는 v2 형식의 404다. `GET /api/v2/openapi.json`은 인증 없이 열린다.
 
@@ -51,9 +52,9 @@
 | `PATCH /me` | `updateMe` | 실제 | 표시 이름, 시간대 |
 | `GET /me/devices` | `listDevices` | 실제 | v1 로그인 세션. 기기 이름·UA는 P5(`auth_session`)까지 null |
 | `DELETE /me/devices/{device_id}` | `revokeDevice` | 실제 | 그 세션 로그아웃 |
-| `GET /me/tokens` | `listAccessTokens` | 실제 | v1 API 토큰 하나(앞 8자만) |
-| `POST /me/tokens` | `createAccessToken` | 501 | PAT는 P5 |
-| `DELETE /me/tokens/{token_id}` | `revokeAccessToken` | 501 | P5. v1 `rotate-token`이 대신한다 |
+| `GET /me/tokens` | `listAccessTokens` | 실제 | v1 API 토큰(앞 8자만)을 맨 앞에, 그 뒤로 개인 액세스 토큰(P5-02) |
+| `POST /me/tokens` | `createAccessToken` | 실제 | 개인 액세스 토큰(D-P5-3). 원문은 이 응답에서 한 번만. 사용자당 살아 있는 토큰 20개 |
+| `DELETE /me/tokens/{token_id}` | `revokeAccessToken` | 실제 | 개인 액세스 토큰만. v1 토큰 id면 409(v1 `rotate-token`이 대신한다) |
 | `GET /me/identities` | `listIdentities` | 501 | P5-04·P5-05(Google·Apple 로그인) |
 | `DELETE /me/identities/{identity_id}` | `unlinkIdentity` | 501 | 마지막 로그인 수단은 409 |
 | `POST /me/exports` | `createExport` | 501 | P5-08(`export` 작업) |

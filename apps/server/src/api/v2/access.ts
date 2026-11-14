@@ -70,6 +70,8 @@ export function roleIn(userId: string, workspaceId: string): WorkspaceRole | nul
 }
 
 export function callerIn(req: V2Request, workspaceId: string): Caller {
+  // A personal access token acts on its own workspace only: elsewhere it is not a member.
+  if (req.pat && req.pat.workspaceId !== workspaceId) return { userId: req.user!.id, role: null };
   return { userId: req.user!.id, role: roleIn(req.user!.id, workspaceId) };
 }
 

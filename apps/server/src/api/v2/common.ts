@@ -19,8 +19,10 @@ import {
   type RouteDef,
   type ValidationErrorDetails,
 } from "@lectern/domain";
-import { authenticateRequest, isAdminUser } from "../../auth.ts";
+import type { PatRow } from "../../access-tokens.ts";
+import { isAdminUser } from "../../auth.ts";
 import type { UserRecord } from "../../db.ts";
+import { authenticateV2 } from "./authn.ts";
 
 export type V2Env = { Variables: { requestId: string; user: UserRecord | null } };
 export type V2Context = Context<V2Env>;
@@ -30,6 +32,8 @@ export interface V2Request {
   c: V2Context;
   route: RouteDef;
   user: UserRecord | null;
+  /** Set when the request came with a personal access token (P5-02): its workspace and scopes bind the request. */
+  pat?: PatRow;
   params: Record<string, unknown>;
   query: Record<string, unknown>;
   headers: Record<string, unknown>;
@@ -147,7 +151,7 @@ function validate(
   return {};
 }
 
-async function parseRequest(c: V2Context, route: RouteDef): Promise<Omit<V2Request, "c" | "route" | "user"> | Response> {
+async function parseRequest(c: V2Context, route: RouteDef): Promise<Omit<V2Request, "c" | "route" | "user" | "pat"> | Response> {
   const issues: Issue[] = [];
   const params = validate(route.params, c.req.param(), "params", issues);
   const query = validate(route.query, c.req.query(), "query", issues);
@@ -190,6 +194,25 @@ async function parseRequest(c: V2Context, route: RouteDef): Promise<Omit<V2Reque
 }
 
 // ---------------------------------------------------------------------------
+// Personal access tokens (P5-02, D-P5-3)
+// ---------------------------------------------------------------------------
+
+// Account, sign-in and operator routes, and the ones that hand data or access to others,
+// stay with the signed-in user: a token made for a script cannot reach them.
+const PAT_CLOSED_TAGS = new Set(["me", "admin", "auth"]);
+const PAT_OPEN_IN_CLOSED_TAGS = new Set(["getMe"]);
+const PAT_CLOSED_OPERATIONS = new Set(["createShareLink", "updateShareLink", "revokeShareLink", "startGoogleIntegration", "disconnectIntegration"]);
+
+/** Why a personal access token may not make this call, or null when it may. */
+function patDenial(route: RouteDef, method: string, pat: PatRow): string | null {
+  const closed = (PAT_CLOSED_TAGS.has(route.tag) && !PAT_OPEN_IN_CLOSED_TAGS.has(route.operationId)) || PAT_CLOSED_OPERATIONS.has(route.operationId);
+  if (closed) return "개인 액세스 토큰으로는 이 작업을 할 수 없습니다.";
+  const needed = method === "GET" || method === "HEAD" ? "recordings:read" : "recordings:write";
+  if (!pat.scopes.includes(needed)) return "이 토큰에는 필요한 권한이 없습니다.";
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -203,15 +226,21 @@ export function defineRouter(handlers: Record<string, Handler>): Hono<V2Env> {
     const route = ROUTES_BY_OPERATION[operationId];
     if (!route) throw new Error(`unknown API v2 operation: ${operationId}`);
     router.on(route.method.toUpperCase(), toHonoPath(route.path), async (c) => {
-      const user = authenticateRequest(c.req.raw);
+      const auth = authenticateV2(c.req.raw);
+      const user = auth?.user ?? null;
       if (!user && !route.public) return apiError(c, 401, "unauthorized", "로그인이 필요합니다.");
+      const pat = auth?.pat;
+      if (pat) {
+        const denial = patDenial(route, c.req.method.toUpperCase(), pat);
+        if (denial) return apiError(c, 403, "forbidden", denial);
+      }
       if (route.tag === "admin" && !isAdminUser(user)) {
         return apiError(c, 403, "forbidden", "운영자만 사용할 수 있습니다.");
       }
       c.set("user", user);
       const input = await parseRequest(c, route);
       if (input instanceof Response) return input;
-      return handler({ c, route, user, ...input });
+      return handler({ c, route, user, ...(pat ? { pat } : {}), ...input });
     });
   }
   return router;

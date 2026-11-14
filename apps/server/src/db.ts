@@ -923,6 +923,8 @@ export function deleteUserAndData(targetUserId: string): boolean {
   db.query(`DELETE FROM reminder WHERE user_id = ?`).run(targetUserId);
   db.query(`DELETE FROM calendar_feed WHERE user_id = ?`).run(targetUserId);
   db.query(`DELETE FROM calendar_event_link WHERE integration_id IN (SELECT id FROM integration WHERE user_id = ?)`).run(targetUserId);
+  // Their personal access tokens (P5-02).
+  db.query(`DELETE FROM access_token WHERE user_id = ?`).run(targetUserId);
   deleteWorkspaceRows(db, personalWorkspaceId(targetUserId));
   db.query(`DELETE FROM membership WHERE user_id = ?`).run(targetUserId);
   const res = db.query(`DELETE FROM users WHERE id = ?`).run(targetUserId);

@@ -21,7 +21,7 @@ import { enqueueRecordingProcessing } from "../../process-job.ts";
 import { logger } from "../../log.ts";
 import { AUDIO_EXT_BY_MIME, AUDIO_MIME_BY_EXT } from "../../media-files.ts";
 import { isLectureBusy } from "../../queue.ts";
-import { loadRecording, requireWorkspace } from "./access.ts";
+import { callerIn, loadRecording, requireWorkspace } from "./access.ts";
 import { createRecordingForAudio } from "./ingest.ts";
 import { apiError, defineRouter, notFound, ok, type V2Request } from "./common.ts";
 import { recordingDto, uploadSessionDto, type QueueJobRow, type RecordingRow, type UploadRow } from "./rows.ts";
@@ -87,7 +87,7 @@ function sweepExpired(now = Date.now()): void {
 /** The caller's own session (anyone else's is "not found"), its expiry applied. */
 function ownUpload(req: V2Request): UploadRow | Response {
   const upload = getUpload(String(req.params.upload_id));
-  if (!upload || upload.user_id !== req.user!.id) return notFound(req, "업로드");
+  if (!upload || upload.user_id !== req.user!.id || !callerIn(req, upload.workspace_id).role) return notFound(req, "업로드");
   if (upload.status === "open" && upload.expires_at < Date.now()) {
     sweepExpired();
     return getUpload(upload.id)!;
