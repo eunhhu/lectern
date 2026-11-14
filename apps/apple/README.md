@@ -24,6 +24,7 @@ apps/apple/
 - 입력은 그대로 복사하지 않고 `scripts/openapi-for-swift.py`로 세 가지를 고친다. 생성기가 zod의 표기를 다르게 읽기 때문이다. ① `anyOf: [X, null]`(nullable 참조)은 생성기가 속성째 버린다 → `X`로 바꾸고 `required`에서 뺀다(생성 필드가 옵셔널). ② 판별자가 있는 `oneOf`의 가지가 인라인 객체이면(`SourceRef`, `NativeTokenRequest`) 케이스 없는 enum이 된다 → 가지마다 컴포넌트(`SourceRefPdfPage` 등)와 `mapping`을 만든다. ③ 문자열 `enum`은 모르는 값에서 던지는 Swift enum이 된다. domain의 enum은 모두 열려 있다 → `enum`을 지우고(문자열) 모델에서 `unknown`으로 받는다.
 - 앱은 생성 타입(`internal`)을 보지 않는다. `LecternAPI`(목록·상세·전사·문서·자산 요청)와 `Models/`의 값 타입만 쓴다. 모르는 블록 `type`은 `DocumentBlock.unknown`, 모르는 출처 `kind`는 빠진다(`OpenUnionMiddleware`).
 - 인증은 `AuthProvider` 뒤에 있다. `ApiTokenProvider`는 v1 API 토큰(`X-Lectern-Token`), `NativeTokenProvider`는 네이티브 토큰 쌍(D-P5-4, `Authorization: Bearer`)이다. 401이면 refresh를 한 번 하고 한 번만 다시 보낸다. 동시에 여러 요청이 401을 받아도 refresh는 한 번이다. 토큰은 Keychain(`KeychainTokenStore`, 서비스 `com.qucord.lectern`, 앱이 넘기는 접근 그룹)에만 둔다.
+- 업로드는 `Upload/`의 `UploadQueue`(actor)다(P6-A3, D-P6-6). 대기열은 App Group 컨테이너의 `UploadQueue/<id>.json`(항목마다 파일 하나, 원자적 쓰기)이라 공유 확장·위젯도 같이 본다. 항목 id가 `createUpload`·`completeUpload`의 `Idempotency-Key`다. 재개할 때는 서버의 `received_parts`가 기준이고, 파트는 파일의 그 구간만 읽어 보낸다(메모리에 올리지 않는다). 백그라운드 `URLSession` 연결은 `BackgroundUploader`이고 단위 테스트가 없다(`MANUAL_CHECKS.md` 1–3).
 - 패키지 의존(GitHub)을 받아야 하므로 처음 게이트는 네트워크가 필요하다. 버전은 `Packages/LecternKit/Package.resolved`에 고정돼 있다.
 
 ## 처음 실행

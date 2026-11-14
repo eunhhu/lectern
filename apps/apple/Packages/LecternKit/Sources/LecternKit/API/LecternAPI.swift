@@ -7,8 +7,8 @@ import OpenAPIURLSession
 /// the value types in Models/.
 public struct LecternAPI: Sendable {
     public let serverURL: URL
-    private let auth: AuthProvider
-    private let client: Client
+    let auth: AuthProvider
+    let client: Client
 
     public init(serverURL: URL, auth: AuthProvider, session: URLSession = .shared) {
         self.serverURL = serverURL
@@ -25,12 +25,12 @@ public struct LecternAPI: Sendable {
     // MARK: - Calls
 
     public func me() async throws -> Me {
-        try await call { Me(try await client.getMe(.init()).ok.body.json) }
+        try await run { Me(try await client.getMe(.init()).ok.body.json) }
     }
 
     /// Every workspace the user belongs to.
     public func workspaces() async throws -> [WorkspaceSummary] {
-        try await call {
+        try await run {
             try await allPages { cursor in
                 let page = try await client.listWorkspaces(.init(query: .init(cursor: cursor))).ok.body.json
                 return (page.items.map(WorkspaceSummary.init), page.next_cursor)
@@ -40,7 +40,7 @@ public struct LecternAPI: Sendable {
 
     /// Every folder of a workspace.
     public func folders(workspaceID: String) async throws -> [Folder] {
-        try await call {
+        try await run {
             try await allPages { cursor in
                 let page = try await client.listFolders(.init(query: .init(cursor: cursor, workspace_id: workspaceID))).ok.body.json
                 return (page.items.map(Folder.init), page.next_cursor)
@@ -50,7 +50,7 @@ public struct LecternAPI: Sendable {
 
     /// One page of a workspace's recordings, newest first; `folderID` nil means every folder.
     public func recordings(workspaceID: String, folderID: String?, cursor: String?) async throws -> Page<RecordingSummary> {
-        try await call {
+        try await run {
             let page = try await client.listRecordings(
                 .init(query: .init(cursor: cursor, workspace_id: workspaceID, folder_id: folderID))
             ).ok.body.json
@@ -59,15 +59,15 @@ public struct LecternAPI: Sendable {
     }
 
     public func recording(id: String) async throws -> RecordingDetail {
-        try await call { RecordingDetail(try await client.getRecording(.init(path: .init(recording_id: id))).ok.body.json) }
+        try await run { RecordingDetail(try await client.getRecording(.init(path: .init(recording_id: id))).ok.body.json) }
     }
 
     public func transcript(recordingID: String) async throws -> Transcript {
-        try await call { Transcript(try await client.getTranscript(.init(path: .init(recording_id: recordingID))).ok.body.json) }
+        try await run { Transcript(try await client.getTranscript(.init(path: .init(recording_id: recordingID))).ok.body.json) }
     }
 
     public func document(id: String) async throws -> Document {
-        try await call { Document(try await client.getDocument(.init(path: .init(document_id: id))).ok.body.json) }
+        try await run { Document(try await client.getDocument(.init(path: .init(document_id: id))).ok.body.json) }
     }
 
     /// An authorised GET of an asset's bytes, for AVPlayer and downloads.
@@ -98,7 +98,8 @@ public struct LecternAPI: Sendable {
         }
     }
 
-    private func call<T>(_ body: () async throws -> T) async throws -> T {
+    /// Runs generated-client calls with every error turned into an APIError.
+    func run<T>(_ body: () async throws -> T) async throws -> T {
         do {
             return try await body()
         } catch {

@@ -74,7 +74,7 @@
     {"id":"P6-A0","title":"macOS: 토큰을 Keychain으로","deps":[],"owns":["apps/macos/"],"tier":"basic","gate":"apple","status":"merged"},
     {"id":"P6-A1","title":"apps/apple 뼈대와 게이트","deps":[],"owns":["apps/apple/",".gitignore"],"tier":"careful","gate":"apple","status":"merged"},
     {"id":"P6-A2","title":"LecternKit: API 클라이언트와 인증","deps":["P6-A1"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"merged"},
-    {"id":"P6-A3","title":"LecternKit: 재개 가능한 업로드 큐","deps":["P6-A2"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"todo"},
+    {"id":"P6-A3","title":"LecternKit: 재개 가능한 업로드 큐","deps":["P6-A2"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"merged"},
     {"id":"P6-A4","title":"RecorderKit","deps":["P6-A1"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"todo"},
     {"id":"P6-A5","title":"LecternUI","deps":["P6-A2"],"owns":["apps/apple/","packages/design-tokens/"],"tier":"basic","gate":"apple","status":"todo"},
     {"id":"P6-A6","title":"iOS 앱 셸","deps":["P6-A3","P6-A5"],"owns":["apps/apple/"],"tier":"basic","gate":"apple","status":"todo"},
