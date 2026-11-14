@@ -1,6 +1,6 @@
 # 보안 테스트 결과 (P5-15)
 
-- 실행한 커밋: `4196733`(p0-foundations) 위의 `wp/P5-15` 작업 트리 · 날짜: 2026-11-15 · 테스트 수: 48 · 통과: 46 · 실패: 2
+- 실행한 커밋: `4196733`(p0-foundations) 위의 `wp/P5-15` 작업 트리 · 날짜: 2026-11-15 · 테스트 수: 49 · 통과: 47 · 실패: 2
 - 실행: `bun test apps/server/test/security`(저장소 루트에서. 루트의 `bunfig.toml`이 테스트 샌드박스를 먼저 띄운다)
 - 테스트는 서버가 실제로 받는 입구(`handleRequest`, `/`를 보는 시험만 `createHttpApp`)에 요청을 보내고 응답과 DB를 본다. 서버 코드는 바꾸지 않았다.
 
@@ -47,8 +47,9 @@
 | 토큰 저장 | "known exceptions are exactly the v1 ones" | 평문으로 남는 것은 `users.api_token`, `sessions.token`, `lectures.share_token` 셋이고 각자 그 열에만 있다(v1 계약의 예외). v1 공유 토큰의 v2 링크는 해시다 |
 | 토큰 저장 | "tokens do not appear in logs" | 위 흐름 동안의 로그 출력에 원문이 없다 |
 | 남의 리소스 | `idor.test.ts` › "every v2 route refuses a foreign workspace" | 사용자 A의 워크스페이스(개인·팀)·녹음·문서·폴더·태그·보기·업로드·파일·작업·물어보기 대화·공유 링크·초대·내보내기·토큰·기기·identity·연동·화자·할 일·일정 제안 id로 낯선 사용자 B가 모든 v2 라우트를 토큰과 쿠키로 부른다: 403 또는 404, 일괄 처리는 항목마다 실패. 응답에 A의 이메일·제목·이름이 없다 |
+| 남의 리소스 | "A reaches its own ids (control for the refusals above)" | 위 거절이 없는 id에 대한 404가 아니라는 대조: A가 같은 id로 같은 라우트를 부르면 경로 매개변수 이름마다 하나 이상이 성공(또는 실제 행에서만 나는 409·412)한다. 물어보기 서비스가 꺼진 프로세스에서는 `thread_id`만 빠진다 |
 | 남의 리소스 | "unauthenticated" | 인증 없이, 위조한 쿠키·PAT로는 공개가 아닌 라우트 전부 401 |
-| 남의 리소스 | "viewer cannot write" | 팀 viewer의 팀 쓰기는 403·404(일괄은 항목마다 실패). 저장된 보기·자기 ICS 피드·자기 Google 연결은 그 사용자의 것이라 허용(팀이 공유하는 것을 바꾸지 않는다) |
+| 남의 리소스 | "viewer cannot write" | 계정은 보통이고 팀 멤버십만 viewer인 사용자의 팀 쓰기는 403·404(일괄은 항목마다 실패). 같은 요청을 소유자는 할 수 있다. 저장된 보기·자기 ICS 피드·자기 Google 연결은 그 사용자의 것이라 허용(팀이 공유하는 것을 바꾸지 않는다) |
 | 남의 리소스 | "private recording inside a shared workspace" | 같은 팀의 관리자도 남의 비공개 녹음은 읽기·수정·삭제 404, 목록·검색에 없다 |
 | 남의 리소스 | "ids are not guessable sequences" | 새 녹음 id는 숫자가 아니고, 연이어 만든 둘의 뒷부분이 거의 다르다(UUIDv7의 무작위 부분) |
 | 남의 리소스 | "SSE stream only carries my workspaces" | 남의 워크스페이스 구독은 403. 처음부터 다시 받아도(`Last-Event-ID: 0`) 실시간으로도 내 워크스페이스의 이벤트만 온다 |

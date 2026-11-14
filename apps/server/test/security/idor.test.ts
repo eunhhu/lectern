@@ -122,12 +122,12 @@ beforeAll(async () => {
   );
   ids.action_item_id = uuidv7();
   db.query(
-    `INSERT INTO action_item (id, workspace_id, recording_id, text, status, evidence_json, created_at, updated_at) VALUES (?, ?, ?, 'A의 할 일', 'open', '[]', ?, ?)`
+    `INSERT INTO action_item (id, workspace_id, recording_id, text, status, evidence_json, created_at, updated_at) VALUES (?, ?, ?, 'A의 할 일', 'open', '{"sources":[],"quote":"근거"}', ?, ?)`
   ).run(ids.action_item_id, ws, seeded.recordingId, now, now);
   ids.event_candidate_id = uuidv7();
   db.query(
     `INSERT INTO event_candidate (id, workspace_id, recording_id, kind, title, start_at, end_at, all_day, tz, raw_expression, resolution_json, confidence, evidence_json, status, created_at, updated_at)
-     VALUES (?, ?, ?, 'exam', 'A의 시험', ?, NULL, 0, 'Asia/Seoul', '다음 주', '{}', 0.9, '[]', 'suggested', ?, ?)`
+     VALUES (?, ?, ?, 'exam', 'A의 시험', ?, NULL, 0, 'Asia/Seoul', '다음 주', '{"method":"parser","rule":"x"}', 0.9, '{"sources":[],"quote":"근거"}', 'suggested', ?, ?)`
   ).run(ids.event_candidate_id, ws, seeded.recordingId, now + 86_400_000, now, now);
 
   // A team A owns, with an invitation, a member (A) and a recording shared with the team.
@@ -217,7 +217,8 @@ describe("security: other people's resources", () => {
   });
 
   test("viewer cannot write", async () => {
-    const viewer = makeUser({ role: "viewer" });
+    // An ordinary account; only its membership in the team is `viewer`.
+    const viewer = makeUser();
     const now = Date.now();
     db.query(`INSERT INTO membership (workspace_id, user_id, role, created_at, updated_at) VALUES (?, ?, 'viewer', ?, ?)`).run(team, viewer.id, now, now);
     const teamTargets: Targets = { workspaceId: team, recordingId: teamRecording, documentId: ids.document_id!, eventCandidateId: ids.event_candidate_id! };
@@ -240,9 +241,11 @@ describe("security: other people's resources", () => {
     expect(wrong).toEqual([]);
     // The team's things are unchanged.
     expect((await v2("GET", `/recordings/${teamRecording}`, { headers: tokenAuth(A) })).body.recording.title).toBe("팀 녹음");
-    // The ones that name the team directly answer 403.
+    // The ones that name the team directly answer 403 to the viewer, and the owner may do them.
     expect((await v2("POST", "/folders", { headers: tokenAuth(viewer), body: { workspace_id: team, name: "뷰어 폴더" } })).status).toBe(403);
     expect((await v2("PATCH", `/recordings/${teamRecording}`, { headers: tokenAuth(viewer), body: { title: "뷰어가 바꿈" } })).status).toBe(403);
+    expect((await v2("POST", "/folders", { headers: tokenAuth(A), body: { workspace_id: team, name: "소유자 폴더" } })).status).toBe(201);
+    expect((await v2("PATCH", `/recordings/${teamRecording}`, { headers: tokenAuth(A), body: { title: "팀 녹음" } })).status).toBe(200);
   });
 
   test("private recording inside a shared workspace", async () => {
@@ -323,5 +326,31 @@ describe("security: other people's resources", () => {
     expect(text).not.toContain(SECRET_TITLE);
     const workspaces = [...text.matchAll(/"workspace_id":"([^"]+)"/g)].map((m) => m[1]);
     expect(new Set(workspaces)).toEqual(new Set([wsB]));
+  });
+  // Last: it may delete A's things. Every id B was refused must be one A's own requests reach,
+  // or the refusals above could be the answer to an id that does not exist.
+  test("A reaches its own ids (control for the refusals above)", async () => {
+    const tried = new Set<string>();
+    const reached = new Set<string>();
+    // What removes a recording (and its speakers, action items, suggestions, links) or a
+    // workspace goes last, so the other routes still find them.
+    const removes = new Set(["batchRecordings", "deleteRecording", "deleteRecordingAudio", "deleteWorkspace", "removeMember"]);
+    const routes = ordered().sort((x, y) => Number(removes.has(x.operationId)) - Number(removes.has(y.operationId)));
+    for (const workspaceId of [ids.workspace_id!, team]) {
+      for (const route of routes) {
+        if (workspaceId === team && !route.path.includes("{workspace_id}")) continue;
+        const names = [...route.path.matchAll(/\{([a-z_]+)\}/g)].map((m) => m[1]!);
+        if (names.length === 0) continue;
+        const { status } = await send(requestFor(route, { params: { ...ids, workspace_id: workspaceId }, targets: { ...targets, workspaceId }, headers: tokenAuth(A) }));
+        for (const name of names) tried.add(name);
+        // Found and acted on, or found and refused for a reason only a real row gives.
+        if ((status >= 200 && status < 300) || status === 409 || status === 412) for (const name of names) reached.add(name);
+      }
+    }
+    // The ask routes answer 501 to everyone while this process has no ask service.
+    const askServiceOff = (await v2("GET", `/ask/threads/${ids.thread_id}`, { headers: tokenAuth(A) })).status === 501;
+    const unreached = [...tried].filter((name) => !reached.has(name) && !(askServiceOff && name === "thread_id"));
+    expect(unreached).toEqual([]);
+    expect(tried.size).toBeGreaterThanOrEqual(Object.keys(ids).length - 1);
   });
 });
