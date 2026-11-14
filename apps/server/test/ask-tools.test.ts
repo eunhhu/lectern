@@ -198,7 +198,7 @@ describe("ask tool loop over HTTP", () => {
     const seen: SeenGeminiRequest[] = [];
     const { events } = await ask(service([answerEcb], seen), { kind: "folder", folder_id: folder.folder_id, include_subfolders: true }, "ECB가 왜 위험해?");
     expect(events.at(-1)).toMatchObject({ type: "turn.completed", turn: { outcome: "answered" } });
-    expect(seen[0]!.body.tools[0].functionDeclarations.map((d: { name: string }) => d.name)).toEqual(["search_notes", "read_more"]);
+    expect(seen[0]!.body.tools[0].functionDeclarations.map((d: { name: string }) => d.name)).toEqual(["search_notes", "read_more", "list_items"]);
   });
 
   test("note question has no tools", async () => {
