@@ -1,14 +1,16 @@
 import { existsSync } from "node:fs";
 import { ensurePersonalWorkspace, personalWorkspaceId, sha256Hex, uuidv7 } from "@lectern/db";
 import { extractAuthToken } from "../../auth.ts";
-import { db, deleteSession, getUserById, updateUserProfile, type UserRecord } from "../../db.ts";
+import { cancelDeletion, deletionOf, isServerOwner, requestDeletion, soleOwnerTeams } from "../../account-deletion.ts";
+import { db, deleteSession, getUserById, recordAuditLog, updateUserProfile, verifyPassword, type UserRecord } from "../../db.ts";
 import { countActivePats, createPat, listPats, revokePat, type PatRow } from "../../access-tokens.ts";
 import { EXPORT_JOB_KIND, exportFilePath, getExport, type DataExportRow } from "../../export/job.ts";
 import { hasOwnPassword } from "../../oauth/login.ts";
 import { enqueueJob } from "../../queue.ts";
+import { authRateLimits, tooManyRequestsMessage } from "../../rate-limit.ts";
 import { sessionIdOf, sessionMetaOf } from "../../session-meta.ts";
 import { requireWorkspace, roleIn } from "./access.ts";
-import { apiError, defineRouter, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
+import { apiError, defineRouter, notFound, ok, okPage, type V2Request } from "./common.ts";
 import { iso, meDto } from "./rows.ts";
 
 function meOf(user: UserRecord) {
@@ -40,6 +42,8 @@ const MAX_LIVE_TOKENS = 20;
 const isoOrNull = (ms: number | null) => (ms === null ? null : iso(ms));
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** An account without a password proves itself by having signed in this recently. */
+const FRESH_SIGN_IN_MS = 10 * 60 * 1000;
 const MAX_EXPORTS_PER_DAY = 5;
 const MAX_LISTED_EXPORTS = 20;
 
@@ -231,7 +235,56 @@ export const meRouter = defineRouter({
       },
     });
   },
-  requestAccountDeletion: notImplemented,
-  cancelAccountDeletion: notImplemented,
-  getAccountDeletion: notImplemented,
+  // Account deletion (D-P5-9): 7 days of grace, then the `account_deletion` job. Only from a
+  // signed-in web session (not a PAT, a native token or the v1 API token), confirmed by the
+  // password, or for an account that signs in only with Google/Apple, by a fresh sign-in.
+  requestAccountDeletion: (req) => {
+    if (req.pat || req.via !== "session") {
+      return apiError(req.c, 403, "forbidden", "계정 삭제는 웹에서 로그인한 상태로만 요청할 수 있습니다.");
+    }
+    const user = req.user!;
+    const { password } = req.body as { password?: string };
+    const hasIdentity = db.query(`SELECT 1 FROM oauth_identity WHERE user_id = ?`).get(user.id) !== null;
+    if (!hasIdentity || password !== undefined) {
+      const limiter = authRateLimits.deletionPasswordUser;
+      const wait = limiter.retryAfterSec(user.id);
+      if (wait) {
+        const res = apiError(req.c, 429, "rate_limited", tooManyRequestsMessage(wait));
+        res.headers.set("Retry-After", String(wait));
+        return res;
+      }
+      if (!password || !verifyPassword(password, user.password_hash)) {
+        limiter.hit(user.id);
+        return apiError(req.c, 403, "forbidden", "비밀번호가 올바르지 않습니다.");
+      }
+    } else {
+      const session = db.query(`SELECT created_at FROM sessions WHERE token = ?`).get(currentToken(req)) as { created_at: string } | null;
+      const age = session ? Date.now() - Date.parse(session.created_at) : Number.POSITIVE_INFINITY;
+      if (!(age <= FRESH_SIGN_IN_MS)) return apiError(req.c, 403, "forbidden", "보안을 위해 다시 로그인한 뒤 10분 안에 요청해 주세요.");
+    }
+    if (isServerOwner(user.id)) {
+      return apiError(req.c, 409, "conflict", "서버 owner 계정은 삭제할 수 없습니다. 다른 사람에게 owner를 넘긴 뒤 다시 시도해 주세요.");
+    }
+    const teams = soleOwnerTeams(user.id);
+    if (teams.length) {
+      return apiError(
+        req.c,
+        409,
+        "conflict",
+        `"${teams[0]!.name}" 워크스페이스의 유일한 owner입니다. 다른 멤버를 owner로 지정하거나 워크스페이스를 비운 뒤 다시 시도해 주세요.`,
+        { workspaces: teams.map((t) => t.id) }
+      );
+    }
+    const { requestedAt, executeAfter } = requestDeletion(user.id);
+    recordAuditLog({ actorId: user.id, actorEmail: user.email, action: "account.deletion.request", targetId: user.id });
+    return ok(req, { state: "scheduled", requested_at: iso(requestedAt), execute_after: iso(executeAfter) });
+  },
+  cancelAccountDeletion: (req) => {
+    cancelDeletion(req.user!.id);
+    return ok(req, { state: "none", requested_at: null, execute_after: null });
+  },
+  getAccountDeletion: (req) => {
+    const d = deletionOf(req.user!.id);
+    return ok(req, { state: d.state, requested_at: isoOrNull(d.requestedAt), execute_after: isoOrNull(d.executeAfter) });
+  },
 });

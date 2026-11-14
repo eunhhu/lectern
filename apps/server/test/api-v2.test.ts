@@ -25,13 +25,8 @@ import { handleRequest } from "../src/index.ts";
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/** Routes of later phases. */
-const NOT_YET = new Set([
-  // Accounts (P5-C): contract only until P5-09.
-  "requestAccountDeletion",
-  "cancelAccountDeletion",
-  "getAccountDeletion",
-]);
+/** Routes of later phases (none left after P5-09; a new contract-only route goes here). */
+const NOT_YET = new Set<string>([]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
 

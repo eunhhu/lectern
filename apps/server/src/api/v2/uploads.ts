@@ -67,7 +67,8 @@ function receivedParts(uploadId: string): number[] {
   return (db.query(`SELECT part FROM upload_part WHERE upload_id = ? ORDER BY part`).all(uploadId) as Array<{ part: number }>).map((r) => r.part);
 }
 
-function removeParts(uploadId: string): void {
+/** Deletes an upload's part files (account deletion removes the uploads of one user, P5-09). */
+export function removeParts(uploadId: string): void {
   try {
     rmSync(partDir(uploadId), { recursive: true, force: true });
   } catch {

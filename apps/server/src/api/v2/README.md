@@ -66,9 +66,9 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 | `POST /me/exports` | `createExport` | 실제 | P5-08. 멤버면 누구나, 202. `export` 작업이 `<데이터 디렉터리>/exports/<id>.zip`을 만든다. 진행 중이 있으면 409, 하루 5번까지 |
 | `GET /me/exports` | `listExports` | 실제 | P5-08. 자기 것, 최신순 20개 |
 | `GET /me/exports/{export_id}/content` | `getExportContent` | 실제 | P5-08. 요청한 사용자만(남의 것은 404). `ready`가 아니면 409. 무압축 zip, 7일 뒤 유지보수가 지운다 |
-| `POST /me/deletion` | `requestAccountDeletion` | 501 | P5-09(7일 유예) |
-| `DELETE /me/deletion` | `cancelAccountDeletion` | 501 | P5-09 |
-| `GET /me/deletion` | `getAccountDeletion` | 501 | P5-09 |
+| `POST /me/deletion` | `requestAccountDeletion` | 실제 | P5-09. 웹 세션만(PAT·네이티브·v1 토큰은 403). 비밀번호 확인(틀리면 403, 사용자당 15분 5번), 비밀번호 없는 Google·Apple 계정은 10분 안에 다시 로그인한 세션. 팀의 유일한 owner면 409. 7일 뒤 `account_deletion` 작업이 지운다. 이미 예약돼 있으면 날짜 그대로 |
+| `DELETE /me/deletion` | `cancelAccountDeletion` | 실제 | P5-09. 유예 중 취소. 다시 요청하면 새 7일 |
+| `GET /me/deletion` | `getAccountDeletion` | 실제 | P5-09 |
 | `POST /auth/native/token` | `issueNativeToken` | 실제 | 공개(세션 없음). 비밀번호 또는 refresh로 access(1시간)·refresh(60일) 쌍(D-P5-4). refresh는 한 번만 쓰고, 다시 오면 그 로그인 전체를 폐기 |
 | `POST /auth/native/revoke` | `revokeNativeToken` | 실제 | 공개. 그 refresh의 로그인 전체를 폐기. 모르는 토큰도 204 |
 | `GET /workspaces` | `listWorkspaces` | 실제 | 개인 워크스페이스가 먼저 |
