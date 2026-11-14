@@ -26,6 +26,7 @@ import {
   lectureRecordingId,
   projectLecture,
   runMigrations,
+  sha256Hex,
   verifyLegacy,
   type BackfillReport,
   type LegacyVerifyReport,
@@ -598,8 +599,10 @@ export function deleteAllUserSessions(
       userId,
       exceptToken
     );
+    db.query(`DELETE FROM auth_session_meta WHERE user_id = ? AND session_id != ?`).run(userId, sessionIdOf(exceptToken));
   } else {
     db.query(`DELETE FROM sessions WHERE user_id = ?`).run(userId);
+    db.query(`DELETE FROM auth_session_meta WHERE user_id = ?`).run(userId);
   }
 }
 
@@ -936,8 +939,16 @@ export function createSession(userId: string, ttlDays = 30): string {
   return token;
 }
 
+/**
+ * A login session's public id (`ses_` + the first 32 hex digits of the token's SHA-256), also
+ * the key of its `auth_session_meta` row (D-P5-2). The token itself is never stored there.
+ */
+export const sessionIdOf = (token: string) => `ses_${sha256Hex(token).slice(0, 32)}`;
+
+/** Ends one session, with its device metadata (logout, expiry, device revocation). */
 export function deleteSession(token: string): void {
   db.query(`DELETE FROM sessions WHERE token = ?`).run(token);
+  db.query(`DELETE FROM auth_session_meta WHERE session_id = ?`).run(sessionIdOf(token));
 }
 
 export function getUserBySessionOrApiToken(rawToken: string): UserRecord | null {

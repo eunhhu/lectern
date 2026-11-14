@@ -31,6 +31,7 @@ import {
   waitForJob,
 } from "../src/queue.ts";
 import { PROCESS_ORIGIN, emitLectureEvent, tailForeignLectureEvents } from "../src/events.ts";
+import { recordSessionMeta, sessionIdOf } from "../src/session-meta.ts";
 import {
   TRASH_DIR,
   UPLOADS_DIR,
@@ -393,6 +394,7 @@ describe("maintenance", () => {
   test("purges expired rows, prunes audit history, and writes a rotated backup", async () => {
     const token = ownerToken();
     const member = memberToken();
+    recordSessionMeta(member.token, member.userId, new Request("http://localhost/", { headers: { "User-Agent": "curl/8.7.1" } }));
     db.query(`UPDATE sessions SET expires_at = ? WHERE token = ?`).run(
       new Date(Date.now() - 1000).toISOString(),
       member.token
@@ -408,6 +410,8 @@ describe("maintenance", () => {
     const { result }: any = await res.json();
     expect(result.errors).toEqual([]);
     expect(result.expiredSessions).toBeGreaterThanOrEqual(1);
+    // The expired session's device metadata goes with it (P5-01).
+    expect(db.query(`SELECT 1 FROM auth_session_meta WHERE session_id = ?`).get(sessionIdOf(member.token))).toBeNull();
     expect(result.prunedAuditLogs).toBeGreaterThanOrEqual(1);
     expect(result.walCheckpointed).toBe(true);
     expect(result.backup?.file).toMatch(/^lectern-\d{8}-\d{6}\.sqlite$/);

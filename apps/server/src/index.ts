@@ -99,6 +99,7 @@ import { emitRetentionOutcome, runMaintenanceNow, startMaintenanceSchedule } fro
 import { resolveResendApiKey, sendMail } from "./mail.ts";
 import { liveWorkers, publishApiRelease } from "./coordination.ts";
 import { makePrivate } from "./fsperm.ts";
+import { recordSessionMeta } from "./session-meta.ts";
 import { createHttpApp } from "./http.ts";
 import { promoteStagedWebBuild } from "./web-build.ts";
 import { WEB_SHELL_DIST_DIR } from "./web-shell.ts";
@@ -1055,6 +1056,7 @@ async function routeRequest(req: Request): Promise<Response> {
         touchUserLastLogin(user.id);
         const freshUser = getUserById(user.id) || user;
         const sessionToken = createSession(freshUser.id);
+        recordSessionMeta(sessionToken, freshUser.id, req);
         recordAuditLog({
           actorId: freshUser.id,
           actorEmail: freshUser.email,
@@ -1307,6 +1309,7 @@ async function routeRequest(req: Request): Promise<Response> {
 
         touchUserLastLogin(user.id);
         const sessionToken = createSession(user.id);
+        recordSessionMeta(sessionToken, user.id, req);
         return jsonResponse(
           {
             ok: true,
