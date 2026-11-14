@@ -41,6 +41,7 @@ import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
 import { publishNotes } from "./notes-publish.ts";
+import { ingestRecordingPdfs } from "./pdf-publish.ts";
 import { enqueueJob, JOB_CANCELED_MESSAGE, type JobOutcome, type LeasedJob } from "./queue.ts";
 import { defaultTranscriptHarness } from "./transcript-job.ts";
 import { publishTranscript } from "./transcript-publish.ts";
@@ -70,6 +71,7 @@ export const PROCESS_STAGE_PROGRESS: Record<string, [number, string]> = {
 
 const NOTES_PARTIAL_MESSAGE = "일부 내용을 만들지 못했습니다. 전사와 검색은 쓸 수 있습니다.";
 const NOTES_FAILED_MESSAGE = "노트를 만들지 못했습니다. 전사는 사용할 수 있습니다.";
+const PDF_PARTIAL_MESSAGE = "참고 PDF를 읽지 못했습니다. 노트와 전사는 쓸 수 있습니다.";
 const NOTES_BUDGET_MESSAGE = "처리 예산을 다 써서 노트를 만들지 못했습니다. 전사는 사용할 수 있습니다.";
 const TRANSCRIPT_FAILED_MESSAGE = "전사를 만들지 못했습니다. 다시 시도해주세요.";
 const TRANSCRIPT_BUDGET_MESSAGE = "처리 예산을 다 써서 전사를 끝내지 못했습니다.";
@@ -591,6 +593,20 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
     scheduleLectureIndex(lectureId, ownerId);
     announceLectures([lectureId]);
 
+    // 2b. Lecture PDFs (P3-03, D-P3-2): page text for the notes and search. A PDF that cannot
+    // be read never fails the recording; it ends `partial` like a notes failure (D-P1-2).
+    let pdfFailed = false;
+    if (config().pdf) {
+      try {
+        pdfFailed = (await ingestRecordingPdfs({ run, recordingId, workspaceId })).failed > 0;
+      } catch (err: any) {
+        const early = stopped();
+        if (early) return early;
+        dropArtifacts(harness, job.id);
+        return { ok: false, error: err?.message || String(err) };
+      }
+    }
+
     // 3. Notes.
     let status: "ready" | "partial";
     try {
@@ -607,6 +623,10 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
     if (sourceGone()) {
       dropArtifacts(harness, job.id);
       return { ok: false, error: PROCESS_SOURCE_GONE_MESSAGE };
+    }
+    if (pdfFailed && status === "ready") {
+      markPartial(lectureId, recordingId, "pdf_failed", PDF_PARTIAL_MESSAGE);
+      status = "partial";
     }
 
     dropArtifacts(harness, job.id);

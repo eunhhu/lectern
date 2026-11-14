@@ -161,6 +161,7 @@ function deleteRecording(recording: RecordingRow): void {
   }
   deleteRecordingIndex(db, recording.workspace_id, recording.id);
   deleteRecordingThreads(db, recording.workspace_id, recording.id);
+  db.query("DELETE FROM pdf_page WHERE recording_id = ?").run(recording.id);
   deleteRecordingRows(db, recording.id);
 }
 

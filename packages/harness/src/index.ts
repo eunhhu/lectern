@@ -37,6 +37,7 @@ export * from "./notes/render.ts";
 export * from "./notes/schemas.ts";
 export * from "./notes/structure.ts";
 export * from "./notes/verify.ts";
+export * from "./pdf/ingest.ts";
 export * from "./transcript/align.ts";
 export * from "./transcript/merge.ts";
 export * from "./transcript/pipeline.ts";

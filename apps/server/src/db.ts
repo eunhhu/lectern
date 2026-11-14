@@ -1770,6 +1770,7 @@ export function deleteLectureById(id: string): boolean {
     // (ADR-0009 §9); they go with it whether or not LECTERN_ASK is on now.
     const workspaceId = personalWorkspaceId(rec.owner_id);
     deleteRecordingIndex(db, workspaceId, id);
+    db.query("DELETE FROM pdf_page WHERE recording_id = ?").run(lectureRecordingId(id));
     deleteRecordingThreads(db, workspaceId, id);
   }
   if (rec) {
