@@ -569,8 +569,11 @@ export interface QueueJobRow {
   finished_at: number | null;
 }
 
-/** v1 queue kinds -> domain JobKind (`distill` is the v1 pipeline: processing a recording). */
-const JOB_KINDS: Record<string, string> = { distill: "process" };
+/**
+ * Queue kinds -> domain JobKind: `distill` is the v1 pipeline (processing a recording);
+ * `pdf_ocr` (P3-05) is part of processing a recording's material.
+ */
+const JOB_KINDS: Record<string, string> = { distill: "process", pdf_ocr: "process" };
 const DOMAIN_JOB_KINDS = new Set(["process", "regenerate", "compact", "calendar_sync", "reminder", "maintenance", "index"]);
 
 export function jobKindOf(kind: string): string {
