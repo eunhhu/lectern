@@ -16,7 +16,7 @@ apps/apple/
   MANUAL_CHECKS.md                    실제 기기에서만 확인되는 것
 ```
 
-화면은 아직 "Lectern" 글자 하나뿐이다. LecternKit에는 API 클라이언트, 인증, 업로드 큐가 있고(P6-A2·A3), RecorderKit에는 녹음 엔진이(P6-A4), LecternUI에는 문서·전사·플레이어 부품이 있다(P6-A5, 아래).
+iOS 앱에는 로그인, 라이브러리, 녹음 상세, 설정 화면이 있다(P6-A6, 아래). macOS 앱은 아직 "Lectern" 글자 하나뿐이다. LecternKit에는 API 클라이언트, 인증, 업로드 큐가 있고(P6-A2·A3), RecorderKit에는 녹음 엔진이(P6-A4), LecternUI에는 문서·전사·플레이어 부품과 화면 뷰모델이 있다(P6-A5·A6).
 
 ## API 클라이언트 (LecternKit)
 
@@ -43,6 +43,15 @@ apps/apple/
 - `DocumentView(document:transcript:onSource:)`: 웹 DocumentPane과 같은 규칙. 모르는 블록은 그리지 않는다. 블록 글은 일반 텍스트다(Markdown으로 읽지 않는다). 섹션이 없는 옛 노트는 Markdown(인라인만)으로 보인다. 출처 칩은 전사가 있어야 시각(`12:05`)을 보이고, 구간을 찾지 못하면 "원본 없음", 출처가 없으면 "출처 확인 필요".
 - `TranscriptList`는 재생 위치를 따라 현재 구간을 강조하고 스크롤한다. 사용자가 스크롤하면 멈춘 뒤 5초 동안 따라가지 않는다. `PlayerViewModel`/`PlayerBar`는 첫 재생 때 항목을 불러온다.
 - 뷰 모양은 스냅샷 테스트하지 않는다. 라벨·시간 표기·그릴 블록·출처 해석은 순수 함수로 테스트한다. 미리보기는 `Preview/PreviewData.swift`(블록 종류마다 밝은·어두운·가장 큰 글자).
+
+## iOS 앱 (P6-A6)
+
+- 화면: 로그인(이메일·비밀번호, 서버 주소, API 토큰으로 로그인), 라이브러리(`NavigationSplitView`: 워크스페이스·폴더 | 녹음 목록 | 상세, iPhone은 스택), 녹음 상세(문서/전사 탭, iPad 가로는 나란히, 아래 플레이어), 설정(계정, 서버, 버전, 로그아웃, 계정 삭제·방침·약관은 Safari). 웹뷰는 쓰지 않는다.
+- 서버 주소: 사용자가 바꾼 값(`UserDefaults` `lectern_server_url`) → 없으면 `Info.plist`의 `LecternServerURL`(빌드 설정 `LECTERN_SERVER_URL`, `Local.xcconfig`에서 바꾼다). 서버를 바꾸면 로그아웃한다.
+- 로그인: 서버가 native 토큰 라우트에 501·404를 주면(P5-03 전 서버) API 토큰 로그인으로 바뀐다. 토큰은 Keychain에만 둔다.
+- 오디오: `?token=`에 자격을 넣은 자산 주소를 AVPlayer에 준다(헤더를 못 붙인다). native 접근 토큰은 1시간이라, 재생 중 항목이 실패하면 새 주소로 한 번 다시 불러 같은 위치에서 잇는다.
+- 픽스처 모드: 실행 인자 `-LECTERN_FIXTURE 1`(또는 환경 변수 `LECTERN_FIXTURE=1`)이면 서버 없이 예시 데이터(폴더 3, 녹음 8)로 로그인된 채 시작한다. Xcode 스킴의 Arguments에 넣어 화면을 볼 수 있다.
+- UI 테스트(`LecterniOSUITests`, 픽스처 모드로 녹음을 열고 전사 탭까지)는 게이트가 빌드만 한다(`build-for-testing`). 실행: `xcodebuild test -project apps/apple/Lectern.xcodeproj -scheme LecterniOS -destination 'platform=iOS Simulator,name=iPhone 17'`.
 
 ## 처음 실행
 

@@ -30,6 +30,7 @@ targets:
         UIBackgroundModes: [audio]
         NSSupportsLiveActivities: true
         LecternServerURL: $(LECTERN_SERVER_URL)
+        AppIdentifierPrefix: $(AppIdentifierPrefix)
         ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: iOS/App/Lectern.entitlements
@@ -119,6 +120,16 @@ targets:
       - package: RecorderKit
       - package: LecternUI
       - package: LecternIntents
+  LecterniOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [iOS/UITests]
+    dependencies:
+      - target: LecterniOS
+    settings:
+      base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios.uitests, GENERATE_INFOPLIST_FILE: YES }
 schemes:
-  LecterniOS: { build: { targets: { LecterniOS: all } } }
+  LecterniOS:
+    build: { targets: { LecterniOS: all } }
+    test: { targets: [LecterniOSUITests] }
   LecternMac: { build: { targets: { LecternMac: all } } }

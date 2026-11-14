@@ -77,7 +77,7 @@
     {"id":"P6-A3","title":"LecternKit: 재개 가능한 업로드 큐","deps":["P6-A2"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"merged"},
     {"id":"P6-A4","title":"RecorderKit","deps":["P6-A1"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"merged"},
     {"id":"P6-A5","title":"LecternUI","deps":["P6-A2"],"owns":["apps/apple/","packages/design-tokens/"],"tier":"basic","gate":"apple","status":"merged"},
-    {"id":"P6-A6","title":"iOS 앱 셸","deps":["P6-A3","P6-A5"],"owns":["apps/apple/"],"tier":"basic","gate":"apple","status":"todo"},
+    {"id":"P6-A6","title":"iOS 앱 셸","deps":["P6-A3","P6-A5"],"owns":["apps/apple/"],"tier":"basic","gate":"apple","status":"merged"},
     {"id":"P6-A7","title":"iOS 녹음 표면","deps":["P6-A4","P6-A6"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"todo"},
     {"id":"P6-A8","title":"iOS 공유 확장","deps":["P6-A6"],"owns":["apps/apple/"],"tier":"basic","gate":"apple","status":"todo"},
     {"id":"P6-A9","title":"macOS 앱","deps":["P6-A4","P6-A5"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"todo"},

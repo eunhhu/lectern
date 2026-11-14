@@ -78,6 +78,21 @@ public struct LecternAPI: Sendable {
         return request
     }
 
+    /// The asset's bytes as a URL that carries the credential in `?token=` (the server accepts
+    /// it, and AVPlayer cannot add headers). Calls `me()` first so an expired access token is
+    /// refreshed before it goes into the URL. A native access token lasts an hour: a player that
+    /// gets 401 later asks for a new URL.
+    public func assetContentURL(assetID: String) async throws -> URL {
+        _ = try await me()
+        let request = try await assetContentRequest(assetID: assetID)
+        guard let url = request.url else { throw APIError.decoding("asset url") }
+        let credential = request.value(forHTTPHeaderField: "Authorization").map { String($0.dropFirst("Bearer ".count)) }
+            ?? request.value(forHTTPHeaderField: ApiTokenProvider.header)
+        guard let credential, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        components.queryItems = [URLQueryItem(name: "token", value: credential)]
+        return components.url ?? url
+    }
+
     // MARK: - Plumbing
 
     /// `<server>/api/v2`: the generated paths start after it.

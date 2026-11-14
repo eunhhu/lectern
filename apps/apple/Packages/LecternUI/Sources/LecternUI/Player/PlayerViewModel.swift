@@ -2,11 +2,21 @@ import AVFoundation
 import Combine
 import Foundation
 
-/// Playback of a recording's audio. The item is loaded on the first play (a signed asset URL is
-/// fetched only when needed). Position updates ten times a second.
+/// What a screen does with the player when a source or a transcript line is pressed.
 @MainActor
-public final class PlayerViewModel: ObservableObject {
+public protocol Playback: AnyObject {
+    func seek(toMs ms: Int)
+    func play()
+}
+
+/// Playback of a recording's audio. The item is loaded on the first play (a credentialed asset
+/// URL is fetched only when needed). Position updates ten times a second. When the item fails
+/// (the credential in its URL expired during a long playback), it is loaded once more and
+/// playback goes on from the same place.
+@MainActor
+public final class PlayerViewModel: ObservableObject, Playback {
     public nonisolated static let rates: [Float] = [0.75, 1, 1.25, 1.5, 2]
+    public static let failedMessage = "오디오를 재생하지 못했습니다."
 
     @Published public private(set) var positionMs = 0
     @Published public private(set) var durationMs = 0
@@ -27,7 +37,10 @@ public final class PlayerViewModel: ObservableObject {
     private var pendingSeekMs: Int?
     /// The item played to its end: the next play starts from the beginning.
     private var reachedEnd = false
-    private var cancellables: Set<AnyCancellable> = []
+    /// A failed item was already reloaded once; cleared when the new one is ready.
+    private var reloadedAfterFailure = false
+    private var playerCancellables: Set<AnyCancellable> = []
+    private var itemCancellables: Set<AnyCancellable> = []
     // Read in deinit, which is not on the main actor.
     nonisolated(unsafe) private var timeObserver: Any?
     nonisolated(unsafe) private var observedPlayer: AVPlayer?
@@ -43,11 +56,16 @@ public final class PlayerViewModel: ObservableObject {
     }
 
     public func toggle() {
-        if isPlaying {
-            player?.pause()
-            isPlaying = false
-            return
-        }
+        isPlaying ? pause() : play()
+    }
+
+    public func pause() {
+        player?.pause()
+        isPlaying = false
+    }
+
+    public func play() {
+        Self.activatePlaybackSession()
         if let player {
             if reachedEnd {
                 reachedEnd = false
@@ -59,11 +77,12 @@ public final class PlayerViewModel: ObservableObject {
         }
         guard !loading else { return }  // a second tap while the item is still loading
         loading = true
+        errorMessage = nil
         Task {
             defer { loading = false }
             do {
                 let item = try await loadItem()
-                attach(item)
+                use(item)
                 player?.playImmediately(atRate: rate)
                 isPlaying = true
             } catch {
@@ -102,8 +121,56 @@ public final class PlayerViewModel: ObservableObject {
         return rates.first { $0 > rate } ?? rates[0]
     }
 
-    private func attach(_ item: AVPlayerItem) {
-        let player = AVPlayer(playerItem: item)
+    /// iOS: spoken-audio playback that the silent switch and the lock screen do not stop. Not while
+    /// a recording holds the session (.playAndRecord): changing the category would stop it.
+    private static func activatePlaybackSession() {
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        guard session.category != .playAndRecord else { return }
+        try? session.setCategory(.playback, mode: .spokenAudio)
+        try? session.setActive(true)
+        #endif
+    }
+
+    // MARK: - Items
+
+    private func use(_ item: AVPlayerItem) {
+        let player = self.player ?? makePlayer()
+        itemCancellables = []
+        player.replaceCurrentItem(with: item)
+        NotificationCenter.default.publisher(for: AVPlayerItem.didPlayToEndTimeNotification, object: item)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.reachedEnd = true
+                self?.isPlaying = false
+            }
+            .store(in: &itemCancellables)
+        NotificationCenter.default.publisher(for: AVPlayerItem.failedToPlayToEndTimeNotification, object: item)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.itemFailed(item) }
+            .store(in: &itemCancellables)
+        item.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                switch status {
+                case .readyToPlay: self?.reloadedAfterFailure = false
+                case .failed: self?.itemFailed(item)
+                default: break
+                }
+            }
+            .store(in: &itemCancellables)
+        Task { [weak self] in
+            guard let duration = try? await item.asset.load(.duration), duration.isNumeric else { return }
+            self?.durationMs = Int(duration.seconds * 1000)
+        }
+        if let pendingSeekMs {
+            self.pendingSeekMs = nil
+            player.seek(to: CMTime(value: CMTimeValue(pendingSeekMs), timescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+    }
+
+    private func makePlayer() -> AVPlayer {
+        let player = AVPlayer()
         player.defaultRate = rate
         self.player = player
         observedPlayer = player
@@ -113,24 +180,32 @@ public final class PlayerViewModel: ObservableObject {
                 self.positionMs = Int(time.seconds * 1000)
             }
         }
-        NotificationCenter.default.publisher(for: AVPlayerItem.didPlayToEndTimeNotification, object: item)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.reachedEnd = true
-                self?.isPlaying = false
-            }
-            .store(in: &cancellables)
         player.publisher(for: \.timeControlStatus)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in self?.isPlaying = status != .paused }
-            .store(in: &cancellables)
-        Task { [weak self] in
-            guard let duration = try? await item.asset.load(.duration), duration.isNumeric else { return }
-            self?.durationMs = Int(duration.seconds * 1000)
+            .store(in: &playerCancellables)
+        return player
+    }
+
+    private func itemFailed(_ item: AVPlayerItem) {
+        let wasPlaying = isPlaying
+        guard !reloadedAfterFailure else {
+            errorMessage = item.error?.localizedDescription ?? Self.failedMessage
+            isPlaying = false
+            return
         }
-        if let pendingSeekMs {
-            self.pendingSeekMs = nil
-            player.seek(to: CMTime(value: CMTimeValue(pendingSeekMs), timescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
+        reloadedAfterFailure = true
+        let resumeAt = positionMs
+        Task {
+            do {
+                let fresh = try await loadItem()
+                pendingSeekMs = resumeAt
+                use(fresh)
+                if wasPlaying { player?.playImmediately(atRate: rate) }
+            } catch {
+                errorMessage = error.localizedDescription
+                isPlaying = false
+            }
         }
     }
 }
