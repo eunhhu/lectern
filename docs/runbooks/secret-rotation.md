@@ -18,6 +18,7 @@
 | (P6) Apple 서명·공증 | GitHub 시크릿 | macOS 공증 | [apple-developer-notarization.md](apple-developer-notarization.md) |
 | Google OAuth 클라이언트 ID·시크릿 `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | `/etc/lectern/lectern.env` | Google 캘린더 연결·(P5) Google 로그인 | 유출 의심, 연 1회(§8) |
 | Google 연동 토큰(refresh token) | DB `integration.token_enc`(호스트 봉인 키로 암호화) | 캘린더 동기화 | 호스트 봉인 키 교체 시 전부 무효(§7) |
+| Sign in with Apple 키 `APPLE_SIGNIN_*`, 키 파일 | `/etc/lectern/lectern.env`, `/etc/lectern/apple-signin.p8`(0600) | Apple 로그인 | 유출 의심, Apple 키 만료 시(§9) |
 
 공통 사전 확인
 1. 지금 이 시크릿이 실제로 어디 있는지 확인한다. 호스트가 아직 `EnvironmentFile`로 옮겨지지 않았다면 유닛 파일의 `Environment=` 줄에 있을 수 있다.
@@ -223,6 +224,24 @@ DB 사본이 유출되면 모든 API 토큰(평문), 세션, 공유 토큰이 �
 3. 검증: 설정 → 연동 → Google 캘린더 연결이 Google 동의 화면까지 가고, 동의한 뒤 Lectern으로 돌아와 연결됨으로 보이는지 확인한다.
 4. 콘솔에서 옛 시크릿을 비활성화한 뒤 삭제한다.
 
-## 9. 교체 기록
+## 9. Sign in with Apple 키 (`APPLE_SIGNIN_KEY_ID`, `apple-signin.p8`)
+
+Apple 로그인의 client secret은 이 키로 서버가 그때그때 서명해 만든다(ES256 JWT). 키를 바꿔도 이미 로그인한 세션은 그대로다.
+
+1. Apple Developer → Certificates, Identifiers & Profiles → Keys에서 Sign in with Apple을 켠 새 키를 발급한다. `.p8` 파일은 **한 번만** 내려받을 수 있으니 바로 비밀번호 관리자에도 보관한다(옛 키는 아직 폐기하지 않는다).
+2. 서버에 키 파일을 0600으로 두고, 환경 파일의 `APPLE_SIGNIN_KEY_ID`(파일 이름을 바꿨다면 `APPLE_SIGNIN_PRIVATE_KEY_FILE`도)를 바꾼 뒤 다시 시작한다.
+   ```bash
+   sudo install -m 0600 -o lectern -g lectern ./AuthKey_NEWKEYID.p8 /etc/lectern/apple-signin.p8
+   ```
+   ```bash
+   sudoedit /etc/lectern/lectern.env
+   ```
+   ```bash
+   sudo systemctl restart lectern
+   ```
+3. 검증: 로그인 화면에서 Apple로 로그인해 들어가지는지 확인한다.
+4. Apple Developer에서 옛 키를 폐기(Revoke)한다.
+
+## 10. 교체 기록
 
 교체할 때마다 날짜, 시크릿 이름, 이유, 수행자를 운영 메모에 남긴다(값은 절대 남기지 않는다). 다음 정기 교체 날짜도 적어 둔다.

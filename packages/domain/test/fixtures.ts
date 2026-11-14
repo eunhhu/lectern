@@ -35,6 +35,9 @@ export const ID = {
   usage: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a21",
   upload: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a22",
   savedView: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a23",
+  identity: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a24",
+  invite: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a25",
+  dataExport: "0192a3b4-5c6d-7e8f-9a0b-1c2d3e4f5a26",
 } as const;
 
 const scope = { workspace_id: ID.workspace, recording_id: ID.recording } as const;
@@ -506,6 +509,30 @@ export const ENTITY_INVALID: Record<D.EntityName, unknown[]> = {
 // ---------------------------------------------------------------------------
 
 const page = <T>(items: T[]) => ({ items, next_cursor: null });
+
+const invite = {
+  id: ID.invite,
+  workspace_id: ID.workspace,
+  email: "friend@example.com",
+  role: "member",
+  invited_by: ID.user,
+  created_at: T0,
+  expires_at: T1,
+  accepted_at: null,
+  revoked_at: null,
+};
+const quota = { audio_ms_month: 36_000_000, ai_microusd_month: 5_000_000, storage_bytes: null };
+const dataExport = {
+  id: ID.dataExport,
+  workspace_id: ID.workspace,
+  include_audio: false,
+  state: "queued",
+  bytes: null,
+  requested_at: T0,
+  ready_at: null,
+  expires_at: null,
+  error: null,
+};
 
 const me = {
   id: ID.user,
@@ -1033,6 +1060,69 @@ export const API_CASES: Record<string, Case> = {
     invalid: [{ job, stage_runs: [{ ...stageRun, input_hash: "abc" }], ai_calls: [] }],
   },
   UsageLedgerPage: { schema: D.UsageLedgerPage, valid: [page([usageLedger])], invalid: [page([{ ...usageLedger, audio_ms: -5 }])] },
+
+  // accounts (P5-C)
+  NativeTokenRequest: {
+    schema: D.NativeTokenRequest,
+    valid: [
+      { grant_type: "password", email: "student@example.com", password: "correct_password_1", device_name: "MacBook", platform: "macos" },
+      { grant_type: "refresh_token", refresh_token: "rt_0123456789abcdef" },
+    ],
+    invalid: [{ grant_type: "x", email: "a@b.c", password: "p" }, { grant_type: "refresh_token", refresh_token: "short" }, { grant_type: "password", email: "a@b.c", password: "p", platform: "linux" }],
+  },
+  NativeTokenResponse: {
+    schema: D.NativeTokenResponse,
+    valid: [{ token_type: "Bearer", access_token: "lct_at_abc", refresh_token: "lct_rt_def", expires_in: 3600, user: me }],
+    invalid: [{ token_type: "bearer", access_token: "a", refresh_token: "b", expires_in: 3600, user: me }, { token_type: "Bearer", access_token: "a", refresh_token: "b", expires_in: 0, user: me }],
+  },
+  RevokeNativeTokenRequest: {
+    schema: D.RevokeNativeTokenRequest,
+    valid: [{ refresh_token: "rt_0123456789abcdef" }],
+    invalid: [{ refresh_token: "" }, {}],
+  },
+  IdentityPage: {
+    schema: D.IdentityPage,
+    valid: [page([{ id: ID.identity, provider: "google", email: "student@example.com", created_at: T0 }]), page([{ id: ID.identity, provider: "apple", email: null, created_at: T0 }])],
+    invalid: [page([{ id: ID.identity, provider: "github", email: null, created_at: T0 }])],
+  },
+  WorkspaceInvite: {
+    schema: D.InviteDto,
+    valid: [invite, { ...invite, accepted_at: T1 }],
+    invalid: [{ ...invite, role: "boss" }, { ...invite, expires_at: "next week" }],
+  },
+  WorkspaceInvitePage: { schema: D.InvitePage, valid: [page([invite])], invalid: [page([{ ...invite, workspace_id: "" }])] },
+  CreateInviteRequest: {
+    schema: D.CreateInviteRequest,
+    valid: [{ email: "friend@example.com", role: "member" }, { email: "lead@example.com", role: "admin" }],
+    invalid: [{ email: "friend@example.com", role: "owner" }, { email: "not an email", role: "viewer" }],
+  },
+  AcceptInviteRequest: { schema: D.AcceptInviteRequest, valid: [{ token: "inv_0123456789abcdef" }], invalid: [{ token: "short" }, {}] },
+  AcceptInviteResponse: { schema: D.AcceptInviteResponse, valid: [{ workspace, role: "member" }], invalid: [{ workspace, role: "guest" }] },
+  WorkspaceMember: {
+    schema: D.WorkspaceMember,
+    valid: [{ ...membership, display_name: "김학생", email: "student@example.com" }],
+    invalid: [{ ...membership, display_name: "김학생", email: "nope" }, { ...membership, role: "guest", display_name: "김학생", email: "student@example.com" }],
+  },
+  UpdateMemberRequest: { schema: D.UpdateMemberRequest, valid: [{ role: "viewer" }, { role: "owner" }], invalid: [{ role: "guest" }, {}] },
+  WorkspaceQuota: {
+    schema: D.WorkspaceQuota,
+    valid: [quota, { audio_ms_month: null, ai_microusd_month: null, storage_bytes: null }],
+    invalid: [{ ...quota, storage_bytes: -1 }, { ...quota, audio_ms_month: 1.5 }],
+  },
+  WorkspaceUsage: {
+    schema: D.WorkspaceUsage,
+    valid: [{ period: "2026-10", audio_ms: 3_600_000, ai_cost_microusd: 120_000, storage_bytes: 10_000_000, quota }, { period: "2026-11", audio_ms: 0, ai_cost_microusd: 0, storage_bytes: 0, quota: null }],
+    invalid: [{ period: "2026-1", audio_ms: 0, ai_cost_microusd: 0, storage_bytes: 0, quota: null }],
+  },
+  DataExport: { schema: D.DataExportDto, valid: [dataExport, { ...dataExport, state: "ready", bytes: 2048, ready_at: T1, expires_at: T1 }], invalid: [{ ...dataExport, state: "done" }] },
+  DataExportPage: { schema: D.DataExportPage, valid: [page([dataExport])], invalid: [page([{ ...dataExport, include_audio: "yes" }])] },
+  CreateExportRequest: { schema: D.CreateExportRequest, valid: [{ workspace_id: ID.workspace, include_audio: false }], invalid: [{ workspace_id: ID.workspace }, { include_audio: true }] },
+  RequestAccountDeletionRequest: { schema: D.RequestAccountDeletionRequest, valid: [{ password: "correct_password_1" }, {}], invalid: [{ password: "" }] },
+  AccountDeletionInfo: {
+    schema: D.AccountDeletionInfo,
+    valid: [{ state: "none", requested_at: null, execute_after: null }, { state: "scheduled", requested_at: T0, execute_after: T1 }],
+    invalid: [{ state: "done", requested_at: null, execute_after: null }],
+  },
 };
 
 // ---------------------------------------------------------------------------

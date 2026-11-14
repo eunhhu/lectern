@@ -50,7 +50,7 @@
     {"id":"P4-05","title":"이메일 리마인더","deps":["P4-C"],"owns":["apps/server/","apps/worker/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P4-06","title":"물어보기 list_items","deps":["P4-C","P3-07"],"owns":["packages/ask/","apps/server/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P4-07","title":"웹: 캘린더 연결, ICS, 리마인더 설정","deps":["P4-01","P4-02","P4-05"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"merged"},
-    {"id":"P5-C","title":"계약: 계정 플래그, 테이블, 라우트, 방침","deps":["P4-C"],"owns":["packages/config/","packages/db/","packages/domain/","docs/env.md","deploy/systemd/","docs/v2/pipeline/flags-on.env","apps/server/","docs/runbooks/"],"tier":"careful","gate":"full","status":"todo"},
+    {"id":"P5-C","title":"계약: 계정 플래그, 테이블, 라우트, 방침","deps":["P4-C"],"owns":["packages/config/","packages/db/","packages/domain/","docs/env.md","deploy/systemd/","docs/v2/pipeline/flags-on.env","apps/server/","docs/runbooks/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P5-01","title":"세션 메타와 기기 목록","deps":["P5-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P5-02","title":"개인 액세스 토큰(PAT)","deps":["P5-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P5-03","title":"네이티브 토큰 쌍","deps":["P5-C"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo"},

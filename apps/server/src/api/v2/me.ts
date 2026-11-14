@@ -93,4 +93,13 @@ export const meRouter = defineRouter({
   },
   createAccessToken: notImplemented,
   revokeAccessToken: notImplemented,
+  // Accounts (P5-C contract; P5-01..P5-09 implement them).
+  listIdentities: notImplemented,
+  unlinkIdentity: notImplemented,
+  createExport: notImplemented,
+  listExports: notImplemented,
+  getExportContent: notImplemented,
+  requestAccountDeletion: notImplemented,
+  cancelAccountDeletion: notImplemented,
+  getAccountDeletion: notImplemented,
 });

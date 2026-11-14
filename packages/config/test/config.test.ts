@@ -43,6 +43,30 @@ describe("@lectern/config", () => {
     expect(JSON.stringify(c)).not.toContain("sec-y");
   });
 
+  test("account flags default off", () => {
+    const c = loadConfig({});
+    expect([c.googleLogin, c.appleLogin, c.teams]).toEqual([false, false, false]);
+    expect(c.appleSignin.privateKeyFile).toBeNull();
+    const on = loadConfig({ LECTERN_GOOGLE_LOGIN: "1", LECTERN_APPLE_LOGIN: "true", LECTERN_TEAMS: "1" });
+    expect([on.googleLogin, on.appleLogin, on.teams]).toEqual([true, true, true]);
+  });
+
+  test("apple secrets are masked", () => {
+    const c = loadConfig({
+      APPLE_SIGNIN_CLIENT_ID: "com.example.signin",
+      APPLE_SIGNIN_TEAM_ID: "TEAM123456",
+      APPLE_SIGNIN_KEY_ID: "KEY1234567",
+      APPLE_SIGNIN_PRIVATE_KEY_FILE: "/etc/lectern/apple-signin.p8",
+    });
+    expect(c.raw.APPLE_SIGNIN_CLIENT_ID).toBe("***");
+    expect(c.raw.APPLE_SIGNIN_TEAM_ID).toBe("***");
+    expect(c.raw.APPLE_SIGNIN_KEY_ID).toBe("***");
+    expect(c.raw.APPLE_SIGNIN_PRIVATE_KEY_FILE).toBe("/etc/lectern/apple-signin.p8");
+    expect(c.appleSignin.privateKeyFile).toBe("/etc/lectern/apple-signin.p8");
+    const all = JSON.stringify(c);
+    for (const secret of ["com.example.signin", "TEAM123456", "KEY1234567"]) expect(all).not.toContain(secret);
+  });
+
   test("readSecret reads Google secrets live", () => {
     const before = process.env.GOOGLE_OAUTH_CLIENT_ID;
     try {

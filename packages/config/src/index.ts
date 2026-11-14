@@ -150,6 +150,37 @@ const ENV = {
     description: "Google OAuth client secret",
     secret: true,
   },
+  LECTERN_GOOGLE_LOGIN: {
+    schema: bool(false),
+    description: "1: Google sign-in (button and /api/v2/auth/google/*). Needs GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET",
+  },
+  LECTERN_APPLE_LOGIN: {
+    schema: bool(false),
+    description: "1: Sign in with Apple (button and /api/v2/auth/apple/*). Needs the APPLE_SIGNIN_* values",
+  },
+  LECTERN_TEAMS: {
+    schema: bool(false),
+    description: "1: team workspaces: invites, role changes and uploads into a team workspace. 0: those routes answer 501",
+  },
+  APPLE_SIGNIN_CLIENT_ID: {
+    schema: optionalString,
+    description: "Apple Services ID used as the OAuth client id",
+    secret: true,
+  },
+  APPLE_SIGNIN_TEAM_ID: {
+    schema: optionalString,
+    description: "Apple developer team id",
+    secret: true,
+  },
+  APPLE_SIGNIN_KEY_ID: {
+    schema: optionalString,
+    description: "Key id of the Sign in with Apple private key",
+    secret: true,
+  },
+  APPLE_SIGNIN_PRIVATE_KEY_FILE: {
+    schema: optionalString,
+    description: "Path of the Sign in with Apple .p8 private key file (the path, never the key)",
+  },
   LECTERN_LEGAL_CONTACT_EMAIL: {
     schema: optionalString.refine((v) => v === undefined || z.email().safeParse(v).success, {
       message: "must be an email address",
@@ -239,6 +270,12 @@ export interface Config {
   pdf: boolean;
   /** ICS feed, Google Calendar sync, reminders (P4). */
   calendar: boolean;
+  /** Sign-in providers and team workspaces (P5). */
+  googleLogin: boolean;
+  appleLogin: boolean;
+  teams: boolean;
+  /** Sign in with Apple: where the .p8 key is (its ids are secrets, read with readSecret). */
+  appleSignin: { privateKeyFile: string | null };
   /** Operator-specific values for /privacy and /terms (null = not set yet). */
   legal: { contactEmail: string | null; officerName: string | null; effectiveDate: string | null };
   owner: {
@@ -312,6 +349,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     pdf: p.LECTERN_PDF,
     calendar: p.LECTERN_CALENDAR,
+    googleLogin: p.LECTERN_GOOGLE_LOGIN,
+    appleLogin: p.LECTERN_APPLE_LOGIN,
+    teams: p.LECTERN_TEAMS,
+    appleSignin: { privateKeyFile: p.APPLE_SIGNIN_PRIVATE_KEY_FILE ?? null },
     legal: {
       contactEmail: p.LECTERN_LEGAL_CONTACT_EMAIL ?? null,
       officerName: p.LECTERN_LEGAL_OFFICER_NAME ?? null,
@@ -343,6 +384,9 @@ export function readSecret(
     | "LECTERN_OWNER_API_TOKEN"
     | "GOOGLE_OAUTH_CLIENT_ID"
     | "GOOGLE_OAUTH_CLIENT_SECRET"
+    | "APPLE_SIGNIN_CLIENT_ID"
+    | "APPLE_SIGNIN_TEAM_ID"
+    | "APPLE_SIGNIN_KEY_ID"
 ): string | undefined {
   const v = (process.env[name] || "").trim();
   return v || undefined;

@@ -10,6 +10,16 @@ function tempDir() {
 }
 
 const CALENDAR_TABLES = ["calendar_feed", "calendar_event_link", "reminder", "oauth_state"];
+const ACCOUNT_TABLES = [
+  "oauth_identity",
+  "auth_session_meta",
+  "access_token",
+  "native_session",
+  "workspace_invite",
+  "workspace_quota",
+  "data_export",
+  "account_deletion",
+];
 
 /** The `when` drizzle recorded for a migration tag (its __drizzle_migrations.created_at). */
 function journalWhen(tag: string): number {
@@ -32,7 +42,7 @@ describe("@lectern/db migrations", () => {
       const sqlite = new Database(join(dir, "fresh.sqlite"));
       expect(pendingMigrations(sqlite).length).toBeGreaterThan(0);
       const res = runMigrations(sqlite, { backupDir: join(dir, "backups") });
-      expect(res.applied).toEqual(["0000_job_queue", "0001_search_ask", "0002_search_fts", "0003_v2_entities", "0004_p1_pipeline", "0005_p3_pdf", "0006_p4_calendar"]);
+      expect(res.applied).toEqual(["0000_job_queue", "0001_search_ask", "0002_search_fts", "0003_v2_entities", "0004_p1_pipeline", "0005_p3_pdf", "0006_p4_calendar", "0007_p5_accounts"]);
       expect(res.backup).toBeNull(); // nothing to protect yet
       const tables = (sqlite.query(`SELECT name FROM sqlite_master WHERE type='table'`).all() as any[]).map((r) => r.name);
       for (const t of ["job", "stage_run", "artifact", "ai_call", "job_event", "system_state"]) {
@@ -88,14 +98,14 @@ describe("@lectern/db migrations", () => {
     // Roll the database back to just before p3_pdf, as a server that ran P2 would be
     // (later migrations go too).
     sqlite.query(`DELETE FROM __drizzle_migrations WHERE created_at >= ?`).run(journalWhen("0005_p3_pdf"));
-    for (const t of ["pdf_page", ...CALENDAR_TABLES]) sqlite.query(`DROP TABLE ${t}`).run();
+    for (const t of ["pdf_page", ...CALENDAR_TABLES, ...ACCOUNT_TABLES]) sqlite.query(`DROP TABLE ${t}`).run();
     sqlite
       .query(
         `INSERT INTO asset (id, workspace_id, recording_id, kind, part_index, blob_key, bytes, mime, created_at)
          VALUES ('ast_1', 'wsp_1', 'rec_1', 'pdf', 0, 'file:x.pdf', 10, 'application/pdf', 0)`,
       )
       .run();
-    expect(runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") }).applied).toEqual(["0005_p3_pdf", "0006_p4_calendar"]);
+    expect(runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") }).applied).toEqual(["0005_p3_pdf", "0006_p4_calendar", "0007_p5_accounts"]);
     expect(sqlite.query(`SELECT id, kind FROM asset`).all()).toEqual([{ id: "ast_1", kind: "pdf" }]);
     expect(sqlite.query(`SELECT COUNT(*) AS n FROM pdf_page`).get()).toEqual({ n: 0 });
     sqlite.close();
@@ -104,7 +114,7 @@ describe("@lectern/db migrations", () => {
   test("fresh db has the p4_calendar tables", () => {
     const sqlite = new Database(":memory:");
     const res = runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") });
-    expect(res.applied.at(-1)).toBe("0006_p4_calendar");
+    expect(res.applied).toContain("0006_p4_calendar");
     const tables = (sqlite.query(`SELECT name FROM sqlite_master WHERE type='table'`).all() as Array<{ name: string }>).map((r) => r.name);
     for (const t of CALENDAR_TABLES) expect(tables).toContain(t);
     const columns = (sqlite.query(`PRAGMA table_info(reminder)`).all() as Array<{ name: string; notnull: number }>);
@@ -146,6 +156,53 @@ describe("@lectern/db migrations", () => {
         .run(id, user);
     insert("cfd_1", "usr_1");
     expect(() => insert("cfd_2", "usr_2")).toThrow(/UNIQUE/);
+    sqlite.close();
+  });
+
+  test("fresh db has the p5_accounts tables", () => {
+    const sqlite = new Database(":memory:");
+    const res = runMigrations(sqlite, { backupDir: join(tmpdir(), "unused") });
+    expect(res.applied.at(-1)).toBe("0007_p5_accounts");
+    const tables = (sqlite.query(`SELECT name FROM sqlite_master WHERE type='table'`).all() as Array<{ name: string }>).map((r) => r.name);
+    for (const t of ACCOUNT_TABLES) expect(tables).toContain(t);
+    const columns = sqlite.query(`PRAGMA table_info(native_session)`).all() as Array<{ name: string; notnull: number }>;
+    expect(columns.map((c) => c.name)).toEqual([
+      "id", "user_id", "family_id", "device_name", "platform", "access_hash", "access_expires_at",
+      "refresh_hash", "refresh_expires_at", "refresh_used_at", "created_at", "last_used_at", "revoked_at",
+    ]);
+    sqlite.close();
+  });
+
+  test("p5_accounts unique constraints", () => {
+    const sqlite = freshDb();
+    const twice = (sql: string, a: unknown[], b: unknown[]) => {
+      sqlite.query(sql).run(...(a as never[]));
+      expect(() => sqlite.query(sql).run(...(b as never[]))).toThrow(/UNIQUE/);
+    };
+    twice(
+      `INSERT INTO oauth_identity (id, user_id, provider, subject, email, created_at) VALUES (?, ?, 'google', 'sub-1', NULL, 0)`,
+      ["oid_1", "usr_1"],
+      ["oid_2", "usr_2"],
+    );
+    // The same subject at another provider is another identity.
+    sqlite.query(`INSERT INTO oauth_identity (id, user_id, provider, subject, email, created_at) VALUES ('oid_3', 'usr_1', 'apple', 'sub-1', NULL, 0)`).run();
+    twice(
+      `INSERT INTO access_token (id, user_id, name, scopes_json, token_hash, token_prefix, created_at) VALUES (?, 'usr_1', 'cli', '[]', 'hash_t', 'lct_pat_', 0)`,
+      ["tok_1"],
+      ["tok_2"],
+    );
+    twice(
+      `INSERT INTO native_session (id, user_id, family_id, access_hash, access_expires_at, refresh_hash, refresh_expires_at, created_at)
+       VALUES (?, 'usr_1', 'fam_1', ?, 0, 'hash_r', 0, 0)`,
+      ["ns_1", "hash_a1"],
+      ["ns_2", "hash_a2"],
+    );
+    twice(
+      `INSERT INTO workspace_invite (id, workspace_id, email, role, token_hash, invited_by, created_at, expires_at)
+       VALUES (?, 'wsp_1', 'a@example.com', 'member', 'hash_i', 'usr_1', 0, 0)`,
+      ["inv_1"],
+      ["inv_2"],
+    );
     sqlite.close();
   });
 

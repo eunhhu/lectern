@@ -82,6 +82,12 @@ export const AskTurnId = idSchema("AskTurnId", "ask turn (one question and its a
 export type AskTurnId = z.infer<typeof AskTurnId>;
 export const SavedViewId = idSchema("SavedViewId", "saved library view");
 export type SavedViewId = z.infer<typeof SavedViewId>;
+export const IdentityId = idSchema("IdentityId", "sign-in identity (a Google or Apple account linked to a user)");
+export type IdentityId = z.infer<typeof IdentityId>;
+export const InviteId = idSchema("InviteId", "workspace invitation");
+export type InviteId = z.infer<typeof InviteId>;
+export const ExportId = idSchema("ExportId", "data export");
+export type ExportId = z.infer<typeof ExportId>;
 
 /** Template ids are slugs (`lecture`, `meeting`, `legacy-markdown`), not row ids. */
 export const TemplateId = named(
