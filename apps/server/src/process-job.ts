@@ -26,6 +26,7 @@ import {
   type LlmProvider,
   type NotesPipelineInput,
   type NotesPipelineOptions,
+  type PdfContext,
   type PipelineStageEvent,
   type StageEvent,
   type Transcript,
@@ -41,6 +42,7 @@ import { toLectureSummaryDto } from "./dto.ts";
 import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
 import { publishNotes } from "./notes-publish.ts";
+import { alignRecording } from "./pdf-align.ts";
 import { ingestRecordingPdfs } from "./pdf-publish.ts";
 import { enqueueJob, JOB_CANCELED_MESSAGE, type JobOutcome, type LeasedJob } from "./queue.ts";
 import { defaultTranscriptHarness } from "./transcript-job.ts";
@@ -303,6 +305,8 @@ export interface NotesPhaseContext {
   keepTitle: boolean;
   /** Stage progress (stageEmitter); the caller's run reports stage starts to it too. */
   emitStage: (stage: string) => void;
+  /** Related lecture PDF pages for structure and extract (P3-04, from alignRecording). */
+  pdf?: PdfContext;
   /**
    * What a notes failure does: `partial` (default, `process`: the transcript was just
    * published, D-P1-2) or `throw` (`regenerate`: the previous version stays as it is).
@@ -336,6 +340,7 @@ export async function runNotesPhase(ctx: NotesPhaseContext): Promise<"ready" | "
         recordedAtMs: recording.recorded_at,
         recordedAtSource: recording.recorded_at_source,
         tz: "Asia/Seoul",
+        pdf: ctx.pdf,
       },
       { llm, routing: loadRouting(), ...deps.notes }
     );
@@ -596,9 +601,12 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
     // 2b. Lecture PDFs (P3-03, D-P3-2): page text for the notes and search. A PDF that cannot
     // be read never fails the recording; it ends `partial` like a notes failure (D-P1-2).
     let pdfFailed = false;
+    let pdf: PdfContext | null = null;
     if (config().pdf) {
       try {
         pdfFailed = (await ingestRecordingPdfs({ run, recordingId, workspaceId })).failed > 0;
+        // P3-04: which pages each stretch of the transcript talks about; null without pages.
+        pdf = await alignRecording({ run, recordingId, workspaceId });
       } catch (err: any) {
         const early = stopped();
         if (early) return early;
@@ -610,7 +618,7 @@ export async function runProcessJob(job: LeasedJob, deps: ProcessJobDeps = {}): 
     // 3. Notes.
     let status: "ready" | "partial";
     try {
-      status = await runNotesPhase({ job, run, lectureId, recordingId, workspaceId, transcript, deps, keepTitle, emitStage });
+      status = await runNotesPhase({ job, run, lectureId, recordingId, workspaceId, transcript, deps, keepTitle, emitStage, pdf: pdf ?? undefined });
     } catch (err: any) {
       const early = stopped();
       if (early) return early;

@@ -2,6 +2,8 @@
 // extract produced, in this order: ① schema, ② source refs, ⑥ one repair call for what
 // failed ①②, ③ quote match, ④ dates through the Korean parser, ⑤ plausibility and
 // duplicates. Then it assembles the stored document body (block ids, gap blocks).
+// PDF page labels (`pdf_pages`) become `pdf_page` sources when the label was in the PDF
+// context; any other number is removed (P3-04, D-P3-4).
 
 import {
   DocumentBody,
@@ -22,6 +24,7 @@ import { HarnessError } from "../errors.ts";
 import { canonicalJson, sha256Hex } from "../hash.ts";
 import type { LlmProvider } from "../providers.ts";
 import type { Routing } from "../routing.ts";
+import type { PdfLabel } from "../pdf/context.ts";
 import { defineStage, type StageDefinition } from "../stage.ts";
 import type { LoadedTemplate } from "../templates.ts";
 import { normalizeForMatch } from "../transcript/text.ts";
@@ -47,6 +50,8 @@ export interface VerifyInput {
   recordedAtSource: "client" | "media" | "upload";
   tz: string;
   language: string;
+  /** Labels of the PDF context structure saw (P3-04). Without them every `pdf_pages` number is removed. */
+  pdfLabels?: PdfLabel[];
 }
 
 export const VerifyOutput = z.object({
@@ -178,7 +183,10 @@ function mergeRefs(lists: SourceRef[][]): SourceRef[] {
 
 type Checked<T> = { ok: true; value: T; reasons: string[] } | { ok: false; issues: string[]; reasons: string[] };
 
-function checkBlock(raw: unknown, known: ReadonlySet<number>): Checked<BlockWithoutId> {
+/** PDF context labels by number. */
+type LabelMap = ReadonlyMap<number, PdfLabel>;
+
+function checkBlock(raw: unknown, known: ReadonlySet<number>, labels: LabelMap): Checked<BlockWithoutId> {
   const parsed = TemplateBlock.safeParse(raw);
   if (!parsed.success) return { ok: false, issues: [`schema: ${zodIssues(parsed.error)}`], reasons: ["schema"] };
   const block = parsed.data;
@@ -188,12 +196,22 @@ function checkBlock(raw: unknown, known: ReadonlySet<number>): Checked<BlockWith
     for (const token of dropped) reasons.push(`dropped_ref:${token}`);
     return refs;
   };
-  const own = expand(block.sources);
+  // Transcript refs first: the rendered anchor of a block is its first source.
+  const pdfRefs = (pages: readonly number[]): SourceRef[] => {
+    const refs: SourceRef[] = [];
+    for (const n of pages) {
+      const label = labels.get(n);
+      if (label) refs.push({ kind: "pdf_page", asset_id: label.asset_id, page: label.page_no } as SourceRef);
+      else if (!reasons.includes("pdf_page_out_of_set")) reasons.push("pdf_page_out_of_set");
+    }
+    return refs;
+  };
+  const own = mergeRefs([expand(block.sources), pdfRefs(block.pdf_pages)]);
   const { pdf_pages: _pages, sources: _sources, ...rest } = block;
   if (block.type === "list") {
     const items: Array<{ text: string; sources: SourceRef[] }> = [];
     for (const item of block.items) {
-      const refs = expand(item.sources);
+      const refs = mergeRefs([expand(item.sources), pdfRefs(item.pdf_pages)]);
       if (refs.length === 0) {
         reasons.push("item_dropped_no_source");
         continue;
@@ -235,6 +253,7 @@ export async function verifyDocument(input: VerifyInput, repair: RepairFn | null
   const known = new Set(segments.map((s) => s.idx));
   const byIdx = new Map(segments.map((s) => [s.idx, s] as const));
   const position = new Map(segments.map((s, i) => [s.idx, i] as const));
+  const labels: LabelMap = new Map((input.pdfLabels ?? []).map((l) => [l.label, l] as const));
   const report: ReportItem[] = [];
   let droppedBlocks = 0;
   let repaired = false;
@@ -245,7 +264,7 @@ export async function verifyDocument(input: VerifyInput, repair: RepairFn | null
   for (const section of input.structure.sections) {
     section.blocks.forEach((raw, i) => {
       const ref = `${section.key}#${i + 1}`;
-      blocks.set(ref, { section: section.key, checked: checkBlock(raw, known), raw });
+      blocks.set(ref, { section: section.key, checked: checkBlock(raw, known, labels), raw });
       blockOrder.push(ref);
     });
   }
@@ -280,7 +299,7 @@ export async function verifyDocument(input: VerifyInput, repair: RepairFn | null
       if (!fix) continue;
       if (target.kind === "block" && fix.block) {
         const b = blocks.get(target.ref)!;
-        const again = checkBlock(fix.block, known);
+        const again = checkBlock(fix.block, known, labels);
         b.checked = again.ok
           ? { ...again, reasons: [...b.checked.reasons, "repaired", ...again.reasons] }
           : { ...again, reasons: [...b.checked.reasons, "repair_failed", ...again.reasons] };
@@ -655,6 +674,7 @@ export function verifyStage(llm: LlmProvider, routing: Routing): StageDefinition
           sha256Hex(canonicalJson(input.structure)),
           sha256Hex(canonicalJson(input.extract)),
           sha256Hex(canonicalJson(input.transcript)),
+          ...(input.pdfLabels?.length ? [sha256Hex(canonicalJson(input.pdfLabels))] : []),
         ],
         prompt: sha256Hex(`${NOTES_SYSTEM}\u0000${REPAIR_INSTRUCTION}`),
         template: `${def.id}@${def.version}:${input.template.hash}`,

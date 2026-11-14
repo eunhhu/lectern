@@ -6,6 +6,7 @@
 
 import type { RecordingDomain } from "@lectern/domain";
 import { HarnessError, classifyError, type ErrorKind } from "../errors.ts";
+import type { PdfContext } from "../pdf/context.ts";
 import type { LlmProvider } from "../providers.ts";
 import type { Routing } from "../routing.ts";
 import type { JobRun } from "../runner.ts";
@@ -30,6 +31,8 @@ export interface NotesPipelineInput {
   recordedAtMs: number;
   recordedAtSource: "client" | "media" | "upload";
   tz: string;
+  /** Related lecture PDF pages from the alignment (P3-04); structure and extract see them. */
+  pdf?: PdfContext;
 }
 
 export type NotesStageName = "classify" | "structure" | "extract" | "verify" | "render";
@@ -116,7 +119,7 @@ export async function runNotesPipeline(
   const language = classification.language;
 
   // structure: no document without it, so every failure ends the run.
-  const structure = await step("structure", structureStage(llm, routing), { template, segments, language });
+  const structure = await step("structure", structureStage(llm, routing), { template, segments, language, pdf: input.pdf });
 
   let extractFailed = false;
   let extract = {};
@@ -127,6 +130,7 @@ export async function runNotesPipeline(
       language,
       recordedAtMs: input.recordedAtMs,
       tz: input.tz,
+      pdf: input.pdf,
     });
   } catch (err) {
     const error = classifyError(err);
@@ -144,6 +148,7 @@ export async function runNotesPipeline(
     recordedAtSource: input.recordedAtSource,
     tz: input.tz,
     language,
+    pdfLabels: input.pdf?.labels,
   };
   let verified: VerifyOutput;
   let verifyDegraded = false;

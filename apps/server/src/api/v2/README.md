@@ -89,7 +89,7 @@
 | `GET /assets/{asset_id}/content` | `getAssetContent` | 실제 | Range, 확장자 기준 MIME, `?token=` 가능 |
 | `GET /assets/{asset_id}/pages` | `listAssetPages` | 실제 | `LECTERN_PDF=1`일 때만(아니면 501). `process`의 `pdf_ingest`가 채운 쪽마다 글자 층 유무와 글자 수, `scanned` |
 | `POST /assets/{asset_id}/ocr` | `ocrAsset` | 501 | P3-05. `dry_run` 추정 뒤 사용자가 확인한 요청만 OCR |
-| `GET /recordings/{recording_id}/alignment` | `getRecordingAlignment` | 501 | P3-04. 모델 없이 2분 창과 PDF 쪽을 짝짓는다 |
+| `GET /recordings/{recording_id}/alignment` | `getRecordingAlignment` | 실제 | `LECTERN_PDF=1`일 때만(아니면 501). 마지막 `process`의 `align`(모델 없음)이 만든 2분 창마다 상위 3쪽과 점수. 아직 없으면 `windows: []` |
 | `GET /documents/{document_id}` | `getDocument` | 실제 | `ETag: "<current_version>"` |
 | `GET /documents/{document_id}/versions` | `listDocumentVersions` | 실제 | 최신순, 본문 제외 |
 | `GET /documents/{document_id}/versions/{version}` | `getDocumentVersion` | 실제 | |
