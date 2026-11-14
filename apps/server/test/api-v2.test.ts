@@ -195,7 +195,14 @@ describe("API v2 route table", () => {
     expect(fromOpenApi.sort()).toEqual(fromRoutes.sort());
   });
 
-  const OUTSIDE_TABLE = new Set(["/openapi.json", "/integrations/google/callback", "/auth/google/start", "/auth/google/callback"]);
+  const OUTSIDE_TABLE = new Set([
+    "/openapi.json",
+    "/integrations/google/callback",
+    "/auth/google/start",
+    "/auth/google/callback",
+    "/auth/apple/start",
+    "/auth/apple/callback",
+  ]);
 
   test("every openapi.json operation is mounted exactly once, and nothing else is", () => {
     const expected = Object.entries(openapi.paths)
@@ -203,7 +210,7 @@ describe("API v2 route table", () => {
       .sort();
     const mounted = createApiV2App()
       // Outside the route table: the schema itself and the browser navigations of OAuth: the
-      // calendar's redirect back (P4-02) and Google sign-in (P5-04).
+      // calendar's redirect back (P4-02), Google sign-in (P5-04) and Apple sign-in (P5-05).
       .routes.filter((r) => r.method !== "ALL" && !OUTSIDE_TABLE.has(r.path))
       .map((r) => `${r.method} ${r.path}`)
       .sort();

@@ -20,6 +20,7 @@ import { eventsRouter } from "./events.ts";
 import { foldersRouter } from "./folders.ts";
 import { googleCalendarCallback } from "./google-callback.ts";
 import { googleLoginCallback, googleLoginStart } from "./auth-google.ts";
+import { appleLoginCallback, appleLoginStart } from "./auth-apple.ts";
 import { integrationsRouter } from "./integrations.ts";
 import { jobsRouter } from "./jobs.ts";
 import { meRouter } from "./me.ts";
@@ -114,6 +115,10 @@ export function createApiV2App(options: ApiV2Options = {}) {
   // "Google로 계속하기" (P5-04): browser navigations too.
   v2.get("/auth/google/start", googleLoginStart);
   v2.get("/auth/google/callback", googleLoginCallback);
+  // "Apple로 계속하기" (P5-05). The callback is a cross-site form_post from appleid.apple.com;
+  // it is protected by the single-use state (v2 has no cookie-origin middleware to exempt it from).
+  v2.get("/auth/apple/start", appleLoginStart);
+  v2.post("/auth/apple/callback", appleLoginCallback);
 
   // Unknown /api/v2 paths (and known paths with another method) answer in the v2 error
   // shape instead of falling through to the legacy router.

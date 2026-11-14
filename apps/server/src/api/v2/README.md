@@ -18,6 +18,7 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 
 - `GET /integrations/google/callback`: Google 캘린더 연결의 돌아오는 곳(P4-02).
 - `GET /auth/google/start?next=…`, `GET /auth/google/callback`: "Google로 계속하기"(P5-04, D-P5-5). `LECTERN_GOOGLE_LOGIN`이 꺼져 있거나 OAuth 클라이언트가 없으면 404. 시작할 때 로그인돼 있으면 계정에 연결하는 흐름이다(`/app/settings?identity=linked|taken#account`). 실패는 모두 `/app/login?error=oauth|email_unverified|no_email|inactive|signup_closed`. state는 한 번만 쓰이고 ID 토큰의 nonce이며, 시작한 브라우저의 짧은 쿠키(`lectern_oauth`)와 맞아야 한다.
+- `GET /auth/apple/start?next=…`, `POST /auth/apple/callback`: "Apple로 계속하기"(P5-05). `LECTERN_APPLE_LOGIN`이 꺼져 있으면 404, `APPLE_SIGNIN_*` 값이나 키 파일이 없으면 501. 콜백은 Apple이 보내는 교차 사이트 `POST`(form_post)라 세션 쿠키가 오지 않는다. state(한 번, 10분, nonce)와 `Origin: https://appleid.apple.com`(보낼 때)으로 막고, 연결 흐름의 사용자는 state에 적힌 사용자다. 응답은 모두 303.
 
 ## 데이터: v1 강의와 v2 행
 
