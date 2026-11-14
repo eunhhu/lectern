@@ -181,6 +181,34 @@ const ENV = {
     schema: optionalString,
     description: "Path of the Sign in with Apple .p8 private key file (the path, never the key)",
   },
+  LECTERN_APNS: {
+    schema: bool(false),
+    description: "1: send Apple push notifications (Live Activity updates, document-ready alerts). Needs the APNS_* values",
+  },
+  APNS_TEAM_ID: { schema: optionalString, description: "Apple developer team id for APNs token auth", secret: true },
+  APNS_KEY_ID: { schema: optionalString, description: "Key id of the APNs .p8 key", secret: true },
+  APNS_PRIVATE_KEY_FILE: {
+    schema: optionalString,
+    description: "Path of the APNs .p8 private key file (the path, never the key)",
+  },
+  APNS_TOPIC_IOS: { schema: optionalString, description: "Bundle id of the iOS app, used as the APNs topic" },
+  APNS_ENV: {
+    schema: z.enum(["sandbox", "production"]).default("sandbox"),
+    description: "APNs host: sandbox (api.sandbox.push.apple.com) or production (api.push.apple.com)",
+  },
+  APPLE_APP_IDS: {
+    schema: optionalString,
+    description:
+      "Comma-separated TEAMID.bundle.id list served in /.well-known/apple-app-site-association. Empty: the route answers 404",
+  },
+  LECTERN_V1_SUNSET: {
+    schema: optionalString,
+    description: "YYYY-MM-DD. When set, v1 API responses carry Deprecation and Sunset headers",
+  },
+  LECTERN_V1_BLOCK: {
+    schema: bool(false),
+    description: "1: after the LECTERN_V1_SUNSET date, the retired v1 endpoints answer 410",
+  },
   LECTERN_LEGAL_CONTACT_EMAIL: {
     schema: optionalString.refine((v) => v === undefined || z.email().safeParse(v).success, {
       message: "must be an email address",
@@ -276,6 +304,12 @@ export interface Config {
   teams: boolean;
   /** Sign in with Apple: where the .p8 key is (its ids are secrets, read with readSecret). */
   appleSignin: { privateKeyFile: string | null };
+  /** Apple push (P6, D-P6-2): where the .p8 key is and which host; the team and key ids are secrets. */
+  apns: { enabled: boolean; privateKeyFile: string | null; topicIos: string | null; env: "sandbox" | "production" };
+  /** TEAMID.bundle.id entries for universal links (D-P6-4); malformed entries are dropped. */
+  appleAppIds: string[];
+  /** v1 retirement (D-P6-5). `sunset` is null unless it is a real YYYY-MM-DD date. */
+  v1: { sunset: string | null; block: boolean };
   /** Operator-specific values for /privacy and /terms (null = not set yet). */
   legal: { contactEmail: string | null; officerName: string | null; effectiveDate: string | null };
   owner: {
@@ -288,6 +322,9 @@ export interface Config {
   /** Full parsed values, for diagnostics (secrets redacted). */
   raw: Record<string, unknown>;
 }
+
+/** An App ID as Apple writes it: 10-character team id, a dot, the bundle id. */
+const APPLE_APP_ID = /^[A-Z0-9]{10}\.[A-Za-z0-9.-]+$/;
 
 const list = (v: string | undefined) =>
   (v || "")
@@ -353,6 +390,15 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     appleLogin: p.LECTERN_APPLE_LOGIN,
     teams: p.LECTERN_TEAMS,
     appleSignin: { privateKeyFile: p.APPLE_SIGNIN_PRIVATE_KEY_FILE ?? null },
+    apns: {
+      enabled: p.LECTERN_APNS,
+      privateKeyFile: p.APNS_PRIVATE_KEY_FILE ?? null,
+      topicIos: p.APNS_TOPIC_IOS ?? null,
+      env: p.APNS_ENV,
+    },
+    appleAppIds: list(p.APPLE_APP_IDS).filter((id) => APPLE_APP_ID.test(id)),
+    // A malformed sunset date only means "no headers yet"; it must not stop the server.
+    v1: { sunset: p.LECTERN_V1_SUNSET && isIsoDate(p.LECTERN_V1_SUNSET) ? p.LECTERN_V1_SUNSET : null, block: p.LECTERN_V1_BLOCK },
     legal: {
       contactEmail: p.LECTERN_LEGAL_CONTACT_EMAIL ?? null,
       officerName: p.LECTERN_LEGAL_OFFICER_NAME ?? null,
@@ -387,6 +433,8 @@ export function readSecret(
     | "APPLE_SIGNIN_CLIENT_ID"
     | "APPLE_SIGNIN_TEAM_ID"
     | "APPLE_SIGNIN_KEY_ID"
+    | "APNS_TEAM_ID"
+    | "APNS_KEY_ID"
 ): string | undefined {
   const v = (process.env[name] || "").trim();
   return v || undefined;

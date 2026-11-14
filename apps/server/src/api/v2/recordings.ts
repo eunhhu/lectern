@@ -437,6 +437,12 @@ export const recordingsRouter = defineRouter({
     if (recording instanceof Response) return recording;
     return ok(req, readAlignment(recording.id));
   },
+  // Live Activities (D-P6-2, D-P6-12) and recording markers (D-P6-3): contract only until P6-01.
+  setLiveActivity: notImplemented,
+  endLiveActivity: notImplemented,
+  listMarkers: notImplemented,
+  createMarker: notImplemented,
+  deleteMarker: notImplemented,
 });
 
 /**

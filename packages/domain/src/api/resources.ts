@@ -62,9 +62,11 @@ import {
   InviteId,
   JobId,
   LanguageTag,
+  MarkerId,
   MicroUsd,
   Milliseconds,
   Period,
+  PushDeviceId,
   RecordingId,
   SavedViewId,
   ShareLinkId,
@@ -956,3 +958,78 @@ export const AccountDeletionInfo = named(
   "A requested account deletion and when it runs (D-P5-9). It can be canceled until then.",
 );
 export type AccountDeletionInfo = z.infer<typeof AccountDeletionInfo>;
+
+// ---------------------------------------------------------------------------
+// native apps (P6, CONTRACTS §6.1)
+// ---------------------------------------------------------------------------
+
+/** APNs device and Live Activity tokens are hex strings. */
+const ApnsToken = z.string().regex(/^[0-9a-fA-F]{32,400}$/);
+
+export const PushPlatform = named("PushPlatform", z.enum(["ios", "macos"]));
+export type PushPlatform = z.infer<typeof PushPlatform>;
+
+export const UpsertPushDeviceRequest = named(
+  "UpsertPushDeviceRequest",
+  z.object({
+    platform: PushPlatform,
+    apns_token: ApnsToken,
+    push_to_start_token: ApnsToken.nullable().optional().describe("Live Activity push-to-start token (iOS)."),
+    name: z.string().min(1).max(100).optional(),
+    app_version: z.string().min(1).max(40).optional(),
+  }),
+);
+export type UpsertPushDeviceRequest = z.infer<typeof UpsertPushDeviceRequest>;
+
+export const PushDeviceDto = named(
+  "PushDevice",
+  z.object({
+    id: PushDeviceId,
+    platform: PushPlatform,
+    name: z.string().nullable(),
+    app_version: z.string().nullable(),
+    created_at: Timestamp,
+    last_seen_at: Timestamp,
+  }),
+  "A device registered for push. Tokens are never returned.",
+);
+export type PushDeviceDto = z.infer<typeof PushDeviceDto>;
+/** `device_id` is made by the app (a UUID on first launch), so PUT both registers and updates. */
+export const PushDeviceParams = z.object({ device_id: PushDeviceId });
+
+export const SetLiveActivityRequest = named("SetLiveActivityRequest", z.object({ device_id: PushDeviceId, push_token: ApnsToken }));
+export type SetLiveActivityRequest = z.infer<typeof SetLiveActivityRequest>;
+/** DELETE takes the device in the query, not a body. */
+export const EndLiveActivityQuery = z.object({ device_id: PushDeviceId });
+
+export const MarkerDto = named(
+  "RecordingMarker",
+  z.object({
+    id: MarkerId,
+    recording_id: RecordingId,
+    at_ms: z.number().int().nonnegative().describe("Position in the original audio."),
+    label: z.string().nullable(),
+    created_by: UserId,
+    created_at: Timestamp,
+  }),
+  "A point the user marked as important while recording (D-P6-3).",
+);
+export type MarkerDto = z.infer<typeof MarkerDto>;
+export const MarkerPage = pageOf("RecordingMarkerPage", MarkerDto);
+
+export const CreateMarkerRequest = named(
+  "CreateMarkerRequest",
+  z.object({ at_ms: z.number().int().nonnegative().max(86_400_000), label: z.string().min(1).max(80).optional() }),
+);
+export type CreateMarkerRequest = z.infer<typeof CreateMarkerRequest>;
+export const MarkerParams = z.object({ recording_id: RecordingId, marker_id: MarkerId });
+
+const IsoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+export const V1UsageQuery = z.object({ from: IsoDay.optional(), to: IsoDay.optional() });
+export const V1UsageRow = named(
+  "V1UsageRow",
+  z.object({ day: z.string(), route: z.string(), client: z.string(), count: z.number().int().nonnegative() }),
+  "v1 API calls on one day for one route and client (D-P6-5).",
+);
+export type V1UsageRow = z.infer<typeof V1UsageRow>;
+export const V1UsagePage = pageOf("V1UsagePage", V1UsageRow);

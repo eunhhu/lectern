@@ -19,6 +19,7 @@
 | Google OAuth 클라이언트 ID·시크릿 `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | `/etc/lectern/lectern.env` | Google 캘린더 연결·(P5) Google 로그인 | 유출 의심, 연 1회(§8) |
 | Google 연동 토큰(refresh token) | DB `integration.token_enc`(호스트 봉인 키로 암호화) | 캘린더 동기화 | 호스트 봉인 키 교체 시 전부 무효(§7) |
 | Sign in with Apple 키 `APPLE_SIGNIN_*`, 키 파일 | `/etc/lectern/lectern.env`, `/etc/lectern/apple-signin.p8`(0600) | Apple 로그인 | 유출 의심, Apple 키 만료 시(§9) |
+| APNs 키 `APNS_*`, 키 파일 | `/etc/lectern/lectern.env`, `/etc/lectern/apns.p8`(0600) | 푸시 알림, Live Activity | 유출 의심 시(APNs 키는 만료되지 않는다. §10) |
 
 공통 사전 확인
 1. 지금 이 시크릿이 실제로 어디 있는지 확인한다. 호스트가 아직 `EnvironmentFile`로 옮겨지지 않았다면 유닛 파일의 `Environment=` 줄에 있을 수 있다.
@@ -242,6 +243,24 @@ Apple 로그인의 client secret은 이 키로 서버가 그때그때 서명해 
 3. 검증: 로그인 화면에서 Apple로 로그인해 들어가지는지 확인한다.
 4. Apple Developer에서 옛 키를 폐기(Revoke)한다.
 
-## 10. 교체 기록
+## 10. APNs 키 (`APNS_KEY_ID`, `apns.p8`)
+
+푸시 알림과 Live Activity 갱신은 이 키로 서버가 50분마다 서명한 토큰(ES256 JWT)으로 보낸다(D-P6-2). APNs 키는 만료되지 않으므로 유출이 의심될 때만 바꾼다. 팀당 APNs 키는 **두 개까지**만 만들 수 있으니, 새 키를 발급하기 전에 남은 자리가 있는지 확인하고 교체가 끝나면 옛 키를 바로 폐기한다.
+
+1. Apple Developer → Certificates, Identifiers & Profiles → Keys에서 Apple Push Notifications service(APNs)를 켠 새 키를 발급한다. `.p8` 파일은 **한 번만** 내려받을 수 있으니 바로 비밀번호 관리자에도 보관한다(옛 키는 아직 폐기하지 않는다).
+2. 서버에 키 파일을 0600으로 두고, 환경 파일의 `APNS_KEY_ID`(파일 이름을 바꿨다면 `APNS_PRIVATE_KEY_FILE`도)를 바꾼 뒤 다시 시작한다.
+   ```bash
+   sudo install -m 0600 -o lectern -g lectern ./AuthKey_NEWKEYID.p8 /etc/lectern/apns.p8
+   ```
+   ```bash
+   sudoedit /etc/lectern/lectern.env
+   ```
+   ```bash
+   sudo systemctl restart lectern
+   ```
+3. 검증: 앱에서 녹음을 하나 올리고, 처리 단계가 바뀔 때 Live Activity가 갱신되고 끝났을 때 알림이 오는지 확인한다. 서버 로그에 APNs `403 InvalidProviderToken`이 없어야 한다.
+4. Apple Developer에서 옛 키를 폐기(Revoke)한다.
+
+## 11. 교체 기록
 
 교체할 때마다 날짜, 시크릿 이름, 이유, 수행자를 운영 메모에 남긴다(값은 절대 남기지 않는다). 다음 정기 교체 날짜도 적어 둔다.

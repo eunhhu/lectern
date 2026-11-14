@@ -52,6 +52,13 @@ describe("policy pages", () => {
     expect(html).not.toContain("함께 지우기를 선택할 수 있습니다");
   });
 
+  test("privacy page covers push notifications", () => {
+    const html = template("privacy");
+    expect(html).toContain("푸시 알림과 실시간 현황(Live Activity) 전달");
+    expect(html).toContain("앱 알림 정보");
+    expect(html).toContain('녹음 중에 누른 "중요" 표시의 시각');
+  });
+
   test("unset values read as neutral text, never a raw slot or an empty mailto link", () => {
     for (const page of LEGAL_PAGES) {
       const { html, missing } = renderLegalTemplate(template(page), UNSET);
