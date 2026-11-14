@@ -52,6 +52,8 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | ~~`swift-openapi-generator`가 이 저장소의 `openapi.json`을 처리하는지~~ 확인됨(2026-11-15, P6-A2): 1.14.4가 처리한다. 다만 nullable 참조·인라인 판별 유니온·문자열 enum을 그대로 두면 필드가 빠지거나 디코딩이 실패해서 `apps/apple/scripts/openapi-for-swift.py`가 입력을 고친다 | P6-A2 |
 | 샌드박스 앱에서 시스템 오디오 탭이 되는지, 추가 entitlement가 필요한지 | P6-A10 |
 | 실제 iPhone에서 푸시 등록, Live Activity(원격 갱신·push-to-start), 알림, 유니버설 링크, 위젯 | P6-A7, P6-A11 |
+| 서명한 빌드에서 App Group(`group.com.qucord.lectern`)과 Keychain 접근 그룹이 프로비저닝되고 앱·위젯·공유 확장이 같이 쓰는지. P6-A1부터 entitlements가 비어 있어서(XcodeGen이 매번 지웠다, 2026-11-15에 고침) 서명한 빌드로 확인된 적이 없다 | P6-A1, P6-A2, P6-A3 |
+| 녹음 엔진의 기기 점검(통화 중 일시정지, AirPods 빼기, 화면 끈 3시간, 무음 경고, 장치 바뀜, 녹음 중 강제 종료): `apps/apple/MANUAL_CHECKS.md` 4–9 | P6-A4 |
 | 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
 | CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
 | Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
@@ -72,6 +74,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | Apple의 서버 간 알림(계정 삭제·이메일 변경 통지)과 토큰 폐기를 받지 않는다. 필요한지 정한다 | P5-05 |
 | App Store에 올리려면 앱 안에서 계정 삭제를 시작할 수 있어야 할 수 있다(지침 5.1.1(v)). 지금은 "웹에서 열기"다 | P6-A6 |
 | 마이크·시스템 오디오 2채널을 서버가 화자 구분에 쓰게 할지(평가가 필요하다) | P6-A10 |
+| 녹음 파일 형식. 지금은 AAC .m4a라서 녹음 중 앱이 죽으면 그 파일을 읽을 수 없다(끝낼 때 색인을 쓴다). CAF로 쓰고 끝낼 때 바꾸는 식으로 바꿀지 MANUAL_CHECKS 9를 확인한 뒤 정한다. 같이 정할 것: 사용자 일시정지 중에도 입력이 돌아 iOS 마이크 표시가 켜져 있다(백그라운드에서 엔진을 멈추면 다시 시작하지 못할 수 있어서) | P6-A4 |
 | 옛 관리자 콘솔을 지우면 롤백 수단이 "웹 셸 끄기"에서 "이전 릴리스로 되돌리기"로 바뀐다. 승인할 때 알고 있어야 한다 | P5-14 |
 | `LECTERN_V1_BLOCK`을 켜는 시점. **Android와 Windows 앱은 목록·상세를 아직 `/api/lectures`로 읽는다.** 차단을 켜면 그 화면이 깨진다(아래 "후속 작업"의 첫 줄이 먼저다) | P6-03 |
 | 처음 온 사람이 인계 점검표를 실제로 따라 해 보는 것 | P7-05 |
@@ -138,3 +141,9 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-A2 | Apple 게이트는 `python3`(입력 변환), 첫 실행의 GitHub 접근(패키지 의존), `xcodebuild -skipPackagePluginValidation`이 필요하다 | P6-CI에 전달 |
 | 2026-11-15 | P6-A2 | 앱은 `KeychainTokenStore(accessGroup: "$(AppIdentifierPrefix)com.qucord.lectern")`을 넘긴다. 앱·위젯·공유 확장이 한 쌍을 같이 쓰므로 refresh 전에 저장소를 다시 읽는다(쓴 refresh 토큰을 다시 보내면 서버가 가족 전체를 끊는다) | P6-A6·A9에 전달 |
 | 2026-11-15 | P6-A2 | 이벤트·할 일 목록을 래퍼에 여는 작업은 그 응답의 열린 유니온(`evidence` 등)을 `OpenUnionMiddleware`에 더한다 | 후속 WP |
+| 2026-11-15 | P6-A3 | 앱이 `UploadQueue(store: .inContainer(<App Group>), transport: LecternUploadTransport(api:), containerURL:)`를 하나 만든다. 실행·포그라운드·네트워크 복귀 때 `run()`, 백그라운드에서는 `BackgroundUploader.send`, iOS 앱 델리게이트의 `handleEventsForBackgroundURLSession`에서 `handleEvents`. 백그라운드 파트 작업이 걸린 항목에 `run()`을 부르기 전에 `reconcile`로 확인한다(같은 파트를 두 번 보낸다. 결과는 맞지만 데이터를 두 번 쓴다). 공유 확장은 `enqueue`만 한다 | P6-A6·A7·A8에 전달 |
+| 2026-11-15 | P6-A3 | IETF Resumable Uploads 호환과 `BGContinuedProcessingTask`(시스템 진행 UI)는 하지 않았다(D-P6-6, 명세 8절). 큐는 서버의 파트 방식으로 재개한다 | 기록만 |
+| 2026-11-15 | P6-A3 | 같은 Idempotency-Key는 서버에서 죽은 세션(만료·취소)을 계속 돌려주므로 세션을 새로 시작할 때마다 키를 `<id>.<n>`으로 바꾼다. 완료 응답만 잃은 경우는 세션이 completed라 파트를 보내지 않고 같은 키로 완료를 다시 부른다(고치기 전에는 녹음이 둘 생겼다, `bf0a31b`) | 기록만 |
+| 2026-11-15 | P6-A1 | XcodeGen은 `info`·`entitlements`의 파일을 generate 때마다 `properties`로 다시 쓴다. properties가 없어서 P6-A1의 Info.plist 키(마이크 문구, 백그라운드 오디오, Live Activity, 확장의 NSExtension)와 entitlements 네 개가 모두 지워진 채 커밋돼 있었다. `project.yml`의 properties로 옮겼다(`e3a7ef3`). 이 파일들은 `project.yml`에서 고친다 | P6-A6~A12에 전달 |
+| 2026-11-15 | P6-A4 | 녹음 전에 `AVAudioApplication.requestRecordPermission`, iOS는 `SessionCoordinator.activate()` 뒤 `Recorder.start()`, 끝나면 `deactivate()`. 녹음마다 `Recorder`를 새로 만든다. `RecordingResult.markers`는 LecternKit `Marker`로 옮겨 업로드 항목에 넣는다(`atMs`가 같다) | P6-A6·A8에 전달 |
+| 2026-11-15 | P6-A4 | `EngineAudioInput.onInputLost`를 `recorder.handle(.routeLost)`로 잇는다(macOS는 오디오 세션이 없어 장치가 사라져도 다른 신호가 없다). 방해 뒤 사용자가 직접 재개할 때는 `resume()` 전에 `activate()`를 다시 부르고 `resume()` 뒤 `state`를 확인한다(입력을 다시 시작하지 못하면 일시정지로 남는다) | P6-A6·A8에 전달 |
