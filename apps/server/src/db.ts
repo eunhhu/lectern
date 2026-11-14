@@ -915,6 +915,11 @@ export function deleteUserAndData(targetUserId: string): boolean {
   const workspaceRecordings = db.query(`SELECT id FROM recording WHERE workspace_id = ?`).all(personalWorkspaceId(targetUserId)) as Array<{ id: string }>;
   for (const rec of workspaceRecordings) deleteAlignment(rec.id);
   db.query(`DELETE FROM pdf_page WHERE workspace_id = ?`).run(personalWorkspaceId(targetUserId));
+  // Calendar rows keyed by the user, in any workspace (P4): reminders addressed to them, their
+  // ICS feeds, and the event links of their Google integrations (deleted with the workspace).
+  db.query(`DELETE FROM reminder WHERE user_id = ?`).run(targetUserId);
+  db.query(`DELETE FROM calendar_feed WHERE user_id = ?`).run(targetUserId);
+  db.query(`DELETE FROM calendar_event_link WHERE integration_id IN (SELECT id FROM integration WHERE user_id = ?)`).run(targetUserId);
   deleteWorkspaceRows(db, personalWorkspaceId(targetUserId));
   db.query(`DELETE FROM membership WHERE user_id = ?`).run(targetUserId);
   const res = db.query(`DELETE FROM users WHERE id = ?`).run(targetUserId);

@@ -2,6 +2,7 @@ import { config } from "@lectern/config";
 import { createFeed, deleteFeed, getFeed } from "../../calendar/feed.ts";
 import { enqueueCalendarSyncForWorkspace } from "../../calendar/sync-job.ts";
 import { db } from "../../db.ts";
+import { syncRemindersForEvent } from "../../reminders.ts";
 import { callerIn, can, requireWorkspace } from "./access.ts";
 import { apiError, defineRouter, notFound, notImplemented, ok, pageBounds, pageFrom, type V2Request } from "./common.ts";
 import { eventCandidateDto, type EventCandidateRow, iso, type RecordingRow } from "./rows.ts";
@@ -9,7 +10,8 @@ import { transact } from "./store.ts";
 
 // The suggestion inbox over event_candidate. Decisions and edits queue a Google Calendar
 // sync of the workspace (P4-03, D-P4-5): a synced event can still be edited (Google gets the
-// change) or dismissed (Google loses it); accepting it again keeps it `synced`.
+// change) or dismissed (Google loses it); accepting it again keeps it `synced`. They also
+// reschedule the event's e-mail reminders (P4-05).
 
 /** A candidate the caller may decide on (they may change its recording), or the error. */
 function decidable(req: V2Request, id: string): EventCandidateRow | Response {
@@ -61,6 +63,7 @@ export const calendarRouter = defineRouter({
       row.id
     );
     enqueueCalendarSyncForWorkspace(row.workspace_id);
+    syncRemindersForEvent(row.id);
     return ok(req, eventCandidateDto(get(row.id)));
   },
   batchCalendarSuggestions: (req) => {
@@ -80,6 +83,7 @@ export const calendarRouter = defineRouter({
       }
     });
     for (const workspaceId of new Set(rows.map((r) => r.workspace_id))) enqueueCalendarSyncForWorkspace(workspaceId);
+    for (const row of rows) syncRemindersForEvent(row.id);
     return ok(req, { items: rows.map((r) => eventCandidateDto(get(r.id))) });
   },
   // ICS subscription (P4-01, CONTRACTS §4): any member may have one per workspace. The
