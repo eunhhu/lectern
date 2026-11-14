@@ -21,12 +21,16 @@ import { SignupPage } from "../routes/account/SignupPage.tsx";
 import { NotFoundPage, SessionErrorPage } from "../routes/placeholders.tsx";
 import { SettingsPage } from "../routes/settings/SettingsPage.tsx";
 import { InvitePage, type InviteSearch } from "../routes/invite/InvitePage.tsx";
+import { AdminUserRole, AdminUserStatus, LectureStatus } from "../api/admin.ts";
 import { AdminLayout } from "../routes/admin/AdminLayout.tsx";
 import { JobDetailPage } from "../routes/admin/JobDetailPage.tsx";
 import { JobsPage, type AdminJobsSearch } from "../routes/admin/JobsPage.tsx";
 import { OverviewPage } from "../routes/admin/OverviewPage.tsx";
+import { RecordingDetailPage } from "../routes/admin/RecordingDetailPage.tsx";
+import { RecordingsPage, type AdminRecordingsSearch } from "../routes/admin/RecordingsPage.tsx";
+import { UserDetailPage } from "../routes/admin/UserDetailPage.tsx";
 import { UsagePage, type AdminUsageSearch } from "../routes/admin/UsagePage.tsx";
-import { UsersPage } from "../routes/admin/UsersPage.tsx";
+import { UsersPage, type AdminUsersSearch } from "../routes/admin/UsersPage.tsx";
 import { JobKind as JobKindSchema, JobState as JobStateSchema } from "@lectern/domain";
 import { AskPage, type AskSearch } from "../routes/ask/AskPage.tsx";
 import { SearchPage, type SearchPageSearch } from "../routes/search/SearchPage.tsx";
@@ -162,10 +166,32 @@ const inviteRoute = createRoute({
   component: InvitePage,
 });
 
-// The admin console (P5-12). AdminLayout draws "not found" for anyone who is not an operator.
+// The admin console (P5-12, P5-16). AdminLayout draws "not found" for anyone who is not an operator.
+const searchText = (v: unknown, max = 200) => (typeof v === "string" && v.trim() && v.length <= max ? v : undefined);
 const adminRoute = createRoute({ getParentRoute: () => authedRoute, path: "/admin", component: AdminLayout });
 const adminOverviewRoute = createRoute({ getParentRoute: () => adminRoute, path: "/", component: OverviewPage });
-const adminUsersRoute = createRoute({ getParentRoute: () => adminRoute, path: "/users", component: UsersPage });
+const adminUsersRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/users",
+  validateSearch: (search: Record<string, unknown>): AdminUsersSearch => ({
+    role: AdminUserRole.safeParse(search.role).data,
+    status: AdminUserStatus.safeParse(search.status).data,
+    q: searchText(search.q),
+  }),
+  component: UsersPage,
+});
+const adminUserRoute = createRoute({ getParentRoute: () => adminRoute, path: "/users/$userId", component: UserDetailPage });
+const adminRecordingsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/recordings",
+  validateSearch: (search: Record<string, unknown>): AdminRecordingsSearch => ({
+    status: LectureStatus.safeParse(search.status).data,
+    q: searchText(search.q),
+    owner: searchText(search.owner, 100),
+  }),
+  component: RecordingsPage,
+});
+const adminRecordingRoute = createRoute({ getParentRoute: () => adminRoute, path: "/recordings/$lectureId", component: RecordingDetailPage });
 const adminJobsRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: "/jobs",
@@ -190,7 +216,16 @@ const routeTree = rootRoute.addChildren([
   signupRoute,
   resetRoute,
   authedRoute.addChildren([inboxRoute, libraryRoute, recordingRoute, searchRoute, askRoute, calendarRoute, settingsRoute, inviteRoute,
-    adminRoute.addChildren([adminOverviewRoute, adminUsersRoute, adminJobsRoute, adminJobRoute, adminUsageRoute]),
+    adminRoute.addChildren([
+      adminOverviewRoute,
+      adminUsersRoute,
+      adminUserRoute,
+      adminRecordingsRoute,
+      adminRecordingRoute,
+      adminJobsRoute,
+      adminJobRoute,
+      adminUsageRoute,
+    ]),
   ]),
 ]);
 

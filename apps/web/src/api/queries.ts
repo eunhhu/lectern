@@ -3,7 +3,7 @@
 // /api/v2 client happens in api/index.ts alone.
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { AdminJobsQuery, AdminUserPatch } from "./admin.ts";
+import type { AdminJobsQuery, AdminLecture, AdminLecturesQuery, AdminNewUser, AdminUserPatch } from "./admin.ts";
 import { createContext, useContext, useEffect } from "react";
 import { ApiClientError, type ApiClient } from "./client.ts";
 import { errorMessage } from "./errors.ts";
@@ -75,6 +75,8 @@ export const queryKeys = {
   adminJobs: (state?: string, kind?: string) => ["admin", "jobs", state ?? null, kind ?? null] as const,
   adminJob: (id: string) => ["admin", "job", id] as const,
   adminUsage: (period: string) => ["admin", "usage", period] as const,
+  adminLectures: (status?: string, q?: string, owner?: string) => ["admin", "lectures", status ?? null, q ?? null, owner ?? null] as const,
+  adminLecture: (id: string) => ["admin", "lecture", id] as const,
   workspaceActionItems: (ws: string) => ["workspace-action-items", ws] as const,
   calendar: (ws: string) => ["calendar", ws] as const,
   shareLinks: (ws: string) => ["share-links", ws] as const,
@@ -356,6 +358,18 @@ export function useUpdateAdminUser() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: AdminUserPatch }) => api.admin.updateUser(id, patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.adminOverview }),
+    // The patch can carry a new password: do not keep it in the mutation cache.
+    gcTime: 0,
+  });
+}
+
+export function useCreateAdminUser() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AdminNewUser) => api.admin.createUser(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.adminOverview }),
+    gcTime: 0,
   });
 }
 
@@ -402,6 +416,46 @@ export function useRetryJob() {
   return useMutation({
     mutationFn: (id: string) => api.admin.retryJob(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "job"] }).then(() => qc.invalidateQueries({ queryKey: ["admin", "jobs"] })),
+  });
+}
+
+/** Every account's v1 lectures, fifty at a time ("더 보기"). */
+/** The old console read the lectures again every five seconds while one was being worked on. */
+const ADMIN_LECTURE_POLL_MS = 5_000;
+const lectureBusy = (l: Pick<AdminLecture, "status" | "job_state">) => l.status === "processing" || l.job_state !== null;
+
+export function useAdminLectures(filter: Pick<AdminLecturesQuery, "status" | "q" | "owner">) {
+  const api = useApi();
+  return useInfiniteQuery({
+    queryKey: queryKeys.adminLectures(filter.status, filter.q, filter.owner),
+    queryFn: ({ pageParam }) => api.admin.lectures({ ...filter, offset: pageParam, limit: 50 }),
+    initialPageParam: 0,
+    getNextPageParam: (last) => (last.offset + last.lectures.length < last.total ? last.offset + last.lectures.length : undefined),
+    refetchInterval: (q) => (q.state.data?.pages.some((p) => p.lectures.some(lectureBusy)) ? ADMIN_LECTURE_POLL_MS : false),
+  });
+}
+
+export function useAdminLecture(id: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.adminLecture(id),
+    queryFn: () => api.admin.lecture(id),
+    refetchInterval: (q) => (q.state.data && lectureBusy(q.state.data) ? ADMIN_LECTURE_POLL_MS : false),
+  });
+}
+
+/** A lecture action (retry, compact, delete audio, delete): lists, the lecture and the counts change. */
+export function useAdminLectureAction<T>(run: (api: ReturnType<typeof useApi>, id: string) => Promise<T>) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => run(api, id),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["admin", "lectures"] }),
+        qc.invalidateQueries({ queryKey: ["admin", "lecture"] }),
+        qc.invalidateQueries({ queryKey: queryKeys.adminOverview }),
+      ]),
   });
 }
 

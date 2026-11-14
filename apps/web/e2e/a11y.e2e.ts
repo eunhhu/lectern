@@ -228,3 +228,30 @@ test("admin overview/users/jobs/job detail/usage have no axe violations", async 
   await expect(page.getByRole("alertdialog")).toBeVisible();
   await axe(page, "사용자 삭제 확인");
 });
+
+test("admin user detail/new user/recordings/recording detail have no axe violations", async ({ page, axe }) => {
+  const screens: { path: string; label: string; ready: string }[] = [
+    { path: "/app/admin/users/usr_fixture_sehun", label: "관리 사용자 상세", ready: "sehun@example.com" },
+    { path: "/app/admin/recordings", label: "관리 녹음", ready: "55개" },
+    { path: "/app/admin/recordings/lec_fx_04", label: "관리 녹음 상세", ready: "압축 전" },
+    { path: "/app/admin/recordings/lec_fx_06", label: "관리 녹음 상세(오류)", ready: "Gemini 응답이 비어 있습니다." },
+  ];
+  for (const screen of screens) {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(screen.path);
+    await expect(page.getByText(screen.ready).first()).toBeVisible();
+    await axe(page, screen.label);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await axe(page, `${screen.label} (다크)`);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.getByRole("button", { name: "녹음 삭제" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await axe(page, "녹음 삭제 확인");
+  await page.goto("/app/admin/users?role=member");
+  await page.getByRole("button", { name: "새 사용자" }).click();
+  await expect(page.getByRole("dialog", { name: "새 사용자" })).toBeVisible();
+  await axe(page, "새 사용자");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await axe(page, "새 사용자 (다크)");
+});

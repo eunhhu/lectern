@@ -1,9 +1,9 @@
-// 관리 (P5-12) against the real server: the e2e owner is the service owner (LECTERN_OWNER_*),
+// 관리 (P5-12, P5-16) against the real server: the e2e owner is the service owner (LECTERN_OWNER_*),
 // so the console opens, the v1 overview parses, and the v2 job and usage lists answer. It
 // only reads: no account, job or limit is changed.
 
 import { expect, test } from "../fixtures.ts";
-import { E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD } from "./accounts.ts";
+import { E2E_LECTURES, E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD } from "./accounts.ts";
 
 test("admin overview renders against the real server", async ({ page, axe }) => {
   await page.goto("/app/");
@@ -35,5 +35,31 @@ test("admin overview renders against the real server", async ({ page, axe }) => 
 
   await page.getByRole("link", { name: "사용량", exact: true }).click();
   await expect(page.getByRole("table", { name: /사용량$/ })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("admin members and recordings render against the real server", async ({ page }) => {
+  await page.goto("/app/");
+  await expect(page.getByRole("heading", { level: 1, name: "로그인" })).toBeVisible();
+  await page.getByRole("textbox", { name: "이메일" }).fill(E2E_OWNER_EMAIL);
+  await page.getByLabel("비밀번호").fill(E2E_OWNER_PASSWORD);
+  await page.getByRole("button", { name: "로그인" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "로그인" })).toBeHidden();
+
+  // Every account's lectures: the seeded notes are there, and one opens without an error.
+  await page.goto("/app/admin/recordings");
+  const note = E2E_LECTURES[0]!;
+  const row = page.getByRole("table", { name: "녹음" }).locator("tbody tr").filter({ hasText: note.title });
+  await expect(row).toHaveCount(1);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await row.getByRole("link", { name: note.title }).click();
+  await expect(page.getByRole("heading", { level: 1, name: note.title })).toBeVisible();
+  await expect(page.locator("dl")).toContainText(E2E_OWNER_EMAIL);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  // My own page: my e-mail, my role and status fixed.
+  await page.locator("dl").getByRole("link", { name: E2E_OWNER_EMAIL }).click();
+  await expect(page.locator("dl")).toContainText(E2E_OWNER_EMAIL);
+  await expect(page.getByRole("button", { name: / 역할$/ })).toBeDisabled();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });

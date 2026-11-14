@@ -26,13 +26,13 @@ test("overview cards", async ({ page }) => {
     ["정지된 사용자", "1"],
     ["공개 녹음", "4"],
     ["오류 난 녹음", "3"],
-    ["오디오 저장 용량", "1.7 GB"],
+    ["오디오 저장 용량", "1.6 GB"],
     ["대기 중인 작업", "2"],
     ["실행 중인 작업", "1"],
     ["실패한 작업", "2"],
   ];
   for (const [label, value] of expected) await expect(card(page, label)).toContainText(value);
-  await expect(page.getByRole("list", { name: "사용자와 녹음" }).getByRole("listitem").filter({ hasText: /^녹음/ })).toContainText("46");
+  await expect(page.getByRole("list", { name: "사용자와 녹음" }).getByRole("listitem").filter({ hasText: /^녹음/ })).toContainText("55");
 });
 
 test("sort by keyboard", async ({ page }) => {
