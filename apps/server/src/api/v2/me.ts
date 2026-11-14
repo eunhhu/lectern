@@ -1,8 +1,11 @@
-import { ensurePersonalWorkspace, personalWorkspaceId, sha256Hex } from "@lectern/db";
+import { existsSync } from "node:fs";
+import { ensurePersonalWorkspace, personalWorkspaceId, sha256Hex, uuidv7 } from "@lectern/db";
 import { extractAuthToken } from "../../auth.ts";
 import { db, deleteSession, getUserById, updateUserProfile, type UserRecord } from "../../db.ts";
 import { countActivePats, createPat, listPats, revokePat, type PatRow } from "../../access-tokens.ts";
+import { EXPORT_JOB_KIND, exportFilePath, getExport, type DataExportRow } from "../../export/job.ts";
 import { hasOwnPassword } from "../../oauth/login.ts";
+import { enqueueJob } from "../../queue.ts";
 import { sessionIdOf, sessionMetaOf } from "../../session-meta.ts";
 import { requireWorkspace, roleIn } from "./access.ts";
 import { apiError, defineRouter, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
@@ -35,6 +38,27 @@ const toIso = (text: string) => {
 const MAX_LIVE_TOKENS = 20;
 
 const isoOrNull = (ms: number | null) => (ms === null ? null : iso(ms));
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_EXPORTS_PER_DAY = 5;
+const MAX_LISTED_EXPORTS = 20;
+
+function exportDto(e: DataExportRow) {
+  return {
+    id: e.id,
+    workspace_id: e.workspace_id,
+    include_audio: e.include_audio === 1,
+    state: e.state,
+    bytes: e.bytes,
+    requested_at: iso(e.requested_at),
+    ready_at: isoOrNull(e.ready_at),
+    expires_at: isoOrNull(e.expires_at),
+    error: e.error,
+  };
+}
+
+/** "20261115": the date in Seoul, for the download's file name. */
+const seoulDate = (ms: number) => new Date(ms + 9 * 60 * 60 * 1000).toISOString().slice(0, 10).replaceAll("-", "");
 
 function patDto(t: PatRow) {
   return {
@@ -161,9 +185,52 @@ export const meRouter = defineRouter({
     db.query(`DELETE FROM oauth_identity WHERE id = ? AND user_id = ?`).run(String(req.params.identity_id), user.id);
     return req.c.body(null, 204);
   },
-  createExport: notImplemented,
-  listExports: notImplemented,
-  getExportContent: notImplemented,
+  // A workspace export zip (D-P5-8), built by the `export` job. One at a time per user, at
+  // most 5 a day; only the user who asked can list or download it.
+  createExport: (req) => {
+    const user = req.user!;
+    const body = req.body as { workspace_id: string; include_audio: boolean };
+    const caller = requireWorkspace(req, body.workspace_id);
+    if (caller instanceof Response) return caller;
+    const now = Date.now();
+    const busy = db.query(`SELECT 1 FROM data_export WHERE user_id = ? AND state IN ('queued', 'running')`).get(user.id);
+    if (busy) return apiError(req.c, 409, "conflict", "이미 만들고 있는 내보내기가 있습니다.");
+    const today = (db.query(`SELECT COUNT(*) AS n FROM data_export WHERE user_id = ? AND requested_at > ?`).get(user.id, now - DAY_MS) as { n: number }).n;
+    if (today >= MAX_EXPORTS_PER_DAY) return apiError(req.c, 409, "conflict", "내보내기는 하루에 5번까지 만들 수 있습니다.");
+    const id = uuidv7(now);
+    // One transaction: a row without its job would hold the one-at-a-time slot.
+    db.transaction(() => {
+      db.query(
+        `INSERT INTO data_export (id, user_id, workspace_id, include_audio, state, blob_key, bytes, requested_at, ready_at, expires_at, error)
+         VALUES (?, ?, ?, ?, 'queued', NULL, NULL, ?, NULL, NULL, NULL)`
+      ).run(id, user.id, body.workspace_id, body.include_audio ? 1 : 0, now);
+      enqueueJob({ kind: EXPORT_JOB_KIND, ownerId: user.id, subjectId: id, maxAttempts: 2 });
+    })();
+    return ok(req, exportDto(getExport(id)!), { status: 202 });
+  },
+  listExports: (req) => {
+    const rows = db
+      .query(`SELECT * FROM data_export WHERE user_id = ? ORDER BY requested_at DESC, id DESC LIMIT ?`)
+      .all(req.user!.id, MAX_LISTED_EXPORTS) as DataExportRow[];
+    return ok(req, { items: rows.map(exportDto), next_cursor: null });
+  },
+  getExportContent: (req) => {
+    const row = getExport(String(req.params.export_id));
+    if (!row || row.user_id !== req.user!.id) return notFound(req, "내보내기");
+    if (row.state !== "ready") return apiError(req.c, 409, "conflict", "아직 준비되지 않았거나 만료된 내보내기입니다.");
+    const path = exportFilePath(row.blob_key);
+    const file = path ? Bun.file(path) : null;
+    if (!path || !existsSync(path) || !file) return notFound(req, "내보내기 파일");
+    return new Response(file.stream(), {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Length": String(file.size),
+        "Content-Disposition": `attachment; filename="lectern-export-${seoulDate(row.ready_at ?? row.requested_at)}.zip"`,
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  },
   requestAccountDeletion: notImplemented,
   cancelAccountDeletion: notImplemented,
   getAccountDeletion: notImplemented,
