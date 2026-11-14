@@ -9,6 +9,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "LecternMenuBar",
+            dependencies: ["LecternMenuBarCore"],
             path: "Sources/LecternMenuBar",
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -16,6 +17,16 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Carbon")
             ]
+        ),
+        .target(
+            name: "LecternMenuBarCore",
+            path: "Sources/LecternMenuBarCore",
+            linkerSettings: [.linkedFramework("Security")]
+        ),
+        .testTarget(
+            name: "LecternMenuBarCoreTests",
+            dependencies: ["LecternMenuBarCore"],
+            path: "Tests/LecternMenuBarCoreTests"
         )
     ]
 )
