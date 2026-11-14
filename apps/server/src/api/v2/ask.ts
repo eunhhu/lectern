@@ -36,6 +36,7 @@ import { buildSuggestions } from "./suggestions.ts";
 import type { AskService } from "../../ask/service.ts";
 import { db } from "../../db.ts";
 import { logger } from "../../log.ts";
+import { quotaProblem } from "../../usage.ts";
 import { apiError, defineRouter, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
 
 const HEARTBEAT_MS = 15_000;
@@ -192,6 +193,10 @@ export function createAskRouter(getService: () => AskService | null) {
       if (!thread) return apiError(req.c, 404, "not_found", "대화를 찾을 수 없습니다.");
       const access = accessFor(req, thread.scope);
       if (isScopeError(access)) return scopeError(req, access);
+      // The workspace's monthly AI limit (D-P5-7), before the stream opens. The audio and
+      // storage limits hold back uploads only, not questions.
+      const quota = quotaProblem(thread.workspace_id, { only: "ai_microusd_month" });
+      if (quota) return apiError(req.c, 409, quota.code, quota.message, quota.details);
       if (!service.allow(user.id)) {
         return apiError(req.c, 429, "rate_limited", "질문이 너무 잦습니다. 잠시 뒤 다시 물어보세요.");
       }

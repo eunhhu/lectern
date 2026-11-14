@@ -21,6 +21,7 @@ import { enqueueRecordingProcessing } from "../../process-job.ts";
 import { logger } from "../../log.ts";
 import { AUDIO_EXT_BY_MIME, AUDIO_MIME_BY_EXT } from "../../media-files.ts";
 import { isLectureBusy } from "../../queue.ts";
+import { quotaProblem } from "../../usage.ts";
 import { callerIn, loadRecording, requireWorkspace } from "./access.ts";
 import { createRecordingForAudio } from "./ingest.ts";
 import { apiError, defineRouter, notFound, ok, type V2Request } from "./common.ts";
@@ -209,6 +210,9 @@ export const uploadsRouter = defineRouter({
     if (user.quota_mb > 0 && getUserStorageUsageBytes(user.id) + total > user.quota_mb * 1024 * 1024) {
       return apiError(req.c, 403, "quota_exceeded", `계정 오디오 저장 용량 한도(${user.quota_mb}MB)를 초과했습니다.`);
     }
+    // The workspace's limits (D-P5-7). No quota row: no limit, nothing is counted.
+    const quota = quotaProblem(body.workspace_id, { bytes: total });
+    if (quota) return apiError(req.c, 409, quota.code, quota.message, quota.details);
 
     const now = Date.now();
     sweepExpired(now);

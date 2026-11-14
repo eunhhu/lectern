@@ -16,6 +16,7 @@ import { logger } from "../../log.ts";
 import { sendMail } from "../../mail.ts";
 import { authRateLimits, tooManyRequestsMessage } from "../../rate-limit.ts";
 import { syncRemindersForWorkspace } from "../../reminders.ts";
+import { quotaOf, refreshLedger } from "../../usage.ts";
 import { callerIn, requireWorkspace, type WorkspaceRole } from "./access.ts";
 import { apiError, defineRouter, forbidden, notFound, notImplemented, ok, okPage, type V2Request } from "./common.ts";
 import { membershipDto, workspaceDto, type MembershipRow, type WorkspaceRow } from "./rows.ts";
@@ -284,5 +285,11 @@ export const workspacesRouter = defineRouter({
     logger.info("workspace member removed", { workspace_id: workspace.id, user_id: targetId, by: req.user!.id });
     return req.c.body(null, 204);
   },
-  getWorkspaceUsage: notImplemented,
+  // Any member. Refreshing the ledger here keeps the operator's list current too.
+  getWorkspaceUsage: (req) => {
+    const workspaceId = String(req.params.workspace_id);
+    const caller = requireWorkspace(req, workspaceId);
+    if (caller instanceof Response) return caller;
+    return ok(req, { ...refreshLedger(workspaceId), quota: quotaOf(workspaceId) });
+  },
 });

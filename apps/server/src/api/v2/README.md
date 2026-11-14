@@ -82,7 +82,7 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 | `POST /workspaces/{workspace_id}/invites` | `createInvite` | 실제 | 링크는 메일로만(토큰은 응답·DB·로그에 없다). 같은 주소의 대기 초대를 바꾼다. 개인 워크스페이스·이미 멤버·대기 50개는 409, 메일 실패는 503 |
 | `DELETE /workspaces/{workspace_id}/invites/{invite_id}` | `revokeInvite` | 실제 | 대기 중인 초대만 |
 | `POST /invites/accept` | `acceptInvite` | 실제 | 초대받은 주소로 로그인한 사람만. 사용자당 15분에 10번 |
-| `GET /workspaces/{workspace_id}/usage` | `getWorkspaceUsage` | 501 | P5-07 |
+| `GET /workspaces/{workspace_id}/usage` | `getWorkspaceUsage` | 실제 | P5-07. 멤버 누구나. 이번 달(서울) 사용량을 원본 행에서 세고 `usage_ledger`도 갱신 |
 | `GET /folders` | `listFolders` | 실제 | 평면 목록, `sort_key` 순 |
 | `POST /folders` | `createFolder` | 실제 | 같은 부모 아래 같은 이름(공백·대소문자 무시)이면 409 |
 | `PATCH /folders/{folder_id}` | `updateFolder` | 실제 | 자기·하위로 이동하면 409. 이름을 바꾸면 v1 과목도 바뀐다 |
@@ -92,7 +92,7 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 | `POST /tags` | `createTag` | 실제 | 같은 이름이면 409 |
 | `PATCH /tags/{tag_id}` | `updateTag` | 실제 | |
 | `DELETE /tags/{tag_id}` | `deleteTag` | 실제 | 녹음에서도 떼어진다 |
-| `POST /uploads` | `createUpload` | 실제 | 개인 워크스페이스만. 새 녹음은 오디오 1개. 파트 8 MiB. `Idempotency-Key` |
+| `POST /uploads` | `createUpload` | 실제 | 개인 워크스페이스(`LECTERN_TEAMS=1`이면 팀도, P5-06). 새 녹음은 오디오 1개. 파트 8 MiB. `Idempotency-Key`. 워크스페이스 쿼터를 넘으면 409 `quota_exceeded`(P5-07) |
 | `GET /uploads/{upload_id}` | `getUpload` | 실제 | 받은 파트 목록(재개) |
 | `PUT /uploads/{upload_id}/parts/{part}` | `putUploadPart` | 실제 | 디스크로 스트리밍. 크기가 틀리면 400/413. 다시 보내면 덮어쓴다 |
 | `POST /uploads/{upload_id}/complete` | `completeUpload` | 실제 | 파트를 합치고 SHA-256 확인, 녹음+강의 생성, 처리 작업 등록. 같은 오디오면 `deduplicated` |
@@ -124,7 +124,7 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 | `GET /jobs/{job_id}` | `getJob` | 실제 | v1 `distill`은 `process`. 시스템 작업은 404 |
 | `POST /jobs/{job_id}/cancel` | `cancelJob` | 실제 | `process`·`regenerate`·`distill`만. 대기 중이면 바로 `canceled`, 실행 중이면 다음 단계 전에 멈춘다(응답은 아직 `running`). 남의 작업은 404, 끝난 작업은 409 |
 | `GET /search` | `search` | 실제 | 물어보기 색인이 있으면(`LECTERN_ASK=1`) `packages/ask`의 하이브리드 검색(BM25 + 벡터): 전사·문서·PDF 쪽 적중, 제목 일치가 맨 앞, 최대 50개. legacy 문서 적중의 `block_id`는 문단 `md-<n>`. `LECTERN_ASK=0`이면 제목·문서·전사의 부분 문자열 |
-| `/ask/*` 6개 | `createAskThread` 등 | 실제(`LECTERN_ASK=1`), 꺼지면 501 | 개인 워크스페이스의 색인 위. 범위는 v2 녹음·폴더 |
+| `/ask/*` 6개 | `createAskThread` 등 | 실제(`LECTERN_ASK=1`), 꺼지면 501 | 개인 워크스페이스의 색인 위. 범위는 v2 녹음·폴더. 워크스페이스의 월 AI 쿼터를 넘으면 질문이 409 `quota_exceeded`(P5-07) |
 | `GET /ask/suggestions` | `listAskSuggestions` | 실제 | 규칙으로 만든 질문 최대 6개(모델 호출 없음, `LECTERN_ASK`와 무관). 녹음 범위는 도메인 질문 + 문서 섹션 제목 |
 | `GET /calendar/suggestions` | `listCalendarSuggestions` | 실제 | `statuses`, 기간 |
 | `PATCH /calendar/suggestions/{event_candidate_id}` | `updateCalendarSuggestion` | 실제 | 바꾼 뒤 워크스페이스의 Google 연동마다 `calendar_sync`를 넣는다(`LECTERN_CALENDAR=1`). `synced` 일정도 고치거나 무시할 수 있다(Google 쪽이 따라간다). `synced`에 `accepted`를 보내면 그대로 `synced`. 이메일 리마인더도 다시 계산한다(P4-05) |
@@ -142,8 +142,8 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 | `GET /admin/jobs` | `adminListJobs` | 실제 | 운영자 전용 |
 | `GET /admin/jobs/{job_id}` | `adminGetJob` | 실제 | 단계·모델 호출 포함 |
 | `POST /admin/jobs/{job_id}/retry` | `adminRetryJob` | 실제 | 실패한 `process`·`regenerate`를 같은 작업 id로 다시 큐에 넣는다. 끝난 단계는 메모로 건너뛰고 실패한 단계부터 이어 한다 |
-| `GET /admin/usage` | `adminListUsage` | 실제 | `usage_ledger`(쿼터 집계는 P5) |
-| `PUT /admin/workspaces/{workspace_id}/quota` | `adminSetQuota` | 501 | P5-07. 운영자 전용 |
+| `GET /admin/usage` | `adminListUsage` | 실제 | `usage_ledger`. 유지보수가 이번 달 행을 갱신한다(P5-07) |
+| `PUT /admin/workspaces/{workspace_id}/quota` | `adminSetQuota` | 실제 | P5-07. 운영자 전용. 세 값이 모두 `null`이면 행을 지운다(제한 없음). 감사 로그 `workspace.quota.set` |
 
 ### SSE (`GET /events`)
 
