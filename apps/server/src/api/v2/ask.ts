@@ -29,7 +29,7 @@ import {
   type ScopeError,
 } from "@lectern/ask";
 import { folderRows, personalWorkspaceId, recordingRows } from "../../ask/legacy.ts";
-import { loadRecording, requireWorkspace, roleIn } from "./access.ts";
+import { callerIn, loadRecording, requireWorkspace } from "./access.ts";
 import { parseJson } from "./rows.ts";
 import { getFolderRow } from "./store.ts";
 import { buildSuggestions } from "./suggestions.ts";
@@ -46,19 +46,25 @@ const HEARTBEAT_MS = 15_000;
  */
 function workspaceFor(req: V2Request, requested: unknown): string | Response {
   const own = personalWorkspaceId(req.user!.id);
-  if (requested === own && roleIn(req.user!.id, own)) return own;
+  if (requested === own && callerIn(req, own).role) return own;
   return apiError(req.c, 403, "forbidden", "이 워크스페이스에 접근할 권한이 없습니다.");
 }
 
-function accessFor(userId: string, scope: AskScope): AccessScope | ScopeError {
-  const workspaceId = personalWorkspaceId(userId);
+function accessFor(req: V2Request, scope: AskScope): AccessScope | ScopeError {
+  const workspaceId = personalWorkspaceId(req.user!.id);
   return resolveAccessScope({
     workspaceId,
-    caller: { userId, role: roleIn(userId, workspaceId) },
+    caller: callerIn(req, workspaceId),
     scope,
     recordings: recordingRows(workspaceId),
     folders: folderRows(workspaceId),
   });
+}
+
+/** The caller's own thread, in a workspace the request may act on (a token's workspace only). */
+function ownThread(req: V2Request): AskThread | null {
+  const thread = getOwnThread(db, String(req.params.thread_id), req.user!.id);
+  return thread && callerIn(req, thread.workspace_id).role ? thread : null;
 }
 
 function scopeError(req: V2Request, err: ScopeError): Response {
@@ -141,7 +147,7 @@ export function createAskRouter(getService: () => AskService | null) {
       const body = req.body as { workspace_id: string; scope: AskScope };
       const workspace = workspaceFor(req, body.workspace_id);
       if (workspace instanceof Response) return workspace;
-      const access = accessFor(req.user!.id, body.scope);
+      const access = accessFor(req, body.scope);
       if (isScopeError(access)) return scopeError(req, access);
       const thread = createThread(db, { workspaceId: workspace, userId: req.user!.id, scope: body.scope });
       return ok(req, thread, { status: 201 });
@@ -163,7 +169,7 @@ export function createAskRouter(getService: () => AskService | null) {
 
     getAskThread: (req) => {
       if (!getService()) return notImplemented(req);
-      const thread = getOwnThread(db, String(req.params.thread_id), req.user!.id);
+      const thread = ownThread(req);
       if (!thread) return apiError(req.c, 404, "not_found", "대화를 찾을 수 없습니다.");
       return ok(req, { thread, turns: withAvailability(listTurns(db, thread.id), req.user!.id) });
     },
@@ -171,7 +177,7 @@ export function createAskRouter(getService: () => AskService | null) {
     deleteAskThread: (req) => {
       if (!getService()) return notImplemented(req);
       if (crossSiteCookie(req)) return apiError(req.c, 403, "forbidden", "다른 사이트에서 보낸 요청은 받지 않습니다.");
-      const thread = getOwnThread(db, String(req.params.thread_id), req.user!.id);
+      const thread = ownThread(req);
       if (!thread) return apiError(req.c, 404, "not_found", "대화를 찾을 수 없습니다.");
       deleteThread(db, thread.id);
       return req.c.body(null, 204);
@@ -182,9 +188,9 @@ export function createAskRouter(getService: () => AskService | null) {
       if (!service) return notImplemented(req);
       if (crossSiteCookie(req)) return apiError(req.c, 403, "forbidden", "다른 사이트에서 보낸 요청은 받지 않습니다.");
       const user = req.user!;
-      const thread = getOwnThread(db, String(req.params.thread_id), user.id);
+      const thread = ownThread(req);
       if (!thread) return apiError(req.c, 404, "not_found", "대화를 찾을 수 없습니다.");
-      const access = accessFor(user.id, thread.scope);
+      const access = accessFor(req, thread.scope);
       if (isScopeError(access)) return scopeError(req, access);
       if (!service.allow(user.id)) {
         return apiError(req.c, 429, "rate_limited", "질문이 너무 잦습니다. 잠시 뒤 다시 물어보세요.");

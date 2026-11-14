@@ -24,10 +24,8 @@ import { handleRequest } from "../src/index.ts";
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/** Routes of later phases (P5 tokens). */
+/** Routes of later phases. */
 const NOT_YET = new Set([
-  "createAccessToken",
-  "revokeAccessToken",
   // Accounts (P5-C): contract only until P5-01..P5-09.
   "issueNativeToken",
   "revokeNativeToken",

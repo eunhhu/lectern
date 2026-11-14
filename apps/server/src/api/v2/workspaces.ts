@@ -35,7 +35,9 @@ export const workspacesRouter = defineRouter({
          WHERE m.user_id = ? ORDER BY w.kind = 'personal' DESC, w.created_at, w.id`
       )
       .all(req.user!.id) as Array<WorkspaceRow & { role: string }>;
-    return okPage(req, rows.map((w) => ({ workspace: workspaceDto(w), role: w.role })));
+    // A personal access token sees only the workspace it was made for.
+    const visible = req.pat ? rows.filter((w) => w.id === req.pat!.workspaceId) : rows;
+    return okPage(req, visible.map((w) => ({ workspace: workspaceDto(w), role: w.role })));
   },
   // A team workspace owned by the caller. Inviting members is P5 (ARCHITECTURE §10).
   createWorkspace: (req) => {

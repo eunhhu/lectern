@@ -1,6 +1,6 @@
 import { db } from "../../db.ts";
 import { cancelQueuedJobs } from "../../queue.ts";
-import { loadRecording, roleIn } from "./access.ts";
+import { callerIn, loadRecording } from "./access.ts";
 import { apiError, defineRouter, notFound, ok, type V2Request } from "./common.ts";
 import type { QueueJobRow } from "./rows.ts";
 import { toJob } from "./store.ts";
@@ -17,7 +17,7 @@ function visibleJob(req: V2Request, action: "recording:read" | "recording:update
   const row = db.query(`SELECT * FROM job WHERE id = ?`).get(String(req.params.job_id)) as QueueJobRow | null;
   if (!row) return null;
   const job = toJob(row);
-  if (!job.workspace_id || !roleIn(req.user!.id, job.workspace_id)) return null;
+  if (!job.workspace_id || !callerIn(req, job.workspace_id).role) return null;
   if (job.recording_id && loadRecording(req, job.recording_id, action) instanceof Response) return null;
   return { row, job };
 }
