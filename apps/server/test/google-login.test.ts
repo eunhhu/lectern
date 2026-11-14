@@ -2,7 +2,7 @@ import "./preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
 import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { resetConfigForTests } from "@lectern/config";
 import { API_BASE_PATH } from "@lectern/domain";
-import { createSession, createUser, db, generateId, updateSystemSettings, type UserRecord } from "../src/db.ts";
+import { createSession, createUser, db, deleteUserAndData, generateId, updateSystemSettings, type UserRecord } from "../src/db.ts";
 import { clearJwksCache } from "../src/oauth/jwt.ts";
 import { safeNext } from "../src/oauth/login.ts";
 import { handleRequest } from "../src/index.ts";
@@ -307,6 +307,19 @@ describe("Google sign-in", () => {
     await signIn(owner, { sub: sub(), email: newEmail(), email_verified: true });
     const [theirs] = (await v2(owner, "GET", "/me/identities")).body.items;
     expect((await v2(browser, "DELETE", `/me/identities/${theirs.id}`)).status).toBe(404);
+  });
+
+  test("deleting the account frees its Google identity", async () => {
+    const subject = sub();
+    const browser = new Browser();
+    await signIn(browser, { sub: subject, email: newEmail(), email_verified: true });
+    const userId = (await v2(browser, "GET", "/me")).body.id as string;
+    deleteUserAndData(userId);
+    expect(db.query(`SELECT COUNT(*) AS n FROM oauth_identity WHERE subject = ?`).get(subject)).toEqual({ n: 0 });
+    // The same Google account signs up afresh.
+    const again = new Browser();
+    expect((await signIn(again, { sub: subject, email: newEmail(), email_verified: true })).location).toBe("/app/ask");
+    expect(db.query(`SELECT COUNT(*) AS n FROM oauth_identity WHERE subject = ?`).get(subject)).toEqual({ n: 1 });
   });
 
   test("flag off", async () => {

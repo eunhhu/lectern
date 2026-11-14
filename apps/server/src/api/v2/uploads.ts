@@ -175,15 +175,16 @@ export const uploadsRouter = defineRouter({
       }
     }
 
-    // A lecture-backed recording lives in its owner's personal workspace (packages/db
-    // legacy.ts); team workspaces get uploads once the harness writes v2 rows (P5).
-    if (body.workspace_id !== personalWorkspaceId(user.id)) {
+    // Team workspaces take uploads with LECTERN_TEAMS=1 (D-P2-8, P5-06): the recording is put
+    // in the team (packages/db placeRecordingInWorkspace). Otherwise only the personal one.
+    if (body.workspace_id !== personalWorkspaceId(user.id) && !config().teams) {
       return apiError(req.c, 400, "bad_request", "지금은 개인 워크스페이스에만 업로드할 수 있습니다.");
     }
     const audio = body.files.filter((f) => f.kind === "audio");
     if (body.recording_id) {
       const recording = loadRecording(req, body.recording_id, "recording:update");
       if (recording instanceof Response) return recording;
+      if (recording.workspace_id !== body.workspace_id) return notFound(req, "녹음");
       if (audio.length) return apiError(req.c, 400, "bad_request", "이미 있는 녹음에 오디오를 더 붙이는 것은 아직 지원하지 않습니다.");
     } else if (audio.length === 0 || (audio.length > 1 && config().pipeline !== "v2")) {
       // Several parts of one recording (D-P1-9) need the v2 pipeline, which joins them.
@@ -343,7 +344,11 @@ export const uploadsRouter = defineRouter({
     // Parts in upload order (D-P1-9); the first is the lecture's audio, the rest are assets.
     const audios = stored.filter((s) => s.file.kind === "audio");
     const audio = audios[0];
-    const dedupeKey = audios.length > 1 ? sha256Hex(audios.map((a) => a.sha256).join("\n")) : audio?.sha256;
+    const team = upload.workspace_id !== personalWorkspaceId(user.id) ? upload.workspace_id : null;
+    const fileKey = audios.length > 1 ? sha256Hex(audios.map((a) => a.sha256).join("\n")) : audio?.sha256;
+    // The same audio in a team and in the personal workspace are two recordings: a team
+    // upload dedupes within that team only.
+    const dedupeKey = team && fileKey ? sha256Hex(`${team}\n${fileKey}`) : fileKey;
     const now = Date.now();
     let result: UploadResult;
     const announce: Array<() => void> = [];
@@ -390,6 +395,7 @@ export const uploadsRouter = defineRouter({
           templateId: hints.template_id ?? null,
           language: hints.language ?? null,
           tagIds: hints.tag_ids,
+          teamWorkspaceId: team,
         });
         const recordingRow = getRecordingRow(lectureRecordingId(lectureId))!;
         if (audios.length > 1) transact(() => insertAudioPartAssets(recordingRow, audios.slice(1), now));
