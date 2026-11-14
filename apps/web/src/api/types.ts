@@ -103,6 +103,7 @@ export type ListRecordingsParams = z.infer<typeof D.ListRecordingsQuery>;
 export type ListSuggestionsParams = z.infer<typeof D.ListCalendarSuggestionsQuery>;
 export type ListActionItemsQuery = z.infer<typeof D.ListActionItemsQuery>;
 export type SearchParams = z.infer<typeof D.SearchQuery>;
+export type SearchKind = z.infer<typeof D.SearchKind>;
 
 // 물어보기 (docs/adr/0009-ask-rag.md, packages/domain/src/api/ask.ts)
 export type AskScope = z.infer<typeof D.AskScope>;

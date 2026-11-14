@@ -19,6 +19,7 @@ import type {
   EventCandidate,
   JobId,
   RecordingListItem,
+  SearchKind,
   ServerEvent,
   StageName,
   UpdateFolderRequest,
@@ -57,6 +58,7 @@ export const queryKeys = {
   calendar: (ws: string) => ["calendar", ws] as const,
   shareLinks: (ws: string) => ["share-links", ws] as const,
   assetPages: (id: string) => ["asset-pages", id] as const,
+  search: (ws: string, q: string, kind?: string) => ["search", ws, q, kind ?? null] as const,
 };
 
 /** Follows `next_cursor` until the last page (lists in the shell are small). */
@@ -521,6 +523,17 @@ export function useReprocess(recordingId: string, ws: string) {
       void qc.invalidateQueries({ queryKey: queryKeys.recording(recordingId) });
       void qc.invalidateQueries({ queryKey: queryKeys.recordings(ws) });
     },
+  });
+}
+
+/** The search screen: hybrid /search hits of the workspace, two characters or more. */
+export function useSearchHits(ws: WorkspaceId, q: string, kind?: SearchKind) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.search(ws, q, kind),
+    queryFn: () => api.search({ workspace_id: ws, q, kind, limit: 50 }),
+    enabled: q.length >= 2,
+    staleTime: 60_000,
   });
 }
 

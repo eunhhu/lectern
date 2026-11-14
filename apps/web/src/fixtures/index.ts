@@ -537,6 +537,13 @@ export function processRecording(
   };
 }
 
+/** Text of a few lecture PDF pages, for search (the fixture has no PDF bytes to extract). */
+export const PDF_PAGE_TEXTS: Array<{ recordingId: string; assetId: string; page: number; text: string }> = [
+  { recordingId: "rec_os07", assetId: "rec_os07_pdf", page: 3, text: "프로세스 상태 다이어그램 슬라이드" },
+  { recordingId: "rec_os07", assetId: "rec_os07_pdf", page: 12, text: "라운드 로빈 타임 퀀텀 표: 퀀텀이 너무 크면 FCFS와 같아진다" },
+  { recordingId: "rec_os07", assetId: "rec_os07_pdf", page: 16, text: "다단계 피드백 큐 레벨별 퀀텀 슬라이드" },
+];
+
 export function buildFixtureData(now = new Date()): FixtureData {
   const clock = makeClock(now);
   const createdAt = clock.at(30, 9);

@@ -29,7 +29,7 @@ import { AudioPlayer } from "./AudioPlayer.tsx";
 import { DeleteAudioDialog } from "./DeleteAudioDialog.tsx";
 import { DocumentPane } from "./DocumentPane.tsx";
 import { DocumentEditor } from "./edit/DocumentEditor.tsx";
-import { PlaybackProvider, type SidePanel } from "./playback.tsx";
+import { PlaybackProvider, usePlayback, type SidePanel } from "./playback.tsx";
 import { ReprocessDialog, type ReprocessMode } from "./ReprocessDialog.tsx";
 import { SidePane } from "./SidePane.tsx";
 import { TranscriptPane } from "./TranscriptPane.tsx";
@@ -456,6 +456,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
 
   return (
     <PlaybackProvider clock={clock} segments={t.segments} gaps={t.gaps} speakers={t.speakers} onRequestPanel={requestPanel}>
+      <PdfDeepLink recordingId={rec.id} pdf={search.pdf} t={search.t} />
       <div className={s.page}>
         {header}
         {rec.status === "partial" && (
@@ -504,6 +505,20 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
       </div>
     </PlaybackProvider>
   );
+}
+
+/** `?pdf=<asset>:<page>` (a PDF search hit): show that page once, then drop the parameter. */
+function PdfDeepLink({ recordingId, pdf, t }: { recordingId: string; pdf?: string; t?: number }) {
+  const { showPdfPage } = usePlayback();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!pdf) return;
+    const [assetId, page] = pdf.split(":");
+    showPdfPage(assetId!, Number(page));
+    void navigate({ to: "/recordings/$recordingId", params: { recordingId }, search: t !== undefined ? { t } : {}, replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdf]);
+  return null;
 }
 
 function ProcessingState({ detail }: { detail: RecordingDetail }) {
