@@ -8,9 +8,15 @@ let package = Package(
     products: [.library(name: "LecternUI", targets: ["LecternUI"])],
     dependencies: [
         .package(path: "../LecternKit"),
+        .package(path: "../LecternIntents"),
+        .package(path: "../RecorderKit"),
     ],
     targets: [
-        .target(name: "LecternUI", dependencies: ["LecternKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
-        .testTarget(name: "LecternUITests", dependencies: ["LecternUI"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .target(name: "LecternUI", dependencies: ["LecternKit", "LecternIntents"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(
+            name: "LecternUITests",
+            dependencies: ["LecternUI", .product(name: "RecorderKit", package: "RecorderKit")],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

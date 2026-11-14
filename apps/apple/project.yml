@@ -107,6 +107,7 @@ targets:
         NSMicrophoneUsageDescription: 강의와 회의를 녹음하려면 마이크가 필요합니다.
         LSUIElement: false
         LecternServerURL: $(LECTERN_SERVER_URL)
+        AppIdentifierPrefix: $(AppIdentifierPrefix)
     entitlements:
       path: macOS/App/LecternMac.entitlements
       properties:

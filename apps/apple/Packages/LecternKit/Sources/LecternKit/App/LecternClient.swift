@@ -125,4 +125,11 @@ public final class LiveClient: LecternClient {
 
     public func signOut() async { await auth.signOut() }
     public func isSignedIn() async -> Bool { await auth.isSignedIn }
+
+    /// A v1 API token carried over from the old macOS app (`LegacyMacToken`), saved without asking
+    /// the server: it may be offline at first launch. A token the server refuses later signs out
+    /// like any other 401.
+    public func adoptAPIToken(_ token: String) async {
+        await auth.apiToken.setToken(token.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
 }
