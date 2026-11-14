@@ -2,6 +2,7 @@ import "./preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { resetConfigForTests } from "@lectern/config";
 import {
   API_BASE_PATH,
   ApiError,
@@ -25,7 +26,6 @@ const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Recor
 
 /** Routes of later phases (P3 PDFs, P4 calendar sync, P5 tokens). */
 const NOT_YET = new Set([
-  "listAssetPages",
   "ocrAsset",
   "getRecordingAlignment",
   "createAccessToken",
@@ -240,10 +240,18 @@ describe("API v2 routes of later phases", () => {
   });
 
   test("every other route has a real handler (no route answers 501)", async () => {
-    for (const route of ROUTES.filter((r) => !NOT_YET.has(r.operationId) && !r.path.startsWith("/ask"))) {
-      const res = await call(requestFor(route, ownerAuth));
-      expect(res.status, route.operationId).not.toBe(501);
-      await res.body?.cancel();
+    // Flag-gated routes answer 501 while their flag is off (listAssetPages: LECTERN_PDF).
+    process.env.LECTERN_PDF = "1";
+    resetConfigForTests();
+    try {
+      for (const route of ROUTES.filter((r) => !NOT_YET.has(r.operationId) && !r.path.startsWith("/ask"))) {
+        const res = await call(requestFor(route, ownerAuth));
+        expect(res.status, route.operationId).not.toBe(501);
+        await res.body?.cancel();
+      }
+    } finally {
+      delete process.env.LECTERN_PDF;
+      resetConfigForTests();
     }
   });
 });
