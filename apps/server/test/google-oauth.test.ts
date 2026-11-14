@@ -7,7 +7,9 @@ import { connectedLocation } from "../src/api/v2/google-callback.ts";
 import { createUser, db, generateId, type UserRecord } from "../src/db.ts";
 import { CALENDAR_SCOPE, GOOGLE_AUTH_URL, GoogleAuthError } from "../src/google/oauth.ts";
 import { accessTokenFor, openGoogleTokens } from "../src/google/tokens.ts";
+import { CALENDAR_SYNC_JOB_KIND } from "../src/calendar/sync-job.ts";
 import { handleRequest } from "../src/index.ts";
+import { embeddedWorker, type JobWorker } from "../src/queue.ts";
 import { openSecret } from "../src/secrets.ts";
 import { createFakeGoogle } from "./fakes/google.ts";
 
@@ -75,16 +77,24 @@ const setEnv = (values: Record<string, string | undefined>) => {
   resetConfigForTests();
 };
 
-const ON = { LECTERN_CALENDAR: "1", GOOGLE_OAUTH_CLIENT_ID: "test-id", GOOGLE_OAUTH_CLIENT_SECRET: "test-secret" };
+const ON = { LECTERN_CALENDAR: "1", GOOGLE_OAUTH_CLIENT_ID: "test-id", GOOGLE_OAUTH_CLIENT_SECRET: "test-secret", LECTERN_WORKER_MODE: "external" };
 
-beforeAll(() => {
+// A connection queues a calendar_sync; the embedded worker (shared by every test file in this
+// process) must not run it after this file puts the real fetch back.
+let paused: JobWorker | null = null;
+
+beforeAll(async () => {
   google.install();
   setEnv(ON);
+  paused = embeddedWorker();
+  await paused?.drain(10_000);
 });
 beforeEach(() => setEnv(ON));
 afterAll(() => {
+  db.query(`DELETE FROM job WHERE kind = ? AND state = 'queued'`).run(CALENDAR_SYNC_JOB_KIND);
   google.restore();
-  setEnv({ LECTERN_CALENDAR: undefined, GOOGLE_OAUTH_CLIENT_ID: undefined, GOOGLE_OAUTH_CLIENT_SECRET: undefined });
+  setEnv({ LECTERN_CALENDAR: undefined, GOOGLE_OAUTH_CLIENT_ID: undefined, GOOGLE_OAUTH_CLIENT_SECRET: undefined, LECTERN_WORKER_MODE: undefined });
+  paused?.start();
 });
 
 describe("Google Calendar connection", () => {
@@ -124,6 +134,8 @@ describe("Google Calendar connection", () => {
     expect(exchange.form).toMatchObject({ grant_type: "authorization_code", code: "c1", client_id: "test-id", client_secret: "test-secret" });
     expect(exchange.form!.code_verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(exchange.form!.redirect_uri).toEndWith(CALLBACK);
+    // The first sync is queued so events accepted earlier go in.
+    expect(db.query(`SELECT COUNT(*) AS n FROM job WHERE kind = ? AND state = 'queued' AND owner_id = ?`).get(CALENDAR_SYNC_JOB_KIND, me.id)).toEqual({ n: 1 });
     const listed = await api("GET", `/integrations?workspace_id=${personalWorkspaceId(me.id)}`, me);
     expect(listed.body.items.map((i: { status: string }) => i.status)).toEqual(["active"]);
     expect(JSON.stringify(listed.body)).not.toContain("token_enc");

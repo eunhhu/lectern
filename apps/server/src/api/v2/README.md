@@ -102,9 +102,9 @@
 | `GET /search` | `search` | 실제 | 물어보기 색인이 있으면(`LECTERN_ASK=1`) `packages/ask`의 하이브리드 검색(BM25 + 벡터): 전사·문서·PDF 쪽 적중, 제목 일치가 맨 앞, 최대 50개. legacy 문서 적중의 `block_id`는 문단 `md-<n>`. `LECTERN_ASK=0`이면 제목·문서·전사의 부분 문자열 |
 | `/ask/*` 6개 | `createAskThread` 등 | 실제(`LECTERN_ASK=1`), 꺼지면 501 | 개인 워크스페이스의 색인 위. 범위는 v2 녹음·폴더 |
 | `GET /ask/suggestions` | `listAskSuggestions` | 실제 | 규칙으로 만든 질문 최대 6개(모델 호출 없음, `LECTERN_ASK`와 무관). 녹음 범위는 도메인 질문 + 문서 섹션 제목 |
-| `GET /calendar/suggestions` | `listCalendarSuggestions` | 실제 | `statuses`, 기간. P4 전까지 비어 있음 |
-| `PATCH /calendar/suggestions/{event_candidate_id}` | `updateCalendarSuggestion` | 실제 | `synced`는 409 |
-| `POST /calendar/suggestions/batch` | `batchCalendarSuggestions` | 실제 | |
+| `GET /calendar/suggestions` | `listCalendarSuggestions` | 실제 | `statuses`, 기간 |
+| `PATCH /calendar/suggestions/{event_candidate_id}` | `updateCalendarSuggestion` | 실제 | 바꾼 뒤 워크스페이스의 Google 연동마다 `calendar_sync`를 넣는다(`LECTERN_CALENDAR=1`). `synced` 일정도 고치거나 무시할 수 있다(Google 쪽이 따라간다). `synced`에 `accepted`를 보내면 그대로 `synced` |
+| `POST /calendar/suggestions/batch` | `batchCalendarSuggestions` | 실제 | 같은 규칙. `synced`를 수락하면 바뀌는 것이 없다 |
 | `GET /calendar/feed` | `getCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 워크스페이스 멤버 누구나. ICS 구독이 있는지만(`url`은 늘 `null`. 토큰은 해시만 저장) |
 | `POST /calendar/feed` | `createCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 만들거나 다시 만든다. 응답의 `url`(`/cal/<토큰>.ics`)은 이때 한 번만. 옛 주소는 같은 트랜잭션에서 막힌다. 주소 자체는 `http.ts`의 공개 라우트다(인증 없음, `accepted`·`synced` 일정만, 비공개 녹음의 일정은 만든 사람의 주소에만, 꺼짐·잘못된 이름·모르는·회수된 토큰은 모두 같은 404, 요청 로그에는 `/cal/***`) |
 | `DELETE /calendar/feed` | `deleteCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 204. 주소가 바로 404가 된다 |

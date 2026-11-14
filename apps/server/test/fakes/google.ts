@@ -1,7 +1,7 @@
 // The one fake Google for server tests (CONTRACTS D-P4-9): it replaces globalThis.fetch and
 // answers the OAuth token and revoke endpoints and the Calendar API from memory. A request
-// to any other host throws, so a test can never reach a real service. P4-02 made it; P4-03,
-// P4-04 and P5-04 extend it.
+// to any other host throws, so a test can never reach a real service. P4-02 made it (tokens,
+// revoke, calendars); P4-03 added events; P4-04 and P5-04 extend it.
 //
 // Tokens are fake values: access tokens `at-<n>`, refresh tokens `rt-<n>`.
 
@@ -22,6 +22,8 @@ export interface FakeGoogle {
   issueCode(code: string, opts?: { refreshToken?: string | null; scope?: string }): void;
   /** The next `times` requests whose URL matches get this response instead. */
   failNext(match: string | RegExp, response: { status: number; json: unknown }, times?: number): void;
+  /** Drops every pending failNext. */
+  clearFailures(): void;
   calendars: Map<string, { summary: string; timeZone: string }>;
   /** calendarId → eventId → event resource. */
   events: Map<string, Map<string, Record<string, unknown>>>;
@@ -68,6 +70,9 @@ export function createFakeGoogle(): FakeGoogle {
     },
     failNext(match, response, times = 1) {
       failures.push({ match, response, left: times });
+    },
+    clearFailures() {
+      failures.length = 0;
     },
   };
 
@@ -134,6 +139,8 @@ export function createFakeGoogle(): FakeGoogle {
     return json(400, { error: "unsupported_grant_type" });
   }
 
+  const notFound = () => json(404, { error: { code: 404, message: "Not Found" } });
+
   function calendar(method: string, url: URL, body: unknown): Response {
     const path = url.pathname.slice("/calendar/v3".length);
     if (method === "POST" && path === "/calendars") {
@@ -143,7 +150,43 @@ export function createFakeGoogle(): FakeGoogle {
       fake.events.set(id, new Map());
       return json(200, { kind: "calendar#calendar", id, summary: b.summary, timeZone: b.timeZone });
     }
-    return json(404, { error: { code: 404, message: "Not Found" } });
+    // /calendars/{calendarId}/events[/{eventId}] (P4-03)
+    const match = /^\/calendars\/([^/]+)\/events(?:\/([^/]+))?$/.exec(path);
+    if (!match) return notFound();
+    const events = fake.events.get(decodeURIComponent(match[1]!));
+    if (!events) return notFound();
+    const eventId = match[2] === undefined ? null : decodeURIComponent(match[2]);
+    if (eventId === null && method === "GET") {
+      // privateExtendedProperty=name=value; deleted events are never returned (showDeleted=false).
+      const [name, value] = (url.searchParams.get("privateExtendedProperty") ?? "").split("=");
+      const items = [...events.values()].filter((e) => {
+        const priv = (e.extendedProperties as { private?: Record<string, string> } | undefined)?.private ?? {};
+        return !name || priv[name] === value;
+      });
+      const max = Number(url.searchParams.get("maxResults") ?? 250);
+      return json(200, { kind: "calendar#events", items: items.slice(0, max) });
+    }
+    if (eventId === null && method === "POST") {
+      const id = `gev-${++counter}`;
+      const event = { ...(body as Record<string, unknown>), id, etag: `"etag-${counter}"`, status: "confirmed" };
+      events.set(id, event);
+      return json(200, event);
+    }
+    if (eventId === null) return notFound();
+    const existing = events.get(eventId);
+    if (method === "PATCH") {
+      if (!existing) return notFound();
+      const event = { ...existing, ...(body as Record<string, unknown>), id: eventId, etag: `"etag-${++counter}"` };
+      events.set(eventId, event);
+      return json(200, event);
+    }
+    if (method === "DELETE") {
+      if (!existing) return json(410, { error: { code: 410, message: "Resource has been deleted" } });
+      events.delete(eventId);
+      return new Response(null, { status: 204 });
+    }
+    if (method === "GET") return existing ? json(200, existing) : notFound();
+    return notFound();
   }
 
   return fake;

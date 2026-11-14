@@ -1524,6 +1524,15 @@ export function updateLectureProgress(
 
 type LectureContentListener = (lectureId: string, ownerId: string) => void;
 const lectureContentListeners: LectureContentListener[] = [];
+const lectureDeletedListeners: LectureContentListener[] = [];
+
+/**
+ * Called after a lecture and its v2 rows are deleted. The Google Calendar sync
+ * (calendar/sync-job.ts) subscribes to remove the deleted events from Google.
+ */
+export function onLectureDeleted(listener: LectureContentListener): void {
+  lectureDeletedListeners.push(listener);
+}
 
 /**
  * Called after a lecture's notes are written (distill finished, user edit). The ask index
@@ -1826,6 +1835,15 @@ export function deleteLectureById(id: string): boolean {
   }
   const res = db.query(`DELETE FROM lectures WHERE id = ?`).run(id);
   syncLecture(id);
+  if (rec && res.changes > 0) {
+    for (const listener of lectureDeletedListeners) {
+      try {
+        listener(id, rec.owner_id);
+      } catch (err) {
+        logger.error("lecture deleted listener failed", { lecture_id: id, err });
+      }
+    }
+  }
   return res.changes > 0;
 }
 

@@ -6,6 +6,7 @@ import { costMicrousd, DEFAULT_PRICING, priceFor } from "@lectern/harness";
 import { config } from "@lectern/config";
 import type { ErrorCode } from "@lectern/domain";
 import { DEFAULT_GEMINI_MODEL } from "../../../../../packages/core/src/index.ts";
+import { enqueueCalendarSyncForWorkspace } from "../../calendar/sync-job.ts";
 import { DATA_DIR, db, deleteLectureAudioOnly, deleteLectureById, getLectureById, getUserById, resetLectureForRetry } from "../../db.ts";
 import { logger } from "../../log.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
@@ -153,11 +154,15 @@ function addTags(recording: RecordingRow, tagIds: string[], now: number): void {
   }
 }
 
-/** Deletes a recording: its lecture (files, archive, search index, threads) or just the v2 rows. */
+/**
+ * Deletes a recording: its lecture (files, archive, search index, threads) or just the v2 rows.
+ * Its events go with it; their calendar_event_link rows stay, so the queued Google Calendar
+ * sync can still find and delete the Google copies (P4-03).
+ */
 function deleteRecording(recording: RecordingRow): void {
   if (recording.lecture_id && getLectureById(recording.lecture_id)) {
     const owner = getLectureById(recording.lecture_id)!.owner_id;
-    deleteLectureById(recording.lecture_id); // projects the deletion onto the v2 rows
+    deleteLectureById(recording.lecture_id); // projects the deletion onto the v2 rows (and queues the sync, db.ts onLectureDeleted)
     announceDeleted(owner, [recording.lecture_id]);
     return;
   }
@@ -166,6 +171,7 @@ function deleteRecording(recording: RecordingRow): void {
   db.query("DELETE FROM pdf_page WHERE recording_id = ?").run(recording.id);
   deleteAlignment(recording.id);
   deleteRecordingRows(db, recording.id);
+  enqueueCalendarSyncForWorkspace(recording.workspace_id);
 }
 
 type BatchBody =

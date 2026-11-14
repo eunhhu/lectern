@@ -139,6 +139,8 @@ export function enqueueJob(input: {
   maxAttempts?: number;
   /** Spending cap the harness enforces between stages (job.budget_microusd); none by default. */
   budgetMicrousd?: number;
+  /** Not before this many ms from now (a delayed retry); now by default. */
+  delayMs?: number;
 }): { jobId: string; deduplicated: boolean; position: number } {
   const key = input.subjectId ? `${input.kind}:${input.subjectId}` : null;
   const id = `job_${randomUUID()}`;
@@ -156,7 +158,7 @@ export function enqueueJob(input: {
       input.kind,
       input.subjectId,
       input.priority ?? 0,
-      now,
+      now + Math.max(0, input.delayMs ?? 0),
       input.maxAttempts ?? 3,
       JSON.stringify(input.payload ?? {}),
       input.secret ? sealSecret(input.secret) : null,

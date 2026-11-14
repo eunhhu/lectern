@@ -9,6 +9,7 @@ import type { Context } from "hono";
 import { config } from "@lectern/config";
 import { uuidv7 } from "@lectern/db";
 import { authenticateRequest } from "../../auth.ts";
+import { enqueueCalendarSync } from "../../calendar/sync-job.ts";
 import { db } from "../../db.ts";
 import { createCalendar } from "../../google/calendar.ts";
 import {
@@ -93,6 +94,7 @@ export async function googleCalendarCallback(c: Context<V2Env>): Promise<Respons
     // Reconnecting (after needs_reauth) keeps the calendar it already made, so events stay in one place.
     const calendarId = existing?.calendar_id ?? (await createCalendar(tokens.access_token, user.timezone || "Asia/Seoul"));
     const now = Date.now();
+    const integrationId = existing?.id ?? uuidv7(now);
     if (existing) {
       db.query(
         `UPDATE integration SET scopes_json = ?, token_enc = ?, calendar_id = ?, status = 'active', updated_at = ? WHERE id = ?`,
@@ -102,8 +104,10 @@ export async function googleCalendarCallback(c: Context<V2Env>): Promise<Respons
       db.query(
         `INSERT INTO integration (id, workspace_id, user_id, provider, scopes_json, token_enc, calendar_id, status, created_at, updated_at)
          VALUES (?, ?, ?, 'google', ?, ?, ?, 'active', ?, ?)`,
-      ).run(uuidv7(now), workspaceId, user.id, JSON.stringify([CALENDAR_SCOPE]), sealGoogleTokens({ refresh_token: refreshToken }), calendarId, now, now);
+      ).run(integrationId, workspaceId, user.id, JSON.stringify([CALENDAR_SCOPE]), sealGoogleTokens({ refresh_token: refreshToken }), calendarId, now, now);
     }
+    // Events accepted before connecting (or while it needed reauth) go in now (P4-03).
+    enqueueCalendarSync(integrationId);
   } catch (err) {
     // Leave no grant behind that no integration row points at.
     await revokeToken(refreshToken);
