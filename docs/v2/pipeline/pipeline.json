@@ -66,7 +66,7 @@
     {"id":"P5-16","title":"웹: 관리자 콘솔 2부 — 멤버와 녹음, 기능 대조표","deps":["P5-12"],"owns":["apps/web/","docs/v2/pipeline/PARITY-ADMIN.md"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P5-13","title":"웹: 관리자 콘솔 2부","deps":["P5-16"],"owns":["apps/web/","docs/v2/pipeline/PARITY-ADMIN.md"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P5-14","title":"옛 관리자 콘솔 HTML 삭제","deps":["P5-13","P2-10"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo","needs_user":"새 관리자 콘솔을 확인한 뒤 옛 콘솔 삭제를 승인해야 한다"},
-    {"id":"P5-15","title":"보안 테스트 묶음","deps":["P5-02","P5-03","P5-04","P5-06","P2-02"],"owns":["apps/server/test/","docs/v2/pipeline/SECURITY-REVIEW.md"],"tier":"careful","gate":"full","status":"todo"},
+    {"id":"P5-15","title":"보안 테스트 묶음","deps":["P5-02","P5-03","P5-04","P5-06","P2-02"],"owns":["apps/server/test/","docs/v2/pipeline/SECURITY-REVIEW.md"],"tier":"careful","gate":"full","status":"blocked","note":"보안 테스트 49개 중 2개 실패: 발견 1건(중간, CSRF — 쿠키로 인증한 v2 변경 요청에 Origin/Sec-Fetch-Site 검사 없음). 테스트와 보고서(docs/v2/pipeline/SECURITY-REVIEW.md)는 로컬 브랜치 wp/P5-15(cff54e3)에만 있다. 서버 수정 작업과 브랜치 처리는 사용자 결정 대기"},
     {"id":"P6-C","title":"계약: APNs 설정, 테이블, 라우트, 방침","deps":["P5-C"],"owns":["packages/config/","packages/db/","packages/domain/","docs/env.md","deploy/systemd/","docs/v2/pipeline/flags-on.env","apps/server/","docs/runbooks/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P6-01","title":"서버: 푸시 기기, Live Activity 토큰, 마커","deps":["P6-C"],"owns":["apps/server/","packages/harness/"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P6-02","title":"서버: APNs 발송기","deps":["P6-01","P1-12"],"owns":["apps/server/","apps/worker/"],"tier":"careful","gate":"full","status":"todo"},
