@@ -82,7 +82,8 @@ targets:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
           NSExtensionAttributes:
-            NSExtensionActivationRule: { NSExtensionActivationSupportsFileWithMaxCount: 10 }
+            # Audio and PDFs only, at most 10 (a predicate string: the dictionary form cannot say "audio").
+            NSExtensionActivationRule: 'SUBQUERY(extensionItems, $extensionItem, $extensionItem.attachments.@count >= 1 AND $extensionItem.attachments.@count <= 10 AND SUBQUERY($extensionItem.attachments, $attachment, ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf").@count == $extensionItem.attachments.@count).@count >= 1'
     entitlements:
       path: iOS/Share/LecternShare.entitlements
       properties:

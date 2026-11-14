@@ -6,6 +6,9 @@ public struct AppEnvironment: Sendable, Equatable {
     public static let serverURLKey = "lectern_server_url"
     /// `-LECTERN_FIXTURE 1` (launch argument) or `LECTERN_FIXTURE=1` (environment).
     public static let fixtureFlag = "LECTERN_FIXTURE"
+    /// App Group `UserDefaults`: the workspace the intents and the share extension use, written
+    /// by the app at sign-in (absent: nobody is signed in).
+    public static let defaultWorkspaceIDKey = "default_workspace_id"
     public static let appGroup = "group.com.qucord.lectern"
     static let fallbackServerURL = URL(string: "http://localhost:18775")!
 

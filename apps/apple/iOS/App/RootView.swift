@@ -41,6 +41,7 @@ final class AppModel: ObservableObject {
             session = .signedIn
             resumeUploads()
         } else {
+            services.forgetSignIn()
             session = .signedOut
         }
     }
