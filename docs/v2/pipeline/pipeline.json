@@ -70,7 +70,7 @@
     {"id":"P6-C","title":"계약: APNs 설정, 테이블, 라우트, 방침","deps":["P5-C"],"owns":["packages/config/","packages/db/","packages/domain/","docs/env.md","deploy/systemd/","docs/v2/pipeline/flags-on.env","apps/server/","docs/runbooks/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P6-01","title":"서버: 푸시 기기, Live Activity 토큰, 마커","deps":["P6-C"],"owns":["apps/server/","packages/harness/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P6-02","title":"서버: APNs 발송기","deps":["P6-01","P1-12"],"owns":["apps/server/","apps/worker/"],"tier":"careful","gate":"full","status":"merged"},
-    {"id":"P6-03","title":"서버: apple-app-site-association, v1 사용량과 Sunset","deps":["P6-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"todo"},
+    {"id":"P6-03","title":"서버: apple-app-site-association, v1 사용량과 Sunset","deps":["P6-C"],"owns":["apps/server/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P6-A0","title":"macOS: 토큰을 Keychain으로","deps":[],"owns":["apps/macos/"],"tier":"basic","gate":"apple","status":"merged"},
     {"id":"P6-A1","title":"apps/apple 뼈대와 게이트","deps":[],"owns":["apps/apple/",".gitignore"],"tier":"careful","gate":"apple","status":"merged"},
     {"id":"P6-A2","title":"LecternKit: API 클라이언트와 인증","deps":["P6-A1"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"todo"},

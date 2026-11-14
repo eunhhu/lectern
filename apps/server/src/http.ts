@@ -7,12 +7,14 @@ import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { config } from "@lectern/config";
 import { API_BASE_PATH, createApiV2App } from "./api/v2/index.ts";
+import { aasaDocument } from "./apple-app-site-association.ts";
 import { feedByToken, feedEvents } from "./calendar/feed.ts";
 import { renderIcs } from "./calendar/ics.ts";
 import { LEGAL_PAGES, legalPageHtml } from "./legal.ts";
 import { createShareRouter } from "./share-page.ts";
 import { logger } from "./log.ts";
 import { redactUrlForLog } from "./ops.ts";
+import { serveV1 } from "./v1-sunset.ts";
 import { WEB_SHELL_BASE, webShellResponse } from "./web-shell.ts";
 
 type Env = { Variables: { requestId: string } };
@@ -92,12 +94,23 @@ export function createHttpApp(legacy: (req: Request) => Promise<Response>, optio
     }
   }
 
+  // Universal links and saved passwords for the Apple apps (D-P6-4). Apple's CDN fetches it
+  // without cookies and does not follow redirects: answered here, never by the legacy router.
+  app.get("/.well-known/apple-app-site-association", (c) => {
+    const doc = aasaDocument(config().appleAppIds);
+    if (!doc) return c.text("Not found", 404);
+    return new Response(JSON.stringify(doc), {
+      headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" },
+    });
+  });
+
   // Share links (D-P2-3): /s/:token from share_link rows. Unknown and revoked tokens fall
   // through to the v1 handler below, which keeps its 404/403 sentences.
   app.route("/", createShareRouter());
 
-  // v2 routes go above this line.
-  app.all("*", (c) => legacy(c.req.raw));
+  // v2 routes go above this line. API v1 calls are counted, get the sunset headers once a
+  // date is set, and answer 410 on the retired paths when the operator closes them (D-P6-5).
+  app.all("*", (c) => serveV1(c.req.raw, legacy));
 
   return app;
 }

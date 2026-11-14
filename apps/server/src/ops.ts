@@ -20,6 +20,7 @@ import { BlobStore, deleteArtifactsForJobs, sweepHarnessData, type HarnessSweepR
 import type { MaintenanceResultDto } from "./admin-api.ts";
 import { pruneLectureEvents } from "./events.ts";
 import { pruneFinishedJobs } from "./queue.ts";
+import { pruneV1Usage } from "./v1-sunset.ts";
 import { DATA_DIR, HARNESS_BLOB_DIR, db, deleteSession, getSystemSettings } from "./db.ts";
 import { pruneNativeSessions } from "./native-auth.ts";
 import { refreshAllLedgers } from "./usage.ts";
@@ -296,6 +297,8 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
   step("data exports", 0, () => expireExports(now));
   // Account deletions past their 7 days of grace (P5-09): one `account_deletion` job each.
   step("account deletions", 0, () => enqueueDueDeletions(now));
+  // v1 call counts past 400 days (P6-03, D-P6-5).
+  step("v1 usage", 0, () => pruneV1Usage(now));
   const expiredCodes = step("verification codes", 0, () =>
     db.query(`DELETE FROM email_verifications WHERE expires_at < ?`).run(nowIso).changes
   );

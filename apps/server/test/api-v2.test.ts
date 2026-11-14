@@ -27,7 +27,7 @@ const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
 /** Routes of later phases (contract-only routes; P6-03 implements this one). */
-const NOT_YET = new Set<string>(["adminListV1Usage"]);
+const NOT_YET = new Set<string>([]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
 

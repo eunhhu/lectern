@@ -4,7 +4,8 @@ import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
 import { isLectureBusy, wakeJobWorker } from "../../queue.ts";
 import { quotaOf, setQuota, type Quota } from "../../usage.ts";
-import { apiError, defineRouter, notFound, notImplemented, ok, pageBounds, pageFrom } from "./common.ts";
+import { flushV1Usage, seoulDay } from "../../v1-sunset.ts";
+import { apiError, defineRouter, notFound, ok, pageBounds, pageFrom } from "./common.ts";
 import { usageLedgerDto, type QueueJobRow, type UsageLedgerRow } from "./rows.ts";
 import { toJob } from "./store.ts";
 
@@ -203,6 +204,17 @@ export const adminRouter = defineRouter({
     });
     return ok(req, quotaOf(workspaceId) ?? { audio_ms_month: null, ai_microusd_month: null, storage_bytes: null });
   },
-  // v1 usage per day, route and client (D-P6-5): contract only until P6-03 counts it.
-  adminListV1Usage: notImplemented,
+  // v1 usage per day, route and client (D-P6-5), newest day first. The counts still in memory
+  // are written first, so the list includes the calls of the last seconds.
+  adminListV1Usage: (req) => {
+    const q = req.query as { from?: string; to?: string };
+    const now = Date.now();
+    const to = q.to ?? seoulDay(now);
+    const from = q.from ?? seoulDay(now - 29 * 86_400_000);
+    flushV1Usage();
+    const rows = db
+      .query(`SELECT day, route, client, count FROM v1_usage WHERE day >= ? AND day <= ? ORDER BY day DESC, count DESC, route, client LIMIT 1000`)
+      .all(from, to) as Array<{ day: string; route: string; client: string; count: number }>;
+    return ok(req, { items: rows, next_cursor: null });
+  },
 });
