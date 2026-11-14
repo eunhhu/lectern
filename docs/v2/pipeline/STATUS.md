@@ -57,6 +57,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 화면 부품의 기기 점검(가장 큰 글자, VoiceOver로 문서 끝까지, 전사 직접 스크롤 뒤 5초 — Mac 휠·트랙패드가 스크롤 단계를 보고하는지 포함): `apps/apple/MANUAL_CHECKS.md` 10–12 | P6-A5 |
 | iOS 앱 셸의 기기 점검(만료된 토큰으로 긴 재생, VoiceOver로 목록·상세, iPad 나란히 보기, 픽스처 UI 테스트 실행): `apps/apple/MANUAL_CHECKS.md` 13–16. UI 테스트는 이 Mac의 CoreSimulator가 Xcode보다 오래돼 빌드만 했다. iPhone이 녹음 목록부터 보이는지(`preferredCompactColumn`)도 여기서 본다 | P6-A6 |
 | 녹음 표면의 기기 점검(제어 센터·동작 버튼·Siri로 시작, 잠금 화면 3시간 녹음과 잠긴 채 업로드, Dynamic Island, 통화 중 일시정지가 Live Activity에 보이는지, Live Activity를 꺼도 녹음, 녹음 뒤 재생 음질): `apps/apple/MANUAL_CHECKS.md` 17–25(25: 앱에서 정지하고 바로 잠가도 업로드가 끝나는지). 컨트롤의 인텐트(`RecordingToggleIntent`)가 위젯 확장이 아니라 앱 프로세스에서 도는지는 17에서 본다(명세의 전제). 빌드 산출물의 `Metadata.appintents`에 인텐트 다섯 개와 단축어 문구 세 개가 들어간 것까지는 확인했다 | P6-A7 |
+| 공유 확장의 기기 점검(음성 메모에서 공유 → 앱에서 업로드, 오디오와 PDF 짝짓기, 1GB 공유, 메타데이터 없는 옛 파일의 녹음 시각, 오디오·PDF에만 보이는지): `apps/apple/MANUAL_CHECKS.md` 26–30. 활성화 규칙(술어 문자열)은 macOS `NSPredicate`로 읽히고 빌드된 확장의 Info.plist에 한 줄로 들어간 것까지 확인했다 | P6-A8 |
 | 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
 | CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
 | Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
@@ -82,6 +83,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | `LECTERN_V1_BLOCK`을 켜는 시점. **Android와 Windows 앱은 목록·상세를 아직 `/api/lectures`로 읽는다.** 차단을 켜면 그 화면이 깨진다(아래 "후속 작업"의 첫 줄이 먼저다) | P6-03 |
 | 처음 온 사람이 인계 점검표를 실제로 따라 해 보는 것 | P7-05 |
 | P5-15 보안 테스트의 발견 1건(중간, CSRF: 쿠키로 인증한 변경 요청에 출처 검사 없음)을 고칠 작업을 만들지. 테스트 49개와 보고서 `SECURITY-REVIEW.md`는 로컬 브랜치 `wp/P5-15`에만 있다(`p0-foundations`만 push한다). 실패하는 테스트를 통합 브랜치에 합치지 않았다. 브랜치를 올릴지, 고친 뒤 합칠지 | P5-15 |
+| 올린 뒤 기기의 녹음·공유 파일을 자동으로 지울지. 지금 대기열은 완료된 항목의 파일을 사용자가 그 항목을 지울 때까지 둔다(공유한 파일은 원본이 따로 있어 복사본이 하나 더 남는다) | P6-A8 |
 
 ### 후속 작업 (이 파이프라인에 WP가 없다)
 
@@ -95,6 +97,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | iOS 앱에 문서 편집·물어보기·검색·캘린더·PDF 보기가 없다(PDF 출처는 눌러도 아무 일도 없다). 웹을 따라잡는 화면은 이 파이프라인의 WP가 아니다 | P6-A6 |
 | 업로드 대기열 항목이 계정에 묶여 있지 않다. 로그아웃 뒤 다른 계정으로 로그인하면 이전 계정의 녹음을 그 계정으로 올린다 | P6-A6 |
 | 대기열에 넣지 못한 녹음 파일과 쓰다 실패한 녹음 파일은 App Group의 `Recordings/`에 남지만 다시 넣거나 지우는 화면이 없다 | P6-A7 |
+| 공유 확장의 여유 공간 확인은 명세대로 '가져올 크기 + 200MB'다. 같은 볼륨 복사는 복제라 실제로는 공간을 거의 쓰지 않아, 들어갈 공유를 거절할 수 있다 | P6-A8 |
 | 새 녹음은 언제나 백그라운드 세션으로 올린다. 다만 앱이 포그라운드에서 다시 올리던 예전 항목(`run()`이 잡고 있던 것)은 백그라운드로 갈 때 넘기지 않는다. 멈추면 그 파트가 실패해 `네트워크를 기다리는 중`이 되고 다음 활성화 때 이어진다. 백그라운드 세션은 이 Mac에서 돌려 보지 못했다(빌드만) | P6-A7 |
 | 내보내기 zip의 ZIP64(4 GiB를 넘는 워크스페이스) | P5-08 |
 | v1 사용량 관리자 화면: P5-13이 P6-C보다 먼저 돌면 빠진다. P6-03 뒤에 더해야 한다 | P5-13 |
@@ -163,3 +166,5 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-A7 | 프로세스에 하나인 `AppServices`(`App.init`에서 만든다)가 클라이언트, 업로드 대기열과 `BackgroundUploader`, 녹음 세션을 갖는다. 업로드는 활성일 때 `run(skipping: inFlightJobIDs())`, 활성이 아닐 때 `BackgroundUploader.start(jobID:)`(`UploadQueue.claimForBackground`)로, 한 항목은 한쪽만 올린다. 공유 확장은 `enqueue`만 하고 올리지 않는다 | P6-A8·A9에 전달 |
 | 2026-11-15 | P6-A7 | 녹음 Live Activity(`RecordingActivityAttributes`, LecternIntents)는 정지 4초 뒤 끝난다. 처리 진행은 별도 활동으로 잇는다. 인텐트는 App Group `default_workspace_id`(로그인 때 앱이 개인 워크스페이스를 적는다)로 녹음한다 | P6-A11에 전달 |
 | 2026-11-15 | P6-A7 | 설치된 SDK의 `ControlWidgetToggle`은 `SetValueIntent` 하나만 받아서 컨트롤은 시작·정지 인텐트 둘이 아니라 `RecordingToggleIntent`(SetValueIntent + AudioRecordingIntent) 하나다. App Shortcuts는 앱 타깃에 두고 문구는 "Lectern으로 녹음 시작"이다 | 기록만 |
+| 2026-11-15 | P6-A8 | `UploadJob.audioPartRelativePaths`(1부·2부를 오디오 여러 개의 녹음 하나로, 서버는 올린 순서로 `part_index`)와 `allRelativePaths`가 생겼다. 다른 프로세스가 저장한 항목은 `UploadQueue.reloadFromStore()`로 들어오고 `run()`이 먼저 부른다. 로그인한 워크스페이스는 `AppEnvironment.defaultWorkspaceIDKey`(App Group `UserDefaults`)다 | P6-A9에 전달 |
+| 2026-11-15 | P6-A8 | 웹 짝짓기 테스트는 18개다(명세의 `git grep -c`가 19로 센 것은 `name.split(".")` 줄이 걸린 것). 18개를 옮기고 NFD 하나를 더했다. 웹 규칙이 받는 weba·caf·amr은 서버가 받지 않아 대기열에서 서버의 문장으로 실패한다(웹과 같다) | 기록만 |
