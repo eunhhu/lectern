@@ -19,8 +19,13 @@ export const assetsRouter = defineRouter({
     const path = assetPath(asset);
     if (!path) return notFound(req, "파일");
     const mime = asset.kind.startsWith("audio") ? audioMimeForPath(path) : (DOCUMENT_TYPES[extname(path).toLowerCase()] ?? null);
-    // Private: the bytes are a user's recording or document.
-    return serveFileWithRange(req.c.req.raw, path, mime, { "Cache-Control": "private, no-store" });
+    // Private: the bytes are a user's recording or document. A PDF opens in the browser's
+    // viewer (inline) and is never sniffed as anything else.
+    const headers: Record<string, string> =
+      asset.kind === "pdf"
+        ? { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline" }
+        : { "Cache-Control": "private, no-store" };
+    return serveFileWithRange(req.c.req.raw, path, mime, headers);
   },
   // Lecture PDFs (CONTRACTS §3): P3-03 lists the pages, P3-05 runs the confirmed OCR.
   listAssetPages: notImplemented,
