@@ -39,7 +39,9 @@ describe("apps/web styles", () => {
   test("components never set colours or inline style strings", () => {
     for (const path of files(SRC, ".tsx")) {
       const text = readFileSync(path, "utf8");
-      expect(text.match(/#[0-9a-fA-F]{6}\b|\brgba?\(|\bhsla?\(/g) ?? [], path).toEqual([]);
+      // A third-party mark keeps its brand colours (Google's sign-in logo): that file only.
+      const brandMarks = path.endsWith(join("routes", "login", "logos.tsx"));
+      if (!brandMarks) expect(text.match(/#[0-9a-fA-F]{6}\b|\brgba?\(|\bhsla?\(/g) ?? [], path).toEqual([]);
       expect(text.match(/setAttribute\(\s*["']style["']/g) ?? [], path).toEqual([]);
       expect(text.match(/dangerouslySetInnerHTML/g) ?? [], path).toEqual([]);
     }

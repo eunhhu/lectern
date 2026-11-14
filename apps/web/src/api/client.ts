@@ -6,6 +6,14 @@
 // at build time.
 
 import type {
+  AccessTokenPage,
+  AccountDeletionInfo,
+  CreateAccessTokenRequest,
+  CreatedAccessToken,
+  CreateExportRequest,
+  DataExport,
+  DataExportPage,
+  IdentityPage,
   ActionItem,
   ActionItemPage,
   BatchRecordingsRequest,
@@ -131,6 +139,31 @@ export interface ApiClient {
   listDevices(): Promise<DevicePage>;
   /** Signs a device out (DELETE /me/devices/{id}). */
   revokeDevice(deviceId: string): Promise<void>;
+  // --- account (P5: D-P5-2..5, D-P5-8, D-P5-9) -------------------------------------
+  /** Personal access tokens, and the v1 API token as a row of its own (`tok_…`, not revocable here). */
+  listAccessTokens(): Promise<AccessTokenPage>;
+  /** The token and its secret; the secret is in this response only. */
+  createAccessToken(body: CreateAccessTokenRequest): Promise<CreatedAccessToken>;
+  revokeAccessToken(tokenId: string): Promise<void>;
+  /** Google and Apple accounts the user can sign in with. */
+  listIdentities(): Promise<IdentityPage>;
+  /** 409 when it is the last way to sign in. */
+  unlinkIdentity(identityId: string): Promise<void>;
+  listExports(): Promise<DataExportPage>;
+  /** Queues a workspace export zip (202). */
+  createExport(body: CreateExportRequest): Promise<DataExport>;
+  /** Where a ready export zip downloads from (`/me/exports/{id}/content`). */
+  exportContentUrl(exportId: string): string;
+  getAccountDeletion(): Promise<AccountDeletionInfo>;
+  /** Schedules the deletion in 7 days. `password` for an account that has one. */
+  requestAccountDeletion(password?: string): Promise<AccountDeletionInfo>;
+  cancelAccountDeletion(): Promise<AccountDeletionInfo>;
+  /**
+   * Which "…로 계속하기" sign-ins the server offers. There is no route for it: the start
+   * URL is probed (a redirect means on; 404 or 501 means off). Remembered for the session.
+   */
+  oauthProviders(): Promise<{ google: boolean; apple: boolean }>;
+
   listWorkspaces(): Promise<MyWorkspacePage>;
   listMembers(workspaceId: WorkspaceId): Promise<WorkspaceMemberPage>;
 

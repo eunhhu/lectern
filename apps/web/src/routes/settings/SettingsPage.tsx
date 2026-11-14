@@ -1,11 +1,13 @@
-// 설정 (ARCHITECTURE §7): profile, the current workspace and its members, signed-in
-// devices, integrations and reminders (Integrations.tsx, Reminders.tsx, P4-07), and the
-// options that live in this browser (theme, single-key shortcuts: WCAG 2.1.4). Profile and
-// devices go through the ApiClient (PATCH /me, DELETE /me/devices/{id}).
+// 설정 (ARCHITECTURE §7): profile and the account sections (signed-in devices, access
+// tokens, linked sign-ins, data export, account deletion: account/, P5-10), the current
+// workspace and its members, integrations and reminders (Integrations.tsx, Reminders.tsx,
+// P4-07), and the options that live in this browser (theme, single-key shortcuts: WCAG
+// 2.1.4). Everything goes through the ApiClient.
 
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Form, Input, Label, Radio, RadioGroup, TextField } from "react-aria-components";
+import { isNotReady } from "../../api/errors.ts";
 import { useDevices, useMe, useMembers, useRecordings, useRevokeDevice, useShareLinks, useUpdateMe } from "../../api/queries.ts";
 import { usePageTitle } from "../../app/RootLayout.tsx";
 import { setPreferences, usePreferences, type ThemeChoice } from "../../app/preferences.ts";
@@ -17,6 +19,10 @@ import { Badge, Button, SelectField, SwitchField, uiStyles } from "../../ui/cont
 import { showToast } from "../../ui/toast.tsx";
 import { toastError } from "../library/organise.ts";
 import { ShareLinkRow } from "../share/ShareLinkRow.tsx";
+import { DeleteAccount } from "./account/DeleteAccount.tsx";
+import { Exports } from "./account/Exports.tsx";
+import { Identities } from "./account/Identities.tsx";
+import { NOT_READY_TEXT, Tokens } from "./account/Tokens.tsx";
 import { Integrations } from "./Integrations.tsx";
 import { Reminders } from "./Reminders.tsx";
 import layout from "../../app/layout.module.css";
@@ -32,11 +38,16 @@ const TIME_ZONES = [
   { id: "America/Los_Angeles", label: "로스앤젤레스" },
 ];
 
+// The account sections (P5-10) follow the profile: devices, tokens, sign-ins, export, deletion.
 const SECTIONS = [
   { id: "account", label: "프로필" },
+  { id: "devices", label: "기기" },
+  { id: "tokens", label: "액세스 토큰" },
+  { id: "identities", label: "연결된 로그인" },
+  { id: "exports", label: "데이터 내보내기" },
+  { id: "delete-account", label: "계정 삭제" },
   { id: "workspace", label: "워크스페이스" },
   { id: "share-links", label: "공유 링크" },
-  { id: "devices", label: "기기" },
   { id: "integrations", label: "연동" },
   { id: "reminders", label: "알림" },
   { id: "browser", label: "이 브라우저" },
@@ -65,9 +76,13 @@ export function SettingsPage() {
           <h1 className={layout.pageTitle}>설정</h1>
         </header>
         <Profile />
+        <Devices />
+        <Tokens />
+        <Identities />
+        <Exports />
+        <DeleteAccount />
         <WorkspaceSection />
         <ShareLinks />
-        <Devices />
         <Integrations />
         <Reminders />
         <BrowserOptions />
@@ -215,50 +230,65 @@ function ShareLinks() {
   );
 }
 
+// Signed-in browsers and apps (D-P5-2). The current one cannot be signed out from here:
+// that is the 로그아웃 in the account menu.
 function Devices() {
-  const devices = useDevices().data ?? [];
+  const devices = useDevices();
   const revoke = useRevokeDevice();
   const now = new Date();
+  let body;
+  if (isNotReady(devices.error)) {
+    body = <p className={s.muted}>{NOT_READY_TEXT}</p>;
+  } else if (!devices.data) {
+    body = <p className={s.muted}>{devices.isPending ? "불러오는 중…" : "기기 목록을 불러오지 못했습니다."}</p>;
+  } else {
+    body = (
+      <ul className={s.members} role="list">
+        {devices.data.map((d) => {
+          const name = d.device_name ?? "알 수 없는 기기";
+          return (
+            <li key={d.id} className={s.member}>
+              <span className={s.deviceIcon}>
+                <Icon name={d.client === "web" ? "workspace" : "audio"} />
+              </span>
+              <span className={s.memberText}>
+                <span className={s.memberName}>
+                  {name}
+                  {d.current && <Badge tone="success">이 기기</Badge>}
+                </span>
+                <span className={s.muted}>
+                  {d.client === "web" ? "웹" : "앱"} · 마지막 사용 {formatRelative(d.last_seen_at, now)}
+                </span>
+              </span>
+              {!d.current && (
+                <Button
+                  size="sm"
+                  variant="dangerText"
+                  aria-label={`로그아웃시키기: ${name}`}
+                  onPress={async () => {
+                    try {
+                      await revoke.mutateAsync(d.id);
+                      showToast({ title: `${name}에서 로그아웃했습니다.` });
+                    } catch (err) {
+                      toastError("로그아웃시키지 못했습니다.", err);
+                    }
+                  }}
+                >
+                  로그아웃시키기
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
   return (
     <section id="devices" className={s.section} aria-labelledby="set-devices">
       <h2 id="set-devices" className={s.heading}>
         기기
       </h2>
-      <ul className={s.members} role="list">
-        {devices.map((d) => (
-          <li key={d.id} className={s.member}>
-            <span className={s.deviceIcon}>
-              <Icon name={d.client === "web" ? "workspace" : "audio"} />
-            </span>
-            <span className={s.memberText}>
-              <span className={s.memberName}>
-                {d.device_name ?? (d.client === "web" ? "브라우저" : "앱")}
-                {d.current && <Badge tone="success">지금 쓰는 기기</Badge>}
-              </span>
-              <span className={s.muted}>
-                {d.client === "web" ? "웹" : "앱"} · 마지막 사용 {formatRelative(d.last_seen_at, now)}
-              </span>
-            </span>
-            {!d.current && (
-              <Button
-                size="sm"
-                variant="dangerText"
-                aria-label={`로그아웃: ${d.device_name ?? "기기"}`}
-                onPress={async () => {
-                  try {
-                    await revoke.mutateAsync(d.id);
-                    showToast({ title: `${d.device_name ?? "기기"}에서 로그아웃했습니다.` });
-                  } catch (err) {
-                    toastError("로그아웃하지 못했습니다.", err);
-                  }
-                }}
-              >
-                로그아웃
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
+      {body}
     </section>
   );
 }

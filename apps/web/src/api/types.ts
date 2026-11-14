@@ -82,6 +82,13 @@ export type WorkspaceSettings = z.infer<typeof D.WorkspaceSettings>;
 export type Integration = z.infer<typeof D.IntegrationDto>;
 export type CalendarFeedInfo = z.infer<typeof D.CalendarFeedInfo>;
 export type CalendarFeedCreated = z.infer<typeof D.CalendarFeedCreated>;
+// Account (P5): tokens, sign-in identities, exports, deletion.
+export type AccessToken = z.infer<typeof D.AccessTokenDto>;
+export type AccessTokenScope = z.infer<typeof D.AccessTokenScope>;
+export type CreatedAccessToken = z.infer<typeof D.CreatedAccessToken>;
+export type Identity = z.infer<typeof D.IdentityDto>;
+export type DataExport = z.infer<typeof D.DataExportDto>;
+export type AccountDeletionInfo = z.infer<typeof D.AccountDeletionInfo>;
 
 // Requests
 export type UpdateMeRequest = z.infer<typeof D.UpdateMeRequest>;
@@ -97,6 +104,8 @@ export type UploadFileSpec = z.infer<typeof D.UploadFileSpec>;
 export type CreateDocumentVersionRequest = z.infer<typeof D.CreateDocumentVersionRequest>;
 export type CreateShareLinkRequest = z.infer<typeof D.CreateShareLinkRequest>;
 export type ReprocessRequest = z.infer<typeof D.ReprocessRequest>;
+export type CreateAccessTokenRequest = z.infer<typeof D.CreateAccessTokenRequest>;
+export type CreateExportRequest = z.infer<typeof D.CreateExportRequest>;
 export type ReprocessResponse = z.infer<typeof D.ReprocessResponse>;
 export type AssetPages = z.infer<typeof D.AssetPages>;
 export type OcrAssetRequest = z.infer<typeof D.OcrAssetRequest>;
@@ -138,6 +147,9 @@ export type DevicePage = Page<Device>;
 export type WorkspaceMemberPage = Page<WorkspaceMember>;
 export type AskThreadPage = Page<AskThread>;
 export type IntegrationPage = Page<Integration>;
+export type AccessTokenPage = Page<AccessToken>;
+export type IdentityPage = Page<Identity>;
+export type DataExportPage = Page<DataExport>;
 
 export type {
   ActionItemStatus,

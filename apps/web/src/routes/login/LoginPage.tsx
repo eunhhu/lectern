@@ -13,10 +13,27 @@ import { usePageTitle } from "../../app/RootLayout.tsx";
 import { Button, uiStyles } from "../../ui/controls.tsx";
 import { Icon } from "../../ui/Icon.tsx";
 import s from "./login.module.css";
+import { appNext, OAuthButtons } from "./OAuthButtons.tsx";
 
 export interface LoginSearch {
   /** App path to return to after signing in (`/recordings/rec_1?t=3000`). */
   next?: string;
+  /** Why a Google/Apple sign-in came back here (`/app/login?error=oauth`, D-P5-5). */
+  error?: string;
+}
+
+const OAUTH_ERRORS: Record<string, string> = {
+  oauth: "로그인하지 못했습니다. 다시 시도해 주세요.",
+  email_unverified: "이메일이 인증되지 않은 계정으로는 로그인할 수 없습니다.",
+  no_email: "이메일 주소를 받지 못해 로그인할 수 없습니다.",
+  inactive: "사용이 중지된 계정입니다.",
+  signup_closed: "이 이메일로 가입된 계정이 없고, 지금은 새로 가입할 수 없습니다.",
+};
+
+/** The message for `?error=`; an unknown code reads as the generic failure. */
+export function oauthErrorMessage(code: string | undefined): string | null {
+  if (!code) return null;
+  return OAUTH_ERRORS[code] ?? OAUTH_ERRORS.oauth!;
 }
 
 /** `next` when it is a path inside the app, otherwise home: never another origin. */
@@ -30,10 +47,10 @@ export function LoginPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { next } = useSearch({ from: "/login" });
+  const { next, error: oauthError } = useSearch({ from: "/login" });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => oauthErrorMessage(oauthError));
   const [pending, setPending] = useState(false);
 
   const submit = async () => {
@@ -90,6 +107,7 @@ export function LoginPage() {
             {pending ? "로그인하는 중…" : "로그인"}
           </Button>
         </Form>
+        <OAuthButtons next={appNext(safeNext(next))} />
         {api.mode === "fixture" && (
           <p className={s.note}>미리보기에는 서버가 없습니다. 예시 사용자의 이메일과 아무 비밀번호로 들어갑니다.</p>
         )}

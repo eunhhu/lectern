@@ -337,3 +337,124 @@ describe("calendar connections (P4-07)", () => {
     expect(saved.settings).toMatchObject({ calendar_auto_add: { enabled: true, min_confidence: 0.8 }, reminders: { email: true, lead_minutes: [1440, 60] } });
   });
 });
+
+describe("account (P5-10)", () => {
+  const ws = asId<D.WorkspaceId>(PERSONAL_WS);
+  const at = "2026-10-19T03:00:00.000Z";
+  const token = {
+    id: "pat_1",
+    workspace_id: ws,
+    user_id: "usr_1",
+    name: "스크립트",
+    prefix: "lct_pat_ab12",
+    scopes: ["recordings:read"],
+    expires_at: null,
+    last_used_at: null,
+    created_at: at,
+    revoked_at: null,
+  };
+  const exported = { id: "exp_1", workspace_id: ws, include_audio: false, state: "queued", bytes: null, requested_at: at, ready_at: null, expires_at: null, error: null };
+  const scheduled = { state: "scheduled", requested_at: at, execute_after: "2026-10-26T03:00:00.000Z" };
+
+  test("account calls", async () => {
+    const { fn, seen } = fakeFetch((req) => {
+      if (req.method === "DELETE" && !req.url.endsWith("/me/deletion")) return new Response(null, { status: 204 });
+      if (req.url === "/api/v2/me/tokens" && req.method === "POST") return json(201, { token, secret: "lct_pat_ab12cdef34567890" });
+      if (req.url.startsWith("/api/v2/me/tokens")) return json(200, { items: [token], next_cursor: null });
+      if (req.url === "/api/v2/me/identities") return json(200, { items: [{ id: "idn_1", provider: "google", email: "a@example.com", created_at: at }], next_cursor: null });
+      if (req.url === "/api/v2/me/exports" && req.method === "POST") return json(202, exported);
+      if (req.url === "/api/v2/me/exports") return json(200, { items: [exported], next_cursor: null });
+      if (req.url === "/api/v2/me/deletion" && req.method === "DELETE") return json(200, { state: "none", requested_at: null, execute_after: null });
+      return json(200, scheduled);
+    });
+    const api = createHttpClient({ fetch: fn });
+    const made = await api.createAccessToken({ workspace_id: ws, name: "스크립트", scopes: ["recordings:read"], expires_at: null });
+    expect(made.secret).toStartWith("lct_pat_");
+    expect((await api.listAccessTokens()).items).toHaveLength(1);
+    await api.revokeAccessToken("pat_1");
+    expect((await api.listIdentities()).items[0]!.provider).toBe("google");
+    await api.unlinkIdentity("idn_1");
+    expect((await api.createExport({ workspace_id: ws, include_audio: true })).state).toBe("queued");
+    expect((await api.listExports()).items).toHaveLength(1);
+    expect(api.exportContentUrl("exp_1")).toBe("/api/v2/me/exports/exp_1/content");
+    expect((await api.requestAccountDeletion("hunter22")).state).toBe("scheduled");
+    await api.requestAccountDeletion();
+    expect((await api.getAccountDeletion()).execute_after).toBe(scheduled.execute_after);
+    expect((await api.cancelAccountDeletion()).state).toBe("none");
+
+    const [create, list, revoke, identities, unlink, exportCreate, exportList, del, delNoPassword, info, cancel] = seen;
+    expect([create!.method, create!.url]).toEqual(["POST", "/api/v2/me/tokens"]);
+    expect(JSON.parse(create!.body!)).toEqual({ workspace_id: ws, name: "스크립트", scopes: ["recordings:read"], expires_at: null });
+    expect(create!.headers.get("Idempotency-Key")).toBeTruthy();
+    expect(list!.url).toStartWith("/api/v2/me/tokens");
+    expect([revoke!.method, revoke!.url]).toEqual(["DELETE", "/api/v2/me/tokens/pat_1"]);
+    expect(identities!.url).toBe("/api/v2/me/identities");
+    expect([unlink!.method, unlink!.url]).toEqual(["DELETE", "/api/v2/me/identities/idn_1"]);
+    expect([exportCreate!.method, exportCreate!.url]).toEqual(["POST", "/api/v2/me/exports"]);
+    expect(JSON.parse(exportCreate!.body!)).toEqual({ workspace_id: ws, include_audio: true });
+    expect(exportList!.url).toBe("/api/v2/me/exports");
+    expect([del!.method, del!.url]).toEqual(["POST", "/api/v2/me/deletion"]);
+    expect(JSON.parse(del!.body!)).toEqual({ password: "hunter22" });
+    expect(JSON.parse(delNoPassword!.body!)).toEqual({});
+    expect([info!.method, info!.url]).toEqual(["GET", "/api/v2/me/deletion"]);
+    expect([cancel!.method, cancel!.url]).toEqual(["DELETE", "/api/v2/me/deletion"]);
+  });
+
+  test("oauthProviders", async () => {
+    // A browser's `redirect: "manual"` answer is an opaque redirect: status 0, no body.
+    const opaque = { type: "opaqueredirect", status: 0, ok: false } as unknown as Response;
+    const answers: Record<string, () => Response> = {
+      google: () => opaque,
+      apple: () => new Response(null, { status: 302, headers: { Location: "https://appleid.apple.com/auth/authorize" } }),
+    };
+    const { fn, seen } = fakeFetch((req) => answers[req.url.split("/")[4]!]!());
+    const api = createHttpClient({ fetch: fn });
+    expect(await api.oauthProviders()).toEqual({ google: true, apple: true });
+    expect(seen.map((r) => [r.method, r.url])).toEqual([
+      ["GET", "/api/v2/auth/google/start"],
+      ["GET", "/api/v2/auth/apple/start"],
+    ]);
+    // Remembered for the session: no second probe.
+    await api.oauthProviders();
+    expect(seen).toHaveLength(2);
+
+    const off = fakeFetch((req) => (req.url.includes("/google/") ? json(404, { error: { code: "not_found", message: "x" } }) : json(501, { error: { code: "not_implemented", message: "x" } })));
+    expect(await createHttpClient({ fetch: off.fn }).oauthProviders()).toEqual({ google: false, apple: false });
+
+    // No answer (network down, 503) reads as off but is asked again, not remembered.
+    let up = false;
+    const flaky = fakeFetch((req) => {
+      if (!up) throw new TypeError("Failed to fetch");
+      return req.url.includes("/google/") ? opaque : json(503, { error: { code: "unavailable", message: "x" } });
+    });
+    const client = createHttpClient({ fetch: flaky.fn });
+    expect(await client.oauthProviders()).toEqual({ google: false, apple: false });
+    up = true;
+    expect(await client.oauthProviders()).toEqual({ google: true, apple: false });
+    expect(await client.oauthProviders()).toEqual({ google: true, apple: false });
+    expect(flaky.seen).toHaveLength(6);
+  });
+
+  test("the fixture keeps a token's secret out of its list and exports become ready", async () => {
+    const api = createFixtureClient({ latencyMs: 0 });
+    const made = await api.createAccessToken({ workspace_id: ws, name: "새 스크립트", scopes: ["recordings:read", "recordings:write"], expires_at: null });
+    expect(made.secret).toStartWith("lct_pat_");
+    const listed = (await api.listAccessTokens()).items;
+    expect(listed.map((t) => t.name)).toEqual(["API 토큰", "새 스크립트", "노트 동기화 스크립트"]);
+    expect(JSON.stringify(listed)).not.toContain(made.secret);
+    await expect(api.revokeAccessToken(listed[0]!.id)).rejects.toMatchObject({ status: 409 });
+    await api.revokeAccessToken(made.token.id);
+    expect((await api.listAccessTokens()).items).toHaveLength(2);
+
+    const row = await api.createExport({ workspace_id: ws, include_audio: false });
+    await expect(api.createExport({ workspace_id: ws, include_audio: false })).rejects.toMatchObject({ status: 409 });
+    expect((await api.listExports()).items[0]!.state).toBe("queued");
+    row.requested_at = "2000-01-01T00:00:00.000Z"; // a copy: the fixture's own row is not changed
+    expect((await api.listExports()).items[0]!.state).not.toBe("ready");
+
+    expect((await api.requestAccountDeletion()).state).toBe("scheduled");
+    expect((await api.getAccountDeletion()).state).toBe("scheduled");
+    expect((await api.cancelAccountDeletion()).state).toBe("none");
+    expect(await api.oauthProviders()).toEqual({ google: true, apple: true });
+  });
+});
