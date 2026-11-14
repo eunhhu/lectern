@@ -61,6 +61,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 시간 예산(전사 스크롤 프레임, 검색 p95)을 CI의 첫 측정값으로 보정 | P7-03 |
 | VoiceOver 수동 점검표(`A11Y-AUDIT.md`)와 Apple 앱의 `MANUAL_CHECKS.md` | P7-04, P6-A* |
 | CI는 `main`으로 가는 PR이 있어야 통합 브랜치에서 돈다. 2026-11-13에 초안 PR [eunhhu/lectern#1](https://github.com/eunhhu/lectern/pull/1)을 열었다. `windows` 게이트, Apple CI 작업, 시간 예산 보정은 이 PR의 체크로 확인한다(해당 WP가 합쳐진 뒤. 아직 확인된 것은 없다) | P6-W1, P6-CI, P7-03 |
+| 운영의 프록시 단 수(`LECTERN_TRUSTED_PROXY_HOPS`, 기본 1)와 cloudflared가 붙이는 `X-Forwarded-For`, 배포된 `/app`의 CSP(보안 테스트는 프록시 1단을 가정했고 `/app` 셸은 테스트 프로세스에서 꺼져 있다) | P5-15 |
 
 ### 사용자 필요 (결정·승인·준비)
 
@@ -74,6 +75,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 옛 관리자 콘솔을 지우면 롤백 수단이 "웹 셸 끄기"에서 "이전 릴리스로 되돌리기"로 바뀐다. 승인할 때 알고 있어야 한다 | P5-14 |
 | `LECTERN_V1_BLOCK`을 켜는 시점. **Android와 Windows 앱은 목록·상세를 아직 `/api/lectures`로 읽는다.** 차단을 켜면 그 화면이 깨진다(아래 "후속 작업"의 첫 줄이 먼저다) | P6-03 |
 | 처음 온 사람이 인계 점검표를 실제로 따라 해 보는 것 | P7-05 |
+| P5-15 보안 테스트의 발견 1건(중간, CSRF: 쿠키로 인증한 변경 요청에 출처 검사 없음)을 고칠 작업을 만들지. 테스트 49개와 보고서 `SECURITY-REVIEW.md`는 로컬 브랜치 `wp/P5-15`에만 있다(`p0-foundations`만 push한다). 실패하는 테스트를 통합 브랜치에 합치지 않았다. 브랜치를 올릴지, 고친 뒤 합칠지 | P5-15 |
 
 ### 후속 작업 (이 파이프라인에 WP가 없다)
 
@@ -102,6 +104,9 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | `packages/db`의 `WORKSPACE_TABLES`(`deleteWorkspaceRows`)에 P4 표가 없다. 계정 삭제는 `deleteUserAndData`가 사용자 기준으로 지우지만, 팀 워크스페이스를 지울 때는 남는다 | P4-05 |
 | domain 설명 문구 두 곳: `UpdateWorkspaceRequest.settings`는 "Replaces"라고 하지만 서버는 얕게 합친다. `StartGoogleIntegrationRequest.return_to` 예시는 `/settings/integrations`지만 실제 경로는 `/app/settings#integrations`다 | P4-02, P4-04 |
 | 물어보기 runner는 검색이 질문을 노트에 근거 짓지 못하면 모델을 부르지 않는다. 그래서 "이번 주 마감이 뭐야?"처럼 노트 본문과 겹치지 않는 질문은 `list_items`에 닿지 못한다. 근거가 없어도 도구 라운드를 한 번 열지 정한다 | P4-06 |
+| 쿠키로 인증한 변경 요청의 출처 검사: v2 전체와 v1 `/api/auth/*`·`/api/admin/*`·`/api/lectures/*`. `Sec-Fetch-Site`가 same-origin·none이거나 `Origin`이 `LECTERN_BASE_URL`일 때만, 토큰 요청과 Apple 콜백은 제외(`SECURITY-REVIEW.md` 발견 1). 고친 뒤 `wp/P5-15`의 `csrf.test.ts`가 통과하고 새 관리자 콘솔 e2e를 다시 돈다 | P5-15 |
+| 서버 타입 `OpsJob.kind`·`stage`와 `AdminLectureDto.job_kind`는 `"distill" \| "compact"`인데 v2 `"index"` 작업이 온다. 웹은 아무 문자열이나 받는다 | P5-13, P5-16 |
+| v1 로그인 응답 본문의 세션 토큰(`token`) 제거 검토: `HttpOnly` 쿠키와 같은 값을 스크립트가 읽을 수 있다(v1 계약) | P5-15 |
 
 ### 명세 자체의 한계
 
