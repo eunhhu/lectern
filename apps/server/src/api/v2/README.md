@@ -1,6 +1,6 @@
 # API v2 (`/api/v2`)
 
-`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 뒤 단계 기능 4개(P4 2개, P5 2개)는 아직 `501 not_implemented`다.
+`packages/domain`의 라우트 표(`src/api/routes.ts`, `openapi.json`)에 있는 엔드포인트를 모두 올린다. P2부터는 픽스처가 아니라 `packages/db`의 v2 테이블을 읽고 쓴다. 뒤 단계 기능 2개(P5)는 아직 `501 not_implemented`다.
 
 ## 요청 처리 순서
 
@@ -108,9 +108,10 @@
 | `GET /calendar/feed` | `getCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 워크스페이스 멤버 누구나. ICS 구독이 있는지만(`url`은 늘 `null`. 토큰은 해시만 저장) |
 | `POST /calendar/feed` | `createCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 만들거나 다시 만든다. 응답의 `url`(`/cal/<토큰>.ics`)은 이때 한 번만. 옛 주소는 같은 트랜잭션에서 막힌다. 주소 자체는 `http.ts`의 공개 라우트다(인증 없음, `accepted`·`synced` 일정만, 비공개 녹음의 일정은 만든 사람의 주소에만, 꺼짐·잘못된 이름·모르는·회수된 토큰은 모두 같은 404, 요청 로그에는 `/cal/***`) |
 | `DELETE /calendar/feed` | `deleteCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 204. 주소가 바로 404가 된다 |
-| `GET /integrations` | `listIntegrations` | 실제 | P4 전까지 비어 있음 |
-| `POST /integrations/google` | `startGoogleIntegration` | 501 | P4 |
-| `DELETE /integrations/{integration_id}` | `disconnectIntegration` | 501 | P4 |
+| `GET /integrations` | `listIntegrations` | 실제 | 호출한 사용자의 연동만. 토큰은 내보내지 않는다 |
+| `POST /integrations/google` | `startGoogleIntegration` | 실제(`LECTERN_CALENDAR=1`이고 `GOOGLE_OAUTH_CLIENT_ID`·`_SECRET`이 있을 때), 아니면 501 | 워크스페이스 멤버. PKCE(S256)와 1회용 state(해시만 저장, 10분)를 만들고 Google 인가 URL(`calendar.app.created` 하나, `access_type=offline`)을 준다. `return_to`는 서버 경로(기본 `/app/settings#integrations`) |
+| `GET /integrations/google/callback` | (domain 밖, `google-callback.ts`) | 실제 | Google이 돌려보내는 브라우저 이동. 로그인 안 했으면 `302 /app/login`. state가 없거나·만료·다른 사용자·이미 씀·`error`·플래그 꺼짐이면 토큰 요청 없이 `302 /app/settings?google=error#integrations`. 성공하면 전용 캘린더 "Lectern"을 만들고(다시 연결이면 있던 캘린더를 쓴다) refresh token을 봉인해 `integration`에 두고 `?google=connected`로 보낸다. 요청 로그에서 `code`·`state`는 가린다 |
+| `DELETE /integrations/{integration_id}` | `disconnectIntegration` | 실제(플래그와 무관) | 자기 연동만(남의 것은 404). Google에 토큰 폐기 요청(실패해도 계속) → 링크 삭제, `synced` 일정은 `accepted`로, 연동 행 삭제. Google 쪽 일정은 지우지 않는다. 204 |
 | `GET /share-links` | `listShareLinks` | 실제 | v2에서 만든 링크와 공개된 v1 강의의 링크. 회수된(비공개) 링크는 빠진다 |
 | `POST/PATCH/DELETE /share-links…` | `createShareLink` 등 3개 | 실제 | 녹음 `recording:update`와 공유 권한(관리자, 또는 `can_share`이고 viewer가 아님). 토큰은 만들 때 한 번만 보여 주고 SHA-256만 저장. v1 링크를 회수하면 강의도 비공개로. 공개 페이지는 `share-page.ts`의 `/s/:token`(범위 밖 전사·오디오는 마크업에 없음, 비밀번호는 폼 + 링크 전용 쿠키, 링크·IP별 분당 10회) |
 | `GET /events` | `streamEvents` | 실제 | SSE. 아래 참고 |

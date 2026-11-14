@@ -17,6 +17,7 @@ import { apiError, type V2Env } from "./common.ts";
 import { documentsRouter } from "./documents.ts";
 import { eventsRouter } from "./events.ts";
 import { foldersRouter } from "./folders.ts";
+import { googleCalendarCallback } from "./google-callback.ts";
 import { integrationsRouter } from "./integrations.ts";
 import { jobsRouter } from "./jobs.ts";
 import { meRouter } from "./me.ts";
@@ -103,6 +104,10 @@ export function createApiV2App(options: ApiV2Options = {}) {
   for (const router of RESOURCE_ROUTERS) v2.route("/", router);
   v2.route("/", createAskRouter(options.askService ?? askService));
   v2.route("/", createSearchRouter(options.askService ?? askService));
+
+  // Google's redirect back after the calendar consent (P4-02): a browser navigation, outside
+  // the domain route table.
+  v2.get("/integrations/google/callback", googleCalendarCallback);
 
   // Unknown /api/v2 paths (and known paths with another method) answer in the v2 error
   // shape instead of falling through to the legacy router.

@@ -24,12 +24,10 @@ import { handleRequest } from "../src/index.ts";
 const OPENAPI_FILE = fileURLToPath(import.meta.resolve("@lectern/domain/openapi.json"));
 const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Record<string, Record<string, unknown>> };
 
-/** Routes of later phases (P4 calendar, P5 tokens). */
+/** Routes of later phases (P5 tokens). */
 const NOT_YET = new Set([
   "createAccessToken",
   "revokeAccessToken",
-  "startGoogleIntegration",
-  "disconnectIntegration",
 ]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
@@ -176,7 +174,8 @@ describe("API v2 route table", () => {
       .flatMap(([path, ops]) => Object.keys(ops).map((method) => `${method.toUpperCase()} ${toHonoPath(path)}`))
       .sort();
     const mounted = createApiV2App()
-      .routes.filter((r) => r.method !== "ALL" && r.path !== "/openapi.json")
+      // Outside the route table: the schema itself and Google's OAuth redirect back (P4-02).
+      .routes.filter((r) => r.method !== "ALL" && r.path !== "/openapi.json" && r.path !== "/integrations/google/callback")
       .map((r) => `${r.method} ${r.path}`)
       .sort();
     expect(mounted).toEqual(expected);
@@ -245,6 +244,9 @@ describe("API v2 routes of later phases", () => {
     // getRecordingAlignment: LECTERN_PDF; the calendar feed routes: LECTERN_CALENDAR).
     process.env.LECTERN_PDF = "1";
     process.env.LECTERN_CALENDAR = "1";
+    // startGoogleIntegration also needs an OAuth client (fake values; nothing is called).
+    process.env.GOOGLE_OAUTH_CLIENT_ID = "test-id";
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = "test-secret";
     resetConfigForTests();
     try {
       for (const route of ROUTES.filter((r) => !NOT_YET.has(r.operationId) && !r.path.startsWith("/ask"))) {
@@ -255,6 +257,8 @@ describe("API v2 routes of later phases", () => {
     } finally {
       delete process.env.LECTERN_PDF;
       delete process.env.LECTERN_CALENDAR;
+      delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+      delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
       resetConfigForTests();
     }
   });
