@@ -23,6 +23,9 @@
       "name": "me"
     },
     {
+      "name": "auth"
+    },
+    {
       "name": "workspaces"
     },
     {
@@ -343,6 +346,352 @@
         }
       }
     },
+    "/me/identities": {
+      "get": {
+        "operationId": "listIdentities",
+        "summary": "Google and Apple accounts I sign in with",
+        "tags": [
+          "me"
+        ],
+        "responses": {
+          "200": {
+            "description": "Linked sign-in accounts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/me/identities/{identity_id}": {
+      "delete": {
+        "operationId": "unlinkIdentity",
+        "summary": "Unlink a sign-in account (not the last way to sign in)",
+        "tags": [
+          "me"
+        ],
+        "parameters": [
+          {
+            "name": "identity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/IdentityId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done. No body."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/me/exports": {
+      "post": {
+        "operationId": "createExport",
+        "summary": "Export a workspace as a zip",
+        "tags": [
+          "me"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateExportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The export, queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataExport"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listExports",
+        "summary": "My exports",
+        "tags": [
+          "me"
+        ],
+        "responses": {
+          "200": {
+            "description": "Exports, newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataExportPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/me/exports/{export_id}/content": {
+      "get": {
+        "operationId": "getExportContent",
+        "summary": "Download an export zip",
+        "tags": [
+          "me"
+        ],
+        "parameters": [
+          {
+            "name": "export_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExportId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The zip file.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "application/zip"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/me/deletion": {
+      "post": {
+        "operationId": "requestAccountDeletion",
+        "summary": "Delete my account after 7 days",
+        "tags": [
+          "me"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestAccountDeletionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The scheduled deletion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDeletionInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "cancelAccountDeletion",
+        "summary": "Cancel a scheduled account deletion",
+        "tags": [
+          "me"
+        ],
+        "responses": {
+          "200": {
+            "description": "No deletion scheduled any more.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDeletionInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "get": {
+        "operationId": "getAccountDeletion",
+        "summary": "Whether my account is scheduled for deletion",
+        "tags": [
+          "me"
+        ],
+        "responses": {
+          "200": {
+            "description": "The deletion state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDeletionInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/auth/native/token": {
+      "post": {
+        "operationId": "issueNativeToken",
+        "summary": "Sign a native app in, or refresh its tokens",
+        "tags": [
+          "auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A new access and refresh token pair.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/auth/native/revoke": {
+      "post": {
+        "operationId": "revokeNativeToken",
+        "summary": "Sign a native app out",
+        "tags": [
+          "auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeNativeTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Done. No body."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
     "/workspaces": {
       "get": {
         "operationId": "listWorkspaces",
@@ -578,6 +927,357 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WorkspaceMemberPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/members/{user_id}": {
+      "patch": {
+        "operationId": "updateMember",
+        "summary": "Change a member's role",
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UserId"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMemberRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The member with the new role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceMember"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removeMember",
+        "summary": "Remove a member (or leave)",
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UserId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done. No body."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/invites": {
+      "get": {
+        "operationId": "listInvites",
+        "summary": "Open invitations",
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invitations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceInvitePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createInvite",
+        "summary": "Invite someone by e-mail",
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInviteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The invitation; the link goes out by mail only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceInvite"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/invites/{invite_id}": {
+      "delete": {
+        "operationId": "revokeInvite",
+        "summary": "Revoke an invitation",
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          },
+          {
+            "name": "invite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/InviteId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done. No body."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/invites/accept": {
+      "post": {
+        "operationId": "acceptInvite",
+        "summary": "Accept an invitation",
+        "tags": [
+          "workspaces"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The workspace joined and the role in it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptInviteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/usage": {
+      "get": {
+        "operationId": "getWorkspaceUsage",
+        "summary": "This month's usage and the workspace's limits",
+        "tags": [
+          "workspaces"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage this month.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceUsage"
                 }
               }
             }
@@ -4551,6 +5251,62 @@
           }
         }
       }
+    },
+    "/admin/workspaces/{workspace_id}/quota": {
+      "put": {
+        "operationId": "adminSetQuota",
+        "summary": "Set a workspace's limits (operators only)",
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WorkspaceId"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceQuota"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The limits now in force.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceQuota"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4690,6 +5446,34 @@
       }
     },
     "schemas": {
+      "AcceptInviteRequest": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "AcceptInviteResponse": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "$ref": "#/components/schemas/Workspace"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MembershipRole"
+          }
+        },
+        "required": [
+          "workspace",
+          "role"
+        ]
+      },
       "AccessToken": {
         "type": "object",
         "properties": {
@@ -4807,6 +5591,44 @@
           "recordings:read",
           "recordings:write"
         ]
+      },
+      "AccountDeletionInfo": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "none",
+              "scheduled"
+            ]
+          },
+          "requested_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "execute_after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "state",
+          "requested_at",
+          "execute_after"
+        ],
+        "description": "A requested account deletion and when it runs (D-P5-9). It can be canceled until then."
       },
       "ActionItem": {
         "type": "object",
@@ -6687,6 +7509,21 @@
         },
         "description": "A user edit: `body` for structured documents, `markdown` for `legacy-markdown` ones (400 otherwise). Send the version it was based on in `If-Match`."
       },
+      "CreateExportRequest": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId"
+          },
+          "include_audio": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "include_audio"
+        ]
+      },
       "CreateFolderRequest": {
         "type": "object",
         "properties": {
@@ -6720,6 +7557,30 @@
           "name"
         ],
         "description": "409 `conflict` when a sibling (same parent) already has this name, compared trimmed and case-insensitively, or when `parent_id` is the folder itself or one of its descendants."
+      },
+      "CreateInviteRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "format": "email",
+            "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "description": "Ownership is never given by invitation."
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ]
       },
       "CreateSavedViewRequest": {
         "type": "object",
@@ -6898,6 +7759,113 @@
         "required": [
           "link",
           "url"
+        ]
+      },
+      "DataExport": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ExportId"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId"
+          },
+          "include_audio": {
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DataExportState"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requested_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "ready_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "include_audio",
+          "state",
+          "bytes",
+          "requested_at",
+          "ready_at",
+          "expires_at",
+          "error"
+        ],
+        "description": "A workspace export zip (D-P5-8). Only the user who asked downloads it; it is deleted 7 days after it is ready."
+      },
+      "DataExportPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataExport"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as `cursor` for the next page; null on the last page."
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "DataExportState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "ready",
+          "failed",
+          "expired"
         ]
       },
       "DateResolution": {
@@ -7705,6 +8673,11 @@
         ],
         "description": "Why an extracted item exists: the source ranges and the quoted phrase."
       },
+      "ExportId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "Opaque id of a data export. New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it."
+      },
       "FailureClass": {
         "type": "string",
         "enum": [
@@ -7913,6 +8886,73 @@
           "missing_transcript"
         ]
       },
+      "Identity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/IdentityId"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/IdentityProvider"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "email",
+          "created_at"
+        ],
+        "description": "A Google or Apple account the user can sign in with."
+      },
+      "IdentityId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "Opaque id of a sign-in identity (a Google or Apple account linked to a user). New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it."
+      },
+      "IdentityPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Identity"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as `cursor` for the next page; null on the last page."
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "IdentityProvider": {
+        "type": "string",
+        "enum": [
+          "google",
+          "apple"
+        ],
+        "description": "Sign-in provider linked to a user (D-P5-1)."
+      },
       "Integration": {
         "type": "object",
         "properties": {
@@ -8018,6 +9058,11 @@
           "revoked",
           "error"
         ]
+      },
+      "InviteId": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "Opaque id of a workspace invitation. New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it."
       },
       "Job": {
         "type": "object",
@@ -8189,7 +9234,9 @@
           "calendar_sync",
           "reminder",
           "maintenance",
-          "index"
+          "index",
+          "export",
+          "account_deletion"
         ]
       },
       "JobPage": {
@@ -8585,6 +9632,102 @@
         "required": [
           "items",
           "next_cursor"
+        ]
+      },
+      "NativeTokenRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "grant_type": {
+                "type": "string",
+                "const": "password"
+              },
+              "email": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 320
+              },
+              "password": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "device_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "platform": {
+                "type": "string",
+                "enum": [
+                  "ios",
+                  "macos",
+                  "android",
+                  "windows"
+                ]
+              }
+            },
+            "required": [
+              "grant_type",
+              "email",
+              "password"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "grant_type": {
+                "type": "string",
+                "const": "refresh_token"
+              },
+              "refresh_token": {
+                "type": "string",
+                "minLength": 16,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "grant_type",
+              "refresh_token"
+            ]
+          }
+        ],
+        "description": "Signs a native app in with a password, or trades a refresh token for a new pair (D-P5-4).",
+        "discriminator": {
+          "propertyName": "grant_type"
+        }
+      },
+      "NativeTokenResponse": {
+        "type": "object",
+        "properties": {
+          "token_type": {
+            "type": "string",
+            "const": "Bearer"
+          },
+          "access_token": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string",
+            "description": "Single use: each refresh returns a new one. Reusing an old one revokes the whole family."
+          },
+          "expires_in": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Seconds until the access token expires."
+          },
+          "user": {
+            "$ref": "#/components/schemas/Me"
+          }
+        },
+        "required": [
+          "token_type",
+          "access_token",
+          "refresh_token",
+          "expires_in",
+          "user"
         ]
       },
       "NewRecordingFields": {
@@ -9710,6 +10853,30 @@
           "job"
         ]
       },
+      "RequestAccountDeletionRequest": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "description": "Required for accounts that have a password.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      },
+      "RevokeNativeTokenRequest": {
+        "type": "object",
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "refresh_token"
+        ]
+      },
       "SavedView": {
         "type": "object",
         "properties": {
@@ -10384,7 +11551,7 @@
             "$ref": "#/components/schemas/WorkspaceId"
           },
           "return_to": {
-            "description": "App path to return to after consent, e.g. `/settings/integrations`.",
+            "description": "App path to return to after consent, e.g. `/app/settings#integrations`.",
             "type": "string",
             "maxLength": 512,
             "pattern": "^\\/[^/\\\\]"
@@ -10915,6 +12082,17 @@
           }
         }
       },
+      "UpdateMemberRequest": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/MembershipRole"
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
       "UpdateRecordingRequest": {
         "type": "object",
         "properties": {
@@ -11067,7 +12245,7 @@
             "maxLength": 200
           },
           "settings": {
-            "description": "Replaces the settings object.",
+            "description": "Merged into the stored settings: only the keys sent change.",
             "$ref": "#/components/schemas/WorkspaceSettings"
           }
         }
@@ -11406,6 +12584,91 @@
         "pattern": "^[A-Za-z0-9_-]{1,64}$",
         "description": "Opaque id of a workspace. New rows use UUIDv7; rows migrated from v1 keep their old id. Never parse it."
       },
+      "WorkspaceInvite": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/InviteId"
+          },
+          "workspace_id": {
+            "$ref": "#/components/schemas/WorkspaceId"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MembershipRole"
+          },
+          "invited_by": {
+            "$ref": "#/components/schemas/UserId"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "accepted_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "email",
+          "role",
+          "invited_by",
+          "created_at",
+          "expires_at",
+          "accepted_at",
+          "revoked_at"
+        ],
+        "description": "An invitation into a team workspace. The token is only in the invitation mail (D-0-7)."
+      },
+      "WorkspaceInvitePage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceInvite"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as `cursor` for the next page; null on the last page."
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
       "WorkspaceKind": {
         "type": "string",
         "enum": [
@@ -11477,6 +12740,53 @@
           "next_cursor"
         ]
       },
+      "WorkspaceQuota": {
+        "type": "object",
+        "properties": {
+          "audio_ms_month": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ai_microusd_month": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "storage_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "audio_ms_month",
+          "ai_microusd_month",
+          "storage_bytes"
+        ],
+        "description": "Limits an operator sets (D-P5-7). Null means no limit."
+      },
       "WorkspaceSettings": {
         "type": "object",
         "properties": {
@@ -11524,6 +12834,47 @@
           }
         },
         "description": "Workspace settings. Every field is optional; the server applies defaults."
+      },
+      "WorkspaceUsage": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          },
+          "audio_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "ai_cost_microusd": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "storage_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "quota": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkspaceQuota"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "period",
+          "audio_ms",
+          "ai_cost_microusd",
+          "storage_bytes",
+          "quota"
+        ]
       }
     }
   }

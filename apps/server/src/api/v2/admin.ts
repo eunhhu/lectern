@@ -3,7 +3,7 @@ import { db, getLectureById, resetLectureForRetry } from "../../db.ts";
 import { toLectureSummaryDto } from "../../dto.ts";
 import { emitLectureEvent } from "../../events.ts";
 import { isLectureBusy, wakeJobWorker } from "../../queue.ts";
-import { apiError, defineRouter, notFound, ok, pageBounds, pageFrom } from "./common.ts";
+import { apiError, defineRouter, notFound, notImplemented, ok, pageBounds, pageFrom } from "./common.ts";
 import { usageLedgerDto, type QueueJobRow, type UsageLedgerRow } from "./rows.ts";
 import { toJob } from "./store.ts";
 
@@ -184,4 +184,6 @@ export const adminRouter = defineRouter({
       .all(...(period ? [period] : [])) as UsageLedgerRow[];
     return ok(req, { items: rows.map(usageLedgerDto), next_cursor: null });
   },
+  // Operators set a workspace's limits by hand (P5-C contract; P5-07 implements it).
+  adminSetQuota: notImplemented,
 });

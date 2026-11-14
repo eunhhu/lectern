@@ -28,6 +28,25 @@ const openapi = JSON.parse(readFileSync(OPENAPI_FILE, "utf8")) as { paths: Recor
 const NOT_YET = new Set([
   "createAccessToken",
   "revokeAccessToken",
+  // Accounts (P5-C): contract only until P5-01..P5-09.
+  "issueNativeToken",
+  "revokeNativeToken",
+  "listIdentities",
+  "unlinkIdentity",
+  "listInvites",
+  "createInvite",
+  "revokeInvite",
+  "acceptInvite",
+  "updateMember",
+  "removeMember",
+  "getWorkspaceUsage",
+  "adminSetQuota",
+  "createExport",
+  "listExports",
+  "getExportContent",
+  "requestAccountDeletion",
+  "cancelAccountDeletion",
+  "getAccountDeletion",
 ]);
 
 const SAMPLE_ID = "0199f0a0-1000-7000-8000-00000000abcd";
@@ -53,6 +72,10 @@ const PATH_PARAMS: Record<string, string> = {
   integration_id: SAMPLE_ID,
   share_link_id: SAMPLE_ID,
   thread_id: SAMPLE_ID,
+  identity_id: SAMPLE_ID,
+  invite_id: SAMPLE_ID,
+  user_id: SAMPLE_ID,
+  export_id: SAMPLE_ID,
 };
 
 const PATH_PARAM_OVERRIDES: Record<string, Record<string, string>> = {};
@@ -112,6 +135,14 @@ const BODIES: Record<string, unknown> = {
   updateShareLink: { password: null },
   createAskThread: { workspace_id: SAMPLE_ID, scope: { kind: "workspace" } },
   askQuestion: { question: "시험 범위가 어디까지야?" },
+  issueNativeToken: { grant_type: "password", email: "student@example.com", password: "correct_password_1" },
+  revokeNativeToken: { refresh_token: "rt_0123456789abcdef" },
+  createInvite: { email: "friend@example.com", role: "member" },
+  acceptInvite: { token: "inv_0123456789abcdef" },
+  updateMember: { role: "viewer" },
+  adminSetQuota: { audio_ms_month: null, ai_microusd_month: 5_000_000, storage_bytes: null },
+  createExport: { workspace_id: SAMPLE_ID, include_audio: false },
+  requestAccountDeletion: { password: "correct_password_1" },
 };
 
 function urlFor(route: RouteDef, query: Record<string, string> = QUERIES[route.operationId] ?? {}): string {
@@ -193,7 +224,8 @@ describe("API v2 route table", () => {
 
 describe("API v2 authentication", () => {
   test("every route answers 401 in the ApiError shape without credentials", async () => {
-    for (const route of ROUTES) {
+    // Except the public ones (native sign-in), checked in "public routes answer 501 …".
+    for (const route of ROUTES.filter((r) => !r.public)) {
       const attempts: Record<string, string>[] = [{}, { "X-Lectern-Token": "lct_not_a_real_token" }, { Cookie: "lectern_session=ses_nope" }];
       for (const auth of attempts) {
         const res = await call(requestFor(route, auth));
@@ -236,6 +268,16 @@ describe("API v2 routes of later phases", () => {
       const body = ApiError.parse(await res.json());
       expect(body.error.code).toBe("not_implemented");
       expect(body.error.details).toEqual({ operation_id: route.operationId });
+    }
+  });
+
+  test("public routes answer 501 without a session too", async () => {
+    const publicRoutes = ROUTES.filter((r) => r.public);
+    expect(publicRoutes.map((r) => r.operationId).sort()).toEqual(["issueNativeToken", "revokeNativeToken"]);
+    for (const route of publicRoutes) {
+      const res = await call(requestFor(route, {}));
+      expect(res.status, route.operationId).toBe(501);
+      expect(ApiError.parse(await res.json()).error.code).toBe("not_implemented");
     }
   });
 

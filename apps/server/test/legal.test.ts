@@ -41,6 +41,17 @@ describe("policy pages", () => {
     expect(html).toContain("주소 원문은 저장하지 않습니다");
   });
 
+  test("privacy page covers sign-in providers and account data", () => {
+    const html = template("privacy");
+    expect(html).toContain("Apple로 로그인(선택한 이용자만)");
+    expect(html).toContain("데이터 내보내기 파일");
+    expect(html).toContain("삭제를 요청한 계정");
+    expect(html).toContain("워크스페이스 초대");
+    expect(html).toContain("액세스 토큰의 해시값(토큰 원문은 저장하지 않습니다)");
+    // Disconnecting Google keeps the events already written (D-P4-6); the policy must not promise otherwise.
+    expect(html).not.toContain("함께 지우기를 선택할 수 있습니다");
+  });
+
   test("unset values read as neutral text, never a raw slot or an empty mailto link", () => {
     for (const page of LEGAL_PAGES) {
       const { html, missing } = renderLegalTemplate(template(page), UNSET);

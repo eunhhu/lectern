@@ -12,6 +12,7 @@ import { actionItemsRouter } from "./action-items.ts";
 import { adminRouter } from "./admin.ts";
 import { createAskRouter } from "./ask.ts";
 import { assetsRouter } from "./assets.ts";
+import { authNativeRouter } from "./auth-native.ts";
 import { calendarRouter } from "./calendar.ts";
 import { apiError, type V2Env } from "./common.ts";
 import { documentsRouter } from "./documents.ts";
@@ -34,6 +35,7 @@ export { API_BASE_PATH };
 
 export const RESOURCE_ROUTERS = [
   meRouter,
+  authNativeRouter,
   workspacesRouter,
   foldersRouter,
   viewsRouter,

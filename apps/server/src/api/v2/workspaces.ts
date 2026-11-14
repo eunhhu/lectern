@@ -2,7 +2,7 @@ import { uuidv7 } from "@lectern/db";
 import { db } from "../../db.ts";
 import { syncRemindersForWorkspace } from "../../reminders.ts";
 import { requireWorkspace } from "./access.ts";
-import { defineRouter, notFound, ok, okPage } from "./common.ts";
+import { defineRouter, notFound, notImplemented, ok, okPage } from "./common.ts";
 import { membershipDto, workspaceDto, type MembershipRow, type WorkspaceRow } from "./rows.ts";
 import { transact } from "./store.ts";
 
@@ -94,4 +94,12 @@ export const workspacesRouter = defineRouter({
       rows.map((m) => ({ ...membershipDto(m), display_name: m.display_name, email: m.email }))
     );
   },
+  // Team workspaces (P5-C contract; P5-06, P5-07 implement them).
+  listInvites: notImplemented,
+  createInvite: notImplemented,
+  revokeInvite: notImplemented,
+  acceptInvite: notImplemented,
+  updateMember: notImplemented,
+  removeMember: notImplemented,
+  getWorkspaceUsage: notImplemented,
 });

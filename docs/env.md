@@ -35,6 +35,13 @@
 | `LECTERN_CALENDAR` | `false` |  | 1: turn on ICS subscription (/cal/<token>.ics), Google Calendar sync and e-mail reminders. 0: the calendar routes answer 501 |
 | `GOOGLE_OAUTH_CLIENT_ID` | — | secret | Google OAuth client id (calendar, later sign-in) |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | — | secret | Google OAuth client secret |
+| `LECTERN_GOOGLE_LOGIN` | `false` |  | 1: Google sign-in (button and /api/v2/auth/google/*). Needs GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET |
+| `LECTERN_APPLE_LOGIN` | `false` |  | 1: Sign in with Apple (button and /api/v2/auth/apple/*). Needs the APPLE_SIGNIN_* values |
+| `LECTERN_TEAMS` | `false` |  | 1: team workspaces: invites, role changes and uploads into a team workspace. 0: those routes answer 501 |
+| `APPLE_SIGNIN_CLIENT_ID` | — | secret | Apple Services ID used as the OAuth client id |
+| `APPLE_SIGNIN_TEAM_ID` | — | secret | Apple developer team id |
+| `APPLE_SIGNIN_KEY_ID` | — | secret | Key id of the Sign in with Apple private key |
+| `APPLE_SIGNIN_PRIVATE_KEY_FILE` | — |  | Path of the Sign in with Apple .p8 private key file (the path, never the key) |
 | `LECTERN_LEGAL_CONTACT_EMAIL` | — |  | Contact address printed on /privacy and /terms (account deletion and data requests); a role address such as privacy@, not a personal one |
 | `LECTERN_LEGAL_OFFICER_NAME` | — |  | 개인정보 보호책임자 name printed on /privacy |
 | `LECTERN_LEGAL_EFFECTIVE_DATE` | — |  | 공고·시행일 of the current /privacy and /terms (YYYY-MM-DD) |

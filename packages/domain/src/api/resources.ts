@@ -31,6 +31,8 @@ import {
 import {
   AccessTokenScope,
   ActionItemStatus,
+  DataExportState,
+  IdentityProvider,
   EventCandidateStatus,
   EventKind,
   JobKind,
@@ -53,8 +55,11 @@ import {
   BlockId,
   DocumentId,
   EventCandidateId,
+  ExportId,
   FolderId,
+  IdentityId,
   IntegrationId,
+  InviteId,
   JobId,
   LanguageTag,
   MicroUsd,
@@ -171,7 +176,7 @@ export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequest>;
 
 export const UpdateWorkspaceRequest = named(
   "UpdateWorkspaceRequest",
-  z.object({ name: Name.optional(), settings: WorkspaceSettings.optional().describe("Replaces the settings object.") }),
+  z.object({ name: Name.optional(), settings: WorkspaceSettings.optional().describe("Merged into the stored settings: only the keys sent change.") }),
 );
 export type UpdateWorkspaceRequest = z.infer<typeof UpdateWorkspaceRequest>;
 
@@ -686,7 +691,7 @@ export const StartGoogleIntegrationRequest = named(
       .regex(/^\/[^/\\]/)
       .max(512)
       .optional()
-      .describe("App path to return to after consent, e.g. `/settings/integrations`."),
+      .describe("App path to return to after consent, e.g. `/app/settings#integrations`."),
   }),
 );
 export type StartGoogleIntegrationRequest = z.infer<typeof StartGoogleIntegrationRequest>;
@@ -812,3 +817,142 @@ export const UpdateSavedViewRequest = named(
   z.object({ name: Name.optional(), query: SavedViewQuery.optional().describe("Replaces the query."), sort_key: z.string().min(1).max(64).optional() }),
 );
 export type UpdateSavedViewRequest = z.infer<typeof UpdateSavedViewRequest>;
+
+// ---------------------------------------------------------------------------
+// accounts (P5, CONTRACTS §5)
+// ---------------------------------------------------------------------------
+
+const RefreshToken = z.string().min(16).max(256);
+
+export const NativeTokenRequest = named(
+  "NativeTokenRequest",
+  z.discriminatedUnion("grant_type", [
+    z.object({
+      grant_type: z.literal("password"),
+      email: z.string().min(1).max(320),
+      password: z.string().min(1).max(1024),
+      device_name: z.string().min(1).max(100).optional(),
+      platform: z.enum(["ios", "macos", "android", "windows"]).optional(),
+    }),
+    z.object({ grant_type: z.literal("refresh_token"), refresh_token: RefreshToken }),
+  ]),
+  "Signs a native app in with a password, or trades a refresh token for a new pair (D-P5-4).",
+);
+export type NativeTokenRequest = z.infer<typeof NativeTokenRequest>;
+
+export const NativeTokenResponse = named(
+  "NativeTokenResponse",
+  z.object({
+    token_type: z.literal("Bearer"),
+    access_token: z.string(),
+    refresh_token: z.string().describe("Single use: each refresh returns a new one. Reusing an old one revokes the whole family."),
+    expires_in: z.number().int().positive().describe("Seconds until the access token expires."),
+    user: Me,
+  }),
+);
+export type NativeTokenResponse = z.infer<typeof NativeTokenResponse>;
+
+export const RevokeNativeTokenRequest = named("RevokeNativeTokenRequest", z.object({ refresh_token: RefreshToken }));
+export type RevokeNativeTokenRequest = z.infer<typeof RevokeNativeTokenRequest>;
+
+export const IdentityDto = named(
+  "Identity",
+  z.object({ id: IdentityId, provider: IdentityProvider, email: z.string().nullable(), created_at: Timestamp }),
+  "A Google or Apple account the user can sign in with.",
+);
+export type IdentityDto = z.infer<typeof IdentityDto>;
+export const IdentityPage = pageOf("IdentityPage", IdentityDto);
+export const IdentityParams = z.object({ identity_id: IdentityId });
+
+export const InviteDto = named(
+  "WorkspaceInvite",
+  z.object({
+    id: InviteId,
+    workspace_id: WorkspaceId,
+    email: z.string(),
+    role: MembershipRole,
+    invited_by: UserId,
+    created_at: Timestamp,
+    expires_at: Timestamp,
+    accepted_at: Timestamp.nullable(),
+    revoked_at: Timestamp.nullable(),
+  }),
+  "An invitation into a team workspace. The token is only in the invitation mail (D-0-7).",
+);
+export type InviteDto = z.infer<typeof InviteDto>;
+export const InvitePage = pageOf("WorkspaceInvitePage", InviteDto);
+
+export const CreateInviteRequest = named(
+  "CreateInviteRequest",
+  z.object({ email: z.email().max(320), role: z.enum(["admin", "member", "viewer"]).describe("Ownership is never given by invitation.") }),
+);
+export type CreateInviteRequest = z.infer<typeof CreateInviteRequest>;
+export const InviteParams = z.object({ workspace_id: WorkspaceId, invite_id: InviteId });
+
+export const AcceptInviteRequest = named("AcceptInviteRequest", z.object({ token: z.string().min(16).max(256) }));
+export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequest>;
+
+export const AcceptInviteResponse = named("AcceptInviteResponse", z.object({ workspace: Workspace, role: MembershipRole }));
+export type AcceptInviteResponse = z.infer<typeof AcceptInviteResponse>;
+
+export const MemberParams = z.object({ workspace_id: WorkspaceId, user_id: UserId });
+export const UpdateMemberRequest = named("UpdateMemberRequest", z.object({ role: MembershipRole }));
+export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequest>;
+
+export const WorkspaceQuota = named(
+  "WorkspaceQuota",
+  z.object({
+    audio_ms_month: z.number().int().nonnegative().nullable(),
+    ai_microusd_month: z.number().int().nonnegative().nullable(),
+    storage_bytes: z.number().int().nonnegative().nullable(),
+  }),
+  "Limits an operator sets (D-P5-7). Null means no limit.",
+);
+export type WorkspaceQuota = z.infer<typeof WorkspaceQuota>;
+
+export const WorkspaceUsage = named(
+  "WorkspaceUsage",
+  z.object({
+    period: z.string().regex(/^\d{4}-\d{2}$/),
+    audio_ms: z.number().int().nonnegative(),
+    ai_cost_microusd: z.number().int().nonnegative(),
+    storage_bytes: z.number().int().nonnegative(),
+    quota: WorkspaceQuota.nullable(),
+  }),
+);
+export type WorkspaceUsage = z.infer<typeof WorkspaceUsage>;
+
+export const DataExportDto = named(
+  "DataExport",
+  z.object({
+    id: ExportId,
+    workspace_id: WorkspaceId,
+    include_audio: z.boolean(),
+    state: DataExportState,
+    bytes: z.number().int().nonnegative().nullable(),
+    requested_at: Timestamp,
+    ready_at: Timestamp.nullable(),
+    expires_at: Timestamp.nullable(),
+    error: z.string().nullable(),
+  }),
+  "A workspace export zip (D-P5-8). Only the user who asked downloads it; it is deleted 7 days after it is ready.",
+);
+export type DataExportDto = z.infer<typeof DataExportDto>;
+export const DataExportPage = pageOf("DataExportPage", DataExportDto);
+
+export const CreateExportRequest = named("CreateExportRequest", z.object({ workspace_id: WorkspaceId, include_audio: z.boolean() }));
+export type CreateExportRequest = z.infer<typeof CreateExportRequest>;
+export const ExportParams = z.object({ export_id: ExportId });
+
+export const RequestAccountDeletionRequest = named(
+  "RequestAccountDeletionRequest",
+  z.object({ password: z.string().min(1).max(1024).optional().describe("Required for accounts that have a password.") }),
+);
+export type RequestAccountDeletionRequest = z.infer<typeof RequestAccountDeletionRequest>;
+
+export const AccountDeletionInfo = named(
+  "AccountDeletionInfo",
+  z.object({ state: z.enum(["none", "scheduled"]), requested_at: Timestamp.nullable(), execute_after: Timestamp.nullable() }),
+  "A requested account deletion and when it runs (D-P5-9). It can be canceled until then.",
+);
+export type AccountDeletionInfo = z.infer<typeof AccountDeletionInfo>;

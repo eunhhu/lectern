@@ -54,11 +54,28 @@
 | `GET /me/tokens` | `listAccessTokens` | 실제 | v1 API 토큰 하나(앞 8자만) |
 | `POST /me/tokens` | `createAccessToken` | 501 | PAT는 P5 |
 | `DELETE /me/tokens/{token_id}` | `revokeAccessToken` | 501 | P5. v1 `rotate-token`이 대신한다 |
+| `GET /me/identities` | `listIdentities` | 501 | P5-04·P5-05(Google·Apple 로그인) |
+| `DELETE /me/identities/{identity_id}` | `unlinkIdentity` | 501 | 마지막 로그인 수단은 409 |
+| `POST /me/exports` | `createExport` | 501 | P5-08(`export` 작업) |
+| `GET /me/exports` | `listExports` | 501 | P5-08 |
+| `GET /me/exports/{export_id}/content` | `getExportContent` | 501 | P5-08. 요청한 사용자만 |
+| `POST /me/deletion` | `requestAccountDeletion` | 501 | P5-09(7일 유예) |
+| `DELETE /me/deletion` | `cancelAccountDeletion` | 501 | P5-09 |
+| `GET /me/deletion` | `getAccountDeletion` | 501 | P5-09 |
+| `POST /auth/native/token` | `issueNativeToken` | 501 | 공개(세션 없음). P5-03 |
+| `POST /auth/native/revoke` | `revokeNativeToken` | 501 | 공개. P5-03 |
 | `GET /workspaces` | `listWorkspaces` | 실제 | 개인 워크스페이스가 먼저 |
 | `POST /workspaces` | `createWorkspace` | 실제 | 팀 워크스페이스(초대는 P5) |
 | `GET /workspaces/{workspace_id}` | `getWorkspace` | 실제 | 비멤버는 403 |
 | `PATCH /workspaces/{workspace_id}` | `updateWorkspace` | 실제 | owner·admin. `settings`는 저장된 값에 얕게 합친다(보낸 키만 바뀐다). `calendar_auto_add`가 켜져 있으면 발행 때 파서가 해석했고 플래그 없고 신뢰도 이상인 미래 일정을 자동 수락한다(P4-04). 요청에 `settings.reminders`가 있으면 워크스페이스의 이메일 리마인더를 다시 계산한다(P4-05) |
 | `GET /workspaces/{workspace_id}/members` | `listWorkspaceMembers` | 실제 | |
+| `PATCH /workspaces/{workspace_id}/members/{user_id}` | `updateMember` | 501 | P5-06. 마지막 owner는 409 |
+| `DELETE /workspaces/{workspace_id}/members/{user_id}` | `removeMember` | 501 | P5-06 |
+| `GET /workspaces/{workspace_id}/invites` | `listInvites` | 501 | P5-06(`LECTERN_TEAMS`) |
+| `POST /workspaces/{workspace_id}/invites` | `createInvite` | 501 | P5-06. 링크는 메일로만 |
+| `DELETE /workspaces/{workspace_id}/invites/{invite_id}` | `revokeInvite` | 501 | P5-06 |
+| `POST /invites/accept` | `acceptInvite` | 501 | P5-06 |
+| `GET /workspaces/{workspace_id}/usage` | `getWorkspaceUsage` | 501 | P5-07 |
 | `GET /folders` | `listFolders` | 실제 | 평면 목록, `sort_key` 순 |
 | `POST /folders` | `createFolder` | 실제 | 같은 부모 아래 같은 이름(공백·대소문자 무시)이면 409 |
 | `PATCH /folders/{folder_id}` | `updateFolder` | 실제 | 자기·하위로 이동하면 409. 이름을 바꾸면 v1 과목도 바뀐다 |
@@ -119,6 +136,7 @@
 | `GET /admin/jobs/{job_id}` | `adminGetJob` | 실제 | 단계·모델 호출 포함 |
 | `POST /admin/jobs/{job_id}/retry` | `adminRetryJob` | 실제 | 실패한 `process`·`regenerate`를 같은 작업 id로 다시 큐에 넣는다. 끝난 단계는 메모로 건너뛰고 실패한 단계부터 이어 한다 |
 | `GET /admin/usage` | `adminListUsage` | 실제 | `usage_ledger`(쿼터 집계는 P5) |
+| `PUT /admin/workspaces/{workspace_id}/quota` | `adminSetQuota` | 501 | P5-07. 운영자 전용 |
 
 ### SSE (`GET /events`)
 
