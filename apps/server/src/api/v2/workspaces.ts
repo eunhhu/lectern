@@ -1,5 +1,6 @@
 import { uuidv7 } from "@lectern/db";
 import { db } from "../../db.ts";
+import { syncRemindersForWorkspace } from "../../reminders.ts";
 import { requireWorkspace } from "./access.ts";
 import { defineRouter, notFound, ok, okPage } from "./common.ts";
 import { membershipDto, workspaceDto, type MembershipRow, type WorkspaceRow } from "./rows.ts";
@@ -74,6 +75,7 @@ export const workspacesRouter = defineRouter({
       Date.now(),
       workspace.id
     );
+    if (body.settings && "reminders" in body.settings) syncRemindersForWorkspace(workspace.id);
     return ok(req, workspaceDto(workspaceRow(workspace.id)!));
   },
   listWorkspaceMembers: (req) => {

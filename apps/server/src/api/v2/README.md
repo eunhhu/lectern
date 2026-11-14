@@ -57,7 +57,7 @@
 | `GET /workspaces` | `listWorkspaces` | 실제 | 개인 워크스페이스가 먼저 |
 | `POST /workspaces` | `createWorkspace` | 실제 | 팀 워크스페이스(초대는 P5) |
 | `GET /workspaces/{workspace_id}` | `getWorkspace` | 실제 | 비멤버는 403 |
-| `PATCH /workspaces/{workspace_id}` | `updateWorkspace` | 실제 | owner·admin. `settings`는 저장된 값에 얕게 합친다(보낸 키만 바뀐다). `calendar_auto_add`가 켜져 있으면 발행 때 파서가 해석했고 플래그 없고 신뢰도 이상인 미래 일정을 자동 수락한다(P4-04) |
+| `PATCH /workspaces/{workspace_id}` | `updateWorkspace` | 실제 | owner·admin. `settings`는 저장된 값에 얕게 합친다(보낸 키만 바뀐다). `calendar_auto_add`가 켜져 있으면 발행 때 파서가 해석했고 플래그 없고 신뢰도 이상인 미래 일정을 자동 수락한다(P4-04). 요청에 `settings.reminders`가 있으면 워크스페이스의 이메일 리마인더를 다시 계산한다(P4-05) |
 | `GET /workspaces/{workspace_id}/members` | `listWorkspaceMembers` | 실제 | |
 | `GET /folders` | `listFolders` | 실제 | 평면 목록, `sort_key` 순 |
 | `POST /folders` | `createFolder` | 실제 | 같은 부모 아래 같은 이름(공백·대소문자 무시)이면 409 |
@@ -96,14 +96,14 @@
 | `POST /documents/{document_id}/versions` | `createDocumentVersion` | 실제 | `If-Match` 낙관적 잠금, 오래되면 412. legacy 문서는 `markdown`, 구조화 문서는 `body`(바뀐 블록에 `edited`) |
 | `GET /documents/{document_id}/export` | `exportDocument` | 실제 | `format=md`만. 현재 버전의 `rendered_md`를 `text/markdown` 첨부(`filename*=UTF-8''<제목>.md`)로 |
 | `GET /action-items` | `listActionItems` | 실제 | 마감 빠른 순 |
-| `PATCH /action-items/{action_item_id}` | `updateActionItem` | 실제 | |
+| `PATCH /action-items/{action_item_id}` | `updateActionItem` | 실제 | 바꾼 뒤 그 할 일의 이메일 리마인더를 다시 계산한다(P4-05, `LECTERN_CALENDAR=1`) |
 | `GET /jobs/{job_id}` | `getJob` | 실제 | v1 `distill`은 `process`. 시스템 작업은 404 |
 | `POST /jobs/{job_id}/cancel` | `cancelJob` | 실제 | `process`·`regenerate`·`distill`만. 대기 중이면 바로 `canceled`, 실행 중이면 다음 단계 전에 멈춘다(응답은 아직 `running`). 남의 작업은 404, 끝난 작업은 409 |
 | `GET /search` | `search` | 실제 | 물어보기 색인이 있으면(`LECTERN_ASK=1`) `packages/ask`의 하이브리드 검색(BM25 + 벡터): 전사·문서·PDF 쪽 적중, 제목 일치가 맨 앞, 최대 50개. legacy 문서 적중의 `block_id`는 문단 `md-<n>`. `LECTERN_ASK=0`이면 제목·문서·전사의 부분 문자열 |
 | `/ask/*` 6개 | `createAskThread` 등 | 실제(`LECTERN_ASK=1`), 꺼지면 501 | 개인 워크스페이스의 색인 위. 범위는 v2 녹음·폴더 |
 | `GET /ask/suggestions` | `listAskSuggestions` | 실제 | 규칙으로 만든 질문 최대 6개(모델 호출 없음, `LECTERN_ASK`와 무관). 녹음 범위는 도메인 질문 + 문서 섹션 제목 |
 | `GET /calendar/suggestions` | `listCalendarSuggestions` | 실제 | `statuses`, 기간 |
-| `PATCH /calendar/suggestions/{event_candidate_id}` | `updateCalendarSuggestion` | 실제 | 바꾼 뒤 워크스페이스의 Google 연동마다 `calendar_sync`를 넣는다(`LECTERN_CALENDAR=1`). `synced` 일정도 고치거나 무시할 수 있다(Google 쪽이 따라간다). `synced`에 `accepted`를 보내면 그대로 `synced` |
+| `PATCH /calendar/suggestions/{event_candidate_id}` | `updateCalendarSuggestion` | 실제 | 바꾼 뒤 워크스페이스의 Google 연동마다 `calendar_sync`를 넣는다(`LECTERN_CALENDAR=1`). `synced` 일정도 고치거나 무시할 수 있다(Google 쪽이 따라간다). `synced`에 `accepted`를 보내면 그대로 `synced`. 이메일 리마인더도 다시 계산한다(P4-05) |
 | `POST /calendar/suggestions/batch` | `batchCalendarSuggestions` | 실제 | 같은 규칙. `synced`를 수락하면 바뀌는 것이 없다 |
 | `GET /calendar/feed` | `getCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 워크스페이스 멤버 누구나. ICS 구독이 있는지만(`url`은 늘 `null`. 토큰은 해시만 저장) |
 | `POST /calendar/feed` | `createCalendarFeed` | 실제(`LECTERN_CALENDAR=1`), 꺼지면 501 | 만들거나 다시 만든다. 응답의 `url`(`/cal/<토큰>.ics`)은 이때 한 번만. 옛 주소는 같은 트랜잭션에서 막힌다. 주소 자체는 `http.ts`의 공개 라우트다(인증 없음, `accepted`·`synced` 일정만, 비공개 녹음의 일정은 만든 사람의 주소에만, 꺼짐·잘못된 이름·모르는·회수된 토큰은 모두 같은 404, 요청 로그에는 `/cal/***`) |

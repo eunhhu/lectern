@@ -38,6 +38,7 @@ import {
 } from "./transcript-job.ts";
 import "./ask/index-job.ts"; // registers the ask `index` job handler and the lecture-change hook
 import "./calendar/sync-job.ts"; // registers the `calendar_sync` job handler and the lecture-delete hook
+import "./reminders.ts"; // registers the `reminder` job handler
 
 export { enqueueDistillation, type DistillInput } from "./distill-queue.ts";
 

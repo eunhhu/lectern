@@ -7,6 +7,7 @@ import { config } from "@lectern/config";
 import { WorkspaceSettings } from "@lectern/domain";
 import { db } from "../db.ts";
 import { logger } from "../log.ts";
+import { syncRemindersForWorkspace } from "../reminders.ts";
 import { enqueueCalendarSyncForWorkspace } from "./sync-job.ts";
 
 function autoAddSetting(workspaceId: string): { enabled: boolean; min_confidence: number } | null {
@@ -43,7 +44,8 @@ export function autoAcceptEvents(recordingId: string, workspaceId: string): numb
 
 /**
  * Called right after publishNotes. Queues the sync whether or not anything was accepted: a
- * republish may have dropped events Google still holds. Never throws: a calendar problem
+ * republish may have dropped events Google still holds. Then reschedules the workspace's
+ * e-mail reminders (P4-05). Never throws: a calendar problem
  * must not fail notes that are already published.
  */
 export function afterNotesPublished(recordingId: string, workspaceId: string): void {
@@ -51,6 +53,8 @@ export function afterNotesPublished(recordingId: string, workspaceId: string): v
     const accepted = autoAcceptEvents(recordingId, workspaceId);
     if (accepted > 0) logger.info("events auto-accepted", { recording_id: recordingId, workspace_id: workspaceId, accepted });
     if (config().calendar) enqueueCalendarSyncForWorkspace(workspaceId);
+    // Accepted events and new action items get their reminders; dropped ones lose theirs.
+    syncRemindersForWorkspace(workspaceId);
   } catch (err) {
     logger.warn("calendar step after publish failed", { recording_id: recordingId, workspace_id: workspaceId, err });
   }

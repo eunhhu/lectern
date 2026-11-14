@@ -96,6 +96,7 @@ import { emitLectureEvent, onLectureEvent, tailForeignLectureEvents, type Lectur
 import { toLectureSummaryDto } from "./dto.ts";
 import { authenticateRequest, extractAuthToken, isAdminUser, resolveActiveUser } from "./auth.ts";
 import { emitRetentionOutcome, runMaintenanceNow, startMaintenanceSchedule } from "./maintenance.ts";
+import { resolveResendApiKey, sendMail } from "./mail.ts";
 import { liveWorkers, publishApiRelease } from "./coordination.ts";
 import { makePrivate } from "./fsperm.ts";
 import { createHttpApp } from "./http.ts";
@@ -440,36 +441,11 @@ const RESET_CODE_SENT_MESSAGE =
   "가입된 계정이라면 이메일로 6자리 인증번호가 발송됩니다. (10분간 유효)";
 const INVALID_CODE_MESSAGE = "인증번호가 올바르지 않거나 만료되었습니다.";
 
-// The Resend key comes from the environment, or else from the host's credentials file
-// (overridable so tests never read the real one). The legacy host path stays the default
-// until the production unit sets LECTERN_RESEND_CREDENTIALS_FILE or RESEND_API_KEY.
-const RESEND_CREDENTIALS_FILE =
-  config().resend.credentialsFile ?? "/home/eunhhu/.hermes/credentials/accounts.json";
-
-function resolveResendApiKey(): string {
-  const envKey = readSecret("RESEND_API_KEY");
-  if (envKey) return envKey;
-  try {
-    if (RESEND_CREDENTIALS_FILE && existsSync(RESEND_CREDENTIALS_FILE)) {
-      const parsed = JSON.parse(readFileSync(RESEND_CREDENTIALS_FILE, "utf8"));
-      const fileKey = String(parsed?.resend?.api_key || "").trim();
-      if (fileKey) return fileKey;
-    }
-  } catch {}
-  return "";
-}
-
 async function sendResendVerificationEmail(
   toEmail: string,
   code: string,
   purpose: "signup" | "reset"
 ): Promise<{ sent: boolean; id?: string }> {
-  const apiKey = resolveResendApiKey();
-  const from = config().resend.fromEmail;
-  if (!apiKey) {
-    throw new Error("이메일 발송 API 키(RESEND_API_KEY)가 설정되지 않았습니다.");
-  }
-
   const subject =
     purpose === "reset"
       ? `[Lectern] 비밀번호 재설정 인증번호 (${code})`
@@ -495,26 +471,8 @@ async function sendResendVerificationEmail(
     </div>
   `;
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [toEmail],
-      subject,
-      html,
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`이메일 발송 실패 (${res.status}): ${errText}`);
-  }
-  const data: any = await res.json();
-  return { sent: true, id: data?.id };
+  const { id } = await sendMail({ to: toEmail, subject, html });
+  return { sent: true, id };
 }
 
 function safeTokenCompare(a: string, b: string): boolean {
