@@ -21,6 +21,7 @@ import type { MaintenanceResultDto } from "./admin-api.ts";
 import { pruneLectureEvents } from "./events.ts";
 import { pruneFinishedJobs } from "./queue.ts";
 import { DATA_DIR, HARNESS_BLOB_DIR, db, deleteSession, getSystemSettings } from "./db.ts";
+import { pruneNativeSessions } from "./native-auth.ts";
 import { ensurePrivateDir, makePrivate } from "./fsperm.ts";
 import { logger } from "./log.ts";
 import {
@@ -285,6 +286,7 @@ function doMaintenance(options: MaintenanceOptions): MaintenanceResultDto {
     })();
     return expired.length;
   });
+  step("native sessions", 0, () => pruneNativeSessions(now));
   const expiredCodes = step("verification codes", 0, () =>
     db.query(`DELETE FROM email_verifications WHERE expires_at < ?`).run(nowIso).changes
   );

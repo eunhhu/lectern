@@ -6,7 +6,7 @@
 
 모든 라우트는 리소스 라우터(`me.ts`, `recordings.ts` …)가 `defineRouter()`로 domain의 `RouteDef`에서 메서드·경로·스키마를 읽어 등록한다. 경로를 이 디렉터리에 다시 적지 않는다.
 
-1. **인증(401)**: `authn.ts`의 `authenticateV2()`. `lectern_session` 쿠키, `Authorization: Bearer`, `X-Lectern-Token`, `?token=`을 받는다. 세션과 v1 API 토큰은 v1과 같은 결과(`auth.ts` `resolveActiveUser()`)이고, 개인 액세스 토큰(`lct_pat_…`, P5-02)은 v2에서만 받는다(v1 라우트에서는 401).
+1. **인증(401)**: `authn.ts`의 `authenticateV2()`. `lectern_session` 쿠키, `Authorization: Bearer`, `X-Lectern-Token`, `?token=`을 받는다. 세션과 v1 API 토큰은 v1과 같은 결과(`auth.ts` `resolveActiveUser()`)이고, 개인 액세스 토큰(`lct_pat_…`, P5-02)과 네이티브 access 토큰(`lct_at_…`, P5-03)은 v2에서만 받는다(v1 라우트에서는 401). refresh 토큰(`lct_rt_…`)으로는 인증되지 않는다.
 2. **개인 액세스 토큰 검사(403)**: `me`(단 `getMe`는 허용)·`admin`·`auth` 태그와 공유 링크·Google 연동 시작/해제는 토큰으로 부를 수 없다. `GET`·`HEAD`는 `recordings:read`, 그 밖은 `recordings:write` 범위가 있어야 한다. 토큰은 만들 때 고른 워크스페이스에서만 멤버로 보인다(`access.ts` `callerIn`).
 3. **운영자 확인(403)**: `admin` 태그 라우트는 v1 `isAdminUser()`가 참이어야 한다.
 4. **검증(400·428)**: params, query, 헤더, JSON 본문을 domain 스키마로 검증한다. 실패하면 `validation_failed`이고 `details.issues[].path` 앞에 `params`/`query`/`headers`/`body`가 붙는다. JSON 본문은 `Content-Type: application/json`이어야 한다(교차 사이트 HTML 폼 차단). `If-Match`가 필수인 라우트에서 헤더가 없으면 428이다.
@@ -63,8 +63,8 @@
 | `POST /me/deletion` | `requestAccountDeletion` | 501 | P5-09(7일 유예) |
 | `DELETE /me/deletion` | `cancelAccountDeletion` | 501 | P5-09 |
 | `GET /me/deletion` | `getAccountDeletion` | 501 | P5-09 |
-| `POST /auth/native/token` | `issueNativeToken` | 501 | 공개(세션 없음). P5-03 |
-| `POST /auth/native/revoke` | `revokeNativeToken` | 501 | 공개. P5-03 |
+| `POST /auth/native/token` | `issueNativeToken` | 실제 | 공개(세션 없음). 비밀번호 또는 refresh로 access(1시간)·refresh(60일) 쌍(D-P5-4). refresh는 한 번만 쓰고, 다시 오면 그 로그인 전체를 폐기 |
+| `POST /auth/native/revoke` | `revokeNativeToken` | 실제 | 공개. 그 refresh의 로그인 전체를 폐기. 모르는 토큰도 204 |
 | `GET /workspaces` | `listWorkspaces` | 실제 | 개인 워크스페이스가 먼저 |
 | `POST /workspaces` | `createWorkspace` | 실제 | 팀 워크스페이스(초대는 P5) |
 | `GET /workspaces/{workspace_id}` | `getWorkspace` | 실제 | 비멤버는 403 |

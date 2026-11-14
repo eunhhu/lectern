@@ -565,6 +565,13 @@ export function updateUserPassword(userId: string, newPassword: string): void {
     passwordHash,
     userId
   );
+  // A new password signs every native app out (P5-03): reset, change, operator, owner bootstrap.
+  revokeNativeSessionsOfUser(userId);
+}
+
+/** Ends every native app sign-in of the user (native-auth.ts, D-P5-4). Kept here so db.ts needs no import of it. */
+export function revokeNativeSessionsOfUser(userId: string, now = Date.now()): void {
+  db.query(`UPDATE native_session SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`).run(now, userId);
 }
 
 export function updateUserProfile(
@@ -604,6 +611,8 @@ export function deleteAllUserSessions(
     db.query(`DELETE FROM sessions WHERE user_id = ?`).run(userId);
     db.query(`DELETE FROM auth_session_meta WHERE user_id = ?`).run(userId);
   }
+  // Signing a user out everywhere includes the native apps (P5-03).
+  revokeNativeSessionsOfUser(userId);
 }
 
 export function rotateUserApiToken(userId: string): string {
@@ -923,8 +932,9 @@ export function deleteUserAndData(targetUserId: string): boolean {
   db.query(`DELETE FROM reminder WHERE user_id = ?`).run(targetUserId);
   db.query(`DELETE FROM calendar_feed WHERE user_id = ?`).run(targetUserId);
   db.query(`DELETE FROM calendar_event_link WHERE integration_id IN (SELECT id FROM integration WHERE user_id = ?)`).run(targetUserId);
-  // Their personal access tokens (P5-02).
+  // Their personal access tokens (P5-02) and native app sign-ins (P5-03).
   db.query(`DELETE FROM access_token WHERE user_id = ?`).run(targetUserId);
+  db.query(`DELETE FROM native_session WHERE user_id = ?`).run(targetUserId);
   deleteWorkspaceRows(db, personalWorkspaceId(targetUserId));
   db.query(`DELETE FROM membership WHERE user_id = ?`).run(targetUserId);
   const res = db.query(`DELETE FROM users WHERE id = ?`).run(targetUserId);
