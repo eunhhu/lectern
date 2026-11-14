@@ -94,6 +94,11 @@ export type Invite = z.infer<typeof D.InviteDto>;
 export type AcceptInviteResponse = z.infer<typeof D.AcceptInviteResponse>;
 export type WorkspaceUsage = z.infer<typeof D.WorkspaceUsage>;
 export type WorkspaceQuota = z.infer<typeof D.WorkspaceQuota>;
+// Admin console (P5-12).
+export type JobDetail = z.infer<typeof D.JobDetail>;
+export type StageRun = z.infer<typeof D.StageRun>;
+export type AiCall = z.infer<typeof D.AiCall>;
+export type UsageLedger = z.infer<typeof D.UsageLedger>;
 
 // Requests
 export type UpdateMeRequest = z.infer<typeof D.UpdateMeRequest>;
@@ -157,6 +162,8 @@ export type AccessTokenPage = Page<AccessToken>;
 export type IdentityPage = Page<Identity>;
 export type DataExportPage = Page<DataExport>;
 export type InvitePage = Page<Invite>;
+export type JobPage = Page<Job>;
+export type UsageLedgerPage = Page<UsageLedger>;
 
 export type {
   ActionItemStatus,
@@ -167,6 +174,7 @@ export type {
   EventCandidateStatus,
   EventKind,
   GapKind,
+  JobKind,
   JobState,
   MembershipRole,
   QuestionKind,

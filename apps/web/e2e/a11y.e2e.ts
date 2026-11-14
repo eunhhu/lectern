@@ -202,3 +202,29 @@ test("invite page has no axe violations", async ({ page, axe }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await axe(page, "초대 수락 오류 (다크)");
 });
+
+test("admin overview/users/jobs/job detail/usage have no axe violations", async ({ page, axe }) => {
+  const screens: { path: string; label: string; ready: string }[] = [
+    { path: "/app/admin", label: "관리 개요", ready: "전체 사용자" },
+    { path: "/app/admin/users", label: "관리 사용자", ready: "seoa@example.com" },
+    { path: "/app/admin/jobs", label: "관리 작업", ready: "시스템" },
+    { path: "/app/admin/jobs/job_fx_01", label: "관리 작업 상세", ready: "verify_failed" },
+    { path: "/app/admin/usage", label: "관리 사용량", ready: "ws_lab" },
+  ];
+  for (const screen of screens) {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(screen.path);
+    await expect(page.getByText(screen.ready).first()).toBeVisible();
+    await axe(page, screen.label);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await axe(page, `${screen.label} (다크)`);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.getByRole("button", { name: "한도 설정: 제품팀" }).click();
+  await expect(page.getByRole("textbox", { name: "월 녹음 시간(시간)" })).toHaveValue("20");
+  await axe(page, "한도 설정");
+  await page.goto("/app/admin/users");
+  await page.getByRole("button", { name: "삭제: sehun@example.com" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await axe(page, "사용자 삭제 확인");
+});

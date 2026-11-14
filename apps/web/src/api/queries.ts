@@ -2,7 +2,8 @@
 // implementation: the client comes from <ApiContext>, so swapping fixtures for the real
 // /api/v2 client happens in api/index.ts alone.
 
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import type { AdminJobsQuery, AdminUserPatch } from "./admin.ts";
 import { createContext, useContext, useEffect } from "react";
 import { ApiClientError, type ApiClient } from "./client.ts";
 import { errorMessage } from "./errors.ts";
@@ -13,6 +14,7 @@ import type {
   BatchRecordingsRequest,
   CreateAccessTokenRequest,
   CreateInviteRequest,
+  WorkspaceQuota,
   MembershipRole,
   CreateExportRequest,
   DataExport,
@@ -68,6 +70,11 @@ export const queryKeys = {
   oauthProviders: ["oauth-providers"] as const,
   invites: (ws: string) => ["invites", ws] as const,
   usage: (ws: string) => ["usage", ws] as const,
+  admin: ["admin"] as const,
+  adminOverview: ["admin", "overview"] as const,
+  adminJobs: (state?: string, kind?: string) => ["admin", "jobs", state ?? null, kind ?? null] as const,
+  adminJob: (id: string) => ["admin", "job", id] as const,
+  adminUsage: (period: string) => ["admin", "usage", period] as const,
   workspaceActionItems: (ws: string) => ["workspace-action-items", ws] as const,
   calendar: (ws: string) => ["calendar", ws] as const,
   shareLinks: (ws: string) => ["share-links", ws] as const,
@@ -327,6 +334,89 @@ export function useDecideSuggestion(ws: WorkspaceId) {
 export function useMembers(ws: WorkspaceId) {
   const api = useApi();
   return useQuery({ queryKey: queryKeys.members(ws), queryFn: () => allPages(() => api.listMembers(ws)) });
+}
+
+// --- admin console (P5-12) -------------------------------------------------------------
+
+/** Operators are the system role owner or admin (the server's isAdminUser). */
+export function useIsOperator(): boolean | undefined {
+  const me = useMe().data;
+  if (!me) return undefined;
+  return me.system_role === "owner" || me.system_role === "admin";
+}
+
+export function useAdminOverview(enabled = true) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.adminOverview, queryFn: () => api.admin.overview(), enabled });
+}
+
+export function useUpdateAdminUser() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: AdminUserPatch }) => api.admin.updateUser(id, patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.adminOverview }),
+  });
+}
+
+export function useDeleteAdminUser() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.admin.deleteUser(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.adminOverview }),
+  });
+}
+
+/** Jobs newest first, a page at a time ("더 보기"). */
+export function useAdminJobs(filter: Pick<AdminJobsQuery, "state" | "kind">) {
+  const api = useApi();
+  return useInfiniteQuery({
+    queryKey: queryKeys.adminJobs(filter.state, filter.kind),
+    queryFn: ({ pageParam }) => api.admin.jobs({ ...filter, cursor: pageParam, limit: 50 }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
+/** How many jobs are in a state, up to `cap` (one page): the overview's counts. */
+export function useAdminJobCount(state: AdminJobsQuery["state"], cap = 200) {
+  const api = useApi();
+  return useQuery({
+    queryKey: [...queryKeys.adminJobs(state, undefined), "count", cap],
+    queryFn: async () => {
+      const page = await api.admin.jobs({ state, limit: cap });
+      return { count: page.items.length, more: page.next_cursor !== null };
+    },
+  });
+}
+
+export function useAdminJob(id: string) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.adminJob(id), queryFn: () => api.admin.job(id) });
+}
+
+export function useRetryJob() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.admin.retryJob(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "job"] }).then(() => qc.invalidateQueries({ queryKey: ["admin", "jobs"] })),
+  });
+}
+
+export function useAdminUsage(period: string) {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.adminUsage(period), queryFn: () => api.admin.usage(period) });
+}
+
+export function useSetQuota() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workspaceId, quota }: { workspaceId: string; quota: WorkspaceQuota }) => api.admin.setQuota(workspaceId, quota),
+    onSuccess: (_q, { workspaceId }) => qc.invalidateQueries({ queryKey: queryKeys.usage(workspaceId) }),
+  });
 }
 
 // --- team workspaces (P5-11) ---------------------------------------------------------

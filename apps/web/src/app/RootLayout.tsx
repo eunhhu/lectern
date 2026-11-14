@@ -18,7 +18,7 @@ import {
 } from "react-aria-components";
 import { useQueryClient } from "@tanstack/react-query";
 import { errorMessage } from "../api/errors.ts";
-import { queryKeys, useApi, useMe, useRecordings, useSuggestions } from "../api/queries.ts";
+import { queryKeys, useApi, useIsOperator, useMe, useRecordings, useSuggestions } from "../api/queries.ts";
 import { asId, type WorkspaceId } from "../api/types.ts";
 import { Icon } from "../ui/Icon.tsx";
 import { Button, Kbd, uiStyles } from "../ui/controls.tsx";
@@ -102,6 +102,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const suggestions = useSuggestions(workspaceId);
   const busy = (recordings.data ?? []).filter((r) => r.status === "uploading" || r.status === "queued" || r.status === "processing").length;
   const pending = (suggestions.data?.length ?? 0) + busy;
+  const operator = useIsOperator();
 
   return (
     <div className={s.sidebar}>
@@ -137,6 +138,13 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             )}
           </Link>
         ))}
+        {/* Operators only (P5-12): for anyone else the console does not exist. */}
+        {operator && (
+          <Link to="/admin" className={s.navLink} onClick={onNavigate}>
+            <Icon name="shield" />
+            관리
+          </Link>
+        )}
       </nav>
       <div className={s.sidebarFooter}>
         {api.mode === "fixture" && (

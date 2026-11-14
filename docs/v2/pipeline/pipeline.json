@@ -62,7 +62,7 @@
     {"id":"P5-09","title":"계정 삭제","deps":["P5-08"],"owns":["apps/server/","apps/worker/"],"tier":"careful","gate":"full","status":"merged"},
     {"id":"P5-10","title":"웹: 계정 화면과 로그인 버튼","deps":["P5-01","P5-02","P5-04","P5-05","P5-08","P5-09"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P5-11","title":"웹: 멤버, 초대, 사용량","deps":["P5-06","P5-07"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"merged"},
-    {"id":"P5-12","title":"웹: 관리자 콘솔 1부","deps":["P5-C"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"todo"},
+    {"id":"P5-12","title":"웹: 관리자 콘솔 1부","deps":["P5-C"],"owns":["apps/web/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P5-13","title":"웹: 관리자 콘솔 2부","deps":["P5-12"],"owns":["apps/web/","docs/v2/pipeline/PARITY-ADMIN.md"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P5-14","title":"옛 관리자 콘솔 HTML 삭제","deps":["P5-13","P2-10"],"owns":["apps/server/"],"tier":"careful","gate":"full","status":"todo","needs_user":"새 관리자 콘솔을 확인한 뒤 옛 콘솔 삭제를 승인해야 한다"},
     {"id":"P5-15","title":"보안 테스트 묶음","deps":["P5-02","P5-03","P5-04","P5-06","P2-02"],"owns":["apps/server/test/","docs/v2/pipeline/SECURITY-REVIEW.md"],"tier":"careful","gate":"full","status":"todo"},

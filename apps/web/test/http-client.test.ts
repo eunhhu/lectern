@@ -514,3 +514,79 @@ describe("team workspaces (P5-11)", () => {
     expect((await api.listWorkspaces()).items.map((w) => w.workspace.id)).not.toContain(team);
   });
 });
+
+describe("admin console (P5-12)", () => {
+  test("admin calls: v1 users as the old console sends them, v2 jobs and usage from the route table", async () => {
+    // The fixture's own answers are the server's here, so they must pass the domain schemas.
+    const source = createFixtureClient({ latencyMs: 0 }).admin;
+    const overview = await source.overview();
+    const jobs = await source.jobs({ state: "failed" });
+    const detail = await source.job("job_fx_01");
+    const usage = await source.usage();
+    const quota = { audio_ms_month: 36_000_000, ai_microusd_month: null, storage_bytes: 10 * 1024 ** 3 };
+    const { fn, seen } = fakeFetch((req) => {
+      if (req.url === "/api/admin/overview") return json(200, { ok: true, metrics: overview.metrics, settings: {}, users: overview.users, recentLectures: [], auditLogs: [] });
+      if (req.url.startsWith("/api/admin/users/") && req.method === "PATCH") return json(200, { ok: true, user: null });
+      if (req.url.startsWith("/api/admin/users/") && req.method === "DELETE") return json(200, { ok: true, deletedId: "usr_fixture_sehun" });
+      if (req.url.endsWith("/retry")) return json(200, { ...detail.job, state: "queued" });
+      if (req.url.startsWith("/api/v2/admin/jobs/")) return json(200, detail);
+      if (req.url.startsWith("/api/v2/admin/jobs")) return json(200, jobs);
+      if (req.url.startsWith("/api/v2/admin/usage")) return json(200, usage);
+      return json(200, quota);
+    });
+    const api = createHttpClient({ fetch: fn }).admin;
+    expect((await api.overview()).metrics.totalUsers).toBe(5);
+    expect(await api.users()).toHaveLength(5);
+    await api.updateUser("usr_fixture_seoa", { status: "active" });
+    await api.updateUser("usr_fixture_sehun", { role: "viewer" });
+    await api.deleteUser("usr_fixture_sehun");
+    expect((await api.jobs({ state: "failed", kind: "process", cursor: "c_2", limit: 50 })).items).toHaveLength(2);
+    expect((await api.job("job_fx_01")).stage_runs).toHaveLength(6);
+    await api.retryJob("job_fx_01");
+    expect((await api.usage("2026-10")).items).toHaveLength(3);
+    expect(await api.setQuota("ws_team", quota)).toEqual(quota);
+
+    const [ov, ov2, approve, role, del, list, one, retry, ledger, put] = seen;
+    expect([ov!.method, ov!.url, ov2!.url]).toEqual(["GET", "/api/admin/overview", "/api/admin/overview"]);
+    // Partial bodies, camelCase, no CSRF header (the server keeps every field not sent).
+    expect([approve!.method, approve!.url]).toEqual(["PATCH", "/api/admin/users/usr_fixture_seoa"]);
+    expect(JSON.parse(approve!.body!)).toEqual({ status: "active" });
+    expect(approve!.headers.get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(role!.body!)).toEqual({ role: "viewer" });
+    expect([del!.method, del!.url, del!.body]).toEqual(["DELETE", "/api/admin/users/usr_fixture_sehun", null]);
+    expect(list!.method).toBe("GET");
+    const listUrl = new URL(list!.url, "http://x");
+    expect(listUrl.pathname).toBe("/api/v2/admin/jobs");
+    expect(Object.fromEntries(listUrl.searchParams)).toEqual({ state: "failed", kind: "process", cursor: "c_2", limit: "50" });
+    expect([one!.method, one!.url]).toEqual(["GET", "/api/v2/admin/jobs/job_fx_01"]);
+    expect([retry!.method, retry!.url]).toEqual(["POST", "/api/v2/admin/jobs/job_fx_01/retry"]);
+    expect(ledger!.url).toBe("/api/v2/admin/usage?period=2026-10");
+    expect([put!.method, put!.url]).toEqual(["PUT", "/api/v2/admin/workspaces/ws_team/quota"]);
+    expect(JSON.parse(put!.body!)).toEqual(quota);
+  });
+
+  test("admin errors: v1 bodies carry the server's message; a job list drifting from the schema is rejected", async () => {
+    const { fn } = fakeFetch((req) => {
+      if (req.url.startsWith("/api/admin/users/")) return json(400, { error: "본인 계정은 삭제할 수 없습니다." });
+      if (req.url === "/api/admin/overview") return json(403, { error: "관리자만 접근할 수 있습니다." });
+      return json(200, { items: [{ id: "job_1", kind: "teleport" }], next_cursor: null });
+    });
+    const api = createHttpClient({ fetch: fn }).admin;
+    await expect(api.deleteUser("usr_me")).rejects.toMatchObject({ status: 400, message: "본인 계정은 삭제할 수 없습니다." });
+    await expect(api.overview()).rejects.toBeInstanceOf(ApiClientError);
+    await expect(api.overview()).rejects.toMatchObject({ status: 403 });
+    await expect(api.jobs({})).rejects.toBeInstanceOf(ApiClientError);
+  });
+
+  test("the fixture admin follows the server's rules", async () => {
+    const api = createFixtureClient({ latencyMs: 0 }).admin;
+    await expect(api.updateUser("usr_fixture_me", { role: "member" })).rejects.toMatchObject({ status: 400 });
+    await expect(api.deleteUser("usr_fixture_me")).rejects.toMatchObject({ status: 400 });
+    await expect(api.retryJob("job_fx_09")).rejects.toMatchObject({ status: 409 });
+    await expect(api.retryJob("job_fx_11")).rejects.toMatchObject({ status: 409 });
+    await api.retryJob("job_fx_01");
+    expect((await api.job("job_fx_01")).job.state).toBe("queued");
+    await expect(api.retryJob("job_fx_01")).rejects.toMatchObject({ status: 409 });
+    await expect(api.setQuota("ws_nowhere", { audio_ms_month: 1, ai_microusd_month: null, storage_bytes: null })).rejects.toMatchObject({ status: 404 });
+  });
+});
