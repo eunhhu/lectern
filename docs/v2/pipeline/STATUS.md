@@ -59,6 +59,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 녹음 표면의 기기 점검(제어 센터·동작 버튼·Siri로 시작, 잠금 화면 3시간 녹음과 잠긴 채 업로드, Dynamic Island, 통화 중 일시정지가 Live Activity에 보이는지, Live Activity를 꺼도 녹음, 녹음 뒤 재생 음질): `apps/apple/MANUAL_CHECKS.md` 17–25(25: 앱에서 정지하고 바로 잠가도 업로드가 끝나는지). 컨트롤의 인텐트(`RecordingToggleIntent`)가 위젯 확장이 아니라 앱 프로세스에서 도는지는 17에서 본다(명세의 전제). 빌드 산출물의 `Metadata.appintents`에 인텐트 다섯 개와 단축어 문구 세 개가 들어간 것까지는 확인했다 | P6-A7 |
 | 공유 확장의 기기 점검(음성 메모에서 공유 → 앱에서 업로드, 오디오와 PDF 짝짓기, 1GB 공유, 메타데이터 없는 옛 파일의 녹음 시각, 오디오·PDF에만 보이는지): `apps/apple/MANUAL_CHECKS.md` 26–30. 활성화 규칙(술어 문자열)은 macOS `NSPredicate`로 읽히고 빌드된 확장의 Info.plist에 한 줄로 들어간 것까지 확인했다 | P6-A8 |
 | macOS 앱의 기기 점검(서명한 빌드): 옛 앱 다음 마이크 권한·로그인 이어짐(Keychain 창이 뜰 수 있고, 못 읽으면 한 번 다시 로그인), 메뉴바 녹음 → 업로드 → `문서가 준비되었습니다` 알림 → 클릭으로 열기, 다른 앱이 앞에 있을 때 ⌥Space, 로그인 시 실행, 창을 닫아도 녹음이 이어지고 녹음 중 종료하면 저장, data protection keychain에 로그인이 남는지, 메인 창 키보드, `Lectern 열기`가 창을 하나만 여는지, HUD의 `설정…`: `apps/apple/MANUAL_CHECKS.md` 31–40 | P6-A9 |
+| Mac 회의 녹음의 기기 점검(서명한 빌드): 시스템 오디오 권한 문구, 음악 + 목소리가 오른쪽·왼쪽에, 소리 없을 때 마이크가 끊기지 않음, 권한 거부 때 마이크만 녹음과 경고(거부가 'nope' 오류로 온다고 가정했다. 무음으로만 나타나면 경고가 뜨지 않는다), 30분 동안 두 채널의 어긋남, Zoom 실행 알림과 `녹음 시작`(Teams·Webex·FaceTime 번들 id 확인), 올린 회의 파일의 전사, 녹음 중 출력 장치 변경: `apps/apple/MANUAL_CHECKS.md` 41–48 | P6-A10 |
 | 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
 | CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
 | Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
@@ -85,6 +86,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 처음 온 사람이 인계 점검표를 실제로 따라 해 보는 것 | P7-05 |
 | P5-15 보안 테스트의 발견 1건(중간, CSRF: 쿠키로 인증한 변경 요청에 출처 검사 없음)을 고칠 작업을 만들지. 테스트 49개와 보고서 `SECURITY-REVIEW.md`는 로컬 브랜치 `wp/P5-15`에만 있다(`p0-foundations`만 push한다). 실패하는 테스트를 통합 브랜치에 합치지 않았다. 브랜치를 올릴지, 고친 뒤 합칠지 | P5-15 |
 | 올린 뒤 기기의 녹음·공유 파일을 자동으로 지울지. 지금 대기열은 완료된 항목의 파일을 사용자가 그 항목을 지울 때까지 둔다(공유한 파일은 원본이 따로 있어 복사본이 하나 더 남는다) | P6-A8 |
+| 샌드박스 Mac 앱에서 Core Audio 프로세스 탭(시스템 오디오)이 동작하지 않으면 샌드박스 정책을 어떻게 할지(MANUAL_CHECKS 41에서 드러난다) | P6-A10 |
 
 ### 후속 작업 (이 파이프라인에 WP가 없다)
 
@@ -171,3 +173,5 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-A8 | 웹 짝짓기 테스트는 18개다(명세의 `git grep -c`가 19로 센 것은 `name.split(".")` 줄이 걸린 것). 18개를 옮기고 NFD 하나를 더했다. 웹 규칙이 받는 weba·caf·amr은 서버가 받지 않아 대기열에서 서버의 문장으로 실패한다(웹과 같다) | 기록만 |
 | 2026-11-15 | P6-A9 | macOS 앱은 프로세스에 하나인 `MacServices`가 클라이언트, 업로드 대기열(백그라운드 세션 없이 `run()`), 녹음 세션(`NoRecordingActivity`, 녹음 중 App Nap·유휴 잠자기 막음)과 `MacRecordingViewModel`, 전역 단축키, 알림(`ReadyNotifier`: 업로드가 끝난 녹음을 30초마다 확인)을 갖는다. 시스템 오디오(P6-A10)는 이 녹음 세션에, 푸시(P6-A11)는 `ReadyNotifier`를 대신하거나 함께 쓴다 | P6-A10·A11에 전달 |
 | 2026-11-15 | P6-A9 | `KeychainTokenStore`는 macOS에서 접근 그룹이 있으면 data protection keychain을 쓴다(명세에 없음. 접근 그룹은 그곳에만 있다. 나중에 바꾸면 사용자가 로그아웃된다). 옛 앱의 토큰은 처음 한 번만(`legacy_token_settled`) 가져온다. `MacRecordingViewModel`은 프로토콜 둘 대신 `RecordingSession`을 받는다. Space 재생은 메뉴 단축키가 아니라 창의 키 이벤트다 | 기록만 |
+| 2026-11-15 | P6-A10 | 서버의 오디오 압축(`apps/server/src/storage.ts`)은 `-ac 1`로 모노로 내려 섞는다. Mac의 2채널 회의 파일(왼쪽 마이크, 오른쪽 시스템 오디오)은 두 목소리가 각각 절반 크기로 전사에 들어간다. 조용한 상대방 소리가 빠지거나 화자 구분에 두 채널을 쓰려면 서버 쪽 작업이다 | 서버에 전달 |
+| 2026-11-15 | P6-A10 | 시스템 오디오 탭의 형식은 시작할 때 한 번 읽는다. 녹음 중 출력 장치가 바뀌면(AirPods) 형식이 바뀌는지 모른다(MANUAL_CHECKS 48). 회의 알림 본문은 시스템 오디오가 꺼져 있으면 `Lectern이 마이크로 회의를 녹음합니다.`다. `ChannelMixer`에 `bufferedMicFrames`·`bufferedSystemFrames`, `DualInput`은 `SystemAudioSource` 프로토콜로 탭을 받는다 | 기록만 |
