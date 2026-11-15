@@ -183,12 +183,42 @@ rsync -av <pi>:/home/eunhhu/work/lectern/data/uploads/ ~/lectern-offhost/uploads
 2. 관리자 콘솔 운영 보기에서 백업 개수(7)와 최신 백업 시각(24시간 이내)을 확인한다.
 3. 최신 백업에 §3.1 점검을 돌린다.
 4. 오프호스트 복사가 최근 7일 안에 됐는지 확인하고, 오프호스트 `backups/`에서 7일이 지난 사본을 지운다.
-5. 분기 1회는 오프호스트 사본으로 로컬에서 실제 복원 리허설을 한다.
-   ```bash
-   mkdir -p /tmp/lectern-restore-drill/{data,lectures,home} && cp ~/lectern-offhost/backups/<최신>.sqlite /tmp/lectern-restore-drill/data/lectern.sqlite
-   ```
-   `HOME`을 임시 디렉터리로 바꾸고 키를 비워서, 부팅 때 다시 큐에 들어가는 강의가 실제 Gemini를 호출하거나 메일을 보내지 않게 한다.
-   ```bash
-   HOME=/tmp/lectern-restore-drill/home GEMINI_API_KEY= RESEND_API_KEY= LECTERN_RESEND_CREDENTIALS_FILE= LECTERN_DATA_DIR=/tmp/lectern-restore-drill/data LECTERN_LECTURES_DIR=/tmp/lectern-restore-drill/lectures LECTERN_BASE_URL=http://127.0.0.1:18999 PORT=18999 bun apps/server/src/index.ts
-   ```
-   다른 터미널에서 `curl -fsS http://127.0.0.1:18999/api/health`가 `ok`이면 성공이다. 끝나면 서버를 멈추고 `/tmp/lectern-restore-drill`을 지운다.
+5. 분기 1회 §7의 복원 리허설을 한다(운영 호스트의 최신 백업으로, 또는 오프호스트 사본으로 운영자 컴퓨터에서).
+
+## 7. 복원 리허설 (분기 1회)
+
+목적: 백업이 실제로 복원되는지 확인한다. 파일이 온전한지, 지금 코드의 서버가 그 위에서 뜨는지, 마이그레이션이 데이터를 잃지 않는지를 [scripts/rehearse/restore.ts](../../scripts/rehearse/restore.ts)가 한 번에 본다([README](../../scripts/rehearse/README.md)). 스크립트는 사본에서만 돈다. §3의 실제 복원 전에 그 백업으로 먼저 돌려 봐도 된다.
+
+운영 호스트에서 돌리는 법
+- 저장소를 배포한 checkout이 아니라 **따로 받은 작업 디렉터리**에서 돌린다([load-test.md](load-test.md) §2와 같다). 리허설 서버는 그 checkout의 코드로 뜬다.
+- 작업 디렉터리는 **데이터 디렉터리 밖의 빈 디렉터리**로 준다. 데이터 디렉터리나 그 안, 백업이 들어 있던 데이터 디렉터리를 주면 스크립트가 거절한다. 거절을 피하려고 경로를 바꿔 끼우지 않는다. 여유 공간은 백업 크기의 약 3배(사본, 마이그레이션 직전 사본, WAL)가 필요하다.
+- 운영 환경 파일(`lectern.env`)을 `source` 하지 않는다. 스크립트는 서버에 샌드박스 환경만 넘기지만(`.env`도 읽지 않는다), 셸에 키를 두지 않는다.
+- 운영 서비스는 멈추지 않는다. 리허설 서버는 127.0.0.1의 빈 포트에 뜨고, 작업과 유지보수를 돌리지 않으며, `/api/health`를 확인한 뒤 바로 내려간다.
+
+```bash
+cd <작업 디렉터리>/lectern && bun install --frozen-lockfile
+```
+```bash
+bun scripts/rehearse/restore.ts --backup <데이터 디렉터리>/backups/lectern-YYYYMMDD-HHMMSS.sqlite --work <빈 디렉터리> --uploads <데이터 디렉터리>/uploads --out <작업 디렉터리 밖의 요약 파일>
+```
+오프호스트 사본(§5)으로 할 때는 `--backup`에 받아 온 백업, `--uploads`에 받아 온 `uploads/`를 준다.
+
+요약 읽는 법(종료 코드 0이면 `ok: true`)
+
+| 필드 | 기대 | 아니면 |
+|---|---|---|
+| `digest_equal` | `true` | 사본이 백업과 다르다(복사 중 디스크 오류). 다시 돌리고, 또 다르면 디스크를 점검한다 |
+| `integrity`, `foreign_key_violations` | `ok`, `0` | 백업이 깨졌다. 아래 "실패했을 때" |
+| `server.health` | `ok` | `--keep`으로 다시 돌려 작업 디렉터리의 `server.log`를 본다. 마이그레이션이 실패하면 그 백업으로 복원해도 서버가 뜨지 않는다. 배포를 멈추고 고친다 |
+| `shrunk_tables` | `[]` | 서버가 뜨면서 사용자 데이터 테이블의 행이 줄었다(마이그레이션이 지웠을 수 있다). 배포와 복원을 멈추고 SEV2로 조사한다. 세션·작업 큐가 줄어든 것은 `notes`에만 적힌다 |
+| `audio.missing` | `[]` | 강의가 가리키는 오디오가 `uploads/`에 없다. 오디오는 DB 백업에 들어 있지 않다(§1). 오프호스트 사본(§5)에 있는지 보고, 없으면 그 강의는 오디오 없이 복원된다 |
+| `server.migration_ms` | 기록 | 다음 리허설과 비교한다. 크게 늘면 마이그레이션이나 디스크를 본다 |
+
+실패했을 때
+- 백업이 깨졌으면 §2로 새 백업을 뜨고 그 파일로 다시 돌린다.
+- 새 백업도 실패하면 운영 DB 자체가 문제일 수 있다. [incident-response.md](incident-response.md) §3.4를 보고 장애로 기록한다.
+
+기록
+- 날짜, 백업 파일 이름, `ok`, `server.migration_ms`, `audio`의 수를 **운영자 기록**에 남긴다. `docs/v2/pipeline/STATUS.md`가 아니다.
+- 요약에는 건수와 해시, 오디오 파일 이름만 있지만 저장소에 올리지 않는다.
+- 스크립트가 끝나면 작업 디렉터리를 지운다. `--keep`을 썼으면 확인한 뒤 직접 지운다(사본에 개인 데이터가 들어 있다).

@@ -138,6 +138,18 @@
 | 모델을 찾을 수 없음 | 모델 폐기 | `LECTERN_GEMINI_MODEL`을 지원되는 고정 버전으로 바꾸고 재시작. 모델 변경은 평가를 거치는 변경이므로 사후에 PR로 남긴다([ADR-0006](../adr/0006-harness-provider-abstraction-eval-routing.md)) |
 | 비정상 과금 | 키 유출, 반복 루프 | 키를 즉시 교체하고 Cloud Billing 예산 알림 확인 |
 
+공급자 장애 때 녹음이 어떻게 끝나는가(`LECTERN_PIPELINE=v2`). 아래는 92초 녹음(6분이 아니라 30초 청크로 잘라 청크 4개)을 실제 어댑터와 가짜 네트워크로 처리해 2026-11-15에 관찰한 값이다. 장애만으로 녹음이 '처리 중'에 남는 경우는 없었다. 사용자가 보는 문장은 강의의 `error_message`·`excerpt`와 녹음의 `failure_message`에 들어간 값이다.
+
+| 장애 | 작업 | 녹음 | 사용자가 보는 것 | 운영자가 할 일 |
+|---|---|---|---|---|
+| 전사가 계속 5xx | `failed`(청크마다 4번 시도, 호출 16번) | `failed`(`failure_code` `legacy_error`) | `전사에 성공한 구간이 없습니다: Gemini request failed (503): {…}` — 공급자의 원문 JSON이 그대로 붙는다 | 장애가 끝나면 그 작업을 재시도한다(관리자 콘솔의 작업 재시도, `POST /api/v2/admin/jobs/<id>/retry`). 같은 작업이 실패한 단계부터 이어서 `ready`가 된다 |
+| 전사가 응답하지 않음(타임아웃) | `failed`(청크마다 4번, 시도마다 기한까지 기다림) | `failed`(`legacy_error`) | `전사에 성공한 구간이 없습니다: The operation timed out.` | 위와 같다. 끝나기까지 오래 걸린다(아래) |
+| 전사가 429 | `failed`(청크마다 4번) | `failed`(`legacy_error`) | `전사에 성공한 구간이 없습니다: Gemini request failed (429): {…RESOURCE_EXHAUSTED…}` | 위 표의 429 행대로 할당량을 확인한 뒤 재시도한다 |
+| 노트 단계만 5xx·타임아웃·429 | `succeeded`(classify 3번, structure 3번 시도 뒤) | `partial`, `failure_code = notes_failed` | 전사는 저장된다(검색 가능). `노트를 만들지 못했습니다. 전사는 사용할 수 있습니다.` | 장애가 끝나면 문서만 다시 만든다(`POST /api/v2/recordings/<id>/reprocess`, `mode: "document"`. 웹의 녹음 화면 `다시 처리…`가 같은 요청이다) |
+
+- 재시도 사이 대기는 0.5~4초(지수 증가. 429에 `retryDelay`가 있으면 그만큼, 최대 60초)라 5xx·429는 몇 초~몇 분 안에 끝난다. 타임아웃은 시도마다 `LECTERN_GEMINI_TIMEOUT_MS`(기본 15분)를 기다린다. 기본값으로 셈하면 1시간 녹음(6분 청크 약 10개, 한 번에 3개)은 약 4시간, 노트 단계는 6번 × 15분 = 약 1시간 30분 뒤에야 끝난다. 그동안 녹음은 '처리 중'이다(시험은 기한 300 ms로 5.5초).
+- 이 표의 작업·녹음 상태, 시도가 유한한 것(호출 수 = 청크 수 × 시도 수), 재시도하면 `ready`가 되는 것은 `apps/server/test/provider-failure.test.ts`가 지킨다. 문장과 `failure_code`(`legacy_error`), 노트 단계의 시도 횟수는 관찰한 값이다. 이 테스트는 ffmpeg가 필요해 CI(ffmpeg 없음)에서는 건너뛰고, 로컬 게이트에서만 돈다.
+
 검증: 짧은 테스트 녹음이 끝까지 처리된다.
 
 ### 3.6 메일이 가지 않음 (가입·재설정 인증번호)
@@ -175,6 +187,7 @@ curl -fsS http://127.0.0.1:18775/api/health | jq .checks.worker
   sudo systemctl restart lectern-worker     # LECTERN_WORKER_MODE=external
   ```
 - 같은 작업이 계속 중단되면 최대 시도 횟수 뒤 `lease_lost`로 실패하고, 강의는 재시도 가능한 오류 상태가 된다. 그 녹음 파일이 원인(손상, 지나치게 긴 길이)인지 확인한다.
+- 공급자 장애만으로는 작업이 '처리 중'에 남지 않는다(§3.5의 표). 다만 타임아웃형 장애에서는 끝나기까지 몇 시간 걸릴 수 있다. 그보다 오래 남아 있다면 프로세스·lease 문제다.
 
 ### 3.8 밖에서만 접속이 안 됨 (프록시·Cloudflare·회선)
 
