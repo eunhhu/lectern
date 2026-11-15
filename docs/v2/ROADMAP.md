@@ -186,7 +186,7 @@ P0이 끝나면 세 작업 흐름이 **독립적으로** 진행된다. 단, 그 
 
 ### P5 — 계정·멀티테넌시
 
-> 상태(2026-11-15): 부분 구현(P5-14, P5-15) · 가짜로 테스트함 · 실측 필요: Google·Apple 로그인 실제 흐름, 운영 프록시와 배포된 `/app`의 CSP · 사용자 필요: 보안 테스트 발견 1건(CSRF) 처리와 사람이 하는 보안 리뷰(P5-15), 옛 관리자 콘솔 삭제 승인(P5-14), Apple Developer 계정, 쿼터 기본값. 자세한 것은 [STATUS](pipeline/STATUS.md).
+> 상태(2026-11-15): 부분 구현(P5-14) · 가짜로 테스트함 · 실측 필요: Google·Apple 로그인 실제 흐름, 운영 프록시(단 수, 출처 헤더)와 배포된 `/app`의 CSP · 사용자 필요: 사람이 하는 보안 리뷰(P5-15), 옛 관리자 콘솔 삭제 승인(P5-14), Apple Developer 계정, 쿼터 기본값. 자세한 것은 [STATUS](pipeline/STATUS.md).
 
 산출물
 - Google 로그인, Sign in with Apple(App Store 심사 지침 4.8), 기기·세션 관리 화면, PAT(범위·만료·해시), 네이티브용 refresh token

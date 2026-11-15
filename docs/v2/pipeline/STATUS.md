@@ -9,7 +9,7 @@
 
 WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단계가 끝날 때 오케스트레이터가 고친다.
 
-기준: 2026-11-15, 통합 브랜치 `p0-foundations`(`9cca489`, P7-05를 합친 커밋). `bun run pipeline status`: **merged 83 / blocked 2 / todo 5**(작업 90개). `pipeline next`는 `STUCK`이다(남은 작업은 모두 막혔거나 사용자가 필요하다). 안 된 것: P2-09(`BLOCKED`, 기능 대조표 `없음` 8행 결정 대기), P2-10(그 뒤, 옛 화면 삭제 승인), P5-14(옛 관리자 콘솔 삭제 승인), P5-15(`BLOCKED`, 보안 테스트의 CSRF 발견 1건), P6-A12(Developer ID 필요), P6-W1(Windows 빌드 환경 필요), P7-03(P2-09 뒤에 선다). 지금 전체 테스트: `bun test` 1853개(파일 152개), `bun run web:e2e` 218개, 모두 통과(2026-11-15, 이 Mac). 표의 단계별 수는 그 단계를 합칠 때의 전체 수다. `main`은 `45a9d3b`(2026-10-20)이고 통합 브랜치의 조상이다(`9cca489` 기준으로 통합 브랜치가 212커밋 앞).
+기준: 2026-11-15, 통합 브랜치 `p0-foundations`(`611678e`, P5-15를 합친 커밋). `bun run pipeline status`: **merged 84 / blocked 1 / todo 5**(작업 90개). `pipeline next`는 `STUCK`이다(남은 작업은 모두 막혔거나 사용자가 필요하다). 안 된 것: P2-09(`BLOCKED`, 기능 대조표 `없음` 8행 결정 대기), P2-10(그 뒤, 옛 화면 삭제 승인), P5-14(옛 관리자 콘솔 삭제 승인), P6-A12(Developer ID 필요), P6-W1(Windows 빌드 환경 필요), P7-03(P2-09 뒤에 선다). 지금 전체 테스트: `bun test` 1908개(파일 160개), `bun run web:e2e` 218개, 모두 통과(2026-11-15, 이 Mac). 표의 단계별 수는 그 단계를 합칠 때의 전체 수다. `main`은 `45a9d3b`(2026-10-20)이고 통합 브랜치의 조상이다(`611678e` 기준으로 통합 브랜치가 218커밋 앞).
 
 | 단계 | 만듦 | 가짜로 테스트함 | 실측 필요 | 사용자 필요 |
 |---|---|---|---|---|
@@ -18,7 +18,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | P2 데이터·웹 | v2 테이블과 이전, API v2, 새 웹 앱(`/app`), 물어보기 v1, `/` → `/app` 리다이렉트(플래그 켬일 때). 파이프라인에서 더한 것: 오디오만 삭제, 문서 Markdown 내보내기, 서버 추천 질문, 공유 링크(만들기·바꾸기·회수)와 공개 페이지 `/s/:token`, 웹 회원가입·이메일 인증·비밀번호 재설정, 문서 편집(블록 글자, legacy Markdown, 저장 충돌), 공유 UI, 다시 처리·Markdown 내려받기, Pretendard 직접 호스팅, v1 화면 기능 대조표(`PARITY.md`)와 빠진 e2e | 단위 테스트(전체 1357개), 웹 e2e(전체 129개, fixture 107개), axe 0건, v1 계약 테스트 | 운영 DB 사본에서의 이전 리허설, 물어보기 평가(재현율·인용 정밀도) | **대조표 `없음` 8행(#4 #6 #7 #21 #22 #27 #30 #31)을 만들지 정하기(P2-09가 여기서 멈춤)**, `LECTERN_WEB_SHELL=1`·`LECTERN_ASK=1` 켜기, 옛 화면 삭제 승인(P2-10) |
 | P3 PDF·검색 | PDF 업로드(`LECTERN_PDF`), 쪽 글자 추출(`packages/pdf`), `pdf_ingest` 단계와 `pdf_page` 저장, `align` 단계와 노트 문맥의 PDF 쪽, 스캔본 OCR(dry run 견적 → 사용자 승인 뒤에만 Gemini), PDF 쪽 색인·쪽 인용·하이브리드 `GET /search`, 물어보기 도구 루프 테스트, 웹 PDF 뷰어(pdf.js, 파일 패널, OCR 비용 확인), 전역 검색 화면 `/app/search`와 ⌘K의 PDF 적중·IME 가드, 검색 성능 측정 스크립트(`scripts/bench/`) | 가짜 Gemini(스크립트 응답)로 OCR·도구 루프·PDF 인용, 웹 e2e(PDF 뷰어 12개, 검색 10개), axe 0건. 검색 측정: Apple M3에서 합성 1000건(조각 21,660개) p95 53 ms | Pi에서 검색 p95 200 ms, 실제 Gemini OCR의 비용·품질, PDF 포함 평가 | PDF 포함 평가 녹음 5건, 운영에서 `LECTERN_PDF=1` 켜기 |
 | P4 캘린더 | `LECTERN_CALENDAR` 플래그와 P4 테이블(`calendar_feed`, `calendar_event_link`, `reminder`, `oauth_state`), ICS 구독 주소(`/cal/<토큰>.ics`, 해시만 저장), Google 캘린더 OAuth(PKCE)·다시 연결·해제(토큰 폐기)와 `needs_reauth`, `calendar_sync` 작업(전용 "Lectern" 캘린더에 넣기·고치기·지우기, 401 한 번 재시도, 일시 오류 지연 재시도), 일정 자동 수락(설정 `calendar_auto_add`)과 재처리 멱등성, 이메일 리마인더(`reminder` 작업, 5분 주기, 한 번만 발송, 90일 뒤 정리)와 `mail.ts`, 물어보기 `list_items` 도구의 데이터, 웹 설정 "연동"·"알림"과 일정 화면의 연결 상태 | 단위 테스트(전체 1471개, 가짜 Google 서버·가짜 Resend), 웹 e2e(전체 138개, 캘린더 설정 7개와 캘린더 꺼짐 서버 e2e), axe 0건 | 실제 Google 동의 화면과 전용 캘린더 생성·동기화, 실제 Resend로 리마인더 메일 발송, Apple 캘린더·Outlook에서 ICS 구독 | Google OAuth 클라이언트와 검증, `calendar.app.created` 범위 승인, 운영에서 `LECTERN_CALENDAR=1` 켜기 |
-| P5 계정 | 계정 계약(플래그 `LECTERN_GOOGLE_LOGIN`·`LECTERN_APPLE_LOGIN`·`LECTERN_TEAMS`, 계정 테이블), 로그인 기기의 이름·마지막 사용, 개인 액세스 토큰(이름·범위·만료), 네이티브 앱 토큰 쌍(refresh 회전, 재사용 감지), Google로 계속하기(OIDC 코드 + PKCE), Apple로 계속하기(ES256, form_post), 팀 워크스페이스(메일 초대, 역할, 팀 업로드), 사용량과 쿼터, 데이터 내보내기(zip, 7일 보관), 계정 삭제(7일 유예, 취소), 웹 계정 화면·멤버·초대·사용량, 관리자 콘솔 React 이식 1·2부와 옛 콘솔 기능 대조표(`PARITY-ADMIN.md`). **안 된 것**: P5-14 옛 관리자 콘솔 삭제(승인 대기), P5-15 보안 테스트 묶음(`BLOCKED`, 테스트와 보고서는 로컬 브랜치 `wp/P5-15`에만) | 권한 정책 표 테스트(`apps/server/test/api-v2-access.test.ts`), 가짜 Google·Apple 서버와 가짜 Resend로 로그인·초대, 웹 e2e(계정 화면, 멤버, 관리자 콘솔), axe 0건 | Google·Apple 로그인 실제 흐름, 보안 리뷰, 운영 프록시 단 수와 배포된 `/app`의 CSP | Apple Developer 계정(Sign in with Apple), 보안 리뷰어, 쿼터 기본값, CSRF 발견 1건을 고칠지와 `wp/P5-15` 처리, 옛 관리자 콘솔 삭제 승인(P5-14), 운영에서 `LECTERN_GOOGLE_LOGIN`·`LECTERN_APPLE_LOGIN`·`LECTERN_TEAMS` 켜기 |
+| P5 계정 | 계정 계약(플래그 `LECTERN_GOOGLE_LOGIN`·`LECTERN_APPLE_LOGIN`·`LECTERN_TEAMS`, 계정 테이블), 로그인 기기의 이름·마지막 사용, 개인 액세스 토큰(이름·범위·만료), 네이티브 앱 토큰 쌍(refresh 회전, 재사용 감지), Google로 계속하기(OIDC 코드 + PKCE), Apple로 계속하기(ES256, form_post), 팀 워크스페이스(메일 초대, 역할, 팀 업로드), 사용량과 쿼터, 데이터 내보내기(zip, 7일 보관), 계정 삭제(7일 유예, 취소), 웹 계정 화면·멤버·초대·사용량, 관리자 콘솔 React 이식 1·2부와 옛 콘솔 기능 대조표(`PARITY-ADMIN.md`), 쿠키로 인증한 변경 요청의 출처 검사(`apps/server/src/csrf.ts`, `ea052f4`). **안 된 것**: P5-14 옛 관리자 콘솔 삭제(승인 대기) | 권한 정책 표 테스트(`apps/server/test/api-v2-access.test.ts`), 보안 테스트 묶음 55개(`apps/server/test/security`, 보고서 `SECURITY-REVIEW.md`: 세션, CSRF, 횟수 제한, 업로드, 리다이렉트, 토큰 저장, 남의 리소스, 헤더), 가짜 Google·Apple 서버와 가짜 Resend로 로그인·초대, 웹 e2e(계정 화면, 멤버, 관리자 콘솔), axe 0건 | Google·Apple 로그인 실제 흐름, 보안 리뷰, 운영 프록시 단 수와 출처 헤더, 배포된 `/app`의 CSP | Apple Developer 계정(Sign in with Apple), 보안 리뷰어, 쿼터 기본값, 옛 관리자 콘솔 삭제 승인(P5-14), 운영에서 `LECTERN_GOOGLE_LOGIN`·`LECTERN_APPLE_LOGIN`·`LECTERN_TEAMS` 켜기 |
 | P6 네이티브 | 기존 macOS·Android·Windows 클라이언트(v1 API). 파이프라인에서 더한 것: 서버의 APNs 계약과 발송기(처리 Live Activity, 완료 알림), 푸시 기기·Live Activity 토큰·녹음 마커 API, `apple-app-site-association`, v1 사용량 집계와 Sunset·차단 플래그, 옛 macOS 앱의 토큰을 Keychain으로, `apps/apple`(뼈대와 게이트, LecternKit API 클라이언트·인증·재개 가능한 업로드 큐, RecorderKit, LecternUI, iOS 앱 셸, iOS 녹음 표면과 백그라운드 업로드, 공유 확장, macOS 앱, Mac 회의 녹음(마이크 + 시스템 오디오 2채널, 회의 감지), 시스템 표면(푸시, Live Activity, 알림, 유니버설 링크, Spotlight·Siri, 위젯, 캘린더)), CI의 Apple 작업, Android v2 파트 업로드. **안 된 것**: P6-A12 Sparkle과 공증, P6-W1 Windows v2 업로드 | Android 단위 테스트, SwiftPM 패키지 테스트와 서명 없는 iOS·macOS 빌드(Apple 게이트), 서버 단위 테스트(가짜 APNs h2 서버). CI의 Apple 작업이 처음으로 통과(2026-11-15) | 실제 기기 전부(3시간 백그라운드 녹음, Dynamic Island, APNs, 시스템 오디오 권한), Windows 빌드, `apps/apple/MANUAL_CHECKS.md` 1–57, Android 끊긴 업로드 이어 올리기 | Apple Developer ID(D7), APNs 키, TestFlight, v1 차단 시점 결정, 유료 Apple Developer 팀(기기 점검 전부에 필요), `LECTERN_ASSOCIATED_DOMAIN`·`APPLE_APP_IDS`, 운영에서 `LECTERN_APNS` 켜기 |
 | P7 하드닝 | 런북 8종과 인계 점검표(`docs/runbooks/handover-checklist.md`), 부하 시험 스크립트(`scripts/load`), 복원 리허설 스크립트(`scripts/rehearse`)와 공급자 장애 테스트, 키보드 전용 여정 e2e와 접근성 점검표(`A11Y-AUDIT.md`), 인계 문서 맞추기(AGENTS.md 지도·명령, README, 설계 문서 목차, 로드맵 상태 줄). **안 된 것**: P7-03 성능 예산(`todo`, 의존하는 P2-09가 `BLOCKED`) | 부하 시험 세 가지를 Mac에서(3시간 녹음 포함), 리허설 테스트 17개와 장애 테스트 10개(장애 테스트는 ffmpeg가 있는 곳에서만, CI는 건너뛴다), 키보드 여정 2개와 소스 검사 3개, 인계 점검표 §3을 로컬에서(§6 기록) | Pi 부하 시험, 백업 복원 리허설, VoiceOver 수동 점검, 시간 예산의 CI 보정(P7-03 뒤) | 인계 점검을 해 볼 사람, P2-09 결정(P7-03이 그 뒤에 선다) |
 
@@ -27,7 +27,6 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 결함 | 고치는 WP |
 |---|---|
 | (없음. `LECTERN_WEB_SHELL=1`일 때 배포 사전 점검이 실패하던 것은 P0-01이 고쳤다) | — |
-| 쿠키로 인증한 변경 요청에 출처(`Origin`/`Sec-Fetch-Site`) 검사가 없다(중간, P5-15 보안 테스트의 발견 1건). "후속 작업" 표에 고치는 방법이 있다 | 없음(사용자 결정 대기, P5-15) |
 | 전사가 모두 실패하면 사용자에게 보이는 메시지에 공급자 원문 응답이 붙고 `failure_code`가 `legacy_error`다(P7-02 장애 테스트에서 관찰) | 없음("넘겨받은 요청" P7-02 행) |
 
 ## 로드맵에서 뺀 것
@@ -75,14 +74,14 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | VoiceOver 수동 점검표: `docs/v2/pipeline/A11Y-AUDIT.md` §4(화면 17곳, 공통 7 + 화면별 항목)와 §5(200% 확대, 320 px, 다크 모드 대비를 눈으로, 동작 줄이기, Safari·Firefox에서 키보드 여정 한 번)의 결과 칸을 사람이 채운다(§6이 순서). Apple 앱은 각 앱의 `MANUAL_CHECKS.md` | P7-04, P6-A* |
 | 인계 점검표 §4(운영에서 해 보기: 상태 확인, 로그, 수동 백업, 복원 리허설, 배포, 롤백, 시크릿 교체, 워커 유닛, 기능 플래그 켜고 끄기, 부하 시험)를 운영 호스트에서 한 번. 확인 칸이 비어 있다 | P7-05 |
 | CI는 `main`으로 가는 PR이 있어야 통합 브랜치에서 돈다. 2026-11-13에 초안 PR [eunhhu/lectern#1](https://github.com/eunhhu/lectern/pull/1)을 열었다. `windows` 게이트, Apple CI 작업, 시간 예산 보정은 이 PR의 체크로 확인한다(해당 WP가 합쳐진 뒤). Apple CI 작업은 확인됨(2026-11-15, 위의 P6-CI 행). `windows` 게이트(P6-W1)와 시간 예산 보정(P7-03)은 그 WP가 합쳐지지 않아 아직이다 | P6-W1, P6-CI, P7-03 |
-| 운영의 프록시 단 수(`LECTERN_TRUSTED_PROXY_HOPS`, 기본 1)와 cloudflared가 붙이는 `X-Forwarded-For`, 배포된 `/app`의 CSP(보안 테스트는 프록시 1단을 가정했고 `/app` 셸은 테스트 프로세스에서 꺼져 있다) | P5-15 |
+| 운영의 프록시 단 수(`LECTERN_TRUSTED_PROXY_HOPS`, 기본 1)와 cloudflared가 붙이는 `X-Forwarded-For`, 배포된 `/app`의 CSP(보안 테스트는 프록시 1단을 가정했고 `/app` 셸은 테스트 프로세스에서 꺼져 있다). 출처 검사(`ea052f4`)가 보는 `Origin`·`Sec-Fetch-Site`를 cloudflared가 그대로 넘기는지와 운영의 `LECTERN_BASE_URL`이 브라우저가 보는 출처와 같은지(다르면 `Sec-Fetch-Site`를 보내지 않는 옛 브라우저의 쓰기가 403이 된다) | P5-15 |
 
 ### 사용자 필요 (결정·승인·준비)
 
 | 항목 | WP |
 |---|---|
 | 초안 PR [eunhhu/lectern#1](https://github.com/eunhhu/lectern/pull/1)을 **합칠지와 언제 합칠지**. 합치면 `main`에 push되고 운영에 배포된다. 오케스트레이터와 워커는 이 PR을 합치지 않고, 초안 상태도 풀지 않는다. 2026-11-15에 보니 이 PR은 초안이 아니다(오케스트레이터가 바꾼 것이 아니다). 그날 머리 `32722fd`의 CI는 모두 통과했다 | 전체 |
-| 사람이 하는 보안 리뷰(테스트 통과가 안전하다는 뜻은 아니다) | P5-15 |
+| 사람이 하는 보안 리뷰(테스트 통과가 안전하다는 뜻은 아니다). 인증 경로를 바꾼 두 커밋(출처 검사 `ea052f4`, API 토큰 접두어 `ffe3466`)과 `SECURITY-REVIEW.md`의 "사람이 봐야 하는 것"(출처 검사의 가정, 푸시 기기의 APNs 토큰 이전, 앞단 프록시 로그의 `?token=`)을 함께 본다 | P5-15 |
 | Apple의 서버 간 알림(계정 삭제·이메일 변경 통지)과 토큰 폐기를 받지 않는다. 필요한지 정한다 | P5-05 |
 | App Store에 올리려면 앱 안에서 계정 삭제를 시작할 수 있어야 할 수 있다(지침 5.1.1(v)). 지금은 "웹에서 열기"다 | P6-A6 |
 | 마이크·시스템 오디오 2채널을 서버가 화자 구분에 쓰게 할지(평가가 필요하다) | P6-A10 |
@@ -90,7 +89,6 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 옛 관리자 콘솔을 지우면 롤백 수단이 "웹 셸 끄기"에서 "이전 릴리스로 되돌리기"로 바뀐다. 승인할 때 알고 있어야 한다 | P5-14 |
 | `LECTERN_V1_BLOCK`을 켜는 시점. **Android와 Windows 앱은 목록·상세를 아직 `/api/lectures`로 읽는다.** 차단을 켜면 그 화면이 깨진다(아래 "후속 작업"의 첫 줄이 먼저다) | P6-03 |
 | 처음 온 사람이 인계 점검표를 실제로 따라 해 보는 것 | P7-05 |
-| P5-15 보안 테스트의 발견 1건(중간, CSRF: 쿠키로 인증한 변경 요청에 출처 검사 없음)을 고칠 작업을 만들지. 테스트 49개와 보고서 `SECURITY-REVIEW.md`는 로컬 브랜치 `wp/P5-15`에만 있다(`p0-foundations`만 push한다). 실패하는 테스트를 통합 브랜치에 합치지 않았다. 브랜치를 올릴지, 고친 뒤 합칠지 | P5-15 |
 | 올린 뒤 기기의 녹음·공유 파일을 자동으로 지울지. 지금 대기열은 완료된 항목의 파일을 사용자가 그 항목을 지울 때까지 둔다(공유한 파일은 원본이 따로 있어 복사본이 하나 더 남는다) | P6-A8 |
 | 샌드박스 Mac 앱에서 Core Audio 프로세스 탭(시스템 오디오)이 동작하지 않으면 샌드박스 정책을 어떻게 할지(MANUAL_CHECKS 41에서 드러난다) | P6-A10 |
 | iOS 앱 entitlements에 Push Notifications와 Associated Domains가 들어가 무료 개인 팀으로는 자동 서명이 되지 않는다. iPhone에서 하는 모든 수동 점검(MANUAL_CHECKS 1–57)에 유료 Apple Developer 팀이 필요하다 | P6-A11 |
@@ -128,7 +126,6 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | `packages/db`의 `WORKSPACE_TABLES`(`deleteWorkspaceRows`)에 P4 표가 없다. 계정 삭제는 `deleteUserAndData`가 사용자 기준으로 지우지만, 팀 워크스페이스를 지울 때는 남는다 | P4-05 |
 | domain 설명 문구 두 곳: `UpdateWorkspaceRequest.settings`는 "Replaces"라고 하지만 서버는 얕게 합친다. `StartGoogleIntegrationRequest.return_to` 예시는 `/settings/integrations`지만 실제 경로는 `/app/settings#integrations`다 | P4-02, P4-04 |
 | 물어보기 runner는 검색이 질문을 노트에 근거 짓지 못하면 모델을 부르지 않는다. 그래서 "이번 주 마감이 뭐야?"처럼 노트 본문과 겹치지 않는 질문은 `list_items`에 닿지 못한다. 근거가 없어도 도구 라운드를 한 번 열지 정한다 | P4-06 |
-| 쿠키로 인증한 변경 요청의 출처 검사: v2 전체와 v1 `/api/auth/*`·`/api/admin/*`·`/api/lectures/*`. `Sec-Fetch-Site`가 same-origin·none이거나 `Origin`이 `LECTERN_BASE_URL`일 때만, 토큰 요청과 Apple 콜백은 제외(`SECURITY-REVIEW.md` 발견 1). 고친 뒤 `wp/P5-15`의 `csrf.test.ts`가 통과하고 새 관리자 콘솔 e2e를 다시 돈다 | P5-15 |
 | 서버 타입 `OpsJob.kind`·`stage`와 `AdminLectureDto.job_kind`는 `"distill" \| "compact"`인데 v2 `"index"` 작업이 온다. 웹은 아무 문자열이나 받는다 | P5-13, P5-16 |
 | v1 로그인 응답 본문의 세션 토큰(`token`) 제거 검토: `HttpOnly` 쿠키와 같은 값을 스크립트가 읽을 수 있다(v1 계약) | P5-15 |
 
@@ -144,7 +141,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 
 | 날짜 | WP | 내용 | 처리 |
 |---|---|---|---|
-| 2026-11-15 | P6-C | 로컬 브랜치 `wp/P5-15`의 `apps/server/test/security/routes.ts` `PATH_PARAMS`에 `marker_id`가 없다. 그 브랜치를 올리거나 합칠 때 더한다(없으면 새 라우트에서 "no sample for path param"으로 멈춘다) | 대기(P5-15 결정과 함께) |
+| 2026-11-15 | P6-C | 로컬 브랜치 `wp/P5-15`의 `apps/server/test/security/routes.ts` `PATH_PARAMS`에 `marker_id`가 없다. 그 브랜치를 올리거나 합칠 때 더한다(없으면 새 라우트에서 "no sample for path param"으로 멈춘다) | 고침(P5-15를 옮길 때 표시·푸시 기기·Live Activity 샘플과 함께 더함) |
 | 2026-11-15 | P6-C | 계정 삭제가 P6 테이블을 미리 목록에 넣어 두었는데 `push_device`에는 `workspace_id`가 없어, 테이블이 생기자 삭제가 실패했다. 워크스페이스 표에서 빼고, `live_activity`는 그 사용자의 기기로 지우게 고쳤다 | P6-C에서 고침 |
 | 2026-11-15 | P6-C | `LECTERN_V1_SUNSET`의 틀린 날짜는 시작을 막지 않고 `null`(헤더·차단 없음)이다. 명세 5단계 괄호와 6절 테스트가 달라 테스트를 따랐다 | 기록만 |
 | 2026-11-15 | P6-C | 녹음 삭제(휴지통 비우기 포함)와 팀 워크스페이스 삭제 때 `recording_marker`·`live_activity` 정리 | P6-01에서 함(v2 녹음 삭제, 강의 삭제, 계정·관리자 사용자 삭제. 팀 워크스페이스 삭제 라우트는 없다) |
@@ -173,7 +170,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-A6 | 화면은 `LecternClient` 프로토콜로만 서버에 묻는다(`LiveClient`, `FixtureClient`). 뷰모델(`LoginViewModel`·`LibraryViewModel`·`RecordingViewModel`)과 `PlayerViewModel`은 LecternUI에 있다. macOS는 `LiveClient(platform: "macos")`로 같은 뷰모델을 쓴다 | P6-A9에 전달 → 받은 작업 합쳐짐 |
 | 2026-11-15 | P6-A6 | 오디오는 `LecternAPI.assetContentURL`이 자격을 `?token=`에 넣은 주소로 재생한다(AVPlayer는 헤더를 못 붙인다). 접근 토큰이 1시간이라 재생 중 항목이 실패하면 새 주소로 한 번 다시 불러 같은 위치에서 잇는다 | 기록만 |
 | 2026-11-15 | P6-A6 | 백그라운드 업로드(`BackgroundUploader`, `handleEventsForBackgroundURLSession`)는 아직 없다. 앱이 활성일 때만 `run()`한다. 대기열은 프로세스마다 하나여야 하는데 지금은 `AppModel`이 만들고 서버 주소가 바뀌면 다시 만든다. 인텐트가 장면 없이 앱을 깨우면 `AppModel`이 없을 수 있다 | P6-A7에 전달 → 받은 작업 합쳐짐 |
-| 2026-11-15 | P6-A6 | 붙여 넣은 API 토큰은 만료가 없는데 이제 `?token=`으로도 간다. 서버 v2 로그는 pathname만 남긴다(쿼리 없음). 앞단 프록시의 접근 로그가 쿼리를 남기는지 확인한다 | P5-15 보안 검토에 더함 |
+| 2026-11-15 | P6-A6 | 붙여 넣은 API 토큰은 만료가 없는데 이제 `?token=`으로도 간다. 서버 v2 로그는 pathname만 남긴다(쿼리 없음). 앞단 프록시의 접근 로그가 쿼리를 남기는지 확인한다 | `SECURITY-REVIEW.md` "사람이 봐야 하는 것"에 적음 |
 | 2026-11-15 | P6-A7 | 프로세스에 하나인 `AppServices`(`App.init`에서 만든다)가 클라이언트, 업로드 대기열과 `BackgroundUploader`, 녹음 세션을 갖는다. 업로드는 활성일 때 `run(skipping: inFlightJobIDs())`, 활성이 아닐 때 `BackgroundUploader.start(jobID:)`(`UploadQueue.claimForBackground`)로, 한 항목은 한쪽만 올린다. 공유 확장은 `enqueue`만 하고 올리지 않는다 | P6-A8·A9에 전달 → 받은 작업 합쳐짐 |
 | 2026-11-15 | P6-A7 | 녹음 Live Activity(`RecordingActivityAttributes`, LecternIntents)는 정지 4초 뒤 끝난다. 처리 진행은 별도 활동으로 잇는다. 인텐트는 App Group `default_workspace_id`(로그인 때 앱이 개인 워크스페이스를 적는다)로 녹음한다 | P6-A11에 전달 → 받은 작업 합쳐짐 |
 | 2026-11-15 | P6-A7 | 설치된 SDK의 `ControlWidgetToggle`은 `SetValueIntent` 하나만 받아서 컨트롤은 시작·정지 인텐트 둘이 아니라 `RecordingToggleIntent`(SetValueIntent + AudioRecordingIntent) 하나다. App Shortcuts는 앱 타깃에 두고 문구는 "Lectern으로 녹음 시작"이다 | 기록만 |
@@ -195,3 +192,4 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P7-04 | 키보드 전용 여정(가입 → 업로드 → 설정 → 로그아웃, 운영자 로그인 → 문서의 시각 표시 → 공유 → 설정의 모든 구역 → 관리의 모든 탭)이 막힌 두 곳을 고쳤다(`RecordingPage.tsx`): 처리 중 상태 문구에 `role="status"`(감싼 `aria-busy` 제거), `녹음 작업` 메뉴에서 연 대화상자를 닫으면 포커스가 `<body>`로 가던 것 → 메뉴 버튼으로. 키보드 단계가 있는 e2e가 없는 화면은 `/app/reset`, `/app/invite`, 관리의 상세 페이지 세 곳이다(axe는 모든 경로) | P7-04에서 고침 / 기록만 |
 | 2026-11-15 | P7-04 | 여정에서 사이드바(사용자 메뉴, 라이브러리)는 Shift+Tab으로 간다(화면이 바뀌면 포커스가 `<main>`에 있고 사이드바는 그 앞). 관리 메뉴 링크는 이름에 개수·설명이 붙고 사이드바에 같은 이름(녹음, 설정)이 있어 관리 메뉴 안에서만 찾는다. 관리 콘솔은 연결을 열어 두어 `networkidle`이 오지 않는다(표·`불러오는 중…`로 로드를 본다). 올린 파일 이름은 가입 이름과 겹치지 않게 `여정 녹음.wav` | 기록만 |
 | 2026-11-15 | 통합 | CI(`d5e3319`)의 Core 작업에서 `scripts/rehearse/rehearse.test.ts`의 digest·integrity·restore 테스트가 "unable to open database file"로 실패: 백업을 `file:…?immutable=1`로 여는데 Linux의 Bun 내장 SQLite는 URI 파일 이름이 기본으로 꺼져 있다(macOS는 시스템 SQLite라 로컬 게이트가 통과했다). `SQLITE_OPEN_URI` 플래그를 직접 주고 행 쿼리만 `safeIntegers`로 읽게 고쳤다(`e25f24b`). 확인됨: `32722fd`의 CI에서 Core 작업 통과(2026-11-15, 같은 실행의 다른 작업도 모두 통과). 실패한 실행에서 Apple 작업은 처음으로 통과했다 | 고침 |
+| 2026-11-15 | P5-15 | 보안 테스트의 발견 1(중간, CSRF: 쿠키로 인증한 변경 요청에 출처 검사 없음)을 사용자 결정("CSRF 수정")으로 고쳤다. `ea052f4`(`fix(server)`, P5-15 소유 밖이라 따로 커밋): `apps/server/src/csrf.ts` 한 곳에서 판정하고, v2는 `createApiV2App` 미들웨어, v2 밖은 `http.ts`가 검사한다. `Sec-Fetch-Site`가 있으면 same-origin·none만(same-site도 403), 없으면 `Origin`이 요청을 받은 출처나 `LECTERN_BASE_URL`의 출처일 때만, 둘 다 없으면 통과. 토큰 요청과 Apple 콜백은 보지 않는다. 물어보기의 cross-site 전용 검사를 이것으로 바꿨다. P5-15를 이 위로 옮겨 경계 테스트 6개(same-site, Origin만, 빈 토큰, 읽기, v1 쿠키 쓰기)를 더했고 보안 테스트 55개, 게이트 `full`(웹 e2e 218개: 실제 Chromium의 v2 쓰기와 v1 로그아웃, 새 관리자 콘솔 읽기)이 통과했다. 수정 전 서버에서는 거절 테스트 7개가 실패한다 | 고침 |

@@ -129,7 +129,7 @@
 - §4 전부: 운영 호스트가 내려가 있고 통합 브랜치(`p0-foundations`)는 아직 `main`에 합쳐지지 않았다. 합칠지와 언제 합칠지는 사용자가 정한다(`main`으로 가는 PR [eunhhu/lectern#1](https://github.com/eunhhu/lectern/pull/1)).
 - 기능 플래그를 켜는 순서를 한 곳에 적은 런북이 없다. §4 아래의 순서는 이 문서가 처음 모은 것이다.
 - 이 점검표의 마지막 판정("처음 온 사람이 문서만으로 할 수 있었다")은 처음 온 사람이 실제로 해 봐야 한다. §3의 확인 칸은 그 사람이 채운다.
-- 사용자 결정이 남은 작업: P2-09(기능 대조표 `없음` 8행)와 그 뒤의 P2-10·P7-03, P5-14(옛 관리자 콘솔 삭제), P5-15(CSRF 발견 1건과 로컬 브랜치 `wp/P5-15`), P6-A12(Developer ID), P6-W1(Windows 빌드 환경).
+- 사용자 결정이 남은 작업: P2-09(기능 대조표 `없음` 8행)와 그 뒤의 P2-10·P7-03, P5-14(옛 관리자 콘솔 삭제), P6-A12(Developer ID), P6-W1(Windows 빌드 환경).
 - 실제 공급자·기기 확인 전부: Gemini 평가 세트와 비용, Google OAuth 검증, 유료 Apple Developer 팀과 기기 점검(`apps/apple/MANUAL_CHECKS.md` 1–57), APNs, Pi에서의 부하·복원·검색 측정, VoiceOver 점검([A11Y-AUDIT.md](../v2/pipeline/A11Y-AUDIT.md)).
 - `disk-full.ts`(디스크 부족 시험)는 작은 볼륨을 마운트해야 해서 §3에 넣지 않았다([load-test.md](load-test.md)).
 - `apps/web/README.md`의 테스트 수("e2e 55개 … 단위 테스트 98개")가 지금 수와 다르다. 이 작업이 고칠 수 있는 파일이 아니다.
