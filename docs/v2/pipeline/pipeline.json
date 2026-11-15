@@ -81,7 +81,7 @@
     {"id":"P6-A7","title":"iOS 녹음 표면","deps":["P6-A4","P6-A6"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"merged"},
     {"id":"P6-A8","title":"iOS 공유 확장","deps":["P6-A6"],"owns":["apps/apple/"],"tier":"basic","gate":"apple","status":"merged"},
     {"id":"P6-A9","title":"macOS 앱","deps":["P6-A4","P6-A5"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"merged"},
-    {"id":"P6-A10","title":"macOS 시스템 오디오와 회의 감지","deps":["P6-A9"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"todo"},
+    {"id":"P6-A10","title":"macOS 시스템 오디오와 회의 감지","deps":["P6-A9"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"merged"},
     {"id":"P6-A11","title":"시스템 표면","deps":["P6-A7","P6-02","P6-03"],"owns":["apps/apple/"],"tier":"careful","gate":"apple","status":"todo"},
     {"id":"P6-A12","title":"배포: Sparkle과 공증 스크립트","deps":["P6-A9"],"owns":["apps/apple/","docs/runbooks/"],"tier":"careful","gate":"apple","status":"todo","needs_user":"Apple Developer ID가 있어야 서명·공증을 확인할 수 있다"},
     {"id":"P6-CI","title":"CI: Apple 빌드 작업","deps":["P6-A1"],"owns":[".github/"],"tier":"careful","gate":"quick","status":"todo"},

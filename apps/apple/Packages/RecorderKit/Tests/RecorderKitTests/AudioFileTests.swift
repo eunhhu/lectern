@@ -48,6 +48,23 @@ final class AudioFileTests: XCTestCase {
         XCTAssertEqual(Double(file.length), 44_100, accuracy: 2048)  // AAC priming and padding
     }
 
+    func testFileSinkWritesTwoChannels() throws {
+        let stereo = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44_100, channels: 2, interleaved: false)!
+        let url = directory.appendingPathComponent("dual.m4a")
+        let sink = FileAudioSink(freeBytes: { _ in 10_000_000_000 })
+        try sink.open(url: url, sampleRate: 44_100, channels: 2)
+        for i in 0..<10 {
+            try sink.write(sine(stereo, frames: 4410, startingAt: i * 4410))
+        }
+        try sink.close()
+
+        let file = try AVAudioFile(forReading: url)
+        XCTAssertEqual(file.fileFormat.channelCount, 2)
+        XCTAssertEqual(Double(file.length), 44_100, accuracy: 2048)
+        XCTAssertEqual(FileAudioSink.settings(sampleRate: 44_100, channels: 2)[AVEncoderBitRateKey] as? Int, 128_000)
+        XCTAssertEqual(FileAudioSink.settings(sampleRate: 44_100, channels: 1)[AVEncoderBitRateKey] as? Int, 64_000)
+    }
+
     func testFileSinkRefusesLowDisk() {
         let sink = FileAudioSink(freeBytes: { _ in 199 * 1024 * 1024 })
         XCTAssertThrowsError(try sink.open(url: directory.appendingPathComponent("rec.m4a"), sampleRate: 44_100, channels: 1)) {

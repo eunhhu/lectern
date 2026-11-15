@@ -129,6 +129,12 @@ struct MenuBarHUD: View {
             .buttonStyle(.bordered)
         }
 
+        if let notice = recording.notice {
+            Label(notice, systemImage: "speaker.slash")
+                .lecternFont(.label)
+                .foregroundStyle(Theme.tone(.attention).text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         if recording.silenceWarning {
             Label(MacRecordingViewModel.silenceText, systemImage: "mic.slash")
                 .lecternFont(.label)

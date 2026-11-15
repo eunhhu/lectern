@@ -18,6 +18,8 @@ final class ReadyNotifier: NSObject, UNUserNotificationCenterDelegate {
     private nonisolated static let recordingIDKey = "recording_id"
 
     var onOpen: ((String) -> Void)?
+    /// A response to another kind of notification (the meeting prompt): its category and action.
+    var onOtherResponse: ((_ category: String, _ action: String) -> Void)?
     var onUnauthorized: (() -> Void)?
     private let defaults: UserDefaults
     private var client: LecternClient?
@@ -147,8 +149,19 @@ final class ReadyNotifier: NSObject, UNUserNotificationCenterDelegate {
         [.banner, .sound]
     }
 
+    /// This is the app's one notification delegate: a "document ready" click opens the recording,
+    /// anything else (the meeting prompt's buttons) goes to `onOtherResponse`.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let id = response.notification.request.content.userInfo[Self.recordingIDKey] as? String else { return }
-        await MainActor.run { self.onOpen?(id) }
+        let content = response.notification.request.content
+        let recordingID = content.userInfo[Self.recordingIDKey] as? String
+        let category = content.categoryIdentifier
+        let action = response.actionIdentifier
+        await MainActor.run {
+            if let recordingID {
+                self.onOpen?(recordingID)
+            } else {
+                self.onOtherResponse?(category, action)
+            }
+        }
     }
 }

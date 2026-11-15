@@ -1,6 +1,7 @@
 import AppKit
 import LecternKit
 import LecternUI
+import RecorderKit
 import SwiftUI
 
 /// ⌘, : the shortcut and the login item (일반), the account and the web pages (계정).
@@ -21,9 +22,25 @@ private struct GeneralSettings: View {
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var needsApproval = LoginItem.needsApproval
     @State private var loginItemError: String?
+    @AppStorage(MacDefaults.systemAudio) private var systemAudio = false
+    @AppStorage(MacDefaults.meetingPrompt) private var meetingPrompt = false
 
     var body: some View {
         Form {
+            Section {
+                Toggle("회의 소리도 함께 녹음(시스템 오디오)", isOn: $systemAudio)
+                    .onChange(of: systemAudio) { _, on in if on { Self.askSystemAudioPermission() } }
+                Text("화상 회의에서 상대방 목소리를 함께 담습니다. 처음 켤 때 macOS가 권한을 묻습니다.")
+                    .lecternFont(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                Toggle("회의 앱이 실행되면 녹음할지 묻기", isOn: $meetingPrompt)
+                    .onChange(of: meetingPrompt) { _, on in if on { services.notifier.askPermissionOnce() } }
+                Text("Zoom, Teams, Webex, FaceTime이 실행되면 알림으로 묻습니다. 녹음을 저절로 시작하지는 않습니다.")
+                    .lecternFont(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            } header: {
+                Text("회의")
+            }
             Section {
                 LabeledContent("녹음 시작·정지") {
                     HotKeyRecorder()
@@ -51,6 +68,16 @@ private struct GeneralSettings: View {
         .formStyle(.grouped)
         .onAppear(perform: readLoginItem)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in readLoginItem() }
+    }
+
+    /// Opens the system audio once for a moment, so macOS asks now rather than in the middle of
+    /// the first meeting. Nothing is kept.
+    private static func askSystemAudioPermission() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let tap = SystemAudioTap()
+            try? tap.start(onSamples: { _ in })
+            tap.stop()
+        }
     }
 
     private func readLoginItem() {
