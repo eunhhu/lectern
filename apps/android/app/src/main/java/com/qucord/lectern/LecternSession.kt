@@ -19,6 +19,7 @@ object LecternSession {
     private const val PREFS = "lectern_prefs"
     private const val KEY_TOKEN = "auth_token"
     private const val KEY_LAST_COURSE = "last_course"
+    private const val KEY_USE_V2_UPLOAD = "use_v2_upload"
     const val DEFAULT_COURSE = "대학교 전공 강의"
 
     val serverBase: String = BuildConfig.LECTERN_SERVER_URL.trimEnd('/')
@@ -59,5 +60,12 @@ object LecternSession {
 
     fun saveLastCourse(context: Context, course: String) {
         if (course.isNotBlank()) prefs(context).edit().putString(KEY_LAST_COURSE, course).apply()
+    }
+
+    /** Settings switch "새 업로드 방식": the v2 resumable upload (on) or v1 `/api/ingest/shortcut` (off). */
+    fun useV2Upload(context: Context): Boolean = prefs(context).getBoolean(KEY_USE_V2_UPLOAD, true)
+
+    fun setUseV2Upload(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean(KEY_USE_V2_UPLOAD, value).apply()
     }
 }

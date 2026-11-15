@@ -25,7 +25,12 @@ data class PendingUpload(
     val lastError: String? = null,
     /** Sent as the multipart filename extension and part Content-Type; the server stores and transcribes by them. */
     val extension: String = DEFAULT_EXTENSION,
-    val mimeType: String = DEFAULT_MIME_TYPE
+    val mimeType: String = DEFAULT_MIME_TYPE,
+    /** v2 upload: the session generation (a new one after an expired session or a changed request). */
+    val uploadGeneration: Int = 0,
+    /** v2 upload: parts the server has, out of [totalParts] (0 before the first part). */
+    val uploadedParts: Int = 0,
+    val totalParts: Int = 0
 ) {
     val file: File get() = File(filePath)
 
@@ -112,6 +117,9 @@ object PendingUploads {
                     .put("lastError", it.lastError ?: JSONObject.NULL)
                     .put("extension", it.extension)
                     .put("mimeType", it.mimeType)
+                    .put("uploadGeneration", it.uploadGeneration)
+                    .put("uploadedParts", it.uploadedParts)
+                    .put("totalParts", it.totalParts)
             )
         }
         return arr.toString()
@@ -134,7 +142,10 @@ object PendingUploads {
                     lastError = if (o.isNull("lastError")) null else o.optString("lastError"),
                     // Entries queued before these fields existed are app recordings.
                     extension = o.optString("extension", PendingUpload.DEFAULT_EXTENSION),
-                    mimeType = o.optString("mimeType", PendingUpload.DEFAULT_MIME_TYPE)
+                    mimeType = o.optString("mimeType", PendingUpload.DEFAULT_MIME_TYPE),
+                    uploadGeneration = o.optInt("uploadGeneration", 0),
+                    uploadedParts = o.optInt("uploadedParts", 0),
+                    totalParts = o.optInt("totalParts", 0)
                 )
             }
         } catch (_: Exception) {

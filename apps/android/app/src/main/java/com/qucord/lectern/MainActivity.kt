@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -39,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -206,6 +208,7 @@ fun LecternNativeComposeApp(serverBase: String, quickRecordRequests: Int) {
     var loginError by remember { mutableStateOf<String?>(null) }
     var isLoggingIn by remember { mutableStateOf(false) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     var lectures by remember { mutableStateOf<List<LectureItem>>(emptyList()) }
     var courses by remember { mutableStateOf(listOf("정보보호개론", "자바프로그래밍", "영어읽기와토론", "대순사상과상생윤리")) }
@@ -546,8 +549,8 @@ fun LecternNativeComposeApp(serverBase: String, quickRecordRequests: Int) {
                     }
                 },
                 actions = {
-                    TextButton(onClick = { showLogoutConfirm = true }) {
-                        Text("로그아웃", color = Color(0xFF9EA6B2), fontSize = 12.sp)
+                    TextButton(onClick = { showSettings = true }) {
+                        Text("설정", color = Color(0xFF9EA6B2), fontSize = 12.sp)
                     }
                     Button(
                         onClick = { showRecorderSheet = true },
@@ -732,6 +735,41 @@ fun LecternNativeComposeApp(serverBase: String, quickRecordRequests: Int) {
         }
     }
 
+    if (showSettings) {
+        var useV2Upload by remember { mutableStateOf(LecternSession.useV2Upload(context)) }
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            title = { Text("설정") },
+            text = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(value = useV2Upload, role = Role.Switch) {
+                            useV2Upload = it
+                            LecternSession.setUseV2Upload(context, it)
+                        }
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("새 업로드 방식", fontWeight = FontWeight.SemiBold)
+                        Text("끊겨도 이어서 올립니다. 문제가 있으면 끄세요.", fontSize = 12.sp, color = Color(0xFF8E95A5))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Switch(checked = useV2Upload, onCheckedChange = null)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSettings = false }) { Text("닫기") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showSettings = false
+                    showLogoutConfirm = true
+                }) { Text("로그아웃", color = Color(0xFFF55864)) }
+            }
+        )
+    }
+
     if (showLogoutConfirm) {
         AlertDialog(
             onDismissRequest = { showLogoutConfirm = false },
@@ -863,7 +901,8 @@ fun LecternNativeComposeApp(serverBase: String, quickRecordRequests: Int) {
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     when (item.status) {
-                                        PendingUpload.STATUS_UPLOADING -> "업로드 중..."
+                                        PendingUpload.STATUS_UPLOADING ->
+                                            if (item.totalParts > 1) "업로드 중 (${item.uploadedParts}/${item.totalParts})" else "업로드 중..."
                                         PendingUpload.STATUS_FAILED -> "실패 · ${item.lastError ?: "재시도 필요"}"
                                         else -> item.lastError?.let { "자동 재시도 대기 · $it" } ?: "업로드 대기 중"
                                     },
