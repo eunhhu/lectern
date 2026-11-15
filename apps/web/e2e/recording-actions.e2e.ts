@@ -62,6 +62,7 @@ test("오디오만 삭제 asks first, then removes only the audio", async ({ pag
   await expect(confirm).toContainText("되돌릴 수 없습니다.");
   await confirm.getByRole("button", { name: "취소" }).click();
   await expect(confirm).toBeHidden();
+  await expect(page.getByRole("button", { name: "녹음 작업" })).toBeFocused();
 
   await page.getByRole("button", { name: "녹음 작업" }).click();
   await expect(page.getByRole("menuitem", { name: "오디오만 삭제…" })).not.toHaveAttribute("aria-disabled", "true");
@@ -74,6 +75,29 @@ test("오디오만 삭제 asks first, then removes only the audio", async ({ pag
   await expect(page.getByRole("menuitem", { name: "다시 처리…" })).toHaveAttribute("aria-disabled", "true");
   await page.keyboard.press("Escape");
   await expect(page.getByText(DOC_TEXT).first()).toBeVisible();
+});
+
+test("closing a dialog from the 녹음 작업 menu returns focus to the menu button; 태그 붙이기 keeps its own", async ({ page }) => {
+  await openRecording(page);
+  const menuButton = page.getByRole("button", { name: "녹음 작업" });
+  for (const [item, dialog] of [
+    ["폴더로 이동…", "폴더로 이동"],
+    ["태그…", "태그"],
+    ["공유…", "공유"],
+  ] as const) {
+    await menuAction(page, item);
+    await expect(page.getByRole("dialog", { name: dialog })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: dialog })).toBeHidden();
+    await expect(menuButton).toBeFocused();
+  }
+  // A dialog opened by a button that is still on the page goes back to that button.
+  const tagButton = page.getByRole("button", { name: /^태그 (붙이기|편집)$/ });
+  await tagButton.click();
+  await expect(page.getByRole("dialog", { name: "태그" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "태그" })).toBeHidden();
+  await expect(tagButton).toBeFocused();
 });
 
 test("Markdown 내려받기 saves the document as <title>.md", async ({ page }) => {

@@ -158,6 +158,7 @@ e2e/       Playwright (*.e2e.ts: bun test가 집어 가지 않도록 .spec이 �
   - 물어보기: 노트 패널(추천 질문 → 스트리밍 답 → 출처로 전사 강조 → "물어보기로"), 근거 없음 → "전체 노트에서 다시 묻기", 물어보기 화면(여러 노트 답, 출처 링크, 기록, 복사), 오프라인 오류 → 다시 시도, 멈춤, ⌘K(전체 노트와 이 노트). 물어보기 빈 화면·대화·답·근거 없음·오류 상태도 axe 0건.
   - 로그인 화면(라이트·다크, 오류), 로그아웃 → 로그인 → 홈, 세션 없이 딥 링크 → 로그인 → 그 화면, 이전 노트(표·제목·`[1:02:40]`로 플레이어 이동)도 fixture 프로젝트에 있다.
   - 지금 e2e 55개(fixture 49, server 6) 통과. 단위 테스트는 `bun test apps/web` 98개.
+  - 키보드 전용 여정(P7-04, `e2e/server/zzz-keyboard-journey.e2e.ts`, server 프로젝트의 마지막): 가입 → 업로드 → 설정 → 로그아웃, 운영자 로그인 → 문서의 시각 표시 → 공유 링크 → 설정의 모든 구역 → 관리의 모든 탭. `test/keyboard-only.test.ts`가 소스에 마우스·`fill` 류 호출이 없는지 본다. 경로별 자동 확인 범위와 VoiceOver 수동 점검표는 [A11Y-AUDIT.md](../../docs/v2/pipeline/A11Y-AUDIT.md).
   - 모든 테스트는 CSP 위반이나 잡히지 않은 오류가 하나라도 나면 실패한다.
 - CI: `.github/workflows/ci-cd.yml`의 `web` job(Bun 1.4.3, `--frozen-lockfile`). `deploy-server`의 `needs`는 그대로다.
 
