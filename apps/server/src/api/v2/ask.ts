@@ -72,16 +72,6 @@ function scopeError(req: V2Request, err: ScopeError): Response {
   return apiError(req.c, err.code === "forbidden" ? 403 : 404, err.code, err.message);
 }
 
-/**
- * Cookie-authenticated browsers only send these from our own pages. A cross-site request
- * carrying the session cookie is refused (AGENTS.md: CSRF defense via Sec-Fetch-Site).
- */
-function crossSiteCookie(req: V2Request): boolean {
-  const site = req.c.req.header("sec-fetch-site");
-  const cookie = req.c.req.header("cookie") ?? "";
-  return site === "cross-site" && /(?:^|;\s*)lectern_session=/.test(cookie);
-}
-
 /** Hides citations of notes that were deleted (or became invisible) since the answer. */
 function withAvailability(turns: AskTurn[], userId: string): AskTurn[] {
   const visible = new Set(recordingRows(personalWorkspaceId(userId)).filter((r) => r.status === "ready").map((r) => r.id));
@@ -144,7 +134,6 @@ export function createAskRouter(getService: () => AskService | null) {
   return defineRouter({
     createAskThread: (req) => {
       if (!getService()) return notImplemented(req);
-      if (crossSiteCookie(req)) return apiError(req.c, 403, "forbidden", "다른 사이트에서 보낸 요청은 받지 않습니다.");
       const body = req.body as { workspace_id: string; scope: AskScope };
       const workspace = workspaceFor(req, body.workspace_id);
       if (workspace instanceof Response) return workspace;
@@ -177,7 +166,6 @@ export function createAskRouter(getService: () => AskService | null) {
 
     deleteAskThread: (req) => {
       if (!getService()) return notImplemented(req);
-      if (crossSiteCookie(req)) return apiError(req.c, 403, "forbidden", "다른 사이트에서 보낸 요청은 받지 않습니다.");
       const thread = ownThread(req);
       if (!thread) return apiError(req.c, 404, "not_found", "대화를 찾을 수 없습니다.");
       deleteThread(db, thread.id);
@@ -187,7 +175,6 @@ export function createAskRouter(getService: () => AskService | null) {
     askQuestion: (req) => {
       const service = getService();
       if (!service) return notImplemented(req);
-      if (crossSiteCookie(req)) return apiError(req.c, 403, "forbidden", "다른 사이트에서 보낸 요청은 받지 않습니다.");
       const user = req.user!;
       const thread = ownThread(req);
       if (!thread) return apiError(req.c, 404, "not_found", "대화를 찾을 수 없습니다.");

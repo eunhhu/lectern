@@ -6,6 +6,7 @@
 
 모든 라우트는 리소스 라우터(`me.ts`, `recordings.ts` …)가 `defineRouter()`로 domain의 `RouteDef`에서 메서드·경로·스키마를 읽어 등록한다. 경로를 이 디렉터리에 다시 적지 않는다.
 
+0. **출처 검사(403)**: 세션 쿠키로 인증한 쓰기(GET·HEAD·OPTIONS가 아닌 것)는 라우트보다 먼저 `../../csrf.ts`의 `crossSiteCookieWrite()`를 지난다. `Sec-Fetch-Site`가 있으면 `same-origin`·`none`만, 없으면 `Origin`이 요청을 받은 출처나 `LECTERN_BASE_URL`의 출처여야 하고, 둘 다 없으면(웹 페이지가 보낸 요청이 아니다) 통과한다. 토큰 요청(`Authorization`, `X-Lectern-Token`, `?token=`)과 `POST /auth/apple/callback`은 보지 않는다. 라우트보다 먼저라 없는 경로에도 403이다. v2 밖의 경로(v1, 옛 관리자 콘솔)는 `http.ts`가 같은 검사를 v1 오류 형식으로 한다.
 1. **인증(401)**: `authn.ts`의 `authenticateV2()`. `lectern_session` 쿠키, `Authorization: Bearer`, `X-Lectern-Token`, `?token=`을 받는다. 세션과 v1 API 토큰은 v1과 같은 결과(`auth.ts` `resolveActiveUser()`)이고, 개인 액세스 토큰(`lct_pat_…`, P5-02)과 네이티브 access 토큰(`lct_at_…`, P5-03)은 v2에서만 받는다(v1 라우트에서는 401). refresh 토큰(`lct_rt_…`)으로는 인증되지 않는다.
 2. **개인 액세스 토큰 검사(403)**: `me`(단 `getMe`는 허용)·`admin`·`auth` 태그와 공유 링크·Google 연동 시작/해제는 토큰으로 부를 수 없다. `GET`·`HEAD`는 `recordings:read`, 그 밖은 `recordings:write` 범위가 있어야 한다. 토큰은 만들 때 고른 워크스페이스에서만 멤버로 보인다(`access.ts` `callerIn`).
 3. **운영자 확인(403)**: `admin` 태그 라우트는 v1 `isAdminUser()`가 참이어야 한다.
@@ -18,7 +19,7 @@ domain 표 밖의 브라우저 이동 라우트도 있다. 응답은 JSON이 아
 
 - `GET /integrations/google/callback`: Google 캘린더 연결의 돌아오는 곳(P4-02).
 - `GET /auth/google/start?next=…`, `GET /auth/google/callback`: "Google로 계속하기"(P5-04, D-P5-5). `LECTERN_GOOGLE_LOGIN`이 꺼져 있거나 OAuth 클라이언트가 없으면 404. 시작할 때 로그인돼 있으면 계정에 연결하는 흐름이다(`/app/settings?identity=linked|taken#account`). 실패는 모두 `/app/login?error=oauth|email_unverified|no_email|inactive|signup_closed`. state는 한 번만 쓰이고 ID 토큰의 nonce이며, 시작한 브라우저의 짧은 쿠키(`lectern_oauth`)와 맞아야 한다.
-- `GET /auth/apple/start?next=…`, `POST /auth/apple/callback`: "Apple로 계속하기"(P5-05). `LECTERN_APPLE_LOGIN`이 꺼져 있으면 404, `APPLE_SIGNIN_*` 값이나 키 파일이 없으면 501. 콜백은 Apple이 보내는 교차 사이트 `POST`(form_post)라 세션 쿠키가 오지 않는다. state(한 번, 10분, nonce)와 `Origin: https://appleid.apple.com`(보낼 때)으로 막고, 연결 흐름의 사용자는 state에 적힌 사용자다. 응답은 모두 303.
+- `GET /auth/apple/start?next=…`, `POST /auth/apple/callback`: "Apple로 계속하기"(P5-05). `LECTERN_APPLE_LOGIN`이 꺼져 있으면 404, `APPLE_SIGNIN_*` 값이나 키 파일이 없으면 501. 콜백은 Apple이 보내는 교차 사이트 `POST`(form_post)라 세션 쿠키가 오지 않는다(출처 검사에서 빠진다). state(한 번, 10분, nonce)와 `Origin: https://appleid.apple.com`(보낼 때)으로 막고, 연결 흐름의 사용자는 state에 적힌 사용자다. 응답은 모두 303.
 
 ## 데이터: v1 강의와 v2 행
 

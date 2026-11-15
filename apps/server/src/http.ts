@@ -10,6 +10,7 @@ import { API_BASE_PATH, createApiV2App } from "./api/v2/index.ts";
 import { aasaDocument } from "./apple-app-site-association.ts";
 import { feedByToken, feedEvents } from "./calendar/feed.ts";
 import { renderIcs } from "./calendar/ics.ts";
+import { CROSS_SITE_MESSAGE, crossSiteCookieWrite } from "./csrf.ts";
 import { LEGAL_PAGES, legalPageHtml } from "./legal.ts";
 import { createShareRouter } from "./share-page.ts";
 import { logger } from "./log.ts";
@@ -36,6 +37,24 @@ export function createHttpApp(legacy: (req: Request) => Promise<Response>, optio
     c.set("requestId", requestId);
     await next();
     c.res.headers.set("X-Request-Id", requestId);
+  });
+
+  // Cookie-authenticated writes outside /api/v2 (v1 auth, admin and lecture routes; the new
+  // admin console calls the v1 admin API with the cookie) come from our own pages only
+  // (csrf.ts). API v2 runs the same check itself, in its own error shape.
+  app.use("*", async (c, next) => {
+    const path = c.req.path;
+    if (path === API_BASE_PATH || path.startsWith(`${API_BASE_PATH}/`)) return next();
+    const refusal = crossSiteCookieWrite(c.req.raw);
+    if (!refusal) return next();
+    logger.warn("cross-site cookie request refused", {
+      request_id: c.get("requestId"),
+      method: c.req.method,
+      path: redactUrlForLog(new URL(c.req.url)),
+      sec_fetch_site: refusal.site,
+      origin: refusal.origin,
+    });
+    return c.json({ error: CROSS_SITE_MESSAGE }, 403);
   });
 
   app.onError((err, c) => {

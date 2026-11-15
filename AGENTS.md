@@ -130,7 +130,7 @@ bun test
 - **웹 인증은 쿠키 전용이다.**
   - 브라우저 UI는 HttpOnly `lectern_session` 쿠키(`Secure`, `SameSite=Lax`)로만 인증한다. 토큰을 `localStorage`에 두거나 `X-Lectern-Token` 헤더·`?token=` 쿼리를 브라우저 코드에서 보내지 않는다.
   - 헤더 토큰(`X-Lectern-Token`)과 `?token=`은 네이티브 클라이언트와 단축어용이다.
-  - 쿠키로 인증하는 변경 요청에 CSRF 방어를 넣는다면 `Origin`/`Sec-Fetch-Site` 기반으로 한다. 커스텀 헤더를 요구하면 웹 UI가 깨진다.
+  - 쿠키로 인증한 변경 요청(GET·HEAD·OPTIONS가 아닌 것)은 `apps/server/src/csrf.ts`가 `Origin`/`Sec-Fetch-Site`로 출처를 검사한다. `Sec-Fetch-Site`가 있으면 `same-origin`·`none`만, 없으면 `Origin`이 서버 자신이나 `LECTERN_BASE_URL`의 출처일 때만 받는다(둘 다 없으면 웹 페이지가 보낸 요청이 아니라서 받는다). 커스텀 헤더를 요구하지 않는다(웹 UI가 깨진다). 다른 사이트에서 오는 것이 정상인 쿠키 쓰기 라우트(지금은 Apple 콜백 하나)는 `api/v2/index.ts`의 예외와 `apps/server/test/security/csrf.test.ts`에 함께 적는다.
 - 로그는 `apps/server/src/log.ts`의 `logger`로 남긴다(JSON 한 줄, `request_id`·`job_id` 같은 필드를 붙인다). 토큰, 키, 쿠키, 요청 본문은 남기지 않는다. URL 쿼리의 자격 증명은 `redactUrlForLog()`로 가린다.
 - 업로드는 MIME·확장자 화이트리스트를 지키고, 오디오는 확장자 기준 MIME과 `nosniff`로 서빙한다.
 

@@ -5,6 +5,7 @@
 
 import { Hono } from "hono";
 import { API_BASE_PATH, serializeOpenApi } from "@lectern/domain";
+import { CROSS_SITE_MESSAGE, crossSiteCookieWrite } from "../../csrf.ts";
 import { syncPendingLectures } from "../../db.ts";
 import { logger } from "../../log.ts";
 import { askService, type AskService } from "../../ask/service.ts";
@@ -95,6 +96,24 @@ export function createApiV2App(options: ApiV2Options = {}) {
     if (!c.res.headers.has("Cache-Control")) c.res.headers.set("Cache-Control", "no-store");
   });
 
+  // Writes authenticated by the session cookie come from our own pages only (csrf.ts), before
+  // any route can answer. Apple's form_post callback is cross-site by design and carries no
+  // cookie (SameSite=Lax); the single-use state guards it instead.
+  v2.use("*", async (c, next) => {
+    const path = c.req.path.startsWith(API_BASE_PATH) ? c.req.path.slice(API_BASE_PATH.length) : c.req.path;
+    if (c.req.method === "POST" && path === "/auth/apple/callback") return next();
+    const refusal = crossSiteCookieWrite(c.req.raw);
+    if (!refusal) return next();
+    logger.warn("cross-site cookie request refused", {
+      request_id: c.get("requestId"),
+      method: c.req.method,
+      path: c.req.path,
+      sec_fetch_site: refusal.site,
+      origin: refusal.origin,
+    });
+    return apiError(c, 403, "forbidden", CROSS_SITE_MESSAGE);
+  });
+
   // The schema is public (it is generated from this public repository's packages/domain).
   // The committed openapi.json is byte-identical to this (packages/domain staleness test).
   v2.get("/openapi.json", (c) => {
@@ -116,7 +135,7 @@ export function createApiV2App(options: ApiV2Options = {}) {
   v2.get("/auth/google/start", googleLoginStart);
   v2.get("/auth/google/callback", googleLoginCallback);
   // "Apple로 계속하기" (P5-05). The callback is a cross-site form_post from appleid.apple.com;
-  // it is protected by the single-use state (v2 has no cookie-origin middleware to exempt it from).
+  // it is protected by the single-use state (and left out of the cookie-origin check above).
   v2.get("/auth/apple/start", appleLoginStart);
   v2.post("/auth/apple/callback", appleLoginCallback);
 
