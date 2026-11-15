@@ -60,6 +60,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 공유 확장의 기기 점검(음성 메모에서 공유 → 앱에서 업로드, 오디오와 PDF 짝짓기, 1GB 공유, 메타데이터 없는 옛 파일의 녹음 시각, 오디오·PDF에만 보이는지): `apps/apple/MANUAL_CHECKS.md` 26–30. 활성화 규칙(술어 문자열)은 macOS `NSPredicate`로 읽히고 빌드된 확장의 Info.plist에 한 줄로 들어간 것까지 확인했다 | P6-A8 |
 | macOS 앱의 기기 점검(서명한 빌드): 옛 앱 다음 마이크 권한·로그인 이어짐(Keychain 창이 뜰 수 있고, 못 읽으면 한 번 다시 로그인), 메뉴바 녹음 → 업로드 → `문서가 준비되었습니다` 알림 → 클릭으로 열기, 다른 앱이 앞에 있을 때 ⌥Space, 로그인 시 실행, 창을 닫아도 녹음이 이어지고 녹음 중 종료하면 저장, data protection keychain에 로그인이 남는지, 메인 창 키보드, `Lectern 열기`가 창을 하나만 여는지, HUD의 `설정…`: `apps/apple/MANUAL_CHECKS.md` 31–40 | P6-A9 |
 | Mac 회의 녹음의 기기 점검(서명한 빌드): 시스템 오디오 권한 문구, 음악 + 목소리가 오른쪽·왼쪽에, 소리 없을 때 마이크가 끊기지 않음, 권한 거부 때 마이크만 녹음과 경고(거부가 'nope' 오류로 온다고 가정했다. 무음으로만 나타나면 경고가 뜨지 않는다), 30분 동안 두 채널의 어긋남, Zoom 실행 알림과 `녹음 시작`(Teams·Webex·FaceTime 번들 id 확인), 올린 회의 파일의 전사, 녹음 중 출력 장치 변경: `apps/apple/MANUAL_CHECKS.md` 41–48 | P6-A10 |
+| iPhone 시스템 표면의 기기 점검(유료 팀으로 서명, 서버에 `APNS_*`): 알림 허용 뒤 `push_device` 행과 재설치 뒤 기기 id, 앱을 닫은 채 처리 Live Activity의 단계 변화(활동이 두 개 뜨지 않음), Mac 업로드의 push-to-start, 문서 준비 알림을 눌러 열기, Spotlight·Siri("Lectern에서 … 열기"), 위젯과 로그아웃 뒤 비움, 메모 앱의 `/app/recordings/<id>` 유니버설 링크와 `/s/` 링크가 앱으로 되돌아오지 않는지, Mac↔iPhone Handoff(Mac에서 창이 하나만), `캘린더에 추가`가 한 번만: `apps/apple/MANUAL_CHECKS.md` 49–57 | P6-A11 |
 | 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
 | CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
 | Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
@@ -87,6 +88,8 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | P5-15 보안 테스트의 발견 1건(중간, CSRF: 쿠키로 인증한 변경 요청에 출처 검사 없음)을 고칠 작업을 만들지. 테스트 49개와 보고서 `SECURITY-REVIEW.md`는 로컬 브랜치 `wp/P5-15`에만 있다(`p0-foundations`만 push한다). 실패하는 테스트를 통합 브랜치에 합치지 않았다. 브랜치를 올릴지, 고친 뒤 합칠지 | P5-15 |
 | 올린 뒤 기기의 녹음·공유 파일을 자동으로 지울지. 지금 대기열은 완료된 항목의 파일을 사용자가 그 항목을 지울 때까지 둔다(공유한 파일은 원본이 따로 있어 복사본이 하나 더 남는다) | P6-A8 |
 | 샌드박스 Mac 앱에서 Core Audio 프로세스 탭(시스템 오디오)이 동작하지 않으면 샌드박스 정책을 어떻게 할지(MANUAL_CHECKS 41에서 드러난다) | P6-A10 |
+| iOS 앱 entitlements에 Push Notifications와 Associated Domains가 들어가 무료 개인 팀으로는 자동 서명이 되지 않는다. iPhone에서 하는 모든 수동 점검(MANUAL_CHECKS 1–57)에 유료 Apple Developer 팀이 필요하다 | P6-A11 |
+| 유니버설 링크: `apps/apple/Local.xcconfig`의 `LECTERN_ASSOCIATED_DOMAIN`(서버 호스트)과 배포 서버의 `APPLE_APP_IDS`(TEAMID.com.qucord.lectern.ios, …macos)를 넣는다. 빈 값으로 서명하면 entitlement가 `applinks:`만 남는다. 배포 서명에서는 `aps-environment`를 production으로 | P6-A11 |
 
 ### 후속 작업 (이 파이프라인에 WP가 없다)
 
@@ -175,3 +178,5 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-A9 | `KeychainTokenStore`는 macOS에서 접근 그룹이 있으면 data protection keychain을 쓴다(명세에 없음. 접근 그룹은 그곳에만 있다. 나중에 바꾸면 사용자가 로그아웃된다). 옛 앱의 토큰은 처음 한 번만(`legacy_token_settled`) 가져온다. `MacRecordingViewModel`은 프로토콜 둘 대신 `RecordingSession`을 받는다. Space 재생은 메뉴 단축키가 아니라 창의 키 이벤트다 | 기록만 |
 | 2026-11-15 | P6-A10 | 서버의 오디오 압축(`apps/server/src/storage.ts`)은 `-ac 1`로 모노로 내려 섞는다. Mac의 2채널 회의 파일(왼쪽 마이크, 오른쪽 시스템 오디오)은 두 목소리가 각각 절반 크기로 전사에 들어간다. 조용한 상대방 소리가 빠지거나 화자 구분에 두 채널을 쓰려면 서버 쪽 작업이다 | 서버에 전달 |
 | 2026-11-15 | P6-A10 | 시스템 오디오 탭의 형식은 시작할 때 한 번 읽는다. 녹음 중 출력 장치가 바뀌면(AirPods) 형식이 바뀌는지 모른다(MANUAL_CHECKS 48). 회의 알림 본문은 시스템 오디오가 꺼져 있으면 `Lectern이 마이크로 회의를 녹음합니다.`다. `ChannelMixer`에 `bufferedMicFrames`·`bufferedSystemFrames`, `DualInput`은 `SystemAudioSource` 프로토콜로 탭을 받는다 | 기록만 |
+| 2026-11-15 | P6-A11 | 서버의 문서 준비 알림(`apps/server/src/apns/payload.ts`)에 `category`가 없어 앱의 카테고리 `DOCUMENT_READY`·액션 `열기` 버튼이 보이지 않는다(누르면 열리는 것은 된다). 버튼이 필요하면 페이로드의 `aps`에 `"category": "DOCUMENT_READY"`를 더한다 | 서버에 전달 |
+| 2026-11-15 | P6-A11 | 기기 id는 Keychain `device_id`(재설치 뒤 새 id인지는 MANUAL_CHECKS 49), `OpenRecordingIntent`는 `supportedModes = .foreground`(iOS 26에서 `openAppWhenRun` deprecated), 위젯의 로그아웃 상태는 App Group `default_workspace_id`, 녹음 일정은 느슨한 디코더로 읽고 웹에서 수락한 일정만 캘린더 버튼, small `최근 문서` 위젯은 한 개, 앱 활동과 push-to-start가 겹치면 나중 것을 끝냄, Handoff는 Mac도 알리고 받음(`RecordingHandoff`는 LecternKit) | 기록만 |
