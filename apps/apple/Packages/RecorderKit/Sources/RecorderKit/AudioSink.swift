@@ -11,6 +11,7 @@ public protocol AudioSink: Sendable {
 }
 
 /// AAC in an .m4a file, the same settings as the old macOS menu-bar app (44.1 kHz, mono, 64 kbps).
+/// Two channels (microphone + system audio on a Mac) get 64 kbps each.
 ///
 /// An .m4a is only playable once `close()` has written its index: a recording that the process
 /// dies in the middle of cannot be read back (MANUAL_CHECKS).
@@ -24,7 +25,7 @@ public final class FileAudioSink: AudioSink, @unchecked Sendable {
     private let freeBytes: @Sendable (URL) -> Int64?
 
     /// `freeBytes` answers for a directory; nil means unknown (the check is skipped).
-    public init(freeBytes: @escaping @Sendable (URL) -> Int64? = FileAudioSink.availableBytes(in:)) {
+    public init(freeBytes: @escaping @Sendable (URL) -> Int64? = { FileAudioSink.availableBytes(in: $0) }) {
         self.freeBytes = freeBytes
     }
 
@@ -38,7 +39,7 @@ public final class FileAudioSink: AudioSink, @unchecked Sendable {
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: sampleRate,
             AVNumberOfChannelsKey: channels,
-            AVEncoderBitRateKey: bitRate,
+            AVEncoderBitRateKey: bitRate * max(channels, 1),
         ]
     }
 

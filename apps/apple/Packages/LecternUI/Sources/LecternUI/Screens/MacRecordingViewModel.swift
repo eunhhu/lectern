@@ -31,6 +31,9 @@ public final class MacRecordingViewModel: ObservableObject {
     @Published public private(set) var level: Float = 0
     @Published public private(set) var markerCount = 0
     @Published public private(set) var silenceWarning = false
+    /// Something the recording in progress should say (the system audio could not be added).
+    /// Cleared when the next recording starts and when this one ends.
+    @Published public private(set) var notice: String?
     /// Where the next recording goes (the signed-in workspace; the HUD picks the folder). nil:
     /// nobody is signed in.
     @Published public var draft: RecordingDraft?
@@ -82,6 +85,12 @@ public final class MacRecordingViewModel: ObservableObject {
         await session.addMarker()
     }
 
+    /// A warning about the recording in progress, from outside the session (a failed system
+    /// audio tap: the microphone goes on alone). May come before the state says `recording`.
+    public func showNotice(_ text: String) {
+        notice = text
+    }
+
     /// The running elapsed time again (every second while recording; tests call it directly).
     public func tick() {
         guard case .recording = state, let content, content.phase == .recording else { return }
@@ -115,6 +124,7 @@ public final class MacRecordingViewModel: ObservableObject {
     // MARK: - Internals
 
     private func start() async {
+        notice = nil
         guard let draft else {
             state = .failed(Self.signInNeededText)
             return
@@ -181,6 +191,7 @@ public final class MacRecordingViewModel: ObservableObject {
         level = 0
         markerCount = 0
         silenceWarning = false
+        notice = nil
         content = nil
     }
 

@@ -204,6 +204,22 @@ final class MacRecordingViewModelTests: XCTestCase {
         XCTAssertEqual(m.state, .failed(MacRecordingViewModel.signInNeededText))
     }
 
+    func testNoticeLastsForTheRecording() async {
+        let m = model()
+        await m.toggle()
+        await until { m.state.isLive }
+        m.showNotice("시스템 오디오를 녹음하지 못해 마이크만 녹음합니다.")
+        input.send(30)
+        XCTAssertEqual(m.notice, "시스템 오디오를 녹음하지 못해 마이크만 녹음합니다.")
+        await m.toggle()
+        XCTAssertNil(m.notice)  // the recording ended
+        m.showNotice("이전 녹음의 경고")
+        await m.toggle()
+        XCTAssertNil(m.notice)  // a new recording starts clean
+        await until { m.state.isLive }
+        await m.toggle()
+    }
+
     func testHotKeyComboRoundTrip() {
         let defaults = UserDefaults(suiteName: "hotkey-\(UUID().uuidString)")!
         XCTAssertEqual(HotKeyCombo.load(from: defaults), .default)

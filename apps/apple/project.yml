@@ -105,6 +105,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         NSMicrophoneUsageDescription: 강의와 회의를 녹음하려면 마이크가 필요합니다.
+        NSAudioCaptureUsageDescription: 회의에서 상대방의 소리를 함께 녹음하려면 시스템 오디오 접근이 필요합니다.
         LSUIElement: false
         LecternServerURL: $(LECTERN_SERVER_URL)
         AppIdentifierPrefix: $(AppIdentifierPrefix)

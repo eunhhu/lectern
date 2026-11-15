@@ -46,6 +46,7 @@ final class MacServices: ObservableObject {
     let menuBar = MenuBarState()
     let hotKey = GlobalHotKey()
     let notifier = ReadyNotifier()
+    let meetings = MeetingWatcher()
     private(set) var uploadQueue: UploadQueue?
     private let recordingSession: RecordingSession
     private let tokenStore: TokenStore
@@ -71,7 +72,18 @@ final class MacServices: ObservableObject {
         makeUploadQueue()
         notifier.onOpen = { [weak self] id in self?.openRecording(id) }
         notifier.onUnauthorized = { [weak self] in self?.sessionExpired() }
+        notifier.onOtherResponse = { [weak self] category, action in self?.meetings.handle(category: category, action: action) }
         notifier.start(client: client)
+        meetings.isRecording = { [weak self] in
+            guard let state = self?.recording.state else { return false }
+            return state.isLive || state == .saving
+        }
+        meetings.isSignedIn = { [weak self] in self?.session == .signedIn }
+        meetings.onStart = { [weak self] in
+            // Only from idle: a recording that began after the prompt must not be stopped.
+            guard let self, !self.recording.state.isLive, self.recording.state != .saving else { return }
+            Task { await self.recording.toggle() }
+        }
         hotKey.onPress = { [weak self] in
             guard let self else { return }
             Task { await self.recording.toggle() }
@@ -308,7 +320,8 @@ final class MacServices: ObservableObject {
     }
 
     /// Recordings are written into the App Group container's `Recordings/`, where the upload
-    /// queue reads them.
+    /// queue reads them. With "회의 소리도 함께 녹음" on, the input is the microphone (left) and the
+    /// system audio (right); if the system audio cannot start, the microphone goes on alone.
     private static func makeRecordingSession() -> RecordingSession {
         let directory = AppEnvironment.sharedContainerURL().appendingPathComponent(UploadJob.recordingsFolder, isDirectory: true)
         let activity = RecordingActivityToken()
@@ -329,9 +342,19 @@ final class MacServices: ObservableObject {
         )
         return RecordingSession(
             makeRecorder: {
-                let input = EngineAudioInput()
+                let mic = EngineAudioInput()
+                let input: AudioInput
+                if UserDefaults.standard.bool(forKey: MacDefaults.systemAudio) {
+                    let dual = DualInput(mic: mic, system: SystemAudioTap(sampleRate: mic.format.sampleRate))
+                    dual.onSystemAudioFailed = { _ in
+                        Task { @MainActor in MacServices.shared.recording.showNotice(DualInput.micOnlyWarning) }
+                    }
+                    input = dual
+                } else {
+                    input = mic
+                }
                 let recorder = Recorder(input: input, sink: FileAudioSink(), directory: directory)
-                input.onInputLost = { [weak recorder] in
+                mic.onInputLost = { [weak recorder] in
                     Task { await recorder?.handle(.routeLost) }
                 }
                 return recorder
