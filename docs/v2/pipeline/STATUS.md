@@ -67,7 +67,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
 | Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
 | Windows 앱의 컴파일(이 명세의 C# 코드는 컴파일해 보지 못했다)과 실제 녹음 → 업로드 | P6-W1 |
-| Pi에서 부하 시험 세 가지(동시 업로드, 3시간, 디스크 부족)의 수치 | P7-01 |
+| Pi에서 부하 시험 세 가지의 수치: `docs/runbooks/load-test.md`대로 `uploads.ts --n 3 --minutes 30`, `long-recording.ts --hours 3`, tmpfs 200 MB의 `disk-full.ts`. 날짜·호스트 종류(예: Pi 5 8 GB)·최대 메모리·업로드 p95·처리 시간·실패만 적는다. `server.max_rss_bytes`는 하한값이다(bun 프로세스만 재고 ffmpeg 자식은 빠지며, 합성 오디오는 대부분 무음이라 압축한 청크가 실제 말소리보다 작다). Mac에서는 셋 다 통과했다(3시간: 345,600,078바이트, 파트 42개, ready 14초, RSS 약 314 MB) | P7-01 |
 | 운영 백업 파일로 하는 복원 리허설 | P7-02 |
 | 시간 예산(전사 스크롤 프레임, 검색 p95)을 CI의 첫 측정값으로 보정 | P7-03 |
 | VoiceOver 수동 점검표(`A11Y-AUDIT.md`)와 Apple 앱의 `MANUAL_CHECKS.md` | P7-04, P6-A* |
@@ -184,3 +184,5 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | 2026-11-15 | P6-A11 | 기기 id는 Keychain `device_id`(재설치 뒤 새 id인지는 MANUAL_CHECKS 49), `OpenRecordingIntent`는 `supportedModes = .foreground`(iOS 26에서 `openAppWhenRun` deprecated), 위젯의 로그아웃 상태는 App Group `default_workspace_id`, 녹음 일정은 느슨한 디코더로 읽고 웹에서 수락한 일정만 캘린더 버튼, small `최근 문서` 위젯은 한 개, 앱 활동과 push-to-start가 겹치면 나중 것을 끝냄, Handoff는 Mac도 알리고 받음(`RecordingHandoff`는 LecternKit) | 기록만 |
 | 2026-11-15 | P6-D1 | 만료·취소된 세션의 `Idempotency-Key`로 `createUpload`를 부르면 서버가 그 죽은 세션을 돌려준다. Android는 키에 세대(`<id>-g1`)를 붙여 피한다. 서버가 새 세션을 만들어 주는 편이 낫다면 서버 쪽 작업이다. `/api/lectures`(목록·상세)는 여전히 v1이므로 `LECTERN_V1_BLOCK`을 켜기 전에 Android의 읽기 경로도 v2로 옮겨야 한다 | 서버에 전달 |
 | 2026-11-15 | P6-D1 | Android 위 막대의 `로그아웃` 버튼을 `설정`으로 바꾸고, 설정 창에 `새 업로드 방식` 스위치와 `로그아웃`(기존 확인 창)을 두었다. 폴더 이름이 거절되면(400·422) 폴더 없이 올린다. 파트에서 409면 세션을 다시 읽어 다른 실행이 완료했으면 성공으로 본다. 서버의 v2 API는 플래그 없이 붙어 있고 APK와 서버가 같은 main push에서 나간다(새 APK + 옛 서버 = 404, 문구가 스위치를 끄라고 안내). Android 빌드는 JDK 17이 필요하다(이 Mac의 기본 JDK 25로는 Gradle 8.7이 돌지 않는다) | 기록만 |
+| 2026-11-15 | P7-01 | 디스크가 차면 v2 `complete`가 500 `업로드한 파일을 합치지 못했습니다.`로 답한다(파트는 받았는데 합칠 자리가 없다, ENOSPC). 녹음을 잃지는 않았다(성공으로 답한 44건이 모두 목록에 있고 서버는 살아 있었다). 507이나 "저장 공간이 부족합니다" 같은 분명한 답, 또는 create 단계의 여유 공간 검사(`diskStats().low`)는 서버 쪽 작업이다 | 서버에 전달 |
+| 2026-11-15 | P7-01 | `apps/web/e2e/server/start.ts`의 가짜 전사(청크마다 12초 분량의 세 문장)는 보통 오디오의 전사 검사를 통과하지 못한다(청크의 말소리가 20초 이상이면 30% 이상 덮어야 한다. 계속되는 소리로는 1분짜리도 실패). 명세 §10의 전제가 틀렸다. 부하 스크립트는 30초마다 1초씩 소리가 나는 오디오를 써서 피했다. 가짜를 고칠지는 정하지 않았다 | 기록만 |
