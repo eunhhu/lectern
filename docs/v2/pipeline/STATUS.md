@@ -61,6 +61,7 @@ WP 단위의 진행은 `bun run pipeline status`가 원본이다. 이 표는 단
 | macOS 앱의 기기 점검(서명한 빌드): 옛 앱 다음 마이크 권한·로그인 이어짐(Keychain 창이 뜰 수 있고, 못 읽으면 한 번 다시 로그인), 메뉴바 녹음 → 업로드 → `문서가 준비되었습니다` 알림 → 클릭으로 열기, 다른 앱이 앞에 있을 때 ⌥Space, 로그인 시 실행, 창을 닫아도 녹음이 이어지고 녹음 중 종료하면 저장, data protection keychain에 로그인이 남는지, 메인 창 키보드, `Lectern 열기`가 창을 하나만 여는지, HUD의 `설정…`: `apps/apple/MANUAL_CHECKS.md` 31–40 | P6-A9 |
 | Mac 회의 녹음의 기기 점검(서명한 빌드): 시스템 오디오 권한 문구, 음악 + 목소리가 오른쪽·왼쪽에, 소리 없을 때 마이크가 끊기지 않음, 권한 거부 때 마이크만 녹음과 경고(거부가 'nope' 오류로 온다고 가정했다. 무음으로만 나타나면 경고가 뜨지 않는다), 30분 동안 두 채널의 어긋남, Zoom 실행 알림과 `녹음 시작`(Teams·Webex·FaceTime 번들 id 확인), 올린 회의 파일의 전사, 녹음 중 출력 장치 변경: `apps/apple/MANUAL_CHECKS.md` 41–48 | P6-A10 |
 | iPhone 시스템 표면의 기기 점검(유료 팀으로 서명, 서버에 `APNS_*`): 알림 허용 뒤 `push_device` 행과 재설치 뒤 기기 id, 앱을 닫은 채 처리 Live Activity의 단계 변화(활동이 두 개 뜨지 않음), Mac 업로드의 push-to-start, 문서 준비 알림을 눌러 열기, Spotlight·Siri("Lectern에서 … 열기"), 위젯과 로그아웃 뒤 비움, 메모 앱의 `/app/recordings/<id>` 유니버설 링크와 `/s/` 링크가 앱으로 되돌아오지 않는지, Mac↔iPhone Handoff(Mac에서 창이 하나만), `캘린더에 추가`가 한 번만: `apps/apple/MANUAL_CHECKS.md` 49–57 | P6-A11 |
+| CI의 `apple` 작업 첫 실행(macos-26, 기본 Xcode 26.6·Swift 6.2, UTC): 로컬 게이트는 Xcode 27.2로 돌았다. 실패하면 `Show toolchain` 출력부터 본다. 실패해도 서버 배포는 막지 않는다 | P6-CI |
 | 공증된 빌드에서 Sparkle 업데이트와 시스템 오디오 권한 유지 | P6-A12 |
 | CI 러너 라벨 `macos-26`과 그 Xcode 버전, Apple CI 작업의 첫 실행 | P6-CI |
 | Android 실제 기기에서 3시간 녹음을 올리다 끊고 이어 올리기 | P6-D1 |
