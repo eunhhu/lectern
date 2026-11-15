@@ -441,8 +441,18 @@ export function generateShareToken(seed?: string): string {
   return randomBytes(12).toString("base64url");
 }
 
+/**
+ * Prefixes of the other token kinds that start with `lct_` (native-auth.ts ACCESS_PREFIX and
+ * REFRESH_PREFIX, access-tokens.ts PAT_PREFIX). API v2 tells tokens apart by prefix, so an API
+ * token must never begin with one (about 1 in 130,000 random tokens would).
+ */
+export const RESERVED_TOKEN_PREFIXES = ["lct_at_", "lct_rt_", "lct_pat_"] as const;
+
 export function generateApiToken(): string {
-  return `lct_${randomBytes(20).toString("base64url")}`;
+  for (;;) {
+    const token = `lct_${randomBytes(20).toString("base64url")}`;
+    if (!RESERVED_TOKEN_PREFIXES.some((prefix) => token.startsWith(prefix))) return token;
+  }
 }
 
 export function hashPassword(password: string): string {

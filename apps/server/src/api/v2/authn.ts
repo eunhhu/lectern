@@ -8,7 +8,7 @@ import { findActivePat, PAT_PREFIX, touchPat, type PatRow } from "../../access-t
 import { extractAuthToken, resolveActiveUser } from "../../auth.ts";
 import { getUserById, type UserRecord } from "../../db.ts";
 import { logger } from "../../log.ts";
-import { ACCESS_PREFIX, findUserByAccessToken, REFRESH_PREFIX } from "../../native-auth.ts";
+import { ACCESS_PREFIX, findUserByAccessToken } from "../../native-auth.ts";
 
 export interface V2Auth {
   user: UserRecord;
@@ -21,24 +21,28 @@ const isActive = (user: UserRecord | null): user is UserRecord => !!user && user
 export function authenticateV2(req: Request): V2Auth | null {
   const token = extractAuthToken(req, new URL(req.url))?.trim();
   if (!token) return null;
-  if (token.startsWith(REFRESH_PREFIX)) return null;
   if (token.startsWith(ACCESS_PREFIX)) {
     const userId = findUserByAccessToken(token);
-    const user = userId ? getUserById(userId) : null;
-    return isActive(user) ? { user, via: "native" } : null;
-  }
-  if (token.startsWith(PAT_PREFIX)) {
-    const pat = findActivePat(token);
-    if (!pat) return null;
-    const user = getUserById(pat.userId);
-    if (!isActive(user)) return null;
-    try {
-      touchPat(pat.id);
-    } catch (err) {
-      logger.warn("access token touch failed", { token_id: pat.id, error: String(err) });
+    if (userId) {
+      const user = getUserById(userId);
+      return isActive(user) ? { user, via: "native" } : null;
     }
-    return { user, via: "pat", pat };
+  } else if (token.startsWith(PAT_PREFIX)) {
+    const pat = findActivePat(token);
+    if (pat) {
+      const user = getUserById(pat.userId);
+      if (!isActive(user)) return null;
+      try {
+        touchPat(pat.id);
+      } catch (err) {
+        logger.warn("access token touch failed", { token_id: pat.id, error: String(err) });
+      }
+      return { user, via: "pat", pat };
+    }
   }
+  // Also reached by an unknown `lct_at_`/`lct_rt_`/`lct_pat_` token: an API token issued
+  // before generateApiToken skipped those prefixes may begin with one. This lookup is an
+  // exact match on users.api_token, so a refresh token still never authenticates.
   const user = resolveActiveUser(token);
   if (!user) return null;
   return { user, via: token.startsWith("ses_") ? "session" : "api_token" };
