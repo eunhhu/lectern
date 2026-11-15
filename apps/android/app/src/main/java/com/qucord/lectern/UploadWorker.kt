@@ -38,10 +38,26 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             return@withContext Result.failure()
         }
 
-        PendingUploads.update(ctx, id) { it.copy(status = PendingUpload.STATUS_UPLOADING) }
-        when (val result = LecternApi.uploadAudio(
-            LecternSession.serverBase, token, item.file, item.course, item.id, item.client, item.extension, item.mimeType
-        )) {
+        val useV2 = LecternSession.useV2Upload(ctx)
+        PendingUploads.update(ctx, id) {
+            // v1 sends the file in one request: no part count left over from an earlier v2 try.
+            if (useV2) it.copy(status = PendingUpload.STATUS_UPLOADING)
+            else it.copy(status = PendingUpload.STATUS_UPLOADING, uploadedParts = 0, totalParts = 0)
+        }
+        val result = if (useV2) {
+            // Resumes: the same item and generation get the same server session and its parts.
+            LecternUploadV2.upload(
+                LecternSession.serverBase, token, item.file, item.course, item.id, item.uploadGeneration,
+                item.client, item.extension, item.mimeType,
+                onGeneration = { g -> PendingUploads.update(ctx, id) { it.copy(uploadGeneration = g, uploadedParts = 0) } },
+                onProgress = { done, total -> PendingUploads.update(ctx, id) { it.copy(uploadedParts = done, totalParts = total) } }
+            )
+        } else {
+            LecternApi.uploadAudio(
+                LecternSession.serverBase, token, item.file, item.course, item.id, item.client, item.extension, item.mimeType
+            )
+        }
+        when (result) {
             is UploadResult.Success -> {
                 PendingUploads.markCompleted(ctx, item, result.lectureId)
                 LecternNotifications.notifyUpload(ctx, item.id, success = true, "${item.course} 업로드 완료 · 노트 생성 중")
@@ -55,7 +71,9 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 } else if (LecternApi.isRetryable(result.code)) {
                     retryOrFail(item, "서버 오류 (${result.code}): ${result.message}")
                 } else {
-                    fail(item, "업로드 거부 (${result.code}): ${result.message}")
+                    // 404 from the v2 path: an older server without the v2 API.
+                    val hint = if (useV2 && result.code == 404) " 설정에서 \"새 업로드 방식\"을 끄고 다시 시도하세요." else ""
+                    fail(item, "업로드 거부 (${result.code}): ${result.message}$hint")
                     Result.failure()
                 }
             }
