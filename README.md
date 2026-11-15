@@ -1,120 +1,44 @@
-# 📚 Lectern
+# Lectern
 
-**Zero-Overhead Cross-Platform Lecture Audio Recorder, Break/Noise Filter & Academic Markdown Distillation Engine**  
-Powered by **Bun + TypeScript** & **Gemini Flash (`gemini-3.8-flash`, pinned)** · Live at **[https://lectern.qucord.com](https://lectern.qucord.com)**
+음성 녹음과 참고 PDF로 구조화된 노트를 만드는 서비스다. 강의·회의·세미나·인터뷰 녹음을 올리면 전사하고, 템플릿에 맞춘 문서와 일정·할 일·결정을 뽑고, 문서의 내용에 전사 구간과 PDF 쪽 출처를 단다. 쌓인 노트를 검색하고, 출처가 있는 답만 하는 물어보기로 질문할 수 있다. 운영: **[https://lectern.qucord.com](https://lectern.qucord.com)**
 
 [![Lectern Multi-Platform CI/CD](https://github.com/eunhhu/lectern/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/eunhhu/lectern/actions/workflows/ci-cd.yml)
 
----
+## 구성
 
-## ⬇️ Native Client Downloads (Built & Verified by GitHub Actions CI/CD)
+| 부분 | 위치 | 무엇 |
+|---|---|---|
+| API 서버 | `apps/server` | Bun + Hono, SQLite. v1 API와 `/api/v2`, 웹 앱 서빙, CD 웹훅 |
+| 워커 | `apps/worker` | SQLite 영속 큐의 작업(전사·노트·색인·압축·유지보수)을 돌린다 |
+| AI 하네스 | `packages/harness`, `packages/media` | 단계 실행기, Gemini 어댑터, 오디오 정규화와 청크 |
+| 웹 | `apps/web` | `/app`의 새 웹 앱(React 19 + React Aria) |
+| 네이티브 | `apps/apple`, `apps/android`, `apps/macos`, `apps/windows`, `apps/ios` | 새 iOS·macOS 앱, Android 앱, 옛 macOS·Windows·단축어 클라이언트 |
 
-- ** macOS Menu Bar App (`SwiftUI` + `AppKit` + `⌥Space` Global Hotkey)**: [Lectern-macOS-arm64.zip](https://github.com/eunhhu/lectern/releases/latest/download/Lectern-macOS-arm64.zip)
-- **🤖 Android App (`Jetpack Compose` Material3 + Quick Settings Tile)**: [Lectern-android-universal.apk](https://github.com/eunhhu/lectern/releases/latest/download/Lectern-android-universal.apk)
-- **🪟 Windows System Tray & Native Dark Reader (`.NET 8 WinForms` + `Alt+Shift+R`)**: [LecternTray-win-x64.exe](https://github.com/eunhhu/lectern/releases/latest/download/LecternTray-win-x64.exe)
-- **📱 iOS Shortcut / Action Button Recipe**: [lectern-ios-shortcut.json](https://lectern.qucord.com/api/clients/ios-shortcut)
+AI는 Gemini만 쓰고 모델 ID는 버전을 고정한다. 운영은 Raspberry Pi 한 대(systemd)이고, `main`에 들어간 커밋은 CI를 통과하면 바로 배포된다([배포와 롤백](docs/runbooks/deploy-and-rollback.md)).
 
----
+## 빠른 시작
 
-## ✨ Core Architecture & Features
+설치, 타입 검사, 테스트, 샌드박스 로컬 서버, 웹·네이티브 빌드는 [AGENTS.md의 "개발과 테스트"](AGENTS.md#개발과-테스트)에 있다. 명령은 그곳 한 군데에만 적는다.
 
-- **⚡ Zero-Overhead Bun + TypeScript Core (`@lectern/core`)**:
-  - **Direct Passthrough & Smart HE-AAC Preprocessor**: Compact `.m4a`/`.mp3`/`.webm`/`.ogg` recordings bypass transcoding completely; oversized/uncompressed `.wav` files are converted via `ffmpeg` to 16kHz mono 32kbps HE-AAC.
-  - **Chunked Resumable Upload**: Streams 8 MB zero-copy file slices (`Bun.file().slice()`) directly to the Gemini File API with near-zero RAM footprint.
-  - **Automatic Break & Forgotten-Recording Filter**: Detects 5–15 min break times (`[쉬는 시간 생략: MM:SS ~ MM:SS]`), post-lecture forgotten recording tails (`[수업 종료 후 녹음 절단: MM:SS ~ 끝]`), and attendance roll calls automatically.
-  - **Pinned Model Version**: Defaults to `gemini-3.8-flash` (`LECTERN_GEMINI_MODEL`). Requests may only pick models on a server-side allowlist (`LECTERN_GEMINI_ALLOWED_MODELS`); `-latest` aliases are never used because Google re-points them without notice.
-- **📖 Instant Markdown Reader & Web Recorder (`apps/server`)**:
-  - Opens directly into your recorded lectures and structured Markdown notes.
-  - **Interactive Timestamp Chips (`⏱ MM:SS`)**: Click any timestamp in the Markdown note to seek the synchronized audio player (`206 Partial Content` range streaming + `1.0x–2.0x` speed control).
-  - **Browser Microphone Recording**: Live `MediaRecorder` + 60fps `AudioContext` waveform visualizer + Screen Wake Lock.
-  - **A4 Academic PDF Export & Public Share Links (`/s/:token`)**: Print-optimized PDF export and one-click shareable URLs.
-- **📱 100% Native Clients Across Every OS (Zero WebView Wrappers)**:
-  - **macOS (`apps/macos`)**: Pure SwiftUI + AppKit `NSStatusItem` top menu bar app (`LSUIElement`) with `⌥Space` Carbon global hotkey, real-time dB audio meter, `AVPlayer` timestamp seeking, and native SwiftUI Markdown AST reader.
-  - **iOS (`apps/ios`)**: `AppIntents` + iOS Shortcuts / Action Button / Voice Memos Share Sheet one-tap ingest (`/api/ingest/shortcut`).
-  - **Android (`apps/android`)**: 100% Native Jetpack Compose Material3 Markdown reader & live `MediaRecorder` bottom sheet + `LecternTileService` Quick Settings Tile for one-tap top-shade recording.
-  - **Windows (`apps/windows`)**: Native Dark-Mode .NET 8 WinForms Split-View Markdown Reader + System Tray agent with global hotkey (`Alt+Shift+R`) and WinMM MCI recording.
+v1 노트 CLI(`bun run cli <오디오 파일>`)는 실제 Gemini를 불러 비용이 든다.
 
----
+## 문서 지도
 
-## 🚀 Quick Start & Testing
+1. [AGENTS.md](AGENTS.md): 작업 규칙, 저장소 지도, 개발과 테스트
+2. [docs/v2/README.md](docs/v2/README.md): 설계 문서와 ADR
+3. [docs/runbooks/](docs/runbooks/): 배포·롤백, 백업·복원, 시크릿 교체, 장애 대응, 호스트 구성, 부하 시험, [인계 점검표](docs/runbooks/handover-checklist.md)
+4. [docs/v2/pipeline/](docs/v2/pipeline/README.md): 구현 파이프라인과 [상태표](docs/v2/pipeline/STATUS.md)
+5. [docs/env.md](docs/env.md): 환경 변수 레퍼런스
 
-```bash
-# 1. Install dependencies & run strict typecheck + E2E tests
-bun install
-bun run typecheck
-bun test
+## 내려받기 (GitHub Actions가 빌드한 릴리스)
 
-# 2. Start the Web & API Server (Bun)
-bun run start
+- macOS 메뉴바 앱(옛 앱): [Lectern-macOS-arm64.zip](https://github.com/eunhhu/lectern/releases/latest/download/Lectern-macOS-arm64.zip)
+- Android 앱: [Lectern-android-universal.apk](https://github.com/eunhhu/lectern/releases/latest/download/Lectern-android-universal.apk)
+- Windows 트레이 앱: [LecternTray-win-x64.exe](https://github.com/eunhhu/lectern/releases/latest/download/LecternTray-win-x64.exe)
+- iOS 단축어: [lectern-ios-shortcut.json](https://lectern.qucord.com/api/clients/ios-shortcut)
 
-# 3. Run the CLI directly on any audio file
-bun run cli /path/to/lecture.m4a -c "정보보호개론" -m gemini-3.8-flash
-```
+새 iOS·macOS 앱(`apps/apple`)은 아직 배포하지 않는다. 서명·공증과 기기 점검이 남았다([상태표](docs/v2/pipeline/STATUS.md)).
 
----
+## 라이선스
 
-## 🔌 One-Tap HTTP Ingest API (Shortcuts / Native Clients)
-
-```bash
-curl -X POST https://lectern.qucord.com/api/ingest/shortcut \
-  -H "X-Course: 정보보호개론" \
-  -F "audio=@20261014_lecture.m4a"
-```
-
----
-
-## 🛠 Operations
-
-The admin console at `/admin` (owner/admin accounts) shows jobs, storage, members, audit log and policy, and runs the actions below. Shortcuts: `⌘K` command palette, `G` then a letter to switch views, `?` for the full list.
-
-**Jobs.** Distillations run in a bounded in-process queue, with one job per lecture. Only transient Gemini failures (network, timeout, 429, 5xx) are retried. Lectures interrupted by a restart are re-queued on boot.
-
-**Storage.**
-- Once a lecture finishes, its uploaded audio is re-encoded to mono AAC (`.m4a`, 40 kbps by default, about 18 MB per hour). The new file is kept only if it is at least 15% smaller and has the same duration.
-- The `_원본` copy in the lecture archive is a hard link and stays lossless.
-- Upload files that no lecture references are moved to `DATA_DIR/trash` and deleted after 7 days.
-- Retention policies are off by default. When enabled:
-  - the audio of old finished lectures is removed and their notes are kept;
-  - failed lectures that have sat unchanged past the limit are deleted.
-
-**Maintenance** runs hourly. It:
-- purges expired sessions and verification codes;
-- prunes audit logs older than 180 days by default;
-- moves orphaned uploads to the trash, and empties old trash and temp files;
-- applies the retention policies;
-- writes a daily `VACUUM INTO` backup to `DATA_DIR/backups` (the newest 7 are kept);
-- checkpoints the WAL.
-
-Backups sit on the same disk as the database, so copy them off the host for disaster recovery.
-
-**Deploys.**
-CI deploys the server as soon as its typecheck and tests pass, and only when a push touches server code. It doesn't wait for the native client builds, and deploys run one at a time.
-
-`POST /api/cd/deploy`, sent with the tested commit in `X-Lectern-Deploy-Sha`, then:
-1. fetches `origin/main`, and accepts only commits that are on it;
-2. treats a commit that is already live, or older than the live one, as a no-op;
-3. runs `git reset --hard <sha>`;
-4. runs `bun install --frozen-lockfile`, but only when dependency files changed;
-5. runs `apps/server/src/preflight.ts`, which boots the new code against a throwaway data directory and answers a few requests in-process.
-
-If the install or the preflight fails, the checkout is reset to the previous commit and the running server is never restarted. When everything passes, the server shuts down gracefully, systemd restarts it, and CI waits for `/api/health` to report the new `gitSha`.
-
-**Shutdown.** On SIGTERM the server waits up to `LECTERN_SHUTDOWN_GRACE_SEC` for running jobs, then exits. For systemd, use `Restart=always` and a `TimeoutStopSec=` larger than the grace period.
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `LECTERN_REPO_DIR` | legacy prod path if present | Checkout the CD webhook updates; deploys are refused without one |
-| `LECTERN_MAX_CONCURRENT_JOBS` | `2` | Concurrent Gemini distillations |
-| `LECTERN_MAX_CONCURRENT_COMPACT` | `1` | Concurrent ffmpeg compactions |
-| `LECTERN_GEMINI_TIMEOUT_MS` | `900000` | Deadline for one `generateContent` call |
-| `LECTERN_MAINTENANCE_INTERVAL_MIN` | `60` | Maintenance cadence |
-| `LECTERN_BACKUP_INTERVAL_HOURS` / `LECTERN_BACKUP_KEEP` | `24` / `7` | Backup frequency and rotation |
-| `LECTERN_TRASH_DAYS` | `7` | Days before trashed uploads are deleted |
-| `LECTERN_SHUTDOWN_GRACE_SEC` | `20` | Time running jobs get on shutdown or deploy |
-| `LECTERN_LOG_REQUESTS` | on | Set `0` to silence the request log (tokens are redacted) |
-
-`GET /api/health` reports `checks.database` and `checks.disk`, and answers `503` when the database is unreachable.
-
-## 📄 License
-
-MIT © Sunwoo Moon (`eunhhu`)
+MIT. [LICENSE](LICENSE)를 본다.
