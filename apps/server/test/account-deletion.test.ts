@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FakeEmbedder, type AskModel, type AskModelEvent } from "@lectern/ask";
 import { config, resetConfigForTests } from "@lectern/config";
-import { lectureRecordingId, personalWorkspaceId, placeRecordingInWorkspace, projectLecture, uuidv7, verifyLegacy } from "@lectern/db";
+import { lectureRecordingId, personalWorkspaceId, placeRecordingInWorkspace, projectLecture, UNFILED_COURSE, uuidv7, verifyLegacy } from "@lectern/db";
 import { AccountDeletionInfo, ApiError } from "@lectern/domain";
 import { createPat } from "../src/access-tokens.ts";
 import {
@@ -122,7 +122,7 @@ async function v1Login(email: string, password = PASSWORD): Promise<number> {
 }
 
 /** A processed lecture with an audio file in the sandboxed lectures directory. */
-function lecture(owner: UserRecord, title: string): { lectureId: string; recordingId: string; audioPath: string } {
+function lecture(owner: UserRecord, title: string, course = "자료구조"): { lectureId: string; recordingId: string; audioPath: string } {
   const id = generateId("lec");
   // Where v1 keeps uploaded audio (db.ts deletes lecture audio only there).
   mkdirSync(join(config().dataDir, "uploads"), { recursive: true });
@@ -132,14 +132,14 @@ function lecture(owner: UserRecord, title: string): { lectureId: string; recordi
     id,
     ownerId: owner.id,
     title,
-    course: "자료구조",
+    course,
     audioPath,
     audioMime: "audio/mp4",
     audioSize: 2048,
     modelRequested: "gemini-3.8-flash",
     sourceClient: "web",
   });
-  completeLectureRecord(id, { title, courseName: "자료구조", markdown: `# ${title}\n\n스택은 나중에 넣은 것을 먼저 꺼낸다.\n`, excerpt: "", modelUsed: "gemini-3.8-flash", durationSec: 600 });
+  completeLectureRecord(id, { title, courseName: course, markdown: `# ${title}\n\n스택은 나중에 넣은 것을 먼저 꺼낸다.\n`, excerpt: "", modelUsed: "gemini-3.8-flash", durationSec: 600 });
   return { lectureId: id, recordingId: lectureRecordingId(id), audioPath };
 }
 
@@ -554,7 +554,9 @@ describe("no trace is left", () => {
     createInvite({ workspaceId: shared, email: "friend@example.com", role: "member", invitedBy: u.id });
     const solo = await team(u, "혼자 팀");
     // Rows that belong to others: they stay, without u's id.
-    const theirs = lecture(other, "팀 강의");
+    // Unfiled, as a team upload starts (api/v2/ingest.ts): it stays after this test, and a
+    // course with no folder behind it would be a lecture/v2 mismatch for later verifyLegacy checks.
+    const theirs = lecture(other, "팀 강의", UNFILED_COURSE);
     placeRecordingInWorkspace(db, theirs.recordingId, shared, "workspace");
     const editedVersion = (db.query(`SELECT id FROM document_version WHERE recording_id = ? ORDER BY version DESC LIMIT 1`).get(theirs.recordingId) as { id: string }).id;
     db.query(`UPDATE document_version SET author_id = ? WHERE id = ?`).run(u.id, editedVersion);
