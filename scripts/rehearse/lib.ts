@@ -3,7 +3,7 @@
 // check. Same refusal rules as scripts/load/lib/guard.ts (D-0-10), written again here: the
 // two scripts do not depend on each other.
 
-import { Database } from "bun:sqlite";
+import { constants, Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
@@ -104,11 +104,22 @@ function uriPath(path: string): string {
  * Opens `path` without writing anything: by default immutable (no lock, no -wal/-shm created
  * beside a backup); with `wal`, a plain read-only open that also reads a -wal left by a
  * server that was killed (the restored copy in the work directory).
+ *
+ * The immutable open is a URI, so SQLITE_OPEN_URI is passed explicitly: Bun's own SQLite on
+ * Linux is built without URI filenames on by default (macOS's system SQLite has them).
+ * Numeric flags leave no room for `safeIntegers`, so the row queries turn it on (`exactQuery`).
  */
 function openReadOnly(path: string, options: { wal?: boolean } = {}): Database {
   if (!existsSync(path)) throw new Error(`rehearse: no database at ${path}`);
-  const name = options.wal ? path : `file:${uriPath(path)}?immutable=1`;
-  return new Database(name, { readonly: true, safeIntegers: true });
+  if (options.wal) return new Database(path, constants.SQLITE_OPEN_READONLY);
+  return new Database(`file:${uriPath(path)}?immutable=1`, constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI);
+}
+
+/** A statement that reads integers as bigint (2^53 and above stay exact). */
+function exactQuery(db: Database, sql: string) {
+  // Statement.safeIntegers exists at runtime (Bun 1.4) but is missing from bun-types.
+  type Statement = ReturnType<Database["query"]>;
+  return (db.query(sql) as Statement & { safeIntegers(on: boolean): Statement }).safeIntegers(true);
 }
 
 const FTS5_SHADOW_SUFFIXES = ["_data", "_idx", "_content", "_docsize", "_config"];
@@ -133,13 +144,13 @@ export function digestDatabase(path: string, options: { wal?: boolean } = {}): T
     const countOnly = new Set([...virtual, ...virtual.flatMap((v) => FTS5_SHADOW_SUFFIXES.map((s) => v + s))]);
     return tables.map(({ name }) => {
       const quoted = `"${name.replaceAll('"', '""')}"`;
-      const rows = Number((db.query(`SELECT COUNT(*) AS n FROM ${quoted}`).get() as { n: bigint }).n);
+      const rows = Number((db.query(`SELECT COUNT(*) AS n FROM ${quoted}`).get() as { n: number }).n);
       if (countOnly.has(name)) return { table: name, rows, sha256: "-" };
       let query;
       try {
-        query = db.query(`SELECT * FROM ${quoted} ORDER BY rowid`);
+        query = exactQuery(db, `SELECT * FROM ${quoted} ORDER BY rowid`);
       } catch {
-        query = db.query(`SELECT * FROM ${quoted} ORDER BY 1`); // WITHOUT ROWID
+        query = exactQuery(db, `SELECT * FROM ${quoted} ORDER BY 1`); // WITHOUT ROWID
       }
       const hash = createHash("sha256");
       for (const row of query.iterate() as Iterable<Record<string, unknown>>) {
