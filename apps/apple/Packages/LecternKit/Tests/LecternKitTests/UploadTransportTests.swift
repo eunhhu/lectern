@@ -17,15 +17,28 @@ final class UploadTransportTests: XCTestCase {
      "received_parts":[1],"created_at":"2026-10-19T05:30:00.000Z","expires_at":"2026-10-20T05:30:00.000Z"}
     """#.utf8)
 
-    /// The body URLSession handed to the protocol (a stream for uploads).
+    /// The body URLSession handed to the protocol (a stream for uploads). A streamed body is a
+    /// bound pair the client fills from another thread: "no bytes yet" is not the end, so this
+    /// reads until the stream ends, the declared Content-Length arrived, or 5 s passed.
     static func body(of request: URLRequest) -> Data {
         if let data = request.httpBody { return data }
         guard let stream = request.httpBodyStream else { return Data() }
+        let expected = request.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init)
         stream.open()
         defer { stream.close() }
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
-        while stream.hasBytesAvailable {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if let expected, data.count >= expected { break }
+            switch stream.streamStatus {
+            case .atEnd, .closed, .error: return data
+            default: break
+            }
+            guard stream.hasBytesAvailable else {
+                Thread.sleep(forTimeInterval: 0.005)
+                continue
+            }
             let n = stream.read(&buffer, maxLength: buffer.count)
             if n <= 0 { break }
             data.append(buffer, count: n)
