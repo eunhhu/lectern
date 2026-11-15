@@ -91,6 +91,6 @@
     {"id":"P7-02","title":"복원·장애 리허설","deps":["P1-12","P1-16"],"owns":["scripts/rehearse/","docs/runbooks/","apps/server/test/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P7-03","title":"성능 예산","deps":["P3-10","P2-09"],"owns":["apps/web/","scripts/bench/",".github/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P7-04","title":"접근성 점검","deps":["P5-13","P2-03","P2-05"],"owns":["apps/web/","docs/v2/pipeline/A11Y-AUDIT.md"],"tier":"basic","gate":"full","status":"merged"},
-    {"id":"P7-05","title":"인계 문서 맞추기","deps":["P7-01","P7-02"],"owns":["AGENTS.md","docs/","README.md"],"tier":"basic","gate":"quick","status":"todo","last":true}
+    {"id":"P7-05","title":"인계 문서 맞추기","deps":["P7-01","P7-02"],"owns":["AGENTS.md","docs/","README.md"],"tier":"basic","gate":"quick","status":"merged","last":true}
   ]
 }
