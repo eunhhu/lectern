@@ -218,6 +218,14 @@ final class MacServices: ObservableObject {
         menuBar.windowRequest += 1
     }
 
+    /// A recording handed off from the iPhone (only this server's address). SwiftUI already
+    /// brought a main window for the activity: no `windowRequest` (it could open a second one).
+    func continueHandoff(_ url: URL?) {
+        guard let url, case let .recording(id) = parseDeepLink(url, serverHost: environment.serverURL.host) else { return }
+        pendingRecordingID = id
+        NSApp.activate()
+    }
+
     // MARK: - Shortcut
 
     /// A new shortcut from Settings. Not saved when it cannot be registered: the old one stays.

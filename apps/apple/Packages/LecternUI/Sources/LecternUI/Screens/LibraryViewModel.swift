@@ -14,6 +14,9 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var isLoadingMore = false
 
     public var onUnauthorized: (@MainActor () -> Void)?
+    /// A list arrived (first page or more): Spotlight and, for the whole workspace
+    /// (`folderID` nil), the widgets take it.
+    public var onListLoaded: (@MainActor (_ workspaceID: String, _ folderID: String?, _ recordings: [RecordingSummary], _ folders: [Folder]) -> Void)?
 
     private let client: LecternClient
     private var nextCursor: String?
@@ -86,6 +89,7 @@ public final class LibraryViewModel: ObservableObject {
             let known = Set(recordings.map(\.id))
             recordings += page.items.filter { !known.contains($0.id) }
             nextCursor = page.nextCursor
+            onListLoaded?(workspaceID, folderID, recordings, folders)
         } catch {
             requested.remove(cursor)
             if case APIError.unauthorized = error { onUnauthorized?() }
@@ -104,6 +108,7 @@ public final class LibraryViewModel: ObservableObject {
             recordings = page.items
             nextCursor = page.nextCursor
             phase = page.items.isEmpty ? .empty : .loaded
+            onListLoaded?(workspaceID, folderID, recordings, folders)
         } catch {
             guard started == generation else { return }
             fail(error)

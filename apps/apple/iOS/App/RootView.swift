@@ -2,6 +2,7 @@ import LecternIntents
 import LecternKit
 import LecternUI
 import SwiftUI
+import UIKit
 
 /// The app's state for the screens: who is signed in, the upload queue's entries, the recording
 /// in progress. What lives for the whole process is in `AppServices`.
@@ -19,7 +20,6 @@ final class AppModel: ObservableObject {
     /// The recording in progress, wherever it was started (here, the control, Siri).
     @Published private(set) var recording: RecordingActivityAttributes.ContentState?
     private let services: AppServices
-    private var uploadWatch: Task<Void, Never>?
     private var recordingWatch: Task<Void, Never>?
 
     init(services: AppServices? = nil) {
@@ -27,7 +27,8 @@ final class AppModel: ObservableObject {
         self.services = services
         environment = services.environment
         client = services.client
-        watchUploads()
+        uploads = services.uploads
+        services.onUploadsChanged = { [weak self] jobs in self?.uploads = jobs }
         watchRecording()
     }
 
@@ -69,10 +70,33 @@ final class AppModel: ObservableObject {
         guard await services.setServerURL(text) else { return false }
         environment = services.environment
         client = services.client
-        watchUploads()
         me = nil
         session = .signedOut
         return true
+    }
+
+    /// Spotlight and the widgets.
+    func listLoaded(folderID: String?, recordings: [RecordingSummary], folders: [Folder]) {
+        services.listLoaded(folderID: folderID, recordings: recordings, folders: folders)
+    }
+
+    /// The app is in front: a pending notification permission can be asked now.
+    func becameActive() {
+        resumeUploads()
+        services.surfaces.appBecameActive()
+    }
+
+    /// A link from outside (a `lectern://` address, a universal link, Handoff): the screen it
+    /// names, or Safari for what the app has no screen for.
+    func open(_ url: URL) {
+        switch parseDeepLink(url, serverHost: environment.serverURL.host) {
+        case .some(.share), .some(.invite):
+            UIApplication.shared.open(url)
+        case let .some(link):
+            LinkRouter.shared.open(link)
+        case .none:
+            if url.scheme == "https" || url.scheme == "http" { UIApplication.shared.open(url) }
+        }
     }
 
     func resumeUploads() {
@@ -91,18 +115,6 @@ final class AppModel: ObservableObject {
     func removeUpload(_ id: String) {
         guard let queue = services.uploadQueue else { return }
         Task { try? await queue.remove(id) }
-    }
-
-    private func watchUploads() {
-        uploadWatch?.cancel()
-        uploads = []
-        guard let queue = services.uploadQueue else { return }
-        uploadWatch = Task { [weak self] in
-            self?.uploads = await queue.jobs()
-            for await jobs in queue.updates {
-                self?.uploads = jobs
-            }
-        }
     }
 
     private func watchRecording() {

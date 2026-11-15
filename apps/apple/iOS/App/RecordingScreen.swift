@@ -8,7 +8,7 @@ struct RecordingScreen: View {
     let recordingID: String
 
     var body: some View {
-        RecordingContent(model: makeModel())
+        RecordingContent(model: makeModel(), recordingID: recordingID, client: app.client, server: app.environment.serverURL)
     }
 
     private func makeModel() -> RecordingViewModel {
@@ -20,7 +20,12 @@ struct RecordingScreen: View {
 
 private struct RecordingContent: View {
     @StateObject var model: RecordingViewModel
+    let recordingID: String
+    let client: LecternClient
+    let server: URL
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var events: [EventCandidateModel] = []
+    @State private var showEvents = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -72,8 +77,25 @@ private struct RecordingContent: View {
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("recording.title")
             }
+            if !events.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showEvents = true } label: { Label("일정 \(events.count)개", systemImage: "calendar") }
+                        .accessibilityLabel("일정 \(events.count)개")
+                }
+            }
+        }
+        .sheet(isPresented: $showEvents) { RecordingEventsSheet(events: events, serverURL: server) }
+        // Handoff: the same recording on the Mac or another device (its web address).
+        .userActivity(RecordingHandoff.activityType) { activity in
+            activity.title = model.title
+            activity.webpageURL = RecordingHandoff.webpageURL(server: server, recordingID: recordingID)
+            activity.isEligibleForHandoff = true
         }
         .task { await model.load() }
+        .task {
+            let found = (try? await client.events(recordingID: recordingID)) ?? []
+            events = found.filter { $0.status != "dismissed" }
+        }
     }
 
     @ViewBuilder

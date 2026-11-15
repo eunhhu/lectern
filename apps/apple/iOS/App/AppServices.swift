@@ -1,3 +1,4 @@
+import AppIntents
 import Foundation
 import LecternIntents
 import Network
@@ -5,6 +6,7 @@ import LecternKit
 import LecternUI
 import RecorderKit
 import UIKit
+import WidgetKit
 
 /// One per process, made at launch (`LecternApp.init`) before any scene: an intent can wake the
 /// app in the background to record, with no window and no `AppModel`. Holds the server client,
@@ -24,6 +26,12 @@ final class AppServices {
     private(set) var uploadQueue: UploadQueue?
     private(set) var backgroundUploader: BackgroundUploader?
     let recordingSession: RecordingSession?
+    /// Push, processing activities, alerts, Spotlight, widgets.
+    let surfaces = SystemSurfaces()
+    /// The upload queue's entries (the one consumer of its updates: the screens read these).
+    private(set) var uploads: [UploadJob] = []
+    var onUploadsChanged: (([UploadJob]) -> Void)?
+    private var uploadWatch: Task<Void, Never>?
     private let tokenStore: TokenStore
     /// Runs the queue when the network comes back (jobs waiting for it).
     private let pathMonitor = NWPathMonitor()
@@ -76,16 +84,47 @@ final class AppServices {
     func remember(_ me: Me) {
         guard !environment.isFixture else { return forgetSignIn() }
         SharedDefaults.group?.set(me.personalWorkspaceID, forKey: SharedDefaults.defaultWorkspaceIDKey)
+        WidgetCenter.shared.reloadAllTimelines()
+        surfaces.signedIn()
+        // Siri and Shortcuts find recordings in the personal workspace.
+        let client = client
+        let workspaceID = me.personalWorkspaceID
+        RecordingDirectory.shared.install(
+            search: { text in
+                guard let page = try? await client.recordings(workspaceID: workspaceID, folderID: nil, cursor: nil) else { return [] }
+                let items = text.map { text in page.items.filter { $0.title.localizedCaseInsensitiveContains(text) } } ?? page.items
+                return items.prefix(20).map { RecordingEntity($0, folderName: nil) }
+            },
+            lookup: { id in
+                (try? await client.recording(id: id)).map { RecordingEntity($0.recording, folderName: nil) }
+            }
+        )
+        LecternShortcuts.updateAppShortcutParameters()
     }
 
     /// Nobody is signed in: intents and the share extension ask to sign in.
+    /// The widgets reload after the key is gone (their timelines never refresh on their own), so
+    /// they show "로그인이 필요합니다" rather than an empty list.
     func forgetSignIn() {
         SharedDefaults.group?.removeObject(forKey: SharedDefaults.defaultWorkspaceIDKey)
+        WidgetCenter.shared.reloadAllTimelines()
+        LecternShortcuts.updateAppShortcutParameters()
     }
 
+    /// The push device row goes first (it needs the credentials), then the credentials, the
+    /// processing activities, Spotlight and the widgets.
     func signOut() async {
-        await client.signOut()
+        let client = client
+        await surfaces.signOut { await client.signOut() }
         forgetSignIn()
+    }
+
+    /// Spotlight and the widgets take each list the library reads.
+    func listLoaded(folderID: String?, recordings: [RecordingSummary], folders: [Folder]) {
+        guard !environment.isFixture else { return }
+        surfaces.listLoaded(folderID: folderID, recordings: recordings, folders: folders)
+        // Siri's "(녹음) 열기" phrase learns the titles it can say.
+        if folderID == nil { LecternShortcuts.updateAppShortcutParameters() }
     }
 
     // MARK: - Uploads
@@ -167,15 +206,31 @@ final class AppServices {
 
     private func makeUploadQueue() {
         backgroundUploader?.invalidate()
+        uploadWatch?.cancel()
+        jobsChanged([])
         guard let live = client as? LiveClient else {
             uploadQueue = nil
             backgroundUploader = nil
+            surfaces.connect(api: nil, deviceID: nil)
             return
         }
         let container = AppEnvironment.sharedContainerURL()
         let queue = UploadQueue(store: .inContainer(container), transport: LecternUploadTransport(api: live.api), containerURL: container)
         uploadQueue = queue
         backgroundUploader = BackgroundUploader(queue: queue, api: live.api, containerURL: container)
+        surfaces.connect(api: live.api, deviceID: DeviceIdentity(store: tokenStore).id)
+        uploadWatch = Task { [weak self] in
+            self?.jobsChanged(await queue.jobs())
+            for await jobs in queue.updates {
+                self?.jobsChanged(jobs)
+            }
+        }
+    }
+
+    private func jobsChanged(_ jobs: [UploadJob]) {
+        uploads = jobs
+        onUploadsChanged?(jobs)
+        surfaces.jobsChanged(jobs)
     }
 
     /// Recordings are written straight into the App Group container's `Recordings/`, where the

@@ -29,6 +29,11 @@ targets:
         NSMicrophoneUsageDescription: 강의와 회의를 녹음하려면 마이크가 필요합니다.
         UIBackgroundModes: [audio]
         NSSupportsLiveActivities: true
+        NSCalendarsWriteOnlyAccessUsageDescription: 수락한 일정을 캘린더에 넣으려면 캘린더에 추가할 수 있는 권한이 필요합니다.
+        NSUserActivityTypes: [com.qucord.lectern.recording]
+        CFBundleURLTypes:
+          - CFBundleURLName: com.qucord.lectern
+            CFBundleURLSchemes: [lectern]
         LecternServerURL: $(LECTERN_SERVER_URL)
         AppIdentifierPrefix: $(AppIdentifierPrefix)
         ITSAppUsesNonExemptEncryption: false
@@ -37,6 +42,10 @@ targets:
       properties:
         com.apple.security.application-groups: [group.com.qucord.lectern]
         keychain-access-groups: ["$(AppIdentifierPrefix)com.qucord.lectern"]
+        # Development APNs; the signer picks production for distribution.
+        aps-environment: development
+        # LECTERN_ASSOCIATED_DOMAIN in Local.xcconfig (the server's host): universal links and Handoff.
+        com.apple.developer.associated-domains: ["applinks:$(LECTERN_ASSOCIATED_DOMAIN)", "webcredentials:$(LECTERN_ASSOCIATED_DOMAIN)"]
     settings:
       base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios, PRODUCT_NAME: Lectern, TARGETED_DEVICE_FAMILY: "1,2" }
     dependencies:
@@ -107,6 +116,7 @@ targets:
         NSMicrophoneUsageDescription: 강의와 회의를 녹음하려면 마이크가 필요합니다.
         NSAudioCaptureUsageDescription: 회의에서 상대방의 소리를 함께 녹음하려면 시스템 오디오 접근이 필요합니다.
         LSUIElement: false
+        NSUserActivityTypes: [com.qucord.lectern.recording]
         LecternServerURL: $(LECTERN_SERVER_URL)
         AppIdentifierPrefix: $(AppIdentifierPrefix)
     entitlements:

@@ -27,5 +27,17 @@ struct LecternShortcuts: AppShortcutsProvider {
             shortTitle: "중요 표시",
             systemImageName: "star"
         )
+        AppShortcut(
+            intent: OpenRecordingIntent(),
+            phrases: ["\(.applicationName)에서 \(\.$recording) 열기"],
+            shortTitle: "녹음 열기",
+            systemImageName: "doc.text"
+        )
+        AppShortcut(
+            intent: OpenRecentDocumentIntent(),
+            phrases: ["\(.applicationName) 최근 문서 열기"],
+            shortTitle: "최근 문서",
+            systemImageName: "clock"
+        )
     }
 }

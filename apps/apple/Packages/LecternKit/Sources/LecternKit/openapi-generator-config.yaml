@@ -22,3 +22,8 @@ filter:
     - issueNativeToken
     - revokeNativeToken
     - createMarker
+    - upsertPushDevice
+    - deletePushDevice
+    - setLiveActivity
+    - endLiveActivity
+    - listCalendarSuggestions

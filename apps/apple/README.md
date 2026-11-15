@@ -85,6 +85,16 @@ iOS 앱에는 로그인, 라이브러리, 녹음 상세, 설정 화면이 있다
 - `DualInput`(RecorderKit): 마이크가 출력을 이끈다. 마이크가 4096프레임 쌓일 때마다 2채널 버퍼를 내고, 시스템 쪽에 소리가 없으면 무음으로 채운다. 한쪽이 0.5초 넘게 앞서면 뒤처진 쪽을 무음으로 채운다(`ChannelMixer`). 탭은 따로 시작하고(첫 시작에 권한 창이 뜰 수 있다), 실패하면 마이크만 녹음하며 HUD에 `시스템 오디오를 녹음하지 못해 마이크만 녹음합니다.`.
 - `회의 앱이 실행되면 녹음할지 묻기`(기본 꺼짐): Zoom·Teams·Webex·FaceTime이 실행되면 알림으로 묻는다. `녹음 시작`만 녹음을 시작하고, 같은 앱은 30분에 한 번만 묻는다. 캘린더는 읽지 않고, 브라우저 회의는 감지하지 않는다.
 
+## iPhone의 푸시·위젯·링크 (P6-A11)
+
+- 푸시: 알림 권한을 받으면 APNs 토큰을 `PUT /api/v2/push-devices/{device_id}`로 올린다. `device_id`는 Keychain의 `device_id`(처음 한 번 만든 UUID). 같은 토큰은 다시 보내지 않고, 서버가 501(APNs 꺼짐)이면 조용히 넘긴다. 로그아웃은 기기를 서버에서 지운 뒤(최대 5초) 토큰을 지운다.
+- 처리 Live Activity(`ProcessingActivityAttributes`, 서버의 `attributes-type`과 같은 이름): 업로드가 끝나면 앱이 시작하고, 앱이 꺼져 있으면 서버가 push-to-start로 띄운다. 단계·진행률(없으면 움직이는 막대), 끝나면 `문서 준비됨`. 한 번에 5개까지(넘으면 가장 오래된 것을 끝낸다).
+- 문서 준비 알림을 누르면 그 녹음을 연다. 앱이 앞에 있을 때도 배너가 뜬다.
+- 링크: `lectern://recordings/<id>`·`library`·`settings`, 서버의 `/app/…`(유니버설 링크). 공유(`/s/`)와 초대는 앱에 화면이 없어 Safari로 연다. 유니버설 링크는 `Local.xcconfig`의 `LECTERN_ASSOCIATED_DOMAIN`과 서버의 `APPLE_APP_IDS`가 맞아야 한다.
+- Spotlight·Siri: 목록을 읽을 때마다 녹음을 색인하고(500개까지, 문서 앞 300자), `OpenRecordingIntent`로 "Lectern에서 … 열기". Handoff: 녹음 화면이 `com.qucord.lectern.recording`을 알린다(Mac에서도).
+- 위젯: `최근 문서`(small·medium), `처리 중인 녹음`(small). 앱이 쓴 `<App Group>/widgets.json`만 읽는다. 로그아웃하면 파일과 색인을 지운다.
+- 캘린더: 녹음 화면의 `일정 N개`에서 웹에서 수락한 일정을 `캘린더에 추가`(쓰기 전용 권한). 넣은 일정 id를 기억해 두 번 넣지 않는다.
+
 ## 처음 실행
 
 1. 서명 값을 로컬 파일에 둔다. 이 파일은 커밋하지 않는다(`.gitignore`).
