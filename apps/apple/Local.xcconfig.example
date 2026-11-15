@@ -1,3 +1,7 @@
 // Copy to Local.xcconfig and fill in. Never commit Local.xcconfig.
 DEVELOPMENT_TEAM =
 LECTERN_SERVER_URL = https:/$()/your-server.example
+// The server's host only (no scheme), for universal links (/app/*, /s/*) and Handoff. The server
+// must list this app in APPLE_APP_IDS (TEAMID.com.qucord.lectern.ios). Fill it in before a signed
+// build: an empty value gives the entitlement "applinks:" with no host.
+LECTERN_ASSOCIATED_DOMAIN = your-server.example

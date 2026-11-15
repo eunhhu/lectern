@@ -1,5 +1,7 @@
 // Shared build settings. Signing values come from Local.xcconfig (not committed).
 LECTERN_SERVER_URL = http:/$()/localhost:18775
+// The server's host for universal links and Handoff (set in Local.xcconfig).
+LECTERN_ASSOCIATED_DOMAIN =
 DEVELOPMENT_TEAM =
 CODE_SIGN_STYLE = Automatic
 SWIFT_VERSION = 5.0

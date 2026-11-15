@@ -212,6 +212,10 @@ private struct RecordingDetail: View {
 
     var body: some View {
         RecordingContent(model: makeModel())
+            .userActivity(RecordingHandoff.activityType) { activity in
+                activity.webpageURL = RecordingHandoff.webpageURL(server: services.environment.serverURL, recordingID: recordingID)
+                activity.isEligibleForHandoff = true
+            }
     }
 
     private func makeModel() -> RecordingViewModel {

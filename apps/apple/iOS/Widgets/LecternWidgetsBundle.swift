@@ -8,6 +8,9 @@ struct LecternWidgetsBundle: WidgetBundle {
     var body: some Widget {
         RecordingLiveActivity()
         RecordingControl()
+        ProcessingLiveActivity()
+        RecentDocumentsWidget()
+        ProcessingWidget()
     }
 }
 

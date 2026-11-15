@@ -9,10 +9,13 @@ public struct LecternAPI: Sendable {
     public let serverURL: URL
     let auth: AuthProvider
     let client: Client
+    /// For the calls read without the generated client (`events`).
+    let session: URLSession
 
     public init(serverURL: URL, auth: AuthProvider, session: URLSession = .shared) {
         self.serverURL = serverURL
         self.auth = auth
+        self.session = session
         // Order: errors outermost (they see the answer after the auth retry), auth innermost.
         client = Client(
             serverURL: Self.apiBase(serverURL),

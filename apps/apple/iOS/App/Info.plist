@@ -20,16 +20,33 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.qucord.lectern</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>lectern</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LecternServerURL</key>
 	<string>$(LECTERN_SERVER_URL)</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>수락한 일정을 캘린더에 넣으려면 캘린더에 추가할 수 있는 권한이 필요합니다.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>강의와 회의를 녹음하려면 마이크가 필요합니다.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.qucord.lectern.recording</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

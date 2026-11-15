@@ -1,4 +1,5 @@
 import AppKit
+import LecternKit
 import LecternUI
 import SwiftUI
 
@@ -14,6 +15,12 @@ struct LecternMacApp: App {
         WindowGroup("Lectern", id: MainWindowOpener.id) {
             MainWindow()
                 .environmentObject(services)
+                // The open main window takes the activity (SwiftUI would otherwise make a new one);
+                // with none open, SwiftUI opens one for it.
+                .handlesExternalEvents(preferring: [RecordingHandoff.activityType], allowing: ["*"])
+                .onContinueUserActivity(RecordingHandoff.activityType) { activity in
+                    services.continueHandoff(activity.webpageURL)
+                }
         }
         .commands { LecternCommands() }
 

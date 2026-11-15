@@ -16,6 +16,9 @@ struct LibraryScreen: View {
     private func makeModel() -> LibraryViewModel {
         let model = LibraryViewModel(client: app.client)
         model.onUnauthorized = { [weak app] in app?.sessionExpired() }
+        model.onListLoaded = { [weak app] _, folderID, recordings, folders in
+            app?.listLoaded(folderID: folderID, recordings: recordings, folders: folders)
+        }
         return model
     }
 }
@@ -23,6 +26,7 @@ struct LibraryScreen: View {
 private struct LibraryColumns: View {
     @EnvironmentObject private var app: AppModel
     @StateObject var model: LibraryViewModel
+    @ObservedObject private var router = LinkRouter.shared
     @State private var selectedRecording: String?
     @State private var showSettings = false
     @State private var showUploads = false
@@ -48,6 +52,9 @@ private struct LibraryColumns: View {
             }
         }
         .task { await model.load() }
+        // A link, a notification, Spotlight or Siri asked for a screen (held until signed in).
+        .onAppear(perform: openPendingLink)
+        .onChange(of: router.pending) { _, _ in openPendingLink() }
         .sheet(isPresented: $showSettings) { SettingsScreen() }
         .sheet(isPresented: $showUploads) { UploadQueueSheet() }
         .fullScreenCover(isPresented: $showRecorder, onDismiss: {
@@ -59,6 +66,22 @@ private struct LibraryColumns: View {
                     queuedFromRecorder = queued
                 }
             }
+        }
+    }
+
+    private func openPendingLink() {
+        switch router.take() {
+        case let .recording(id):
+            showRecorder = false
+            selectedRecording = id
+            compactColumn = .detail
+        case .library:
+            selectedRecording = nil
+            compactColumn = .content
+        case .settings:
+            showSettings = true
+        case .share, .invite, .none:
+            break
         }
     }
 

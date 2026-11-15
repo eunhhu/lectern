@@ -20,6 +20,13 @@ public protocol LecternClient: Sendable {
     func signIn(apiToken: String) async throws -> Me
     func signOut() async
     func isSignedIn() async -> Bool
+    /// The calendar events found in a recording.
+    func events(recordingID: String) async throws -> [EventCandidateModel]
+}
+
+extension LecternClient {
+    /// None (fixtures and fakes).
+    public func events(recordingID: String) async throws -> [EventCandidateModel] { [] }
 }
 
 public enum LoginError: Error, Equatable, Sendable {
@@ -125,6 +132,7 @@ public final class LiveClient: LecternClient {
 
     public func signOut() async { await auth.signOut() }
     public func isSignedIn() async -> Bool { await auth.isSignedIn }
+    public func events(recordingID: String) async throws -> [EventCandidateModel] { try await api.events(recordingID: recordingID) }
 
     /// A v1 API token carried over from the old macOS app (`LegacyMacToken`), saved without asking
     /// the server: it may be offline at first launch. A token the server refuses later signs out
