@@ -88,7 +88,7 @@
     {"id":"P6-D1","title":"Android: v2 파트 업로드","deps":["P1-12"],"owns":["apps/android/"],"tier":"careful","gate":"android","status":"merged"},
     {"id":"P6-W1","title":"Windows: v2 파트 업로드","deps":["P1-12"],"owns":["apps/windows/"],"tier":"careful","gate":"windows","status":"todo","needs_user":"Windows 빌드 환경(또는 PR의 Windows CI)이 있어야 검증할 수 있다"},
     {"id":"P7-01","title":"부하 시험 스크립트","deps":["P1-12","P1-16"],"owns":["scripts/load/","docs/runbooks/"],"tier":"basic","gate":"unit","status":"merged"},
-    {"id":"P7-02","title":"복원·장애 리허설","deps":["P1-12","P1-16"],"owns":["scripts/rehearse/","docs/runbooks/","apps/server/test/"],"tier":"basic","gate":"full","status":"todo"},
+    {"id":"P7-02","title":"복원·장애 리허설","deps":["P1-12","P1-16"],"owns":["scripts/rehearse/","docs/runbooks/","apps/server/test/"],"tier":"basic","gate":"full","status":"merged"},
     {"id":"P7-03","title":"성능 예산","deps":["P3-10","P2-09"],"owns":["apps/web/","scripts/bench/",".github/"],"tier":"careful","gate":"full","status":"todo"},
     {"id":"P7-04","title":"접근성 점검","deps":["P5-13","P2-03","P2-05"],"owns":["apps/web/","docs/v2/pipeline/A11Y-AUDIT.md"],"tier":"basic","gate":"full","status":"todo"},
     {"id":"P7-05","title":"인계 문서 맞추기","deps":["P7-01","P7-02"],"owns":["AGENTS.md","docs/","README.md"],"tier":"basic","gate":"quick","status":"todo","last":true}
