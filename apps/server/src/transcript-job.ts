@@ -9,8 +9,9 @@
 // lines and a summary without text in job.result. It goes with the recording or its audio
 // (db.ts deleteHarnessArtifacts) or with the job row 30 days after the job (maintenance).
 //
-// on: will publish the transcript (transcript_segment, speaker, transcript_gap) in one
-// transaction once those tables exist (P2 backend). Until then it runs as shadow.
+// on: the same run, then the transcript is published (transcript_segment, speaker,
+// transcript_gap) in one transaction (transcript-publish.ts), the recording is queued for
+// the 물어보기 index and v1/v2 clients get a `recording.updated` event.
 //
 // A job whose lease is reclaimed (worker crash, deploy) runs again with the same job id,
 // and the runner resumes it: finished stages and chunks are not redone or paid for again.
@@ -28,11 +29,15 @@ import {
   type TranscriptionProvider,
   type TranscriptPipelineOptions,
 } from "@lectern/harness";
+import { lectureRecordingId } from "@lectern/db";
 import { isFfmpegAvailable } from "@lectern/media";
+import { announceLectures } from "./api/v2/store.ts";
+import { scheduleLectureIndex } from "./ask/index-job.ts";
 import { personalWorkspaceId } from "./ask/workspace.ts";
 import { DATA_DIR, db, getLectureById, getUserById, HARNESS_BLOB_DIR, type LectureRecord } from "./db.ts";
 import { logger } from "./log.ts";
 import { enqueueJob, type JobOutcome, type LeasedJob } from "./queue.ts";
+import { publishTranscript } from "./transcript-publish.ts";
 
 export const TRANSCRIBE_JOB_KIND = "transcribe";
 
@@ -123,16 +128,13 @@ function dropArtifacts(harness: Harness, jobId: string): void {
 }
 
 /**
- * Runs the transcript pipeline for `job.subjectId` (a lecture). In shadow (and in `on`,
- * until publishing exists) the lecture row and its events are never touched.
+ * Runs the transcript pipeline for `job.subjectId` (a lecture). In shadow the lecture row
+ * and its events are never touched; in `on` the transcript is published to the v2 tables.
  */
 export async function runTranscriptJob(job: LeasedJob, deps: TranscriptJobDeps = {}): Promise<JobOutcome> {
   const mode = config().transcriptEngine;
   // Turned off after the job was queued: nothing to do.
   if (mode === "off") return { ok: true, result: { skipped: "engine_off" } };
-  if (mode === "on") {
-    logger.warn("LECTERN_TRANSCRIPT_ENGINE=on runs as shadow until the transcript tables exist", { job_id: job.id });
-  }
 
   const lectureId = job.subjectId!;
   const harness = deps.harness ?? defaultTranscriptHarness();
@@ -214,6 +216,17 @@ export async function runTranscriptJob(job: LeasedJob, deps: TranscriptJobDeps =
     }
 
     const { transcript } = result;
+    if (mode === "on") {
+      try {
+        publishTranscript({ recordingId: lectureRecordingId(lectureId), workspaceId, transcript });
+      } catch (err) {
+        logger.error("could not publish transcript", { ...fields, err });
+        return { ok: false, error: "전사를 저장하지 못했습니다." };
+      }
+      scheduleLectureIndex(lectureId, job.ownerId);
+      announceLectures([lectureId]);
+    }
+
     const speakers = result.stageRuns.find((s) => s.stage === "speakers")!;
     const output = db
       .query(`SELECT output_json FROM stage_run WHERE id = ?`)
@@ -224,7 +237,7 @@ export async function runTranscriptJob(job: LeasedJob, deps: TranscriptJobDeps =
     // Counts and references only: the transcript text stays in its blob.
     const summary = {
       mode,
-      published: false,
+      published: mode === "on",
       transcript_artifact: output ? (JSON.parse(output.output_json) as { output: string }).output : null,
       duration_ms: transcript.duration_ms,
       chunks: result.chunks.chunks.length,
@@ -235,7 +248,7 @@ export async function runTranscriptJob(job: LeasedJob, deps: TranscriptJobDeps =
       resumed_stages: result.stageRuns.filter((s) => s.resumed).length,
       spent_microusd: spent?.spent_microusd ?? 0,
     };
-    logger.info("transcript stored (shadow)", { ...fields, ...summary });
+    logger.info(mode === "on" ? "transcript published" : "transcript stored", { ...fields, ...summary });
     return { ok: true, result: summary };
   } catch (err: any) {
     const error = err instanceof HarnessError ? err : null;

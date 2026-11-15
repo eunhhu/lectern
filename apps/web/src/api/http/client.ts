@@ -23,6 +23,7 @@ import { z } from "zod";
 import { ApiClientError, type ApiClient, type SessionUser } from "../client.ts";
 import type { AskTurn, ServerEvent as ServerEventType } from "../types.ts";
 import { readSse, SseParser } from "./sse.ts";
+import { createAdminApi } from "../admin.ts";
 
 export interface HttpClientOptions {
   /** Defaults to the global fetch (tests pass a fake). */
@@ -79,6 +80,9 @@ const V1UserBody = z.object({
   user: z.object({ id: z.string().min(1), email: z.string(), displayName: z.string().nullable().optional() }),
 });
 const V1ErrorBody = z.object({ error: z.string() });
+/** `{ ok, message }` of send-code, reset-password and a register waiting for approval. */
+const V1MessageBody = z.object({ message: z.string().optional() });
+const V1PendingBody = z.object({ pendingApproval: z.literal(true), message: z.string().optional() });
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
 
@@ -107,6 +111,19 @@ export function routeUrl(route: Pick<RouteDef, "path">, params: Params = {}, que
 }
 
 /** The ApiClientError for a non-2xx response (v2 or v1 error body, or just the status). */
+/** The file name in a Content-Disposition header (`filename*=UTF-8''…` first), or `note.md`. */
+export function fileNameFrom(disposition: string | null): string {
+  const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded.trim());
+    } catch {
+      // A malformed escape: fall through to the plain name.
+    }
+  }
+  return disposition?.match(/filename="([^"]+)"/i)?.[1] ?? "note.md";
+}
+
 export async function errorFrom(res: Response): Promise<ApiClientError> {
   const requestId = res.headers.get("X-Request-Id");
   let json: unknown = null;
@@ -181,15 +198,45 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     return parsed.data as T;
   }
 
+  // The sign-in start URL answers a redirect when the provider is on, 404/501 when it is
+  // off. `redirect: "manual"` stops at the redirect (an opaque response in a browser).
+  // Anything else (network error, 429, 5xx) is no answer: null.
+  let providers: Promise<{ google: boolean; apple: boolean }> | null = null;
+  async function probeProvider(provider: "google" | "apple"): Promise<boolean | null> {
+    try {
+      const res = await doFetch(`${API_BASE_PATH}/auth/${provider}/start`, { method: "GET", redirect: "manual" });
+      if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) return true;
+      return res.status === 404 || res.status === 501 ? false : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function auth(path: string, init: RequestInit): Promise<Response> {
     return send(`${authBase}${path}`, { ...init, headers: { Accept: "application/json", ...(init.headers as Record<string, string>) } });
   }
 
-  async function sessionFrom(res: Response): Promise<SessionUser> {
-    const parsed = V1UserBody.safeParse(await res.json().catch(() => null));
-    if (!parsed.success) throw new ApiClientError(res.status, "invalid_response", INVALID_MESSAGE);
+  function userFrom(status: number, json: unknown): SessionUser {
+    const parsed = V1UserBody.safeParse(json);
+    if (!parsed.success) throw new ApiClientError(status, "invalid_response", INVALID_MESSAGE);
     const { id, email, displayName } = parsed.data.user;
     return { id, email, displayName: displayName ?? null };
+  }
+
+  async function sessionFrom(res: Response): Promise<SessionUser> {
+    return userFrom(res.status, await res.json().catch(() => null));
+  }
+
+  async function postAuth(path: string, body: Record<string, string>): Promise<Response> {
+    const res = await auth(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!res.ok) throw await errorFrom(res);
+    return res;
+  }
+
+  async function messageFrom(res: Response): Promise<string> {
+    const parsed = V1MessageBody.safeParse(await res.json().catch(() => null));
+    if (!parsed.success) throw new ApiClientError(res.status, "invalid_response", INVALID_MESSAGE);
+    return parsed.data.message ?? "";
   }
 
   return {
@@ -215,6 +262,20 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
       const res = await auth("/logout", { method: "POST" });
       if (!res.ok) throw await errorFrom(res);
     },
+    async sendCode(email, purpose) {
+      return messageFrom(await postAuth("/send-code", { email, purpose }));
+    },
+    async register({ email, displayName, password, verificationCode }) {
+      const res = await postAuth("/register", { email, displayName, password, verificationCode });
+      const json: unknown = await res.json().catch(() => null);
+      const pending = V1PendingBody.safeParse(json);
+      if (pending.success) return { kind: "pending", message: pending.data.message ?? "" };
+      // The body also carries the session token for native clients; it is ignored here.
+      return { kind: "signedIn", user: userFrom(res.status, json) };
+    },
+    async resetPassword({ email, verificationCode, newPassword }) {
+      return messageFrom(await postAuth("/reset-password", { email, verificationCode, newPassword }));
+    },
     onUnauthorized(listener) {
       unauthorized.add(listener);
       return () => unauthorized.delete(listener);
@@ -224,8 +285,52 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     updateMe: (body) => call("updateMe", { body }),
     listDevices: () => call("listDevices"),
     revokeDevice: (deviceId) => call("revokeDevice", { params: { device_id: deviceId } }),
+    listAccessTokens: () => call("listAccessTokens"),
+    createAccessToken: (body) => call("createAccessToken", { body }),
+    revokeAccessToken: (tokenId) => call("revokeAccessToken", { params: { token_id: tokenId } }),
+    listIdentities: () => call("listIdentities"),
+    unlinkIdentity: (identityId) => call("unlinkIdentity", { params: { identity_id: identityId } }),
+    listExports: () => call("listExports"),
+    createExport: (body) => call("createExport", { body }),
+    exportContentUrl: (exportId) => routeUrl(ROUTES_BY_OPERATION.getExportContent!, { export_id: exportId }),
+    getAccountDeletion: () => call("getAccountDeletion"),
+    requestAccountDeletion: (password) => call("requestAccountDeletion", { body: password === undefined ? {} : { password } }),
+    cancelAccountDeletion: () => call("cancelAccountDeletion"),
+    oauthProviders() {
+      providers ??= Promise.all([probeProvider("google"), probeProvider("apple")]).then(([google, apple]) => {
+        // Only a definite answer is remembered; a network error, 429 or 5xx asks again next time.
+        if (google === null || apple === null) providers = null;
+        return { google: google === true, apple: apple === true };
+      });
+      return providers;
+    },
     listWorkspaces: () => call("listWorkspaces"),
     listMembers: (workspaceId) => call("listWorkspaceMembers", { params: { workspace_id: workspaceId } }),
+    admin: createAdminApi({
+      call: (operationId, input) => call(operationId, input as CallInput),
+      async v1(method, path, body) {
+        const headers: Record<string, string> = { Accept: "application/json" };
+        if (body !== undefined) headers["Content-Type"] = "application/json";
+        const res = await send(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+        if (!res.ok) {
+          const error = await errorFrom(res);
+          if (res.status === 401) signalUnauthorized();
+          throw error;
+        }
+        try {
+          return (await res.json()) as unknown;
+        } catch {
+          throw new ApiClientError(res.status, "invalid_response", INVALID_MESSAGE, res.headers.get("X-Request-Id"));
+        }
+      },
+    }),
+    updateMember: (workspaceId, userId, role) => call("updateMember", { params: { workspace_id: workspaceId, user_id: userId }, body: { role } }),
+    removeMember: (workspaceId, userId) => call("removeMember", { params: { workspace_id: workspaceId, user_id: userId } }),
+    listInvites: (workspaceId) => call("listInvites", { params: { workspace_id: workspaceId } }),
+    createInvite: (workspaceId, body) => call("createInvite", { params: { workspace_id: workspaceId }, body }),
+    revokeInvite: (workspaceId, inviteId) => call("revokeInvite", { params: { workspace_id: workspaceId, invite_id: inviteId } }),
+    acceptInvite: (token) => call("acceptInvite", { body: { token } }),
+    getWorkspaceUsage: (workspaceId) => call("getWorkspaceUsage", { params: { workspace_id: workspaceId } }),
 
     listFolders: (workspaceId) => call("listFolders", { query: { workspace_id: workspaceId, limit: 200 } }),
     createFolder: (body) => call("createFolder", { body }),
@@ -252,6 +357,36 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
     createDocumentVersion: (documentId, body, baseVersion) =>
       call("createDocumentVersion", { params: { document_id: documentId }, body, headers: { [HEADER.ifMatch]: versionETag(baseVersion) } }),
 
+    listShareLinks: (ws, targetId) =>
+      call("listShareLinks", { query: { workspace_id: ws, ...(targetId ? { target_id: targetId } : {}), limit: 200 } }),
+    createShareLink: (body) => call("createShareLink", { body }),
+    revokeShareLink: (id) => call("revokeShareLink", { params: { share_link_id: id } }),
+
+    listIntegrations: (ws) => call("listIntegrations", { query: { workspace_id: ws, limit: 200 } }),
+    startGoogleIntegration: (ws, returnTo) => call("startGoogleIntegration", { body: { workspace_id: ws, return_to: returnTo } }),
+    disconnectIntegration: (id) => call("disconnectIntegration", { params: { integration_id: id } }),
+    getCalendarFeed: (ws) => call("getCalendarFeed", { query: { workspace_id: ws } }),
+    createCalendarFeed: (ws) => call("createCalendarFeed", { body: { workspace_id: ws } }),
+    deleteCalendarFeed: (ws) => call("deleteCalendarFeed", { query: { workspace_id: ws } }),
+    updateWorkspaceSettings: (ws, settings) => call("updateWorkspace", { params: { workspace_id: ws }, body: { settings } }),
+
+    deleteRecordingAudio: (id) => call("deleteRecordingAudio", { params: { recording_id: id } }),
+    // 200 (dry run) and 202 (queued) both parse as ReprocessResponse.
+    reprocessRecording: (id, body) => call("reprocessRecording", { params: { recording_id: id }, body }),
+    listAskSuggestions: (query) => call("listAskSuggestions", { query }),
+    // Not JSON: the Markdown file itself, named by Content-Disposition.
+    async exportDocument(documentId) {
+      const res = await send(routeUrl(ROUTES_BY_OPERATION.exportDocument!, { document_id: documentId }, { format: "md" }), {
+        method: "GET",
+        headers: { Accept: "text/markdown" },
+      });
+      if (!res.ok) {
+        const error = await errorFrom(res);
+        if (res.status === 401) signalUnauthorized();
+        throw error;
+      }
+      return { filename: fileNameFrom(res.headers.get("Content-Disposition")), blob: await res.blob() };
+    },
     listCalendarSuggestions: (query) => call("listCalendarSuggestions", { query }),
     updateCalendarSuggestion: (id, body) => call("updateCalendarSuggestion", { params: { event_candidate_id: id }, body }),
 
@@ -311,6 +446,8 @@ export function createHttpClient(options: HttpClientOptions = {}): ApiClient {
       call("completeUpload", { params: { upload_id: uploadId }, headers: { [HEADER.idempotencyKey]: idempotencyKey } }),
 
     assetContentUrl: (assetId) => routeUrl(ROUTES_BY_OPERATION.getAssetContent!, { asset_id: assetId }),
+    listAssetPages: (assetId) => call("listAssetPages", { params: { asset_id: assetId } }),
+    ocrAsset: (assetId, body) => call("ocrAsset", { params: { asset_id: assetId }, body }),
 
     subscribe(workspaceId, onEvent) {
       return subscribeEvents({ workspaceId, onEvent, send, retry, onUnauthorized: signalUnauthorized });

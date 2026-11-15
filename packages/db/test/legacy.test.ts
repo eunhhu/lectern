@@ -14,6 +14,7 @@ import {
   lectureRecordingId,
   lectureShareLinkId,
   personalWorkspaceId,
+  placeRecordingInWorkspace,
   projectLecture,
   runMigrations,
   sortKeyAfter,
@@ -260,6 +261,88 @@ describe("lectures -> v2 migration", () => {
     expect(one(sqlite, `SELECT folder_id FROM recording WHERE id = ?`, id).folder_id).toBeNull();
     expect(verifyLegacy(sqlite).ok).toBe(true);
     expect(projectLecture(sqlite, id)).toBe("unchanged");
+    sqlite.close();
+  });
+});
+
+describe("team uploads (P5-06)", () => {
+  function teamSetup() {
+    const sqlite = v1Database();
+    addUser(sqlite, "usr_a");
+    addUser(sqlite, "usr_b");
+    migrate(sqlite);
+    backfillLegacy(sqlite); // personal workspaces for both
+    const now = Date.parse("2026-11-01T00:00:00.000Z");
+    sqlite
+      .query(`INSERT INTO workspace (id, name, kind, plan, settings_json, personal_user_id, created_at, updated_at) VALUES ('wsp_team', '스터디', 'team', 'free', '{}', NULL, ?, ?)`)
+      .run(now, now);
+    for (const user of ["usr_a", "usr_b"]) {
+      sqlite.query(`INSERT INTO membership (workspace_id, user_id, role, created_at, updated_at) VALUES ('wsp_team', ?, 'member', ?, ?)`).run(user, now, now);
+    }
+    sqlite
+      .query(`INSERT INTO folder (id, workspace_id, parent_id, name, sort_key, created_at, updated_at) VALUES ('fld_team', 'wsp_team', NULL, '운영체제', 'm', ?, ?)`)
+      .run(now, now);
+    sqlite.query(`INSERT INTO tag (id, workspace_id, name, color, created_at, updated_at) VALUES ('tag_team', 'wsp_team', '시험', 'blue', ?, ?)`).run(now, now);
+    return { sqlite, now };
+  }
+
+  test("a recording placed in a team workspace stays there through later projections", () => {
+    const { sqlite, now } = teamSetup();
+    const id = addLecture(sqlite, { course: "운영체제", status: "processing", markdown: "" });
+    projectLecture(sqlite, id);
+    const recordingId = lectureRecordingId(id);
+    expect(one(sqlite, `SELECT workspace_id FROM recording WHERE id = ?`, recordingId).workspace_id).toBe(personalWorkspaceId("usr_a"));
+
+    placeRecordingInWorkspace(sqlite, recordingId, "wsp_team");
+    sqlite.query(`UPDATE recording SET folder_id = 'fld_team' WHERE id = ?`).run(recordingId);
+    sqlite
+      .query(`INSERT INTO recording_tag (workspace_id, recording_id, tag_id, source, confidence, created_at) VALUES ('wsp_team', ?, 'tag_team', 'user', NULL, ?)`)
+      .run(recordingId, now);
+
+    // The pipeline finishes: status, Markdown, title change on the lecture.
+    sqlite.query(`UPDATE lectures SET status = 'done', markdown = '# 스케줄링', title = '운영체제 3주차' WHERE id = ?`).run(id);
+    expect(drainLectureSync(sqlite)).toBe(1);
+    const rec = one(sqlite, `SELECT workspace_id, folder_id, visibility, created_by, title, status FROM recording WHERE id = ?`, recordingId);
+    expect(rec).toEqual({ workspace_id: "wsp_team", folder_id: "fld_team", visibility: "workspace", created_by: "usr_a", title: "운영체제 3주차", status: "ready" });
+    expect(all(sqlite, `SELECT tag_id FROM recording_tag WHERE recording_id = ?`, recordingId)).toEqual([{ tag_id: "tag_team" }]);
+    expect(one(sqlite, `SELECT workspace_id FROM document WHERE id = ?`, lectureDocumentId(id)).workspace_id).toBe("wsp_team");
+    expect(one(sqlite, `SELECT workspace_id FROM asset WHERE id = ?`, lectureAudioAssetId(id)).workspace_id).toBe("wsp_team");
+
+    // A course change from v1 finds (or makes) the folder in the team, not in the personal workspace.
+    sqlite.query(`UPDATE lectures SET course = '자료구조' WHERE id = ?`).run(id);
+    drainLectureSync(sqlite);
+    const folder = one(sqlite, `SELECT f.workspace_id, f.name FROM recording r JOIN folder f ON f.id = r.folder_id WHERE r.id = ?`, recordingId);
+    expect(folder).toEqual({ workspace_id: "wsp_team", name: "자료구조" });
+
+    const report = verifyLegacy(sqlite);
+    expect(report.mismatches).toEqual([]);
+    expect(report.ok).toBe(true);
+    expect(projectLecture(sqlite, id)).toBe("unchanged");
+    sqlite.close();
+  });
+
+  test("a private team upload stays private; personal workspaces are refused", () => {
+    const { sqlite } = teamSetup();
+    const id = addLecture(sqlite, { course: UNFILED_COURSE });
+    projectLecture(sqlite, id);
+    const recordingId = lectureRecordingId(id);
+    placeRecordingInWorkspace(sqlite, recordingId, "wsp_team", "private");
+    expect(one(sqlite, `SELECT visibility FROM recording WHERE id = ?`, recordingId).visibility).toBe("private");
+    expect(() => placeRecordingInWorkspace(sqlite, recordingId, personalWorkspaceId("usr_b"))).toThrow("not a team workspace");
+    expect(one(sqlite, `SELECT workspace_id FROM recording WHERE id = ?`, recordingId).workspace_id).toBe("wsp_team");
+    sqlite.close();
+  });
+
+  test("other recordings still follow their owner to the personal workspace", () => {
+    const { sqlite } = teamSetup();
+    const id = addLecture(sqlite, {});
+    projectLecture(sqlite, id);
+    sqlite.query(`UPDATE lectures SET owner_id = 'usr_b' WHERE id = ?`).run(id);
+    drainLectureSync(sqlite);
+    expect(one(sqlite, `SELECT workspace_id, created_by FROM recording WHERE id = ?`, lectureRecordingId(id))).toEqual({
+      workspace_id: personalWorkspaceId("usr_b"),
+      created_by: "usr_b",
+    });
     sqlite.close();
   });
 });

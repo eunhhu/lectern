@@ -21,7 +21,9 @@
     "tokens:build": "bun packages/design-tokens/scripts/build.ts",
     "web:build": "bun run --cwd apps/web build",
     "web:dev": "bun run --cwd apps/web dev",
-    "web:e2e": "bun run --cwd apps/web e2e"
+    "web:e2e": "bun run --cwd apps/web e2e",
+    "pipeline": "bun scripts/pipeline/pipeline.ts",
+    "gate": "bash scripts/pipeline/gate.sh"
   },
   "license": "MIT",
   "devDependencies": {

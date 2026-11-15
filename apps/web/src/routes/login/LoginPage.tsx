@@ -1,10 +1,10 @@
 // 로그인: the existing cookie auth (POST /api/auth/login sets the HttpOnly
 // `lectern_session` cookie). Nothing from the response is stored in the browser; the
-// session token in its body is ignored. Signing up and password reset stay on the
-// existing screen at / until the v2 account flows exist.
+// session token in its body is ignored. Signing up and password reset are /signup and
+// /reset (routes/account).
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { Form, Input, Label, TextField } from "react-aria-components";
 import { errorMessage } from "../../api/errors.ts";
@@ -13,10 +13,27 @@ import { usePageTitle } from "../../app/RootLayout.tsx";
 import { Button, uiStyles } from "../../ui/controls.tsx";
 import { Icon } from "../../ui/Icon.tsx";
 import s from "./login.module.css";
+import { appNext, OAuthButtons } from "./OAuthButtons.tsx";
 
 export interface LoginSearch {
   /** App path to return to after signing in (`/recordings/rec_1?t=3000`). */
   next?: string;
+  /** Why a Google/Apple sign-in came back here (`/app/login?error=oauth`, D-P5-5). */
+  error?: string;
+}
+
+const OAUTH_ERRORS: Record<string, string> = {
+  oauth: "로그인하지 못했습니다. 다시 시도해 주세요.",
+  email_unverified: "이메일이 인증되지 않은 계정으로는 로그인할 수 없습니다.",
+  no_email: "이메일 주소를 받지 못해 로그인할 수 없습니다.",
+  inactive: "사용이 중지된 계정입니다.",
+  signup_closed: "이 이메일로 가입된 계정이 없고, 지금은 새로 가입할 수 없습니다.",
+};
+
+/** The message for `?error=`; an unknown code reads as the generic failure. */
+export function oauthErrorMessage(code: string | undefined): string | null {
+  if (!code) return null;
+  return OAUTH_ERRORS[code] ?? OAUTH_ERRORS.oauth!;
 }
 
 /** `next` when it is a path inside the app, otherwise home: never another origin. */
@@ -30,10 +47,10 @@ export function LoginPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { next } = useSearch({ from: "/login" });
+  const { next, error: oauthError } = useSearch({ from: "/login" });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => oauthErrorMessage(oauthError));
   const [pending, setPending] = useState(false);
 
   const submit = async () => {
@@ -90,13 +107,13 @@ export function LoginPage() {
             {pending ? "로그인하는 중…" : "로그인"}
           </Button>
         </Form>
-        {api.mode === "fixture" ? (
+        <OAuthButtons next={appNext(safeNext(next))} />
+        {api.mode === "fixture" && (
           <p className={s.note}>미리보기에는 서버가 없습니다. 예시 사용자의 이메일과 아무 비밀번호로 들어갑니다.</p>
-        ) : (
-          <p className={s.note}>
-            계정 만들기와 비밀번호 찾기는 <a href="/?legacy=1">기존 화면</a>에서 할 수 있습니다.
-          </p>
         )}
+        <p className={s.note}>
+          계정이 없거나 비밀번호를 잊었다면 <Link to="/signup">회원가입</Link> · <Link to="/reset">비밀번호를 잊으셨나요?</Link>
+        </p>
       </div>
     </main>
   );

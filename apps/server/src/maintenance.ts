@@ -10,6 +10,7 @@ import { emitLectureEvent } from "./events.ts";
 import { logger } from "./log.ts";
 import { runMaintenance } from "./ops.ts";
 import { isLectureBusy } from "./queue.ts";
+import { startReminderSchedule } from "./reminders.ts";
 import type { RetentionOutcome } from "./storage.ts";
 
 /** Tells clients about lectures retention changed (audio removed or lecture deleted). */
@@ -36,7 +37,10 @@ export function runMaintenanceNow(forceBackup = false) {
   });
 }
 
-/** First run two minutes after boot, then every LECTERN_MAINTENANCE_INTERVAL_MIN. */
+/**
+ * First run two minutes after boot, then every LECTERN_MAINTENANCE_INTERVAL_MIN. Also starts
+ * the five-minute `reminder` job schedule (reminders.ts, only with LECTERN_CALENDAR on).
+ */
 export function startMaintenanceSchedule(): () => void {
   const run = () => {
     runMaintenanceNow()
@@ -85,8 +89,10 @@ export function startMaintenanceSchedule(): () => void {
   first.unref?.();
   const every = setInterval(run, config().maintenanceIntervalMin * 60_000);
   every.unref?.();
+  const stopReminders = startReminderSchedule();
   return () => {
     clearTimeout(first);
     clearInterval(every);
+    stopReminders();
   };
 }

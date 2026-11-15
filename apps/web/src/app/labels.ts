@@ -39,6 +39,7 @@ export const STAGE_LABEL: Partial<Record<StageName, string>> = {
   extract: "일정·할 일 찾는 중",
   verify: "출처 확인 중",
   publish: "마무리 중",
+  index: "검색 색인 중",
 };
 
 export function stageLabel(stage: StageName | undefined): string {
@@ -56,6 +57,12 @@ export function progressLabel(
   }
   const what = progress?.message?.trim() || stageLabel(progress?.stage);
   return `${what}${progress?.progress != null ? ` · ${Math.round(progress.progress * 100)}%` : progress?.message ? "" : "…"}`;
+}
+
+/** The note shown on a `partial` recording: the server's reason, else the generic gap sentence. */
+export function partialNote(failure: { code: string; message: string } | null | undefined): string {
+  const reason = failure?.message?.trim();
+  return reason ? `일부만 완료되었습니다. ${reason}` : "일부 구간을 전사하지 못했습니다. 빠진 구간은 전사와 문서에 표시됩니다.";
 }
 
 /** Tag colours are design-token names (packages/domain Tag.color). */

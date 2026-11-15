@@ -1,0 +1,95 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--size-row-comfortable);
+  padding: var(--space-8) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+}
+
+.muted {
+  font: var(--typography-caption);
+  color: var(--color-text-secondary);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+
+.section + .section {
+  margin-top: var(--space-24);
+}
+
+.heading {
+  font-weight: var(--font-weight-semibold);
+}
+
+.created {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: var(--space-12);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-raised);
+}
+
+.urlRow {
+  display: flex;
+  gap: var(--space-8);
+  align-items: flex-end;
+}
+
+.urlRow > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.urlRow > button {
+  flex: none;
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  color: var(--color-status-danger-fg);
+}
+
+.error > svg {
+  flex: none;
+  margin-top: 3px;
+}

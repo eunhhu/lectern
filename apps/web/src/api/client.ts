@@ -5,13 +5,30 @@
 // the in-memory fixtures (./fixture/client.ts, tests and `web:dev`). ./index.ts picks one
 // at build time.
 
+import type { AdminApi } from "./admin.ts";
 import type {
+  AcceptInviteResponse,
+  CreateInviteRequest,
+  Invite,
+  InvitePage,
+  MembershipRole,
+  WorkspaceMember,
+  WorkspaceUsage,
+  AccessTokenPage,
+  AccountDeletionInfo,
+  CreateAccessTokenRequest,
+  CreatedAccessToken,
+  CreateExportRequest,
+  DataExport,
+  DataExportPage,
+  IdentityPage,
   ActionItem,
   ActionItemPage,
   BatchRecordingsRequest,
   BatchRecordingsResponse,
   ListActionItemsQuery,
   AskStreamEvent,
+  AskSuggestions,
   AskThread,
   AskThreadDetail,
   AskThreadPage,
@@ -20,7 +37,9 @@ import type {
   CompleteUploadResponse,
   CreateAskThreadRequest,
   CreateDocumentVersionRequest,
+  CreatedShareLink,
   CreateFolderRequest,
+  CreateShareLinkRequest,
   CreateTagRequest,
   CreateUploadRequest,
   DevicePage,
@@ -30,6 +49,7 @@ import type {
   EventCandidatePage,
   Folder,
   FolderPage,
+  ListAskSuggestionsParams,
   ListAskThreadsQuery,
   ListRecordingsParams,
   ListSuggestionsParams,
@@ -39,9 +59,20 @@ import type {
   Recording,
   RecordingDetail,
   RecordingPage,
+  ReprocessRequest,
+  ReprocessResponse,
+  AssetPages,
+  CalendarFeedCreated,
+  CalendarFeedInfo,
+  IntegrationPage,
+  Workspace,
+  WorkspaceSettings,
+  OcrAssetRequest,
+  OcrAssetResponse,
   SearchHitPage,
   SearchParams,
   ServerEvent,
+  ShareLinkPage,
   Tag,
   TagPage,
   Transcript,
@@ -83,6 +114,9 @@ export interface SessionUser {
   displayName: string | null;
 }
 
+/** POST /api/auth/register: signed in at once, or waiting for an operator's approval. */
+export type RegisterResult = { kind: "signedIn"; user: SessionUser } | { kind: "pending"; message: string };
+
 export interface AskQuestionOptions {
   signal?: AbortSignal;
   /** Every stream event, in order (`turn.started`, `retrieval`, `answer.delta`, …). */
@@ -99,6 +133,12 @@ export interface ApiClient {
   /** Signs in; the server sets the HttpOnly session cookie. Rejects with the server's message. */
   login(email: string, password: string): Promise<SessionUser>;
   logout(): Promise<void>;
+  /** Mails a 6-digit code (POST /api/auth/send-code). Resolves with the server's sentence. */
+  sendCode(email: string, purpose: "signup" | "reset"): Promise<string>;
+  /** Creates an account (POST /api/auth/register); the session token in the body is ignored. */
+  register(input: { email: string; displayName: string; password: string; verificationCode: string }): Promise<RegisterResult>;
+  /** Sets a new password with a mailed code (POST /api/auth/reset-password). Resolves with the server's sentence. */
+  resetPassword(input: { email: string; verificationCode: string; newPassword: string }): Promise<string>;
   /** Called whenever a request answers 401 (the session ended). Returns an unsubscribe function. */
   onUnauthorized(listener: () => void): () => void;
 
@@ -107,8 +147,49 @@ export interface ApiClient {
   listDevices(): Promise<DevicePage>;
   /** Signs a device out (DELETE /me/devices/{id}). */
   revokeDevice(deviceId: string): Promise<void>;
+  // --- account (P5: D-P5-2..5, D-P5-8, D-P5-9) -------------------------------------
+  /** Personal access tokens, and the v1 API token as a row of its own (`tok_…`, not revocable here). */
+  listAccessTokens(): Promise<AccessTokenPage>;
+  /** The token and its secret; the secret is in this response only. */
+  createAccessToken(body: CreateAccessTokenRequest): Promise<CreatedAccessToken>;
+  revokeAccessToken(tokenId: string): Promise<void>;
+  /** Google and Apple accounts the user can sign in with. */
+  listIdentities(): Promise<IdentityPage>;
+  /** 409 when it is the last way to sign in. */
+  unlinkIdentity(identityId: string): Promise<void>;
+  listExports(): Promise<DataExportPage>;
+  /** Queues a workspace export zip (202). */
+  createExport(body: CreateExportRequest): Promise<DataExport>;
+  /** Where a ready export zip downloads from (`/me/exports/{id}/content`). */
+  exportContentUrl(exportId: string): string;
+  getAccountDeletion(): Promise<AccountDeletionInfo>;
+  /** Schedules the deletion in 7 days. `password` for an account that has one. */
+  requestAccountDeletion(password?: string): Promise<AccountDeletionInfo>;
+  cancelAccountDeletion(): Promise<AccountDeletionInfo>;
+  /**
+   * Which "…로 계속하기" sign-ins the server offers. There is no route for it: the start
+   * URL is probed (a redirect means on; 404 or 501 means off). Remembered for the session.
+   */
+  oauthProviders(): Promise<{ google: boolean; apple: boolean }>;
+
   listWorkspaces(): Promise<MyWorkspacePage>;
   listMembers(workspaceId: WorkspaceId): Promise<WorkspaceMemberPage>;
+  /** The admin console's calls (P5-12). Operators only; others get 403. */
+  readonly admin: AdminApi;
+  // --- team workspaces (P5-11: D-P5-6, D-P5-7) ---------------------------------------
+  /** 403 when the caller may not, 409 for the last owner. */
+  updateMember(workspaceId: WorkspaceId, userId: string, role: MembershipRole): Promise<WorkspaceMember>;
+  /** Removes someone, or leaves when `userId` is the caller. 409 for the last owner. */
+  removeMember(workspaceId: WorkspaceId, userId: string): Promise<void>;
+  /** Open invitations (owners and admins). */
+  listInvites(workspaceId: WorkspaceId): Promise<InvitePage>;
+  /** Sends the invitation mail; the link is in the mail only. */
+  createInvite(workspaceId: WorkspaceId, body: CreateInviteRequest): Promise<Invite>;
+  revokeInvite(workspaceId: WorkspaceId, inviteId: string): Promise<void>;
+  /** Joins with the token from the mail. 403 when it was sent to another address. */
+  acceptInvite(token: string): Promise<AcceptInviteResponse>;
+  /** This month's usage and the limits an operator set. */
+  getWorkspaceUsage(workspaceId: WorkspaceId): Promise<WorkspaceUsage>;
 
   listFolders(workspaceId: WorkspaceId): Promise<FolderPage>;
   createFolder(body: CreateFolderRequest): Promise<Folder>;
@@ -143,8 +224,40 @@ export interface ApiClient {
    */
   createDocumentVersion(documentId: string, body: CreateDocumentVersionRequest, baseVersion: number): Promise<DocumentVersion>;
 
+  // --- share links (D-P2-3) -------------------------------------------------------
+  /** Links that are not revoked, optionally for one recording or document. */
+  listShareLinks(workspaceId: WorkspaceId, targetId?: string): Promise<ShareLinkPage>;
+  /** The link and its URL; the URL (with the token) is in this response only. */
+  createShareLink(body: CreateShareLinkRequest): Promise<CreatedShareLink>;
+  revokeShareLink(shareLinkId: string): Promise<void>;
+
+  // --- recording actions (D-P2-4) --------------------------------------------------
+  /** Deletes only the recording's audio files; transcript and documents stay. */
+  deleteRecordingAudio(recordingId: string): Promise<void>;
+  /** `dry_run` returns only the estimate (`job: null`); otherwise the queued job. */
+  reprocessRecording(recordingId: string, body: ReprocessRequest): Promise<ReprocessResponse>;
+  /** The document's Markdown and the file name the server suggests. */
+  exportDocument(documentId: string): Promise<{ filename: string; blob: Blob }>;
+  /** Rule-built suggested questions for a scope (no model call). */
+  listAskSuggestions(query: ListAskSuggestionsParams): Promise<AskSuggestions>;
+
   listCalendarSuggestions(query: ListSuggestionsParams): Promise<EventCandidatePage>;
   updateCalendarSuggestion(eventCandidateId: string, body: UpdateEventCandidateRequest): Promise<EventCandidate>;
+
+  // --- calendar connections and reminders (P4, D-P4-2/3/7) -------------------------
+  /** The caller's own integrations in the workspace. */
+  listIntegrations(workspaceId: WorkspaceId): Promise<IntegrationPage>;
+  /** Where to send the browser for Google consent; it comes back to `returnTo`. 501 while the feature is off. */
+  startGoogleIntegration(workspaceId: WorkspaceId, returnTo: string): Promise<{ authorization_url: string }>;
+  /** Revokes the tokens; events already in Google stay there. */
+  disconnectIntegration(integrationId: string): Promise<void>;
+  /** Whether an ICS subscription exists (its URL is never shown again). 501 while the feature is off. */
+  getCalendarFeed(workspaceId: WorkspaceId): Promise<CalendarFeedInfo>;
+  /** A new subscription URL, shown once; the previous one stops working. */
+  createCalendarFeed(workspaceId: WorkspaceId): Promise<CalendarFeedCreated>;
+  deleteCalendarFeed(workspaceId: WorkspaceId): Promise<void>;
+  /** PATCH /workspaces/{id} with `{ settings }` (owner and admin). */
+  updateWorkspaceSettings(workspaceId: WorkspaceId, settings: Partial<WorkspaceSettings>): Promise<Workspace>;
 
   search(query: SearchParams): Promise<SearchHitPage>;
 
@@ -169,6 +282,10 @@ export interface ApiClient {
 
   /** URL of an asset's bytes (`/assets/{id}/content`, Range requests), or null when there are none (fixtures). */
   assetContentUrl(assetId: string): string | null;
+  /** A PDF asset's pages: page count, whether it is a scan, and which pages have text (D-P3-3). */
+  listAssetPages(assetId: string): Promise<AssetPages>;
+  /** OCR of a scanned PDF: `dry_run: true` only estimates; `false` queues the job (only after the user confirmed the estimate). */
+  ocrAsset(assetId: string, body: OcrAssetRequest): Promise<OcrAssetResponse>;
 
   /** Workspace event stream (SSE `/events`). Returns an unsubscribe function. */
   subscribe(workspaceId: WorkspaceId, onEvent: (event: ServerEvent) => void): () => void;

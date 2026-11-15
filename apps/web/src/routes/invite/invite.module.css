@@ -1,0 +1,45 @@
+/* 초대 수락 (P5-11) */
+
+.card {
+  max-width: 520px;
+  margin: var(--space-48) auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: var(--space-32);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-raised);
+}
+
+.title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.3px;
+  line-height: var(--font-line-height-tight);
+}
+
+.lead {
+  color: var(--color-text-secondary);
+  line-height: var(--font-line-height-relaxed);
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  color: var(--color-status-danger-fg);
+  line-height: var(--font-line-height-relaxed);
+}
+
+.error > svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+}

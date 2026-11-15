@@ -1,4 +1,5 @@
 import { db } from "../../db.ts";
+import { syncRemindersForActionItem } from "../../reminders.ts";
 import { callerIn, can, loadRecording, requireWorkspace } from "./access.ts";
 import { defineRouter, notFound, ok, pageBounds, pageFrom } from "./common.ts";
 import { actionItemDto, type ActionItemRow, type RecordingRow } from "./rows.ts";
@@ -44,6 +45,7 @@ export const actionItemsRouter = defineRouter({
       Date.now(),
       item.id
     );
+    syncRemindersForActionItem(item.id);
     return ok(req, actionItemDto(db.query(`SELECT * FROM action_item WHERE id = ?`).get(item.id) as ActionItemRow));
   },
 });

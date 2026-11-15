@@ -1,0 +1,72 @@
+{
+  "id": "seminar",
+  "version": 1,
+  "name": "세미나 노트",
+  "domains": [
+    "seminar"
+  ],
+  "sections": [
+    {
+      "key": "summary",
+      "title": "발표 요지",
+      "fill": "structure",
+      "instructions": "발표의 주제와 결론을 요약한다.",
+      "block_types": [
+        "paragraph",
+        "list"
+      ],
+      "required": true
+    },
+    {
+      "key": "claims",
+      "title": "핵심 주장·근거",
+      "fill": "structure",
+      "instructions": "주장마다 근거를 붙여 정리한다.",
+      "block_types": [
+        "paragraph",
+        "list",
+        "quote"
+      ],
+      "required": true
+    },
+    {
+      "key": "qa",
+      "title": "질의응답",
+      "fill": "structure",
+      "instructions": "질문과 답변을 짝지어 적는다.",
+      "block_types": [
+        "list",
+        "paragraph"
+      ],
+      "required": false
+    },
+    {
+      "key": "references",
+      "title": "참고 자료",
+      "fill": "structure",
+      "instructions": "발표 중 언급된 자료, 논문, 도구 이름만 적는다.",
+      "block_types": [
+        "list"
+      ],
+      "required": false
+    },
+    {
+      "key": "glossary",
+      "title": "용어",
+      "fill": "glossary",
+      "instructions": "",
+      "block_types": [
+        "list"
+      ],
+      "required": false
+    }
+  ],
+  "extract": {
+    "events": false,
+    "action_items": false,
+    "questions": false,
+    "decisions": false,
+    "glossary": true
+  },
+  "question_kinds": []
+}

@@ -23,6 +23,8 @@ test.describe("folders", () => {
     await expect(tree.getByRole("row", { name: "졸업 프로젝트" })).toBeVisible();
     await tree.getByRole("row", { name: "졸업 프로젝트" }).focus();
     await page.keyboard.press("F2");
+    // Type only once the field has focus (and its name selected), or the keys go elsewhere.
+    await expect(page.getByRole("textbox", { name: "폴더 이름" })).toBeFocused();
     await page.keyboard.type("캡스톤 디자인");
     await page.keyboard.press("Enter");
     await expect(tree.getByRole("row", { name: "캡스톤 디자인" })).toBeVisible();
@@ -164,7 +166,7 @@ test("user menu: profile and account settings", async ({ page, axe }) => {
   await expect(page.getByText("프로필을 저장했습니다.")).toBeVisible();
   await expect(page.getByRole("button", { name: /김지우/ })).toBeVisible();
 
-  await page.getByRole("button", { name: "로그아웃: Lectern for Mac" }).click();
+  await page.getByRole("button", { name: "로그아웃시키기: Lectern for Mac" }).click();
   await expect(page.getByText("Lectern for Mac에서 로그아웃했습니다.")).toBeVisible();
 
   // Signing out shows the login screen; signing in returns to the app.

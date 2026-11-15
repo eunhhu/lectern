@@ -1,0 +1,149 @@
+name: Lectern
+options:
+  bundleIdPrefix: com.qucord.lectern
+  deploymentTarget: { iOS: "26.0", macOS: "26.0" }
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+packages:
+  LecternKit: { path: Packages/LecternKit }
+  RecorderKit: { path: Packages/RecorderKit }
+  LecternUI: { path: Packages/LecternUI }
+  LecternIntents: { path: Packages/LecternIntents }
+targets:
+  # XcodeGen writes each Info.plist and .entitlements from `properties` on every generate: keys
+  # added to those files by hand are lost. Change them here.
+  LecterniOS:
+    type: application
+    platform: iOS
+    sources: [iOS/App]
+    info:
+      path: iOS/App/Info.plist
+      properties:
+        CFBundleDisplayName: Lectern
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSceneManifest: { UIApplicationSupportsMultipleScenes: false }
+        NSMicrophoneUsageDescription: 강의와 회의를 녹음하려면 마이크가 필요합니다.
+        UIBackgroundModes: [audio]
+        NSSupportsLiveActivities: true
+        NSCalendarsWriteOnlyAccessUsageDescription: 수락한 일정을 캘린더에 넣으려면 캘린더에 추가할 수 있는 권한이 필요합니다.
+        NSUserActivityTypes: [com.qucord.lectern.recording]
+        CFBundleURLTypes:
+          - CFBundleURLName: com.qucord.lectern
+            CFBundleURLSchemes: [lectern]
+        LecternServerURL: $(LECTERN_SERVER_URL)
+        AppIdentifierPrefix: $(AppIdentifierPrefix)
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: iOS/App/Lectern.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.qucord.lectern]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.qucord.lectern"]
+        # Development APNs; the signer picks production for distribution.
+        aps-environment: development
+        # LECTERN_ASSOCIATED_DOMAIN in Local.xcconfig (the server's host): universal links and Handoff.
+        com.apple.developer.associated-domains: ["applinks:$(LECTERN_ASSOCIATED_DOMAIN)", "webcredentials:$(LECTERN_ASSOCIATED_DOMAIN)"]
+    settings:
+      base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios, PRODUCT_NAME: Lectern, TARGETED_DEVICE_FAMILY: "1,2" }
+    dependencies:
+      - package: LecternKit
+      - package: RecorderKit
+      - package: LecternUI
+      - package: LecternIntents
+      - target: LecternWidgets
+      - target: LecternShare
+  LecternWidgets:
+    type: app-extension
+    platform: iOS
+    sources: [iOS/Widgets]
+    info:
+      path: iOS/Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Lectern
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension: { NSExtensionPointIdentifier: com.apple.widgetkit-extension }
+    entitlements:
+      path: iOS/Widgets/LecternWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.qucord.lectern]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.qucord.lectern"]
+    settings:
+      base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios.widgets }
+    dependencies:
+      - package: LecternKit
+      - package: LecternUI
+      - package: LecternIntents
+  LecternShare:
+    type: app-extension
+    platform: iOS
+    sources: [iOS/Share]
+    info:
+      path: iOS/Share/Info.plist
+      properties:
+        CFBundleDisplayName: Lectern
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # Audio and PDFs only, at most 10 (a predicate string: the dictionary form cannot say "audio").
+            NSExtensionActivationRule: 'SUBQUERY(extensionItems, $extensionItem, $extensionItem.attachments.@count >= 1 AND $extensionItem.attachments.@count <= 10 AND SUBQUERY($extensionItem.attachments, $attachment, ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf").@count == $extensionItem.attachments.@count).@count >= 1'
+    entitlements:
+      path: iOS/Share/LecternShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.qucord.lectern]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.qucord.lectern"]
+    settings:
+      base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios.share }
+    dependencies:
+      - package: LecternKit
+  LecternMac:
+    type: application
+    platform: macOS
+    sources: [macOS/App]
+    info:
+      path: macOS/App/Info.plist
+      properties:
+        CFBundleDisplayName: Lectern
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSMicrophoneUsageDescription: 강의와 회의를 녹음하려면 마이크가 필요합니다.
+        NSAudioCaptureUsageDescription: 회의에서 상대방의 소리를 함께 녹음하려면 시스템 오디오 접근이 필요합니다.
+        LSUIElement: false
+        NSUserActivityTypes: [com.qucord.lectern.recording]
+        LecternServerURL: $(LECTERN_SERVER_URL)
+        AppIdentifierPrefix: $(AppIdentifierPrefix)
+    entitlements:
+      path: macOS/App/LecternMac.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.qucord.lectern]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.qucord.lectern"]
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.audio-input: true
+        com.apple.security.network.client: true
+    settings:
+      base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.macos, PRODUCT_NAME: Lectern }
+    dependencies:
+      - package: LecternKit
+      - package: RecorderKit
+      - package: LecternUI
+      - package: LecternIntents
+  LecterniOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [iOS/UITests]
+    dependencies:
+      - target: LecterniOS
+    settings:
+      base: { PRODUCT_BUNDLE_IDENTIFIER: com.qucord.lectern.ios.uitests, GENERATE_INFOPLIST_FILE: YES }
+schemes:
+  LecterniOS:
+    build: { targets: { LecterniOS: all } }
+    test: { targets: [LecterniOSUITests] }
+  LecternMac: { build: { targets: { LecternMac: all } } }

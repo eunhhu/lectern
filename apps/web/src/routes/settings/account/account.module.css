@@ -1,0 +1,46 @@
+/* 설정 › 계정 구역 (P5-10): tokens, sign-in identities, exports, account deletion. */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.code {
+  font-family: var(--font-family-mono);
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  color: var(--color-status-danger-fg);
+  line-height: var(--font-line-height-relaxed);
+}
+
+.error > svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.providerLogo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.download {
+  color: var(--color-accent-fg);
+  font-weight: var(--font-weight-medium);
+  text-decoration: underline;
+}
+
+.danger {
+  color: var(--color-status-danger-fg);
+}

@@ -19,11 +19,13 @@ import {
   indexStageKey,
   runIndexStage,
 } from "@lectern/ask";
+import { lectureRecordingId } from "@lectern/db";
 import { defineStage, Harness } from "@lectern/harness";
 import { db, HARNESS_BLOB_DIR, onLectureContentChanged } from "../db.ts";
 import { logger } from "../log.ts";
 import { enqueueJob, type JobOutcome, type LeasedJob, registerJobHandler } from "../queue.ts";
 import { type IndexableLecture, isIndexable, lectureSources, personalWorkspaceId } from "./legacy.ts";
+import { pdfSourcesOf } from "./pdf-sources.ts";
 import { askService, type AskService } from "./service.ts";
 
 export const INDEX_JOB_KIND = "index";
@@ -40,6 +42,17 @@ function indexStage(embedder: Embedder | undefined) {
     run: (input, ctx) =>
       runIndexStage({ db, embedder, meter: (meta, call) => ctx.meter(meta, call), signal: ctx.signal }, input),
   });
+}
+
+/**
+ * What the index stage reads for a lecture: its notes and transcript, and its lecture PDF
+ * pages while LECTERN_PDF is on (P3-06). With the flag off `pdfs` is left out, so the PDF
+ * chunks already indexed are kept as they are.
+ */
+export function indexSources(lecture: IndexableLecture): ReturnType<typeof lectureSources> {
+  const sources = lectureSources(lecture);
+  if (config().pdf) sources.pdfs = pdfSourcesOf(lectureRecordingId(lecture.id));
+  return sources;
 }
 
 let harness: Harness | null = null;
@@ -67,7 +80,7 @@ export async function indexLecture(
         return { ok: true, result: { skipped: lecture.status } };
       }
       const run = h.job({ jobId: options.jobId, scope: workspaceId, workspaceId });
-      const { value } = await run.run(indexStage(options.embedder), lectureSources(lecture), { chunkIndex: pass });
+      const { value } = await run.run(indexStage(options.embedder), indexSources(lecture), { chunkIndex: pass });
       if (readLecture(lectureId)?.markdown === lecture.markdown) return { ok: true, result: value };
     }
     return { ok: true, result: { gaveUp: "notes kept changing" } };
@@ -112,6 +125,7 @@ onLectureContentChanged((lectureId, ownerId) => scheduleLectureIndex(lectureId, 
 export function reconcileAskIndex(service: AskService | null = askService()): { queued: number; removed: number } {
   if (!service) return { queued: 0, removed: 0 };
   const embedder = usableEmbedder(service);
+  const pdfOn = config().pdf;
   let queued = 0;
   const lectures = db
     .query(`SELECT id, owner_id, status, markdown, updated_at FROM lectures WHERE status = 'done'`)
@@ -119,11 +133,13 @@ export function reconcileAskIndex(service: AskService | null = askService()): { 
   for (const lecture of lectures) {
     if (!isIndexable(lecture)) continue;
     const workspaceId = personalWorkspaceId(lecture.owner_id);
-    const expected = chunkRecording(lectureSources(lecture)).map((c) => c.id).sort();
+    // The same input the index job reads, or PDF chunks would look stale and requeue forever.
+    const expected = chunkRecording(indexSources(lecture)).map((c) => c.id).sort();
+    // With LECTERN_PDF off the index keeps PDF chunks it has but reads no PDF: leave them out of the comparison.
     const stored = (
-      db.query(`SELECT id FROM search_chunk WHERE workspace_id = ? AND recording_id = ? ORDER BY id`).all(workspaceId, lecture.id) as Array<{
-        id: string;
-      }>
+      db
+        .query(`SELECT id FROM search_chunk WHERE workspace_id = ? AND recording_id = ? ${pdfOn ? "" : "AND kind != 'pdf_page'"} ORDER BY id`)
+        .all(workspaceId, lecture.id) as Array<{ id: string }>
     ).map((r) => r.id);
     const stale = expected.join() !== stored.join();
     const missingEmbedding =

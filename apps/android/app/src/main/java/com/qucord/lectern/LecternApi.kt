@@ -23,8 +23,11 @@ data class LectureItem(
     val markdown: String = ""
 )
 
-/** Non-2xx answer from the Lectern server; [message] is the server's `error` string when present. */
-class HttpStatusException(val code: Int, message: String) : IOException(message)
+/**
+ * Non-2xx answer from the Lectern server; [message] is the server's `error` string (v1) or
+ * `error.message` (v2) when present, and [apiCode] v2's `error.code`.
+ */
+class HttpStatusException(val code: Int, message: String, val apiCode: String? = null) : IOException(message)
 
 sealed class UploadResult {
     data class Success(val lectureId: String) : UploadResult()

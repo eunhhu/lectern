@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import AVFoundation
 import Carbon
+import LecternMenuBarCore
 
 // MARK: - Elysium Design System v1.0 Tokens (Official CoolNeutral + #5650FF Dark Theme)
 
@@ -288,9 +289,16 @@ struct PendingLocalUpload: Codable, Identifiable {
 
 @MainActor
 final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
-    @Published var authToken: String = UserDefaults.standard.string(forKey: "lectern_auth_token")
-        ?? ProcessInfo.processInfo.environment["LECTERN_TOKEN"]
-        ?? ""
+    /// The API token lives in the Keychain; builds before this one left it in UserDefaults.
+    private let tokenStore: TokenStore = KeychainTokenStore()
+    @Published var authToken: String = LecternStore.loadToken()
+
+    /// Moves a token an older build left in UserDefaults into the Keychain, then reads it.
+    private static func loadToken() -> String {
+        let store = KeychainTokenStore()
+        migrateLegacyToken(defaults: UserDefaults.standard, store: store)
+        return store.read() ?? ProcessInfo.processInfo.environment["LECTERN_TOKEN"] ?? ""
+    }
     @Published var currentUserLabel: String = UserDefaults.standard.string(forKey: "lectern_user_label") ?? ""
     @Published var loginEmail: String = UserDefaults.standard.string(forKey: "lectern_login_email") ?? ""
     @Published var loginPassword: String = ""
@@ -426,7 +434,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
             if http?.statusCode == 200, let user = decoded.user {
                 self.authToken = user.apiToken
                 self.currentUserLabel = "\(user.displayName) (\(user.email))"
-                UserDefaults.standard.set(user.apiToken, forKey: "lectern_auth_token")
+                tokenStore.write(user.apiToken)
                 UserDefaults.standard.set(self.currentUserLabel, forKey: "lectern_user_label")
                 self.loginPassword = ""
                 await fetchLectures()
@@ -445,7 +453,7 @@ final class LecternStore: NSObject, ObservableObject, AVAudioRecorderDelegate {
         lectures = []
         selectedLecture = nil
         parsedBlocks = []
-        UserDefaults.standard.removeObject(forKey: "lectern_auth_token")
+        tokenStore.delete()
         UserDefaults.standard.removeObject(forKey: "lectern_user_label")
     }
 

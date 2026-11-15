@@ -1,12 +1,16 @@
 // ⌘K / Ctrl+K command palette (DESIGN.md §3.7): one entry point for moving around,
-// running commands, opening recordings and folders, searching transcripts and documents,
-// and asking the notes a question (물어보기: this note, this folder or all notes, listed
-// first when the text reads like a question). Matching ignores spaces and case and
-// accepts 초성 ("ㅇㅇㅊㅈ" → 운영체제).
+// running commands, opening recordings and folders, searching transcripts, documents and
+// PDF pages (every result on the search screen), and asking the notes a question
+// (물어보기: this note, this folder or all notes, listed first when the text reads like a
+// question). Matching ignores spaces and case and accepts 초성 ("ㅇㅇㅊㅈ" → 운영체제).
+// Service operators also find the admin console here once they type (P5-13, the old
+// console's palette): its screens, its commands (유지보수 실행, 전체 압축, 고아 파일 정리,
+// 보존 정책 적용 — each opens its preview and asks first — and 새 사용자), and every
+// account's recordings by title. Nobody else asks the admin routes anything.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type Key } from "react";
+import { useMemo, type Key } from "react";
 import {
   Autocomplete,
   Dialog,
@@ -21,11 +25,13 @@ import {
   Text,
   TextField,
 } from "react-aria-components";
-import { queryKeys, useApi, useFolders, useRecordings } from "../api/queries.ts";
+import { queryKeys, useApi, useFolders, useIsOperator, useRecordings } from "../api/queries.ts";
+import { ADMIN_TABS } from "../routes/admin/AdminLayout.tsx";
 import type { RecordingDetail } from "../api/types.ts";
 import { bestMatch, looksLikeQuestion } from "../lib/hangul.ts";
 import { formatDate, formatTimestamp } from "../lib/format.ts";
-import { hitText, hitTime } from "../lib/search-hits.ts";
+import { useImeSafeQuery } from "../lib/ime-query.ts";
+import { hitPdfTarget, hitText, hitTime } from "../lib/search-hits.ts";
 import { Icon, type IconName } from "../ui/Icon.tsx";
 import { Kbd } from "../ui/controls.tsx";
 import { DOMAIN_LABEL } from "./labels.ts";
@@ -59,14 +65,17 @@ const NAV_ALIASES: Record<string, string[]> = {
   "/settings": ["settings", "preferences", "환경"],
 };
 
-function useDebounced<T>(value: T, ms: number): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
+const ADMIN_ALIASES: Record<string, string[]> = {
+  "/admin": ["overview", "dashboard", "대시보드"],
+  "/admin/users": ["users", "members", "멤버"],
+  "/admin/recordings": ["lectures", "recordings", "강의"],
+  "/admin/jobs": ["jobs", "queue"],
+  "/admin/usage": ["usage", "quota", "한도"],
+  "/admin/storage": ["storage", "disk", "스토리지", "디스크"],
+  "/admin/ops": ["ops", "backup", "deploy", "server", "백업", "배포", "서버"],
+  "/admin/settings": ["settings", "policy", "정책"],
+  "/admin/audit": ["audit", "log", "기록"],
+};
 
 function rank(items: Item[], query: string, limit = 50): Item[] {
   if (!query.trim()) return items.slice(0, limit);
@@ -97,8 +106,12 @@ function PaletteBody() {
   const { workspaceId, workspaces, switchTo } = useWorkspace();
   const recordings = useRecordings(workspaceId).data ?? [];
   const folders = useFolders(workspaceId).data ?? [];
-  const [query, setQuery] = useState("");
-  const q = useDebounced(query.trim(), 180);
+  // `query` is what the field shows (the ranking follows it as typed); `q`, the content
+  // search, waits for the text to rest and never sends half-typed Hangul.
+  const ime = useImeSafeQuery("", 180);
+  const query = ime.raw;
+  const setQuery = ime.setRaw;
+  const q = ime.committed;
   // Where the palette was opened, for "이 노트에 물어보기" and "이 폴더에 물어보기".
   const location = useRouterState({ select: (st) => ({ pathname: st.location.pathname, search: st.location.search as { folder?: string } }) });
   const here = /\/recordings\/([^/]+)$/.exec(location.pathname);
@@ -108,9 +121,17 @@ function PaletteBody() {
   const hereRecording = hereRecordingId ? { id: hereRecordingId, title: openDetail?.recording.title ?? recordings.find((r) => r.id === hereRecordingId)?.title ?? "열려 있는 녹음" } : undefined;
   const hereFolder = location.pathname.endsWith("/library") && location.search.folder && location.search.folder !== "none" ? folders.find((f) => f.id === location.search.folder) : undefined;
 
+  const operator = useIsOperator() === true;
+  const adminLectures = useQuery({
+    queryKey: ["admin", "palette-lectures", q],
+    queryFn: () => api.admin.lectures({ q, limit: 5 }),
+    enabled: operator && q.length >= 2,
+    staleTime: 30_000,
+  });
+
   const search = useQuery({
     queryKey: ["palette-search", workspaceId, q],
-    queryFn: () => api.search({ workspace_id: workspaceId, q, limit: 6 }),
+    queryFn: () => api.search({ workspace_id: workspaceId, q, limit: 8 }),
     enabled: q.length >= 2,
     staleTime: 60_000,
   });
@@ -166,14 +187,17 @@ function PaletteBody() {
     // Title hits (`kind: "recording"`) are already in the recordings list above.
     const hits: Item[] = (q.length >= 2 ? (search.data?.items ?? []) : []).filter((h) => h.kind !== "recording").map((h, i) => {
       const text = hitText(h);
+      const pdf = hitPdfTarget(h);
       const t = hitTime(h);
+      const where = pdf ? ` · p.${pdf.page}` : t !== undefined ? ` · ${formatTimestamp(t)}` : "";
+      const to = pdf ? { pdf: `${pdf.assetId}:${pdf.page}` } : t !== undefined ? { t } : {};
       return {
         id: `hit:${i}:${h.recording_id}`,
         label: text,
         icon: (h.kind === "transcript" ? "quote" : "pdf") as IconName,
-        detail: `${h.recording_title}${t !== undefined ? ` · ${formatTimestamp(t)}` : ""}`,
+        detail: `${h.recording_title}${where}`,
         aliases: [q],
-        run: go(() => void navigate({ to: "/recordings/$recordingId", params: { recordingId: h.recording_id }, search: t !== undefined ? { t } : {} })),
+        run: go(() => void navigate({ to: "/recordings/$recordingId", params: { recordingId: h.recording_id }, search: to })),
       };
     });
     const question = query.trim();
@@ -212,6 +236,30 @@ function PaletteBody() {
           ]
         : [];
     const askSection: Section = { id: "ask", title: "물어보기", items: asks };
+    const admin: Item[] = operator
+      ? [
+          ...ADMIN_TABS.map((t) => ({
+            id: `admin:go:${t.to}`,
+            label: `관리 › ${t.label}`,
+            icon: t.icon,
+            detail: "이동",
+            aliases: ["admin", ...(ADMIN_ALIASES[t.to] ?? [])],
+            run: go(() => void navigate({ to: t.to })),
+          })),
+          { id: "admin:maintenance", label: "유지보수 실행", icon: "settings", detail: "관리", aliases: ["maintenance", "backup", "백업"], run: go(() => void navigate({ to: "/admin/ops", search: { run: "maintenance" } })) },
+          { id: "admin:compact", label: "전체 압축 (미리보기)", icon: "folder", detail: "관리", aliases: ["compact", "compress", "압축"], run: go(() => void navigate({ to: "/admin/storage", search: { run: "compact" } })) },
+          { id: "admin:gc", label: "고아 파일 정리 (미리보기)", icon: "trash", detail: "관리", aliases: ["gc", "orphan", "trash", "휴지통"], run: go(() => void navigate({ to: "/admin/storage", search: { run: "gc" } })) },
+          { id: "admin:retention", label: "보존 정책 적용 (미리보기)", icon: "clock", detail: "관리", aliases: ["retention", "보존", "정리"], run: go(() => void navigate({ to: "/admin/storage", search: { run: "retention" } })) },
+          { id: "admin:new-user", label: "새 사용자", icon: "plus", detail: "관리", keys: ["C"], aliases: ["new user", "create user", "add member", "새 멤버"], run: go(() => void navigate({ to: "/admin/users", search: { new: 1 } })) },
+        ]
+      : [];
+    const adminRecs: Item[] = (adminLectures.data?.lectures ?? []).map((l) => ({
+      id: `admin:rec:${l.id}`,
+      label: l.title || "제목 없음",
+      icon: "audio",
+      detail: l.owner_email,
+      run: go(() => void navigate({ to: "/admin/recordings/$lectureId", params: { lectureId: l.id } })),
+    }));
     const out: Section[] = [
       ...(looksLikeQuestion(question) ? [askSection] : []),
       { id: "nav", title: "이동", items: rank(nav, query) },
@@ -220,6 +268,9 @@ function PaletteBody() {
       { id: "folders", title: "폴더", items: query.trim() ? rank(flds, query, 5) : [] },
       { id: "hits", title: "전사·문서", items: hits },
       ...(looksLikeQuestion(question) ? [] : [askSection]),
+      // Operators only, once something is typed: the app's own results come first.
+      { id: "admin", title: "관리", items: query.trim() ? rank(admin, query, 8) : [] },
+      { id: "admin-recordings", title: "관리 · 모든 녹음", items: q.length >= 2 ? adminRecs : [] },
     ];
     if (query.trim()) {
       out.push({
@@ -228,16 +279,16 @@ function PaletteBody() {
         items: [
           {
             id: "search:all",
-            label: `라이브러리에서 “${query.trim()}” 찾기`,
+            label: `‘${query.trim()}’ 모든 결과 보기`,
             icon: "search",
-            run: go(() => void navigate({ to: "/library", search: { q: query.trim() } })),
+            run: go(() => void navigate({ to: "/search", search: { q: query.trim() } })),
           },
         ],
       });
     }
     return out.filter((sec) => sec.items.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, q, recordings, folders, workspaces, workspaceId, search.data, hereRecording, hereFolder]);
+  }, [query, q, recordings, folders, workspaces, workspaceId, search.data, hereRecording, hereFolder, operator, adminLectures.data]);
 
   const byId = new Map(sections.flatMap((sec) => sec.items.map((it) => [it.id, it] as const)));
   const nothing = query.trim() !== "" && sections.every((sec) => sec.id === "all");
@@ -248,7 +299,7 @@ function PaletteBody() {
           first clearing the query. */}
       <TextField className={s.search} aria-label="이동, 명령, 녹음 검색 또는 질문" autoFocus>
         <Icon name="search" />
-        <Input className={s.input} placeholder="이동, 명령, 녹음 검색 또는 노트에 질문…" />
+        <Input className={s.input} placeholder="이동, 명령, 녹음 검색 또는 노트에 질문…" {...ime.inputProps} />
       </TextField>
       {nothing && <p className={s.none}>일치하는 항목이 없습니다.</p>}
       <Menu className={s.menu} aria-label="결과" onAction={(key: Key) => byId.get(String(key))?.run()}>

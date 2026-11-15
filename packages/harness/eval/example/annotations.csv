@@ -2,3 +2,7 @@ item,kind,start,end,text,date,time,owner,notes
 lecture-break,concept,0:05,,운영 모드,,,,"핵심 개념 예시"
 lecture-break,event,24:30,,"다음 주 과제에서 직접 구현",2026-10-26,,,"예시: 녹음 시각 2026-10-19 기준 다음 주"
 interview-2p,action_item,1:00,,"기록을 꼼꼼히 남기기",,,S2,"예시"
+lecture-break,event,1:20,,"인증 태그 과제 구현",2026-10-26,,,"예시: 다음 주 과제(녹음 시각 기준 다음 주 월요일)"
+lecture-break,event,25:15,,"과제 마감",2026-10-27,14:00,,"예시: 시각까지 맞아야 하는 일정"
+lecture-break,action_item,2:40,,"인증 태그 직접 구현하기",,,S1,"예시: 강의 템플릿은 할 일을 추출하지 않아 채점에서 빠진다(skipped)"
+interview-2p,event,2:00,,"다음 인터뷰",2026-10-26,,,"예시: 인터뷰 템플릿은 일정을 추출하지 않아 채점에서 빠진다(skipped)"

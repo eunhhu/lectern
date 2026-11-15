@@ -1,6 +1,7 @@
 // v1 lectures -> v2 rows (docs/v2/ARCHITECTURE.md §5.3).
 //
-// A lecture becomes a recording (domain `lecture`) in its owner's personal workspace, an
+// A lecture becomes a recording (domain `lecture`) in its owner's personal workspace (or the
+// team workspace it was uploaded to, `placeRecordingInWorkspace`, P5-06), an
 // audio asset, a `legacy-markdown` document whose versions hold the Markdown, a folder per
 // course name, and a share link carrying the v1 share token and public flag. No transcript
 // and no structured document are made up (option 1 of §5.3: "전사 없음 · 재처리 가능").
@@ -274,7 +275,29 @@ interface DocumentRow {
   md_source_path: string | null;
 }
 
-/** Re-scopes a recording's rows to another workspace (the lecture changed owner). */
+/** True for a team workspace: a recording placed there stays there (P5-06). */
+function isTeamWorkspace(sqlite: Database, workspaceId: string): boolean {
+  const row = sqlite.query(`SELECT kind FROM workspace WHERE id = ?`).get(workspaceId) as { kind: string } | null;
+  return row?.kind === "team";
+}
+
+/**
+ * Puts a lecture's recording in a team workspace (a team upload, P5-06): its rows move there
+ * and every later projection keeps it there, even if the uploader leaves the team. It starts
+ * with no folder, visible to the workspace unless `visibility` says otherwise.
+ */
+export function placeRecordingInWorkspace(
+  sqlite: Database,
+  recordingId: string,
+  workspaceId: string,
+  visibility: "workspace" | "private" = "workspace"
+): void {
+  if (!isTeamWorkspace(sqlite, workspaceId)) throw new Error("placeRecordingInWorkspace: not a team workspace");
+  moveRecordingWorkspace(sqlite, recordingId, workspaceId);
+  sqlite.query(`UPDATE recording SET visibility = ? WHERE id = ?`).run(visibility, recordingId);
+}
+
+/** Re-scopes a recording's rows to another workspace (the lecture changed owner, or a team upload). */
 function moveRecordingWorkspace(sqlite: Database, recordingId: string, workspaceId: string): void {
   for (const table of RECORDING_CHILD_TABLES) {
     sqlite.query(`UPDATE ${table} SET workspace_id = ? WHERE recording_id = ?`).run(workspaceId, recordingId);
@@ -311,16 +334,28 @@ function projectLectureTx(sqlite: Database, lectureId: string, options: ProjectO
   if (!l.owner_id) return "skipped";
 
   const ownerExists = sqlite.query(`SELECT 1 FROM users WHERE id = ?`).get(l.owner_id);
-  const workspaceId = ownerExists
-    ? ensurePersonalWorkspace(sqlite, l.owner_id, now)
-    : ensureOrphanWorkspace(sqlite, l.owner_id, now);
+  // A recording placed in a team workspace (P5-06) stays there; any other lives in its
+  // owner's personal workspace.
+  const workspaceId =
+    rec && isTeamWorkspace(sqlite, rec.workspace_id)
+      ? rec.workspace_id
+      : ownerExists
+        ? ensurePersonalWorkspace(sqlite, l.owner_id, now)
+        : ensureOrphanWorkspace(sqlite, l.owner_id, now);
   const recordingId = rec?.id ?? lectureRecordingId(l.id);
   const createdMs = toMs(l.created_at, now);
   const updatedMs = toMs(l.updated_at, createdMs);
-  const status = recordingStatusOf(l.status);
+  // A `process` job that ended `partial` (D-P1-2) keeps that state, with its reason, while
+  // the lecture stays `done` for v1 clients.
+  const keepPartial = rec?.status === "partial" && l.status === "done";
+  const status = keepPartial ? "partial" : recordingStatusOf(l.status);
   const durationMs = l.duration_sec > 0 ? Math.round(l.duration_sec * 1000) : null;
-  const failureCode = l.status === "error" ? "legacy_error" : null;
-  const failureMessage = l.status === "error" ? l.error_message || "노트 생성에 실패했습니다." : null;
+  const failureCode = keepPartial ? rec!.failure_code : l.status === "error" ? "legacy_error" : null;
+  const failureMessage = keepPartial
+    ? rec!.failure_message
+    : l.status === "error"
+      ? l.error_message || "노트 생성에 실패했습니다."
+      : null;
   let changed = false;
 
   if (rec && (rec.workspace_id !== workspaceId || rec.created_by !== l.owner_id)) {
@@ -433,13 +468,19 @@ function projectAudio(
   // The digest belongs to one file: compaction or a re-upload swaps the path.
   const meta = parseObject(existing.meta_json);
   const samePath = meta.path === l.audio_path;
-  if (samePath && existing.bytes === l.audio_size && existing.mime === mime && existing.duration_ms === durationMs) return false;
+  // A recording uploaded in several parts has one audio asset per part: the first part
+  // keeps its own length instead of the lecture's total.
+  const audioAssets = (
+    sqlite.query(`SELECT COUNT(*) AS n FROM asset WHERE recording_id = ? AND kind = 'audio'`).get(recordingId) as { n: number }
+  ).n;
+  const assetDurationMs = audioAssets > 1 ? existing.duration_ms : durationMs;
+  if (samePath && existing.bytes === l.audio_size && existing.mime === mime && existing.duration_ms === assetDurationMs) return false;
   sqlite
     .query(`UPDATE asset SET bytes = ?, mime = ?, duration_ms = ?, sha256 = ?, meta_json = ? WHERE id = ?`)
     .run(
       l.audio_size,
       mime,
-      durationMs,
+      assetDurationMs,
       samePath ? existing.sha256 : null,
       JSON.stringify({ ...meta, path: l.audio_path }),
       id
@@ -447,6 +488,29 @@ function projectAudio(
   return true;
 }
 
+/** The recording's newest structured (non-legacy) document and its current Markdown, or null. */
+function structuredDocument(
+  sqlite: Database,
+  recordingId: string
+): { id: string; rendered_md: string; md_source_path: string | null } | null {
+  return (
+    (sqlite
+      .query(
+        `SELECT d.id, d.md_source_path, v.rendered_md FROM document d
+         JOIN document_version v ON v.document_id = d.id AND v.version = d.current_version
+         WHERE d.recording_id = ? AND d.template_id != '${LEGACY_TEMPLATE_ID}'
+         ORDER BY d.created_at DESC, d.id DESC LIMIT 1`
+      )
+      .get(recordingId) as { id: string; rendered_md: string; md_source_path: string | null } | null) ?? null
+  );
+}
+
+/**
+ * The v1 bridge (CONTRACTS D-P1-3): `lectures.markdown` is the structured document's
+ * rendered Markdown. While the two are equal no legacy document is written; when a v1
+ * client edits the lecture they differ, the edit becomes a legacy version and the
+ * structured document is marked user-edited.
+ */
 function projectDocument(
   sqlite: Database,
   l: LegacyLectureRow,
@@ -457,9 +521,20 @@ function projectDocument(
   createdMs: number
 ): boolean {
   const id = lectureDocumentId(l.id);
+  const structured = structuredDocument(sqlite, recordingId);
+  const bridgeSourcePath = (): boolean => {
+    if (!structured || structured.md_source_path === l.md_source_path) return false;
+    sqlite.query(`UPDATE document SET md_source_path = ? WHERE id = ?`).run(l.md_source_path, structured.id);
+    return true;
+  };
+  const markStructuredEdited = () => {
+    if (structured) sqlite.query(`UPDATE document SET user_edited = 1, updated_at = ? WHERE id = ?`).run(now, structured.id);
+  };
   const doc = sqlite.query(`SELECT id, current_version, user_edited, md_source_path FROM document WHERE id = ?`).get(id) as DocumentRow | null;
   if (!doc) {
     if (l.markdown === "") return false;
+    if (structured && structured.rendered_md === l.markdown) return bridgeSourcePath();
+    markStructuredEdited();
     const author = options.author ?? "ai";
     const at = toMs(l.updated_at, createdMs);
     sqlite
@@ -481,6 +556,8 @@ function projectDocument(
     .query(`SELECT rendered_md FROM document_version WHERE document_id = ? AND version = ?`)
     .get(id, doc.current_version) as { rendered_md: string } | null;
   if (current && current.rendered_md === l.markdown) return changed;
+  if (structured && structured.rendered_md === l.markdown) return bridgeSourcePath() || changed;
+  markStructuredEdited();
   const author = options.author ?? "ai";
   const version = doc.current_version + 1;
   insertLegacyVersion(sqlite, {
@@ -697,11 +774,18 @@ export function verifyLegacy(sqlite: Database): LegacyVerifyReport {
      JOIN document_version v ON v.document_id = d.id AND v.version = d.current_version WHERE d.id = ?`
   );
   const assetOf = sqlite.query(`SELECT bytes, meta_json FROM asset WHERE id = ?`);
+  let documentsV2 = 0;
   const linkOf = sqlite.query(`SELECT token_hash, revoked_at, target_id FROM share_link WHERE id = ?`);
 
+  const kindOf = sqlite.query(`SELECT kind FROM workspace WHERE id = ?`);
   for (const l of lectures) {
+    const r = recordingOf.get(l.id) as
+      | { id: string; workspace_id: string; title: string; status: string; duration_ms: number | null; created_by: string; created_at: number; folder_name: string | null }
+      | null;
+    // A team upload (P5-06) lives in its team workspace; every other lecture in its owner's.
+    const inTeam = r !== null && (kindOf.get(r.workspace_id) as { kind: string } | null)?.kind === "team";
     const v1 = {
-      owner: personalWorkspaceId(l.owner_id) + "/" + l.owner_id,
+      owner: (inTeam ? r!.workspace_id : personalWorkspaceId(l.owner_id)) + "/" + l.owner_id,
       title: l.title,
       course: isUnfiledCourse(l.course) ? UNFILED_COURSE : l.course,
       status: recordingStatusOf(l.status),
@@ -713,17 +797,20 @@ export function verifyLegacy(sqlite: Database): LegacyVerifyReport {
       created_at: String(toMs(l.created_at, 0)),
       archive: l.markdown !== "" ? (l.md_source_path ?? "-") : "-",
     };
-    const r = recordingOf.get(l.id) as
-      | { id: string; workspace_id: string; title: string; status: string; duration_ms: number | null; created_by: string; created_at: number; folder_name: string | null }
-      | null;
-    const doc = documentOf.get(lectureDocumentId(l.id)) as { md_source_path: string | null; rendered_md: string } | null;
+    const legacyDoc = documentOf.get(lectureDocumentId(l.id)) as { md_source_path: string | null; rendered_md: string } | null;
+    // The bridge (D-P1-3): a lecture whose Markdown is its structured document's has no
+    // (or a stale) legacy document; the structured document is what v1 shows.
+    const structured = r && legacyDoc?.rendered_md !== l.markdown ? structuredDocument(sqlite, r.id) : null;
+    const doc = structured && structured.rendered_md === l.markdown ? structured : legacyDoc;
+    if (doc && doc.rendered_md !== "") documentsV2 += 1;
     const audio = assetOf.get(lectureAudioAssetId(l.id)) as { bytes: number; meta_json: string } | null;
     const link = linkOf.get(lectureShareLinkId(l.id)) as { token_hash: string; revoked_at: number | null; target_id: string } | null;
     const v2 = {
       owner: r ? `${r.workspace_id}/${r.created_by}` : "-",
       title: r?.title ?? "-",
       course: r ? courseOf(r.folder_name) : "-",
-      status: r?.status ?? "-",
+      // `partial` (a process job kept what it could) is `done` for v1.
+      status: r ? (r.status === "partial" && l.status === "done" ? recordingStatusOf("done") : r.status) : "-",
       markdown: sha256Hex(doc?.rendered_md ?? ""),
       audio: audio ? `${audio.bytes}:${String(parseObject(audio.meta_json).path ?? "")}` : "-",
       duration: r?.duration_ms != null ? String(r.duration_ms) : "-",
@@ -755,11 +842,8 @@ export function verifyLegacy(sqlite: Database): LegacyVerifyReport {
     lectures: { v1: lectures.length, v2: n(`SELECT COUNT(*) AS n FROM recording WHERE lecture_id IS NOT NULL`) },
     documents: {
       v1: n(`SELECT COUNT(*) AS n FROM lectures WHERE owner_id != '' AND markdown != ''`),
-      v2: n(
-        `SELECT COUNT(*) AS n FROM document d JOIN recording r ON r.id = d.recording_id
-         JOIN document_version v ON v.document_id = d.id AND v.version = d.current_version
-         WHERE r.lecture_id IS NOT NULL AND d.template_id = '${LEGACY_TEMPLATE_ID}' AND v.rendered_md != ''`
-      ),
+      // Per lecture: its legacy document, or the structured document it is bridged to.
+      v2: documentsV2,
     },
     audio: {
       v1: n(`SELECT COUNT(*) AS n FROM lectures WHERE owner_id != '' AND audio_path IS NOT NULL`),

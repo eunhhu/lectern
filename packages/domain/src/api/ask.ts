@@ -237,6 +237,19 @@ export const AskUsage = named(
 );
 export type AskUsage = z.infer<typeof AskUsage>;
 
+export const ListAskSuggestionsQuery = z.object({
+  workspace_id: WorkspaceId,
+  scope_type: z.enum(["recording", "folder", "workspace"]),
+  scope_id: z.string().min(1).max(64).optional().describe("Recording or folder id; omitted for `workspace`."),
+});
+
+export const AskSuggestions = named(
+  "AskSuggestions",
+  z.object({ suggestions: z.array(z.string().min(1).max(200)).max(6) }),
+  "Suggested questions for a scope. Built by rules, no model call.",
+);
+export type AskSuggestions = z.infer<typeof AskSuggestions>;
+
 // ---------------------------------------------------------------------------
 // Stream (POST /ask/threads/{thread_id}/turns, text/event-stream)
 //

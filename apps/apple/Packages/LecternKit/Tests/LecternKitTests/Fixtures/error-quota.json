@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "quota_exceeded",
+    "message": "이번 달 녹음 시간을 다 썼습니다."
+  }
+}

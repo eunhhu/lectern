@@ -1,7 +1,8 @@
 // 일정 (ARCHITECTURE §7, §11): a month view (React Aria Calendar: arrow keys move between
 // days, PageUp/PageDown between months) and a week view of the events the user
-// confirmed, the to-dos found in recordings, and the suggestions still waiting. The rail
-// shows the selected day, the suggestion inbox, open to-dos and the calendar connection.
+// confirmed, the to-dos found in recordings, and the suggestions still waiting. A line above
+// the views says how the calendar is connected (P4-07); the rail shows the selected day, the
+// suggestion inbox and open to-dos.
 
 import { parseDate, today, type CalendarDate } from "@internationalized/date";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -20,9 +21,12 @@ import {
   TabPanel,
   Tabs,
 } from "react-aria-components";
+import { isNotReady } from "../../api/errors.ts";
 import {
+  useCalendarFeed,
   useConfirmedEvents,
   useDecideSuggestion,
+  useIntegrations,
   useRecordings,
   useSuggestions,
   useUpdateActionItem,
@@ -37,6 +41,7 @@ import { Icon } from "../../ui/Icon.tsx";
 import { Badge, Button, CheckboxField, EmptyState } from "../../ui/controls.tsx";
 import { announce, showToast } from "../../ui/toast.tsx";
 import { toastError } from "../library/organise.ts";
+import { NEEDS_REAUTH_TEXT } from "../settings/Integrations.tsx";
 import layout from "../../app/layout.module.css";
 import s from "./calendar.module.css";
 
@@ -118,6 +123,7 @@ export function CalendarPage() {
             <Button onPress={() => select(today(DEFAULT_TIME_ZONE))}>오늘</Button>
           </div>
         </header>
+        <ConnectionLine />
         <Tabs selectedKey={view} onSelectionChange={(k) => setView(k as "month" | "week")} className={s.tabs}>
           <TabList aria-label="보기 단위" className={s.segmented}>
             <Tab id="month" className={s.segment}>
@@ -187,19 +193,53 @@ export function CalendarPage() {
         <DayAgenda dayKeyValue={selectedKey} items={byDay.get(selectedKey) ?? []} now={now} />
         <SuggestionInbox suggestions={suggestions} titleOf={titleOf} now={now} />
         <OpenTasks />
-        <section className={s.railCard} aria-labelledby="cal-connection">
-          <h2 id="cal-connection" className={s.railTitle}>
-            캘린더 연결
-          </h2>
-          <p className={s.railText}>
-            Google 캘린더가 연결되지 않았습니다. 연결하면 확정한 일정이 ‘Lectern’ 캘린더에 들어갑니다.
-          </p>
-          <Link to="/settings" hash="integrations" className={s.railLink}>
-            설정에서 연결 <Icon name="chevronRight" size={14} />
-          </Link>
-        </section>
       </aside>
     </div>
+  );
+}
+
+/** How events reach the user's calendar apps. Not drawn while the server has the feature off (501). */
+function ConnectionLine() {
+  const { workspaceId } = useWorkspace();
+  const feed = useCalendarFeed(workspaceId);
+  const integrations = useIntegrations(workspaceId);
+  if (isNotReady(feed.error) || !feed.data || !integrations.data) return null;
+  const google = integrations.data.find((i) => i.provider === "google" && i.status !== "revoked");
+  if (google && google.status !== "active") {
+    return (
+      <p className={s.connection} data-tone="attention">
+        <Icon name="alert" size={16} />
+        <span>{NEEDS_REAUTH_TEXT}</span>
+        <Link to="/settings" hash="integrations" className={s.railLink}>
+          다시 연결
+        </Link>
+      </p>
+    );
+  }
+  if (google) {
+    return (
+      <p className={s.connection}>
+        <Icon name="check" size={16} />
+        <span>Google 캘린더와 연결됨</span>
+      </p>
+    );
+  }
+  if (feed.data.exists) {
+    return (
+      <p className={s.connection}>
+        <Icon name="check" size={16} />
+        <span>캘린더 구독 주소로 연결됨</span>
+      </p>
+    );
+  }
+  return (
+    <p className={s.connection}>
+      <Icon name="calendar" size={16} />
+      <span>캘린더 앱과 연결하면 수락한 일정이 자동으로 들어갑니다.</span>
+      <Link to="/settings" hash="integrations" className={s.railLink}>
+        연결 설정
+      </Link>
+    </p>
   );
 }
 
@@ -248,6 +288,7 @@ function WeekView({
                       <span className={s.pillTime}>{timeLabel(item)}</span>
                       <span className={s.weekItemTitle}>{item.title}</span>
                       <span className={s.weekItemLabel}>{item.kind === "suggestion" ? "제안" : item.label}</span>
+                      {item.synced && <span className={s.weekItemLabel}>캘린더에 있음</span>}
                     </li>
                   ))}
                 </ul>
@@ -281,7 +322,7 @@ function DayAgenda({ dayKeyValue, items, now }: { dayKeyValue: string; items: Ca
                   <Badge tone={item.kind === "suggestion" ? "attention" : item.kind === "task" ? "info" : "accent"}>
                     {item.kind === "suggestion" ? "제안" : item.label}
                   </Badge>
-                  {item.synced && <Badge tone="success">캘린더에 등록됨</Badge>}
+                  {item.synced && <Badge tone="success">캘린더에 있음</Badge>}
                   <Link to="/recordings/$recordingId" params={{ recordingId: item.recordingId }} className={s.source}>
                     {item.recordingTitle}
                   </Link>

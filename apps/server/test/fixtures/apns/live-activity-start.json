@@ -1,0 +1,22 @@
+{
+  "aps": {
+    "timestamp": 1794700000,
+    "event": "start",
+    "content-state": {
+      "stage": "structure",
+      "stage_label": "노트 구성 중",
+      "progress": 80,
+      "recording_id": "0199f0a0-1000-7000-8000-00000000abcd",
+      "document_ready": false
+    },
+    "attributes-type": "ProcessingActivityAttributes",
+    "attributes": {
+      "recording_id": "0199f0a0-1000-7000-8000-00000000abcd",
+      "title": "자료구조 3주차"
+    },
+    "alert": {
+      "title": "녹음을 처리하고 있습니다",
+      "body": "자료구조 3주차"
+    }
+  }
+}

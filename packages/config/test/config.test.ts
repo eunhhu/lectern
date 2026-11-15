@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { ConfigError, REPO_ROOT, describeEnv, loadConfig } from "../src/index.ts";
+import { ConfigError, REPO_ROOT, describeEnv, loadConfig, readSecret } from "../src/index.ts";
 
 describe("@lectern/config", () => {
   test("defaults resolve against the repository, never a hard-coded home directory", () => {
@@ -13,9 +13,114 @@ describe("@lectern/config", () => {
     expect(c.distillEngine).toBe("legacy");
     expect(c.transcriptEngine).toBe("off");
     expect(c.ask).toEqual({ enabled: false, monthlyLimitMicrousd: 2_000_000 });
+    expect(c.calendar).toBe(false);
     expect(c.gemini.model).toBe("gemini-3.8-flash");
     expect(c.logRequests).toBe(true);
     expect(JSON.stringify(c)).not.toContain("/home/eunhhu");
+  });
+
+  test("pdf flag defaults off", () => {
+    expect(loadConfig({}).pdf).toBe(false);
+  });
+
+  test("pdf flag on and invalid", () => {
+    expect(loadConfig({ LECTERN_PDF: "1" }).pdf).toBe(true);
+    expect(() => loadConfig({ LECTERN_PDF: "2" })).toThrow(ConfigError);
+  });
+
+  test("calendar flag defaults off", () => {
+    expect(loadConfig({}).calendar).toBe(false);
+  });
+
+  test("calendar flag and Google secrets", () => {
+    const c = loadConfig({ LECTERN_CALENDAR: "1", GOOGLE_OAUTH_CLIENT_ID: "id-x", GOOGLE_OAUTH_CLIENT_SECRET: "sec-y" });
+    expect(c.calendar).toBe(true);
+    const raw = JSON.stringify(c.raw);
+    expect(raw).not.toContain("sec-y");
+    expect(raw).not.toContain("id-x");
+    expect(c.raw.GOOGLE_OAUTH_CLIENT_SECRET).toBe("***");
+    expect(c.raw.GOOGLE_OAUTH_CLIENT_ID).toBe("***");
+    expect(JSON.stringify(c)).not.toContain("sec-y");
+  });
+
+  test("account flags default off", () => {
+    const c = loadConfig({});
+    expect([c.googleLogin, c.appleLogin, c.teams]).toEqual([false, false, false]);
+    expect(c.appleSignin.privateKeyFile).toBeNull();
+    const on = loadConfig({ LECTERN_GOOGLE_LOGIN: "1", LECTERN_APPLE_LOGIN: "true", LECTERN_TEAMS: "1" });
+    expect([on.googleLogin, on.appleLogin, on.teams]).toEqual([true, true, true]);
+  });
+
+  test("apple secrets are masked", () => {
+    const c = loadConfig({
+      APPLE_SIGNIN_CLIENT_ID: "com.example.signin",
+      APPLE_SIGNIN_TEAM_ID: "TEAM123456",
+      APPLE_SIGNIN_KEY_ID: "KEY1234567",
+      APPLE_SIGNIN_PRIVATE_KEY_FILE: "/etc/lectern/apple-signin.p8",
+    });
+    expect(c.raw.APPLE_SIGNIN_CLIENT_ID).toBe("***");
+    expect(c.raw.APPLE_SIGNIN_TEAM_ID).toBe("***");
+    expect(c.raw.APPLE_SIGNIN_KEY_ID).toBe("***");
+    expect(c.raw.APPLE_SIGNIN_PRIVATE_KEY_FILE).toBe("/etc/lectern/apple-signin.p8");
+    expect(c.appleSignin.privateKeyFile).toBe("/etc/lectern/apple-signin.p8");
+    const all = JSON.stringify(c);
+    for (const secret of ["com.example.signin", "TEAM123456", "KEY1234567"]) expect(all).not.toContain(secret);
+  });
+
+  test("native flags default off", () => {
+    const c = loadConfig({});
+    expect(c.apns.enabled).toBe(false);
+    expect(c.apns.env).toBe("sandbox");
+    expect(c.apns.privateKeyFile).toBeNull();
+    expect(c.apns.topicIos).toBeNull();
+    expect(c.appleAppIds).toEqual([]);
+    expect(c.v1.sunset).toBeNull();
+    expect(c.v1.block).toBe(false);
+    const on = loadConfig({ LECTERN_APNS: "1", APNS_ENV: "production", LECTERN_V1_BLOCK: "1" });
+    expect([on.apns.enabled, on.apns.env, on.v1.block]).toEqual([true, "production", true]);
+    expect(() => loadConfig({ APNS_ENV: "staging" })).toThrow(ConfigError);
+  });
+
+  test("APPLE_APP_IDS parsing", () => {
+    const c = loadConfig({ APPLE_APP_IDS: "ABCDE12345.com.qucord.lectern.ios, bad, ABCDE12345.com.qucord.lectern.macos" });
+    expect(c.appleAppIds).toEqual(["ABCDE12345.com.qucord.lectern.ios", "ABCDE12345.com.qucord.lectern.macos"]);
+    // A lowercase or short team id is not an App ID.
+    expect(loadConfig({ APPLE_APP_IDS: "abcde12345.com.x,ABCDE1234.com.x" }).appleAppIds).toEqual([]);
+  });
+
+  test("LECTERN_V1_SUNSET must be a date", () => {
+    expect(loadConfig({ LECTERN_V1_SUNSET: "2027-03-01" }).v1.sunset).toBe("2027-03-01");
+    expect(loadConfig({ LECTERN_V1_SUNSET: "soon" }).v1.sunset).toBeNull();
+    expect(loadConfig({ LECTERN_V1_SUNSET: "2027-02-31" }).v1.sunset).toBeNull();
+  });
+
+  test("APNs secrets are masked", () => {
+    const c = loadConfig({
+      APNS_TEAM_ID: "TEAM765432",
+      APNS_KEY_ID: "APNSKEY987",
+      APNS_PRIVATE_KEY_FILE: "/etc/lectern/apns.p8",
+      APNS_TOPIC_IOS: "com.example.ios",
+    });
+    expect(c.raw.APNS_TEAM_ID).toBe("***");
+    expect(c.raw.APNS_KEY_ID).toBe("***");
+    expect(c.raw.APNS_PRIVATE_KEY_FILE).toBe("/etc/lectern/apns.p8");
+    expect(c.apns.privateKeyFile).toBe("/etc/lectern/apns.p8");
+    expect(c.apns.topicIos).toBe("com.example.ios");
+    const all = JSON.stringify(c);
+    for (const secret of ["TEAM765432", "APNSKEY987"]) expect(all).not.toContain(secret);
+  });
+
+  test("readSecret reads Google secrets live", () => {
+    const before = process.env.GOOGLE_OAUTH_CLIENT_ID;
+    try {
+      process.env.GOOGLE_OAUTH_CLIENT_ID = "abc";
+      expect(readSecret("GOOGLE_OAUTH_CLIENT_ID")).toBe("abc");
+      delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+      expect(readSecret("GOOGLE_OAUTH_CLIENT_ID")).toBeUndefined();
+    } finally {
+      if (before === undefined) delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+      else process.env.GOOGLE_OAUTH_CLIENT_ID = before;
+    }
   });
 
   test("values are coerced, empty strings mean unset, and lists are split", () => {
@@ -66,6 +171,29 @@ describe("@lectern/config", () => {
     expect(issues).toContain("LECTERN_TRANSCRIPT_ENGINE");
     const raw = loadConfig({ GEMINI_API_KEY: "AIza-secret-value" }).raw;
     expect(JSON.stringify(raw)).not.toContain("AIza-secret-value");
+  });
+
+  test("pipeline defaults to v1", () => {
+    expect(loadConfig({}).pipeline).toBe("v1");
+  });
+
+  test("pipeline accepts v2", () => {
+    expect(loadConfig({ LECTERN_PIPELINE: "v2" }).pipeline).toBe("v2");
+  });
+
+  test("pipeline rejects other values", () => {
+    let err: unknown;
+    try {
+      loadConfig({ LECTERN_PIPELINE: "v3" });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ConfigError);
+    expect((err as ConfigError).issues.join("\n")).toContain("LECTERN_PIPELINE");
+  });
+
+  test("empty pipeline means default", () => {
+    expect(loadConfig({ LECTERN_PIPELINE: "" }).pipeline).toBe("v1");
   });
 
   test("policy page values: an email address and a real YYYY-MM-DD date, or unset", () => {

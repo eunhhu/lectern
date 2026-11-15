@@ -18,7 +18,7 @@ import {
 } from "react-aria-components";
 import { useQueryClient } from "@tanstack/react-query";
 import { errorMessage } from "../api/errors.ts";
-import { queryKeys, useApi, useMe, useRecordings, useSuggestions } from "../api/queries.ts";
+import { queryKeys, useApi, useIsOperator, useMe, useRecordings, useSuggestions } from "../api/queries.ts";
 import { asId, type WorkspaceId } from "../api/types.ts";
 import { Icon } from "../ui/Icon.tsx";
 import { Button, Kbd, uiStyles } from "../ui/controls.tsx";
@@ -34,6 +34,7 @@ import { openOverlay, useOverlay } from "./overlays.ts";
 import { cycleTheme } from "./preferences.ts";
 import { useWorkspace, WorkspaceProvider } from "./workspace.tsx";
 import s from "./layout.module.css";
+import { ROLE_LABEL } from "../lib/roles.ts";
 
 
 export function RootLayout() {
@@ -101,6 +102,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const suggestions = useSuggestions(workspaceId);
   const busy = (recordings.data ?? []).filter((r) => r.status === "uploading" || r.status === "queued" || r.status === "processing").length;
   const pending = (suggestions.data?.length ?? 0) + busy;
+  const operator = useIsOperator();
 
   return (
     <div className={s.sidebar}>
@@ -136,6 +138,13 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             )}
           </Link>
         ))}
+        {/* Operators only (P5-12): for anyone else the console does not exist. */}
+        {operator && (
+          <Link to="/admin" className={s.navLink} onClick={onNavigate}>
+            <Icon name="shield" />
+            관리
+          </Link>
+        )}
       </nav>
       <div className={s.sidebarFooter}>
         {api.mode === "fixture" && (
@@ -245,7 +254,7 @@ function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
         <Avatar id={me.id} name={me.display_name} />
         <span className={s.userText}>
           <span className={s.userName}>{me.display_name}</span>
-          <span className={s.userMeta}>{current?.workspace.name} · {current?.role === "owner" ? "Owner" : current?.role === "admin" ? "Admin" : current?.role === "viewer" ? "Viewer" : "Member"}</span>
+          <span className={s.userMeta}>{current?.workspace.name} · {current ? ROLE_LABEL[current.role] : ""}</span>
         </span>
         <Icon name="more" />
       </AriaButton>

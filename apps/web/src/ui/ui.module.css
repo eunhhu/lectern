@@ -616,6 +616,7 @@
 }
 
 .progressFill {
+  display: block; /* a <span>: inline, it would ignore its width */
   height: 100%;
   background: var(--color-accent-solid);
   border-radius: var(--radius-full);

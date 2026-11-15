@@ -139,7 +139,7 @@ jobs:
 
   macos-native:
     name: "macOS Menu Bar App (Native SwiftUI/AppKit)"
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Build & sign Lectern.app
@@ -209,6 +209,30 @@ jobs:
         with:
           name: LecternTray-win-x64
           path: apps/windows/LecternTray-win-x64.exe
+
+  # The new iOS/macOS app (apps/apple): XcodeGen, SwiftPM tests, unsigned simulator and macOS
+  # builds (apps/apple/scripts/gate.sh). Neither deploy-server nor release-native-clients
+  # waits for it: a red build here must not block a server deploy. No secrets, no signing, no
+  # artifacts.
+  apple:
+    name: "Apple apps (XcodeGen, simulator build, SwiftPM tests)"
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.3" # same Bun as production
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+      - name: Apple gate
+        run: bash apps/apple/scripts/gate.sh
 
   release-native-clients:
     name: "Publish GitHub Release (native clients)"

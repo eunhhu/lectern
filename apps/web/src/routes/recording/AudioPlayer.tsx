@@ -14,7 +14,7 @@ import s from "./recording.module.css";
 const ARROW_WIDGETS = '[role="slider"], [role="listbox"], [role="grid"], [role="tablist"], [role="menu"], [role="tree"], [data-arrow-nav], input, select, textarea';
 const PRESSABLE = 'button, a, input, select, textarea, [role="button"], [role="tab"], [role="checkbox"], [role="menuitem"], [role="option"], [role="row"], [role="gridcell"], [role="treeitem"], [role="switch"], [role="radio"]';
 
-export function AudioPlayer() {
+export function AudioPlayer({ audioDeleted = false }: { audioDeleted?: boolean } = {}) {
   const { clock } = usePlayback();
   const paused = useSyncExternalStore(
     (fn) => clock.subscribe(fn),
@@ -28,7 +28,8 @@ export function AudioPlayer() {
     (fn) => clock.subscribe(fn),
     () => clock.status,
   );
-  const unavailable = status === "error";
+  // No audio asset left (오디오만 삭제): nothing to play, but transcript seeking still works.
+  const unavailable = status === "error" || audioDeleted;
   const [position, setPosition] = useState(0);
   const rangeRef = useRef<HTMLInputElement>(null);
   const duration = clock.duration;
@@ -64,7 +65,7 @@ export function AudioPlayer() {
       if (isTypingTarget(target) || insideDialog(target)) return;
       if (e.key === " " && !target?.closest?.(PRESSABLE)) {
         e.preventDefault();
-        clock.paused ? clock.play() : clock.pause();
+        if (!audioDeleted) clock.paused ? clock.play() : clock.pause();
       } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !target?.closest?.(ARROW_WIDGETS)) {
         e.preventDefault();
         skip((e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 30_000 : 5_000));
@@ -76,7 +77,7 @@ export function AudioPlayer() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clock]);
+  }, [clock, audioDeleted]);
 
   const durationSec = Math.floor(duration / 1000);
   return (
@@ -116,8 +117,14 @@ export function AudioPlayer() {
           onSelectionChange={(k) => clock.setPlaybackRate(Number(k))}
         />
       </span>
-      {!clock.audible && <Badge tone="info">소리 없는 미리보기</Badge>}
-      {unavailable && (
+      {!clock.audible && !audioDeleted && <Badge tone="info">소리 없는 미리보기</Badge>}
+      {audioDeleted && (
+        <span className={s.audioNote} role="status">
+          <Badge tone="info">오디오 없음</Badge>
+          <span className={s.audioNoteText}>오디오를 삭제해 재생할 수 없습니다. 전사와 출처 이동은 그대로 됩니다.</span>
+        </span>
+      )}
+      {unavailable && !audioDeleted && (
         <span className={s.audioNote} role="status">
           <Badge tone="info">오디오 준비 중</Badge>
           <span className={s.audioNoteText}>오디오를 아직 불러올 수 없습니다. 전사와 출처 이동은 그대로 됩니다.</span>

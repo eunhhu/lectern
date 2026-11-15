@@ -1,7 +1,7 @@
-// Chips under the 물어보기 composer: what is worth asking about a scope. The contract has
-// no suggestions endpoint (README "domain 요청"), so they are made here from what the
-// screen already has: the kind of note, its extracted questions (deprecated, often none)
-// and the latest note in a wider scope.
+// Chips under the 물어보기 composer: what is worth asking about a scope. The server's list
+// (GET /ask/suggestions, D-P2-4) comes first; when it is missing or fails, they are made
+// here from what the screen already has: the kind of note, its extracted questions
+// (deprecated, often none) and the latest note in a wider scope.
 
 import type { AskScope, Question, RecordingListItem } from "../api/types.ts";
 
@@ -36,4 +36,9 @@ export function askSuggestions({
   if (inScope.some((r) => r.domain === "meeting")) out.push("최근 회의에서 결정된 사항은?");
   if (latest && scope.kind === "workspace") out.push(`‘${latest.title}’ 핵심 요약`);
   return out.slice(0, 4);
+}
+
+/** The server's suggestions when it gave any (at most six), otherwise the screen's own. */
+export function pickSuggestions(remote: string[] | undefined, fallback: string[]): string[] {
+  return remote && remote.length > 0 ? remote.slice(0, 6) : fallback;
 }

@@ -1,0 +1,126 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`renderDocumentMarkdown snapshot per template: lecture 1`] = `
+"# 암호 운영 모드
+
+## 핵심 요약
+
+핵심 요약 내용 [01:03]
+
+## 시험·과제 포인트
+
+시험·과제 포인트 내용 [01:03]
+
+## 주제별 상세
+
+주제별 상세 내용 [01:03]
+
+## 주요 발언
+
+주요 발언 내용 [01:03]
+
+## 용어
+
+용어 내용 [01:03]
+
+## 일정
+
+일정 내용 [01:03]
+"
+`;
+
+exports[`renderDocumentMarkdown snapshot per template: meeting 1`] = `
+"# 암호 운영 모드
+
+## 요약
+
+요약 내용 [01:03]
+
+## 결정 사항
+
+결정 사항 내용 [01:03]
+
+## 할 일
+
+할 일 내용 [01:03]
+
+## 논의 주제별 요점
+
+논의 주제별 요점 내용 [01:03]
+
+## 미결 쟁점
+
+미결 쟁점 내용 [01:03]
+
+## 다음 일정
+
+다음 일정 내용 [01:03]
+"
+`;
+
+exports[`renderDocumentMarkdown snapshot per template: seminar 1`] = `
+"# 암호 운영 모드
+
+## 발표 요지
+
+발표 요지 내용 [01:03]
+
+## 핵심 주장·근거
+
+핵심 주장·근거 내용 [01:03]
+
+## 질의응답
+
+질의응답 내용 [01:03]
+
+## 참고 자료
+
+참고 자료 내용 [01:03]
+
+## 용어
+
+용어 내용 [01:03]
+"
+`;
+
+exports[`renderDocumentMarkdown snapshot per template: interview 1`] = `
+"# 암호 운영 모드
+
+## 인물·맥락
+
+인물·맥락 내용 [01:03]
+
+## 질문별 답변 요지
+
+질문별 답변 요지 내용 [01:03]
+
+## 인용
+
+인용 내용 [01:03]
+
+## 후속 질문
+
+후속 질문 내용 [01:03]
+"
+`;
+
+exports[`renderDocumentMarkdown snapshot per template: general 1`] = `
+"# 암호 운영 모드
+
+## 요약
+
+요약 내용 [01:03]
+
+## 주제별 요점
+
+주제별 요점 내용 [01:03]
+
+## 할 일
+
+할 일 내용 [01:03]
+
+## 일정
+
+일정 내용 [01:03]
+"
+`;

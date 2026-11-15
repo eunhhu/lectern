@@ -9,13 +9,14 @@
 
 import type { RecordingSources } from "@lectern/ask";
 import type { FolderRow, RecordingAccessRow } from "@lectern/ask";
+import { DocumentBody } from "@lectern/domain";
 import { db } from "../db.ts";
 import { personalWorkspaceId } from "./workspace.ts";
 
 export { personalWorkspaceId };
 
 // The id rules are shared with the P2 migration (@lectern/db ids.ts).
-import { courseFolderId, lectureDocumentId } from "@lectern/db";
+import { courseFolderId, LEGACY_TEMPLATE_ID, lectureDocumentId, lectureRecordingId } from "@lectern/db";
 export { courseFolderId, lectureDocumentId };
 
 interface RecordingRow {
@@ -54,15 +55,63 @@ export interface IndexableLecture {
   updated_at: string;
 }
 
-/** What the index stage reads for a lecture: its Markdown as a legacy document. */
+/** The published transcript of a lecture's recording (transcript-publish.ts), if any. */
+function transcriptOf(lectureId: string): RecordingSources["transcript"] | null {
+  const recordingId = lectureRecordingId(lectureId);
+  const segments = db
+    .query(`SELECT idx, start_ms, end_ms, speaker_id, text FROM transcript_segment WHERE recording_id = ? ORDER BY idx`)
+    .all(recordingId) as Array<{ idx: number; start_ms: number; end_ms: number; speaker_id: string | null; text: string }>;
+  if (segments.length === 0) return null;
+  const speakerRows = db
+    .query(`SELECT id, label, display_name FROM speaker WHERE recording_id = ?`)
+    .all(recordingId) as Array<{ id: string; label: string; display_name: string | null }>;
+  const speakers = new Map(speakerRows.map((row) => [row.id, row.display_name || row.label] as const));
+  return { segments, speakers };
+}
+
+/**
+ * The recording's structured document (notes pipeline, notes-publish.ts) when the lecture
+ * still shows it: a v1 edit makes `lectures.markdown` differ, and then the edit is what
+ * the user reads (the v1 bridge, CONTRACTS D-P1-3).
+ */
+function structuredDocumentOf(lectureId: string, markdown: string): RecordingSources["document"] | null {
+  const row = db
+    .query(
+      `SELECT d.id, d.current_version, v.body_json, v.rendered_md FROM document d
+       JOIN document_version v ON v.document_id = d.id AND v.version = d.current_version
+       WHERE d.recording_id = ? AND d.template_id != ?
+       ORDER BY d.created_at DESC, d.id DESC LIMIT 1`
+    )
+    .get(lectureRecordingId(lectureId), LEGACY_TEMPLATE_ID) as {
+    id: string;
+    current_version: number;
+    body_json: string;
+    rendered_md: string;
+  } | null;
+  if (!row || row.rendered_md !== markdown) return null;
+  return { kind: "blocks", documentId: row.id, version: row.current_version, body: DocumentBody.parse(JSON.parse(row.body_json)) };
+}
+
+/**
+ * What the index stage reads for a lecture: its structured document as blocks, or else its
+ * Markdown as a legacy document, plus its transcript once published.
+ */
 export function lectureSources(lecture: IndexableLecture): RecordingSources {
-  return {
-    workspaceId: personalWorkspaceId(lecture.owner_id),
-    recordingId: lecture.id,
-    document: { kind: "markdown", documentId: lectureDocumentId(lecture.id), version: 1, markdown: lecture.markdown },
-  };
+  const sources: RecordingSources = { workspaceId: personalWorkspaceId(lecture.owner_id), recordingId: lecture.id };
+  const transcript = transcriptOf(lecture.id);
+  if (transcript) sources.transcript = transcript;
+  if (lecture.markdown.trim() !== "") {
+    sources.document = structuredDocumentOf(lecture.id, lecture.markdown) ?? {
+      kind: "markdown",
+      documentId: lectureDocumentId(lecture.id),
+      version: 1,
+      markdown: lecture.markdown,
+    };
+  }
+  return sources;
 }
 
 export function isIndexable(lecture: IndexableLecture): boolean {
-  return lecture.status === "done" && lecture.markdown.trim() !== "";
+  if (lecture.status === "done" && lecture.markdown.trim() !== "") return true;
+  return db.query(`SELECT 1 FROM transcript_segment WHERE recording_id = ? LIMIT 1`).get(lectureRecordingId(lecture.id)) !== null;
 }

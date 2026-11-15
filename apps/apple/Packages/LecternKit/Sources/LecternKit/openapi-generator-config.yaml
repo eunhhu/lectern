@@ -1,0 +1,29 @@
+generate:
+  - types
+  - client
+accessModifier: internal
+filter:
+  operations:
+    - getMe
+    - listWorkspaces
+    - listFolders
+    - listRecordings
+    - getRecording
+    - getTranscript
+    - getDocument
+    - listRecordingEvents
+    - listRecordingActionItems
+    - createUpload
+    - getUpload
+    - putUploadPart
+    - completeUpload
+    - abortUpload
+    - getAssetContent
+    - issueNativeToken
+    - revokeNativeToken
+    - createMarker
+    - upsertPushDevice
+    - deletePushDevice
+    - setLiveActivity
+    - endLiveActivity
+    - listCalendarSuggestions

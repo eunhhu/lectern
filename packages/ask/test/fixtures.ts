@@ -159,6 +159,30 @@ export function longSources(): RecordingSources {
   return { workspaceId: WS, recordingId: REC.long, transcript: { segments } };
 }
 
+/**
+ * Lecture PDF pages only (P3-06): slides of the crypto lecture, a teammate's private PDF and
+ * one in another workspace. No transcript or document, so indexing them replaces PDF chunks only.
+ */
+export function pdfSources(): RecordingSources[] {
+  return [
+    {
+      workspaceId: WS,
+      recordingId: REC.crypto,
+      pdfs: [
+        {
+          assetId: "ast_slides",
+          pages: [
+            { page: 1, text: "운영 모드 비교표 ECB CBC CTR 슬라이드" },
+            { page: 2, text: "키 확장 서브키 스케줄 AES-256은 14라운드를 쓴다" },
+          ],
+        },
+      ],
+    },
+    { workspaceId: WS, recordingId: REC.privateTeammate, pdfs: [{ assetId: "ast_secret", pages: [{ page: 1, text: "비밀 연봉 협상 자료 급여 테이블" }] }] },
+    { workspaceId: WS_OTHER, recordingId: REC.otherWorkspace, pdfs: [{ assetId: "ast_other", pages: [{ page: 1, text: "타사 로드맵 보안 문서" }] }] },
+  ];
+}
+
 export function tempDb(): Database {
   const db = new Database(":memory:");
   runMigrations(db, { backupDir: join(mkdtempSync(join(tmpdir(), "lectern-ask-")), "backups") });

@@ -42,6 +42,8 @@ export const job = sqliteTable(
     createdAt: integer("created_at").notNull(),
     startedAt: integer("started_at"),
     finishedAt: integer("finished_at"),
+    /** Set by cancelJob (CONTRACTS D-P1-8); the running handler stops at its next check. */
+    cancelRequestedAt: integer("cancel_requested_at"),
   },
   (t) => [
     index("idx_job_lease").on(t.state, t.runAfter, t.priority),
@@ -434,6 +436,27 @@ export const asset = sqliteTable(
   (t) => [index("idx_asset_recording").on(t.recordingId, t.kind, t.partIndex)]
 );
 
+/**
+ * The text of each page of a lecture PDF asset (CONTRACTS §3, D-P3-2). `has_text_layer` is 0
+ * for a page with under 20 characters (D-P3-3); `ocr_source` says where OCR text came from.
+ */
+export const pdfPage = sqliteTable(
+  "pdf_page",
+  {
+    assetId: text("asset_id").notNull(),
+    /** From 1. */
+    pageNo: integer("page_no").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    text: text("text").notNull(),
+    charCount: integer("char_count").notNull(),
+    /** 0 | 1 */
+    hasTextLayer: integer("has_text_layer").notNull(),
+    ocrSource: text("ocr_source", { enum: ["device", "model"] }),
+  },
+  (t) => [primaryKey({ columns: [t.assetId, t.pageNo] }), index("idx_pdf_page_recording").on(t.recordingId)]
+);
+
 export const transcriptSegment = sqliteTable(
   "transcript_segment",
   {
@@ -693,3 +716,263 @@ export const lectureSyncPending = sqliteTable("lecture_sync_pending", {
   lectureId: text("lecture_id").primaryKey(),
   markedAt: integer("marked_at").notNull(),
 });
+
+// ---------------------------------------------------------------------------
+// Calendar (P4, CONTRACTS §4 `p4_calendar`). Times are epoch ms.
+// ---------------------------------------------------------------------------
+
+/**
+ * A user's ICS subscription for one workspace. Only the token's hash is stored (D-0-7).
+ * At most one active row (revoked_at IS NULL) per user and workspace, kept by the code (P4-01).
+ */
+export const calendarFeed = sqliteTable(
+  "calendar_feed",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    createdAt: integer("created_at").notNull(),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => [index("idx_calendar_feed_user").on(t.userId, t.workspaceId)]
+);
+
+/** Which external calendar event an event candidate became (D-P4-4: no duplicates on resync). */
+export const calendarEventLink = sqliteTable(
+  "calendar_event_link",
+  {
+    eventCandidateId: text("event_candidate_id").primaryKey(),
+    integrationId: text("integration_id").notNull(),
+    externalEventId: text("external_event_id").notNull(),
+    externalEtag: text("external_etag"),
+    state: text("state", { enum: ["synced", "error"] }).notNull(),
+    lastSyncedAt: integer("last_synced_at").notNull(),
+    errorCode: text("error_code"),
+  },
+  (t) => [index("idx_calendar_link_integration").on(t.integrationId)]
+);
+
+/** One e-mail reminder (D-P4-7). The same user, target and time is sent once. */
+export const reminder = sqliteTable(
+  "reminder",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id").notNull(),
+    targetType: text("target_type", { enum: ["event", "action_item"] }).notNull(),
+    targetId: text("target_id").notNull(),
+    sendAt: integer("send_at").notNull(),
+    state: text("state", { enum: ["scheduled", "sent", "canceled", "failed"] }).notNull(),
+    sentAt: integer("sent_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_reminder_unique").on(t.userId, t.targetType, t.targetId, t.sendAt),
+    index("idx_reminder_due").on(t.state, t.sendAt),
+  ]
+);
+
+/** An OAuth authorization in flight (CSRF state, PKCE verifier). Only the state's hash is stored. */
+export const oauthState = sqliteTable("oauth_state", {
+  stateHash: text("state_hash").primaryKey(),
+  userId: text("user_id"),
+  workspaceId: text("workspace_id"),
+  purpose: text("purpose", { enum: ["google_calendar", "google_login", "apple_login"] }).notNull(),
+  codeVerifier: text("code_verifier"),
+  redirectAfter: text("redirect_after"),
+  createdAt: integer("created_at").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// Accounts (P5, CONTRACTS §5 `p5_accounts`). Times are epoch ms. Every token is stored as
+// its hash only (D-0-7). `users` and `sessions` stay the v1 tables (D-P5-1, D-P5-2).
+// ---------------------------------------------------------------------------
+
+/** A Google or Apple sign-in linked to a user (D-P5-1). One row per provider subject. */
+export const oauthIdentity = sqliteTable(
+  "oauth_identity",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    provider: text("provider", { enum: ["google", "apple"] }).notNull(),
+    subject: text("subject").notNull(),
+    email: text("email"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("idx_oauth_identity_subject").on(t.provider, t.subject), index("idx_oauth_identity_user").on(t.userId)]
+);
+
+/** Device name, User-Agent and last use of a v1 web session (D-P5-2; listDevices reads it). */
+export const authSessionMeta = sqliteTable("auth_session_meta", {
+  sessionId: text("session_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  clientKind: text("client_kind").notNull(),
+  deviceName: text("device_name"),
+  userAgent: text("user_agent"),
+  createdAt: integer("created_at").notNull(),
+  lastSeenAt: integer("last_seen_at").notNull(),
+});
+
+/** A personal access token `lct_pat_…` (D-P5-3): its hash and first 8 characters. */
+export const accessToken = sqliteTable(
+  "access_token",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    scopesJson: text("scopes_json").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    tokenPrefix: text("token_prefix").notNull(),
+    expiresAt: integer("expires_at"),
+    lastUsedAt: integer("last_used_at"),
+    createdAt: integer("created_at").notNull(),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => [index("idx_access_token_user").on(t.userId)]
+);
+
+/** A native app's access/refresh pair (D-P5-4). A reused refresh token revokes its whole family. */
+export const nativeSession = sqliteTable(
+  "native_session",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    familyId: text("family_id").notNull(),
+    deviceName: text("device_name"),
+    platform: text("platform"),
+    accessHash: text("access_hash").notNull().unique(),
+    accessExpiresAt: integer("access_expires_at").notNull(),
+    refreshHash: text("refresh_hash").notNull().unique(),
+    refreshExpiresAt: integer("refresh_expires_at").notNull(),
+    refreshUsedAt: integer("refresh_used_at"),
+    createdAt: integer("created_at").notNull(),
+    lastUsedAt: integer("last_used_at"),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => [index("idx_native_session_user").on(t.userId), index("idx_native_session_family").on(t.familyId)]
+);
+
+/** An invitation into a team workspace (D-P5-6). The token travels only in the mail link. */
+export const workspaceInvite = sqliteTable(
+  "workspace_invite",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    email: text("email").notNull(),
+    role: text("role", { enum: ["owner", "admin", "member", "viewer"] }).notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedBy: text("invited_by").notNull(),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    acceptedAt: integer("accepted_at"),
+    acceptedBy: text("accepted_by"),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => [index("idx_workspace_invite_workspace").on(t.workspaceId)]
+);
+
+/** Limits an operator sets by hand (D-P5-7, D10). No row means no limit; a null column too. */
+export const workspaceQuota = sqliteTable("workspace_quota", {
+  workspaceId: text("workspace_id").primaryKey(),
+  audioMsMonth: integer("audio_ms_month"),
+  aiMicrousdMonth: integer("ai_microusd_month"),
+  storageBytes: integer("storage_bytes"),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** A workspace export zip (D-P5-8): only the requesting user downloads it; deleted 7 days after. */
+export const dataExport = sqliteTable(
+  "data_export",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    includeAudio: integer("include_audio", { mode: "boolean" }).notNull(),
+    state: text("state", { enum: ["queued", "running", "ready", "failed", "expired"] }).notNull(),
+    blobKey: text("blob_key"),
+    bytes: integer("bytes"),
+    requestedAt: integer("requested_at").notNull(),
+    readyAt: integer("ready_at"),
+    expiresAt: integer("expires_at"),
+    error: text("error"),
+  },
+  (t) => [index("idx_data_export_user").on(t.userId)]
+);
+
+/** A requested account deletion and its 7-day grace period (D-P5-9). */
+export const accountDeletion = sqliteTable(
+  "account_deletion",
+  {
+    userId: text("user_id").primaryKey(),
+    requestedAt: integer("requested_at").notNull(),
+    executeAfter: integer("execute_after").notNull(),
+    state: text("state", { enum: ["scheduled", "canceled", "done"] }).notNull(),
+  },
+  (t) => [index("idx_account_deletion_due").on(t.state, t.executeAfter)]
+);
+
+/** A device registered for Apple push (D-P6-1). Separate from login sessions; removed on logout and account deletion. */
+export const pushDevice = sqliteTable(
+  "push_device",
+  {
+    /** Client-made id (a UUID the app creates on first launch), so PUT both registers and updates. */
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    platform: text("platform", { enum: ["ios", "macos"] }).notNull(),
+    name: text("name"),
+    apnsToken: text("apns_token").notNull().unique(),
+    pushToStartToken: text("push_to_start_token"),
+    appVersion: text("app_version"),
+    createdAt: integer("created_at").notNull(),
+    lastSeenAt: integer("last_seen_at").notNull(),
+  },
+  (t) => [index("idx_push_device_user").on(t.userId)]
+);
+
+/** A Live Activity a device runs for a recording's processing (D-P6-2, D-P6-12). */
+export const liveActivity = sqliteTable(
+  "live_activity",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    deviceId: text("device_id").notNull(),
+    pushToken: text("push_token").notNull(),
+    state: text("state", { enum: ["active", "ended"] }).notNull(),
+    createdAt: integer("created_at").notNull(),
+    endedAt: integer("ended_at"),
+  },
+  (t) => [
+    uniqueIndex("idx_live_activity_recording_device").on(t.recordingId, t.deviceId),
+    index("idx_live_activity_recording").on(t.recordingId),
+  ]
+);
+
+/** A point the user marked as important while recording (D-P6-3): original-audio ms and a label. */
+export const recordingMarker = sqliteTable(
+  "recording_marker",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    atMs: integer("at_ms").notNull(),
+    label: text("label"),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("idx_recording_marker_recording").on(t.recordingId, t.atMs)]
+);
+
+/** Daily v1 API call counts per route and client (D-P6-5), read before v1 is retired. */
+export const v1Usage = sqliteTable(
+  "v1_usage",
+  {
+    day: text("day").notNull(),
+    route: text("route").notNull(),
+    client: text("client").notNull(),
+    count: integer("count").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.route, t.client] })]
+);

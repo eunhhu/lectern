@@ -1,5 +1,5 @@
-// The files panel: PDFs (viewer placeholder, ARCHITECTURE §7 PDF 뷰어 comes with pdf.js in
-// P3) and the events and action items found in the recording.
+// The files panel: PDFs (the pdf.js viewer, D-P3-7) and the events and action items found
+// in the recording.
 
 import { useEffect, useState } from "react";
 import { Button as AriaButton, Tab, TabList, TabPanel, Tabs } from "react-aria-components";
@@ -9,6 +9,7 @@ import { formatBytes, formatDate, formatTimeOfDay, formatTimestamp } from "../..
 import { resolveSourceRange } from "../../lib/segments.ts";
 import { Icon } from "../../ui/Icon.tsx";
 import { Badge, EmptyState } from "../../ui/controls.tsx";
+import { PdfViewer } from "./pdf/PdfViewer.tsx";
 import { usePlayback } from "./playback.tsx";
 import s from "./recording.module.css";
 
@@ -36,7 +37,7 @@ export function SidePane({ recordingId, assets, ready }: { recordingId: string; 
         </Tab>
       </TabList>
       <TabPanel id="files" className={s.tabPanel}>
-        <Files assets={assets} />
+        <Files recordingId={recordingId} assets={assets} />
       </TabPanel>
       <TabPanel id="items" className={s.tabPanel}>
         <Items recordingId={recordingId} enabled={ready} />
@@ -45,7 +46,7 @@ export function SidePane({ recordingId, assets, ready }: { recordingId: string; 
   );
 }
 
-function Files({ assets }: { assets: AssetDto[] }) {
+function Files({ recordingId, assets }: { recordingId: string; assets: AssetDto[] }) {
   const { pdfTarget } = usePlayback();
   const pdfs = assets.filter((a) => a.kind === "pdf");
   const audio = assets.filter((a) => a.kind === "audio");
@@ -66,18 +67,20 @@ function Files({ assets }: { assets: AssetDto[] }) {
                 {name(pdf)}
               </p>
               <p className={s.fileMeta}>
-                {pdf.page_count}쪽 · {formatBytes(pdf.bytes)}
+                {pdf.page_count ? `${pdf.page_count}쪽 · ` : ""}
+                {formatBytes(pdf.bytes)}
               </p>
-              <div className={s.pdfPage} data-target={target !== null || undefined} key={pdfTarget?.token}>
-                {target !== null ? (
-                  <>
-                    <p className={s.pdfPageNumber}>p.{target}</p>
-                    <p>출처가 가리키는 쪽입니다. PDF 미리보기는 아직 지원하지 않으니 원본의 {target}쪽을 확인하세요.</p>
-                  </>
-                ) : (
-                  <p>문서의 쪽 번호 칩(p.4 같은)을 누르면 이곳에 해당 쪽이 표시됩니다.</p>
-                )}
-              </div>
+              {pdf.page_count ? (
+                <PdfViewer
+                  assetId={pdf.id}
+                  recordingId={recordingId}
+                  name={name(pdf)}
+                  pageCount={pdf.page_count}
+                  targetPage={target !== null && pdfTarget ? { page: target, token: pdfTarget.token } : null}
+                />
+              ) : (
+                <p className={s.fileMeta}>쪽을 아직 읽지 못한 PDF입니다. 처리가 끝나면 이곳에서 볼 수 있습니다.</p>
+              )}
             </section>
           );
         })

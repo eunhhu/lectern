@@ -12,6 +12,7 @@
     "@lectern/db": "workspace:*",
     "@lectern/domain": "workspace:*",
     "@lectern/harness": "workspace:*",
-    "@lectern/media": "workspace:*"
+    "@lectern/media": "workspace:*",
+    "@lectern/pdf": "workspace:*"
   }
 }

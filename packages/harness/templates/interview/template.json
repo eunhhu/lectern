@@ -1,0 +1,59 @@
+{
+  "id": "interview",
+  "version": 1,
+  "name": "인터뷰 노트",
+  "domains": [
+    "interview"
+  ],
+  "sections": [
+    {
+      "key": "context",
+      "title": "인물·맥락",
+      "fill": "structure",
+      "instructions": "말한 사람과 인터뷰의 배경을 들은 범위에서만 적는다.",
+      "block_types": [
+        "paragraph"
+      ],
+      "required": true
+    },
+    {
+      "key": "answers",
+      "title": "질문별 답변 요지",
+      "fill": "structure",
+      "instructions": "질문마다 heading을 두고 답변의 요지를 정리한다.",
+      "block_types": [
+        "paragraph",
+        "list"
+      ],
+      "required": true
+    },
+    {
+      "key": "quotes",
+      "title": "인용",
+      "fill": "structure",
+      "instructions": "그대로 인용할 가치가 있는 발언만 고른다.",
+      "block_types": [
+        "quote"
+      ],
+      "required": false
+    },
+    {
+      "key": "follow_ups",
+      "title": "후속 질문",
+      "fill": "structure",
+      "instructions": "대화에서 나온 후속 질문만 적는다.",
+      "block_types": [
+        "list"
+      ],
+      "required": false
+    }
+  ],
+  "extract": {
+    "events": false,
+    "action_items": false,
+    "questions": false,
+    "decisions": false,
+    "glossary": false
+  },
+  "question_kinds": []
+}

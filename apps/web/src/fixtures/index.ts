@@ -154,7 +154,8 @@ interface RecordingSpec {
   tags?: [tag: string, source?: "user" | "ai"][];
   script?: Script;
   doc?: Docs.DocumentWriter;
-  pdf?: { name: string; pages: number };
+  /** `scanned`: a PDF without a text layer (the files panel offers OCR). */
+  pdf?: { name: string; pages: number; scanned?: boolean };
   /** For processing / queued recordings. */
   job?: JobProgress & { state: "queued" | "running" };
   createdBy?: UserId;
@@ -254,7 +255,7 @@ const RECORDINGS: RecordingSpec[] = [
     tags: [["tag_exam"]],
     script: S.OS_THREADS,
     doc: Docs.OS_THREADS_DOC,
-    pdf: { name: "운영체제_06_프로세스와스레드.pdf", pages: 18 },
+    pdf: { name: "운영체제_06_프로세스와스레드.pdf", pages: 18, scanned: true },
   },
   {
     id: "rec_ds05",
@@ -536,6 +537,13 @@ export function processRecording(
   };
 }
 
+/** Text of a few lecture PDF pages, for search (the fixture has no PDF bytes to extract). */
+export const PDF_PAGE_TEXTS: Array<{ recordingId: string; assetId: string; page: number; text: string }> = [
+  { recordingId: "rec_os07", assetId: "rec_os07_pdf", page: 3, text: "프로세스 상태 다이어그램 슬라이드" },
+  { recordingId: "rec_os07", assetId: "rec_os07_pdf", page: 12, text: "라운드 로빈 타임 퀀텀 표: 퀀텀이 너무 크면 FCFS와 같아진다" },
+  { recordingId: "rec_os07", assetId: "rec_os07_pdf", page: 16, text: "다단계 피드백 큐 레벨별 퀀텀 슬라이드" },
+];
+
 export function buildFixtureData(now = new Date()): FixtureData {
   const clock = makeClock(now);
   const createdAt = clock.at(30, 9);
@@ -627,7 +635,7 @@ export function buildFixtureData(now = new Date()): FixtureData {
     person("usr_fixture_sehun", "오세훈", "sehun@example.com", TEAM_WS, "admin"),
     person(ME_ID, me.display_name, me.email, TEAM_WS, "member"),
     person("usr_fixture_seoa", "윤서아", "seoa@example.com", TEAM_WS, "member"),
-    person("usr_fixture_dohyun", "최도현", "dohyun@example.com", TEAM_WS, "member"),
+    person("usr_fixture_dohyun", "최도현", "dohyun@example.com", TEAM_WS, "viewer"),
   );
   const device = (id: string, client: "web" | "native", name: string, agent: string, lastSeen: string, current = false): Device => ({
     id: id as Device["id"],
@@ -643,7 +651,7 @@ export function buildFixtureData(now = new Date()): FixtureData {
     current,
   });
   data.devices.push(
-    device("ses_fixture_web", "web", "이 브라우저", "Mozilla/5.0 (Macintosh) Safari", new Date(now.getTime() - 60_000).toISOString(), true),
+    device("ses_fixture_web", "web", "Mac의 Chrome", "Mozilla/5.0 (Macintosh) Chrome/131", new Date(now.getTime() - 60_000).toISOString(), true),
     device("ses_fixture_mac", "native", "Lectern for Mac", "Lectern/2.0 macOS", clock.at(1, 18)),
     device("ses_fixture_android", "native", "Android 빠른 녹음", "Lectern/1.6 Android", clock.at(4, 9)),
   );
@@ -709,7 +717,7 @@ export function buildFixtureData(now = new Date()): FixtureData {
         mime: "application/pdf",
         duration_ms: null,
         page_count: spec.pdf.pages,
-        meta: { original_name: spec.pdf.name },
+        meta: { original_name: spec.pdf.name, ...(spec.pdf.scanned ? { scanned: true } : {}) },
         created_at: uploadedAt,
       });
     }

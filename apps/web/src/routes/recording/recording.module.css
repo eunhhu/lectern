@@ -814,36 +814,6 @@
   overflow-wrap: anywhere;
 }
 
-.pdfPage {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
-  padding: var(--space-16);
-  border: 1px dashed var(--color-border-default);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  line-height: var(--font-line-height-relaxed);
-}
-
-.pdfPage[data-target] {
-  border-style: solid;
-  border-color: var(--color-accent-border);
-  background: var(--color-bg-selected);
-  animation: flash 1.5s var(--motion-easing-standard);
-}
-
-@keyframes flash {
-  from {
-    background: var(--color-bg-active);
-  }
-}
-
-.pdfPageNumber {
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-xl);
-  color: var(--color-text-primary);
-}
-
 .audioFiles {
   display: flex;
   flex-direction: column;

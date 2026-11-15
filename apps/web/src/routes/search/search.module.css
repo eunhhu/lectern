@@ -1,0 +1,144 @@
+/* 검색 (D-P3-5): the query field, the kind chips and the hits grouped by kind. */
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  margin-bottom: var(--space-24);
+}
+
+.field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  max-width: 640px;
+  color: var(--color-text-tertiary);
+}
+
+.field > svg {
+  position: absolute;
+  left: var(--space-12);
+  pointer-events: none;
+}
+
+.input {
+  flex: 1;
+  padding-left: calc(var(--space-12) + 18px + var(--space-8));
+}
+
+.kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+}
+
+.kind {
+  height: var(--size-control-md);
+  padding: 0 var(--space-12);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-raised);
+  font: inherit;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  outline: none;
+}
+
+.kind[data-hovered] {
+  background: var(--color-bg-raised-hover);
+  color: var(--color-text-primary);
+}
+
+.kind[data-selected] {
+  border-color: var(--color-accent-border);
+  background: var(--color-bg-selected);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.kind[data-focus-visible] {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 1px;
+}
+
+.hint {
+  color: var(--color-text-secondary);
+}
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-24);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.groupTitle {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.count {
+  margin-left: var(--space-4);
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.hit {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.hit > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+}
+
+.hit:hover {
+  background: var(--color-bg-hover);
+}
+
+.hitText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.snippet {
+  overflow-wrap: anywhere;
+  line-height: var(--font-line-height-relaxed);
+}
+
+.snippet mark {
+  padding: 0 1px;
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-selected);
+  color: inherit;
+  font-weight: var(--font-weight-semibold);
+}
+
+.meta {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}

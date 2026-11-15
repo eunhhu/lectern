@@ -6,7 +6,10 @@ import {
   parseVersionETag,
   partCount,
   ROUTES,
+  ROUTES_BY_OPERATION,
+  SetLiveActivityRequest,
   toHonoPath,
+  UpsertPushDeviceRequest,
   versionETag,
 } from "../src/index.ts";
 import { API_CASES } from "./fixtures.ts";
@@ -55,6 +58,15 @@ describe("conventions", () => {
     expect(parseVersionETag("3")).toBeNull();
   });
 
+  test("push token must be hex", () => {
+    const hex = "0123456789abcdef".repeat(4);
+    expect(UpsertPushDeviceRequest.safeParse({ platform: "ios", apns_token: "zz" }).success).toBe(false);
+    expect(UpsertPushDeviceRequest.safeParse({ platform: "ios", apns_token: "ab".repeat(15) }).success).toBe(false); // under 32
+    expect(UpsertPushDeviceRequest.safeParse({ platform: "ios", apns_token: hex, push_to_start_token: "zz" }).success).toBe(false);
+    expect(UpsertPushDeviceRequest.safeParse({ platform: "ios", apns_token: hex.toUpperCase() }).success).toBe(true);
+    expect(SetLiveActivityRequest.safeParse({ device_id: "dev_1", push_token: "zz" }).success).toBe(false);
+  });
+
   test("upload part plan", () => {
     expect(partCount(1, 8)).toBe(1);
     expect(partCount(8, 8)).toBe(1);
@@ -92,5 +104,20 @@ describe("conventions", () => {
     for (const sub of ["transcript", "documents", "questions", "events", "action-items", "reprocess"]) {
       expect(recordingSubresources, sub).toContain(sub);
     }
+  });
+});
+
+describe("D-P2-4 routes", () => {
+  test("audio delete, Markdown export and ask suggestions are in the table", () => {
+    const at = (id: string) => {
+      const route = ROUTES_BY_OPERATION[id];
+      return route ? `${route.method} ${route.path}` : undefined;
+    };
+    expect(at("deleteRecordingAudio")).toBe("delete /recordings/{recording_id}/audio");
+    expect(at("exportDocument")).toBe("get /documents/{document_id}/export");
+    expect(at("listAskSuggestions")).toBe("get /ask/suggestions");
+    const exportQuery = ROUTES_BY_OPERATION.exportDocument!.query!;
+    expect(exportQuery.safeParse({ format: "md" }).success).toBe(true);
+    expect(exportQuery.safeParse({ format: "pdf" }).success).toBe(false);
   });
 });

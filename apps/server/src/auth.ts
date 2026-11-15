@@ -4,6 +4,8 @@
 // clients and shortcuts); both resolve to the same user record.
 
 import { getUserBySessionOrApiToken, type UserRecord } from "./db.ts";
+import { logger } from "./log.ts";
+import { touchSession } from "./session-meta.ts";
 
 function parseSessionCookie(cookieHeader: string | null): string | null {
   if (!cookieHeader) return null;
@@ -17,17 +19,33 @@ function parseSessionCookie(cookieHeader: string | null): string | null {
   return null;
 }
 
-export function extractAuthToken(req: Request, url: URL): string | null {
+/** Where the credential of a request comes from. Only "cookie" is sent by a browser on its own. */
+export type AuthTokenSource = "bearer" | "header" | "query" | "cookie";
+
+function findAuthToken(req: Request, url: URL): { token: string; source: AuthTokenSource } | null {
   const authHeader = (req.headers.get("authorization") || "").trim();
   if (authHeader.toLowerCase().startsWith("bearer ")) {
     const tok = authHeader.slice(7).trim();
-    if (tok) return tok;
+    if (tok) return { token: tok, source: "bearer" };
   }
   const xTok = (req.headers.get("x-lectern-token") || "").trim();
-  if (xTok) return xTok;
+  if (xTok) return { token: xTok, source: "header" };
   const qTok = (url.searchParams.get("token") || "").trim();
-  if (qTok) return qTok;
-  return parseSessionCookie(req.headers.get("cookie"));
+  if (qTok) return { token: qTok, source: "query" };
+  const cookie = parseSessionCookie(req.headers.get("cookie"));
+  return cookie === null ? null : { token: cookie, source: "cookie" };
+}
+
+export function extractAuthToken(req: Request, url: URL): string | null {
+  return findAuthToken(req, url)?.token ?? null;
+}
+
+/**
+ * Where the token extractAuthToken picks comes from (null: none). An empty header or `?token=`
+ * falls through to the cookie there, so it does here too (csrf.ts relies on the two agreeing).
+ */
+export function authTokenSource(req: Request, url: URL): AuthTokenSource | null {
+  return findAuthToken(req, url)?.source ?? null;
 }
 
 /** Resolves a session or API token to a user allowed to act (not suspended or pending). */
@@ -37,6 +55,15 @@ export function resolveActiveUser(token: string | null | undefined): UserRecord 
   if (!user) return null;
   if (user.status === "suspended" || user.status === "pending") {
     return null;
+  }
+  // A web session's last use, for Settings › 기기 (at most one write per 5 minutes). API
+  // tokens are not sessions. Bookkeeping never fails the sign-in.
+  if (token.trim().startsWith("ses_")) {
+    try {
+      touchSession(token.trim());
+    } catch (err) {
+      logger.warn("session touch failed", { error: String(err) });
+    }
   }
   return user;
 }

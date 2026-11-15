@@ -1,5 +1,6 @@
 import { Kbd, ModalDialog, uiStyles } from "../ui/controls.tsx";
 import { isMacPlatform } from "../lib/keyboard.ts";
+import { useIsOperator } from "../api/queries.ts";
 import { SHORTCUTS } from "./commands.ts";
 import { useOverlay } from "./overlays.ts";
 import { setPreferences, usePreferences } from "./preferences.ts";
@@ -10,7 +11,9 @@ export function ShortcutSheet() {
   const [isOpen, setOpen] = useOverlay("shortcuts");
   const prefs = usePreferences();
   const mac = isMacPlatform();
-  const groups = [...new Set(SHORTCUTS.map((x) => x.group))];
+  const operator = useIsOperator() === true;
+  const shown = SHORTCUTS.filter((x) => !x.operator || operator);
+  const groups = [...new Set(shown.map((x) => x.group))];
   return (
     <ModalDialog isOpen={isOpen} onOpenChange={setOpen} title="단축키" size="form">
       <div className={s.sheet}>
@@ -20,7 +23,7 @@ export function ShortcutSheet() {
               {group}
             </h3>
             <dl className={s.list}>
-              {SHORTCUTS.filter((x) => x.group === group).map((x) => (
+              {shown.filter((x) => x.group === group).map((x) => (
                 <div key={x.label} className={s.row}>
                   <dt className={s.label}>{x.label}</dt>
                   <dd>

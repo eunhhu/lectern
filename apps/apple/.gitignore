@@ -1,0 +1,4 @@
+DerivedData/
+*.xcuserstate
+xcuserdata/
+Packages/LecternKit/Sources/LecternKit/openapi.json
