@@ -1,6 +1,7 @@
 // Sample requests for every route of the v2 table (the same samples as api-v2.test.ts), with
 // path parameters, queries and bodies that the security tests can point at real resources.
 
+import { randomBytes } from "node:crypto";
 import { API_BASE_PATH, HEADER, ROUTES, versionETag, type RouteDef } from "@lectern/domain";
 import { handleRequest } from "../../src/index.ts";
 
@@ -30,6 +31,7 @@ export const PATH_PARAMS: Record<string, string> = {
   invite_id: SAMPLE_ID,
   user_id: SAMPLE_ID,
   export_id: SAMPLE_ID,
+  marker_id: SAMPLE_ID,
 };
 
 /** Required query values, per operation (`workspace_id` is replaced by the caller's choice). */
@@ -41,6 +43,7 @@ export function queriesFor(route: RouteDef, workspaceId: string): Record<string,
     getAskUsage: { workspace_id: workspaceId },
     exportDocument: { format: "md" },
     listAskSuggestions: { workspace_id: workspaceId, scope_type: "workspace" },
+    endLiveActivity: { device_id: SAMPLE_ID },
   };
   if (special[op]) return special[op]!;
   const byWorkspace = [
@@ -104,6 +107,10 @@ export function bodyFor(route: RouteDef, t: Targets): unknown {
     adminSetQuota: { audio_ms_month: null, ai_microusd_month: 5_000_000, storage_bytes: null },
     createExport: { workspace_id: ws, include_audio: false },
     requestAccountDeletion: { password: "correct_password_1" },
+    // APNs tokens are unique across the shared test database: never a literal.
+    upsertPushDevice: { platform: "ios", apns_token: randomBytes(32).toString("hex"), name: "iPhone" },
+    setLiveActivity: { device_id: SAMPLE_ID, push_token: randomBytes(32).toString("hex") },
+    createMarker: { at_ms: 60_000, label: "중요" },
   };
   return bodies[route.operationId];
 }

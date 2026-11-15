@@ -1,15 +1,16 @@
 import "../preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
 import { beforeEach, describe, expect, test } from "bun:test";
+import { config } from "@lectern/config";
 import { personalWorkspaceId } from "@lectern/db";
 import { API_BASE_PATH } from "@lectern/domain";
 import { createApiV2App } from "../../src/api/v2/index.ts";
-import { createSession } from "../../src/db.ts";
+import { createSession, getUserByEmail } from "../../src/db.ts";
 import { resetAuthRateLimits } from "../../src/index.ts";
-import { makeUser, tokenAuth, v2 } from "./helpers.ts";
+import { call, makeUser, PASSWORD, seedLecture, tokenAuth, v2 } from "./helpers.ts";
 import { requestFor, routesWhere, send, WRITE_METHODS } from "./routes.ts";
 
-// P5-15 · Cross-site requests with the session cookie (AGENTS.md: a CSRF defence, if any, is
-// by Origin / Sec-Fetch-Site). Every v2 route whose method changes state is sent the way a
+// P5-15 · Cross-site requests with the session cookie (AGENTS.md: the CSRF defence is by
+// Origin / Sec-Fetch-Site, apps/server/src/csrf.ts). Every v2 route whose method changes state is sent the way a
 // page on another site would send it: the browser's cookie, that site's Origin, and
 // `Sec-Fetch-Site: cross-site`. SameSite=Lax keeps the cookie off a cross-site POST in
 // current browsers, but not off one from a sibling subdomain (same-site), and not in every
@@ -128,5 +129,76 @@ describe("security: cross-site cookie requests", () => {
       if (status !== 403) letThrough.push(path);
     }
     expect(letThrough).toEqual(["/auth/apple/callback"]);
+  });
+});
+
+describe("security: where a cookie write may come from", () => {
+  /** PATCH /me with the session cookie and `headers`; returns the status and whether the name changed. */
+  async function rename(headers: Record<string, string>, path = "/me") {
+    const user = makeUser();
+    const session = createSession(user.id);
+    const { status } = await v2("PATCH", path, { cookie: session, headers, body: { display_name: "바뀐 이름" } });
+    const after = (await v2("GET", "/me", { headers: tokenAuth(user) })).body.display_name;
+    return { status, changed: after === "바뀐 이름" };
+  }
+
+  test("same-site cookie requests are refused", async () => {
+    // A page on a sibling subdomain: SameSite=Lax lets the cookie through, the server must not.
+    expect(await rename({ Origin: "https://other.example.test", "Sec-Fetch-Site": "same-site" })).toEqual({ status: 403, changed: false });
+  });
+
+  test("Sec-Fetch-Site decides when present", async () => {
+    expect(await rename({ "Sec-Fetch-Site": "none" })).toEqual({ status: 200, changed: true });
+    // A matching Origin does not overrule what the browser said about the request.
+    expect(await rename({ Origin: "http://localhost", "Sec-Fetch-Site": "cross-site" })).toEqual({ status: 403, changed: false });
+  });
+
+  test("without Sec-Fetch-Site the Origin decides", async () => {
+    expect(await rename({ Origin: "https://evil.example" })).toEqual({ status: 403, changed: false });
+    expect(await rename({ Origin: "null" })).toEqual({ status: 403, changed: false });
+    // The origin the request reached, and the public origin (behind the proxy the request URL is plain http).
+    expect(await rename({ Origin: "http://localhost" })).toEqual({ status: 200, changed: true });
+    expect(await rename({ Origin: new URL(config().baseUrl).origin })).toEqual({ status: 200, changed: true });
+  });
+
+  test("an empty token falls back to the cookie and is checked", async () => {
+    // extractAuthToken skips an empty header or query value and uses the cookie: still a cookie request.
+    expect(await rename({ ...CROSS_SITE, Authorization: "Bearer " })).toEqual({ status: 403, changed: false });
+    expect(await rename({ ...CROSS_SITE, "X-Lectern-Token": "" })).toEqual({ status: 403, changed: false });
+    expect(await rename(CROSS_SITE, "/me?token=")).toEqual({ status: 403, changed: false });
+    // A real token next to the cookie is what authenticates, and a page cannot send one by itself.
+    const user = makeUser();
+    const res = await v2("PATCH", "/me", { cookie: createSession(user.id), headers: { ...CROSS_SITE, ...tokenAuth(user) }, body: { display_name: "토큰 이름" } });
+    expect(res.status).toBe(200);
+  });
+
+  test("reads are not checked", async () => {
+    const user = makeUser();
+    expect((await v2("GET", "/me", { cookie: createSession(user.id), headers: CROSS_SITE })).status).toBe(200);
+  });
+
+  test("v1 cookie writes are checked too", async () => {
+    // The old pages and the new admin console call the v1 auth, admin and lecture routes with the cookie.
+    const operator = makeUser({ role: "admin" });
+    const session = createSession(operator.id);
+    const email = `csrf-${crypto.randomUUID()}@test.local`;
+    const created = await call("POST", "/api/admin/users", { cookie: session, headers: CROSS_SITE, body: { email, password: PASSWORD } });
+    expect(created.status).toBe(403);
+    expect(typeof created.body.error).toBe("string"); // the v1 error shape
+    expect(getUserByEmail(email)).toBeNull();
+
+    const { lectureId } = seedLecture(operator);
+    expect((await call("DELETE", `/api/lectures/${lectureId}`, { cookie: session, headers: CROSS_SITE })).status).toBe(403);
+    expect((await call("GET", `/api/lectures/${lectureId}`, { headers: tokenAuth(operator) })).status).toBe(200);
+
+    expect((await call("POST", "/api/auth/logout", { cookie: session, headers: CROSS_SITE })).status).toBe(403);
+    expect((await v2("GET", "/me", { cookie: session })).status).toBe(200);
+
+    // The same requests from our own pages go through.
+    expect((await call("POST", "/api/admin/users", { cookie: session, headers: SAME_ORIGIN, body: { email, password: PASSWORD } })).status).toBe(201);
+    expect(getUserByEmail(email)).not.toBeNull();
+    expect((await call("DELETE", `/api/lectures/${lectureId}`, { cookie: session, headers: SAME_ORIGIN })).status).toBe(200);
+    expect((await call("POST", "/api/auth/logout", { cookie: session, headers: SAME_ORIGIN })).status).toBe(200);
+    expect((await v2("GET", "/me", { cookie: session })).status).toBe(401);
   });
 });

@@ -1,5 +1,6 @@
 import "../preload.ts"; // must stay first: sandboxes DB/HOME before db.ts loads
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import { resetConfigForTests } from "@lectern/config";
 import { personalWorkspaceId, uuidv7 } from "@lectern/db";
 import { API_BASE_PATH, ROUTES, type RouteDef } from "@lectern/domain";
@@ -101,6 +102,14 @@ beforeAll(async () => {
   const session = createSession(A.id);
   const devices = (await v2("GET", "/me/devices", { cookie: session })).body.items as { id: string; current: boolean }[];
   ids.device_id = (devices.find((d) => d.current) ?? devices[0]!).id;
+  // A push device of A's under the same id (the app chooses push device ids; the path
+  // parameter has one name for both kinds of device).
+  const push = await v2("PUT", `/me/push-devices/${ids.device_id}`, {
+    headers: a,
+    body: { platform: "ios", apns_token: randomBytes(32).toString("hex"), name: "A의 아이폰" },
+  });
+  if (push.status !== 200) throw new Error(`push device: ${push.status} ${push.text}`);
+  ids.marker_id = await created("marker", v2("POST", `/recordings/${seeded.recordingId}/markers`, { headers: a, body: { at_ms: 1_000, label: "A의 표시" } }));
   ids.job_id = (db.query(`SELECT id FROM job WHERE workspace_id = ? OR owner_id = ? LIMIT 1`).get(ws, A.id) as { id: string }).id;
 
   // Rows no route makes on demand: an identity, a calendar link, a speaker, an action item
@@ -181,7 +190,11 @@ const batchRefused = (route: RouteDef, status: number, text: string) => {
 /** The ask routes answer 501 to everyone while this process has no ask service: no data is reached. */
 const askOff = (route: RouteDef, status: number) => route.path.startsWith("/ask") && status === 501;
 
-const leaks = (text: string) => [A.email, SECRET_TITLE, "A의 폴더", "A의 태그", "A의 할 일", "A의 시험", "A의 토큰"].filter((s) => text.includes(s));
+/** A push device id is chosen by the app: another account's PUT on it is 409 and changes nothing. */
+const takenRefused = (route: RouteDef, status: number) => route.operationId === "upsertPushDevice" && status === 409;
+
+const leaks = (text: string) =>
+  [A.email, SECRET_TITLE, "A의 폴더", "A의 태그", "A의 할 일", "A의 시험", "A의 토큰", "A의 아이폰", "A의 표시"].filter((s) => text.includes(s));
 
 describe("security: other people's resources", () => {
   test("every v2 route refuses a foreign workspace", async () => {
@@ -195,13 +208,15 @@ describe("security: other people's resources", () => {
           const { status, text } = await send(requestFor(route, { params: { ...ids, workspace_id: workspaceId }, targets: t, headers: asAuth }));
           const leaked = leaks(text);
           if (leaked.length) wrong.push(`${route.operationId}: leaks ${leaked.join(", ")}`);
-          if (isTargeted(route, t) && status !== 403 && status !== 404 && !batchRefused(route, status, text) && !askOff(route, status)) wrong.push(`${route.operationId} (${workspaceId === team ? "team" : "personal"}): ${status}`);
+          if (isTargeted(route, t) && status !== 403 && status !== 404 && !batchRefused(route, status, text) && !askOff(route, status) && !takenRefused(route, status)) wrong.push(`${route.operationId} (${workspaceId === team ? "team" : "personal"}): ${status}`);
         }
       }
     }
     expect([...new Set(wrong)]).toEqual([]);
     // A's things are all still there.
     expect((await v2("GET", `/recordings/${ids.recording_id}`, { headers: tokenAuth(A) })).body.recording.title).toBe(SECRET_TITLE);
+    expect((db.query(`SELECT user_id FROM push_device WHERE id = ?`).get(ids.device_id!) as { user_id: string }).user_id).toBe(A.id);
+    expect((await v2("GET", `/recordings/${ids.recording_id}/markers`, { headers: tokenAuth(A) })).text).toContain("A의 표시");
   });
 
   test("unauthenticated", async () => {
@@ -223,15 +238,15 @@ describe("security: other people's resources", () => {
     db.query(`INSERT INTO membership (workspace_id, user_id, role, created_at, updated_at) VALUES (?, ?, 'viewer', ?, ?)`).run(team, viewer.id, now, now);
     const teamTargets: Targets = { workspaceId: team, recordingId: teamRecording, documentId: ids.document_id!, eventCandidateId: ids.event_candidate_id! };
     const params = { ...ids, workspace_id: team, recording_id: teamRecording, folder_id: teamFolder };
-    // What a viewer may still do: change their own account, and keep things of their own in
-    // the workspace — saved views (saved_view.user_id), their calendar feed (one per user and
+    // What a viewer may still do: change their own account and push devices, and keep things
+    // of their own in the workspace — saved views (saved_view.user_id), their calendar feed (one per user and
     // workspace, D-P4-2) and their Google Calendar link (integration.user_id). Those change
     // nothing the team shares.
     const ownAccount = new Set([
       "updateMe", "createWorkspace", "createAccessToken", "revokeAccessToken", "revokeDevice", "unlinkIdentity",
       "requestAccountDeletion", "cancelAccountDeletion", "acceptInvite", "createExport", "issueNativeToken", "revokeNativeToken",
       "createSavedView", "updateSavedView", "deleteSavedView", "createCalendarFeed", "deleteCalendarFeed",
-      "startGoogleIntegration", "disconnectIntegration",
+      "startGoogleIntegration", "disconnectIntegration", "upsertPushDevice", "deletePushDevice",
     ]);
     const wrong: string[] = [];
     for (const route of ROUTES.filter((r) => WRITE_METHODS.has(r.method) && !r.public && !ownAccount.has(r.operationId) && r.tag !== "admin")) {
