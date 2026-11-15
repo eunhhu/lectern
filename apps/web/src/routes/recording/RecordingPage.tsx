@@ -5,7 +5,7 @@
 // panels become tabs. DOM order matches the visual order (WCAG 1.3.2).
 
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Menu, MenuItem, MenuTrigger, Popover, Separator, Tab, TabList, TabPanel, Tabs, ToggleButton, type Key } from "react-aria-components";
 import { useApi, useDocument, useFolders, useLiveProgress, useRecording, useTags, useTranscript } from "../../api/queries.ts";
 import { ApiClientError } from "../../api/client.ts";
@@ -229,7 +229,17 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
     setLastReprocess(mode);
     setReprocess(mode);
   };
+  // A dialog opened from the 녹음 작업 menu: the item that opened it is gone when it closes,
+  // so the focus goes back to the menu button instead of to <body>. A dialog opened by a
+  // button that is still there (태그 편집) keeps the dialog's own focus return.
+  const fromMenu = useRef(false);
+  const refocusMenu = () => {
+    if (!fromMenu.current) return;
+    fromMenu.current = false;
+    setTimeout(() => document.querySelector<HTMLElement>("[data-recording-actions]")?.focus(), 0);
+  };
   const onMenuAction = (key: Key) => {
+    fromMenu.current = key !== "export";
     if (key === "share") setShareOpen(true);
     else if (key === "reprocess") openReprocess("full");
     else if (key === "regenerate") openReprocess("document");
@@ -256,7 +266,7 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
       <div className={s.titleRow}>
         <h1 className={s.title}>{rec.title}</h1>
         <MenuTrigger>
-          <Button variant="ghost" icon="more" iconOnly aria-label="녹음 작업" />
+          <Button variant="ghost" icon="more" iconOnly aria-label="녹음 작업" data-recording-actions />
           <Popover className={uiStyles.popover} placement="bottom end">
             <Menu className={uiStyles.menu} onAction={onMenuAction} disabledKeys={disabledKeys}>
               <MenuItem id="move" className={uiStyles.menuItem}>
@@ -319,7 +329,15 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
                 {t.name}
               </span>
             ))}
-          <Button size="sm" variant="ghost" icon="tag" onPress={() => setAction({ kind: "tag", ids: [rec.id] })}>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon="tag"
+            onPress={() => {
+              fromMenu.current = false;
+              setAction({ kind: "tag", ids: [rec.id] });
+            }}
+          >
             {detail.tags.length ? "태그 편집" : "태그 붙이기"}
           </Button>
         </span>
@@ -335,12 +353,13 @@ function RecordingView({ detail }: { detail: RecordingDetail }) {
           const deleted = action?.kind === "delete";
           setAction(null);
           if (deleted) setTimeout(() => void navigate({ to: "/library" }), 0);
+          else refocusMenu();
         }}
         onFailed={() => {}}
       />
-      <ShareDialog recording={rec} isOpen={shareOpen} onOpenChange={setShareOpen} />
-      <ReprocessDialog recording={rec} mode={reprocess ?? lastReprocess} isOpen={reprocess !== null} onOpenChange={(open) => !open && setReprocess(null)} />
-      <DeleteAudioDialog recording={rec} isOpen={deleteAudio} onOpenChange={setDeleteAudio} />
+      <ShareDialog recording={rec} isOpen={shareOpen} onOpenChange={(open) => (setShareOpen(open), !open && refocusMenu())} />
+      <ReprocessDialog recording={rec} mode={reprocess ?? lastReprocess} isOpen={reprocess !== null} onOpenChange={(open) => !open && (setReprocess(null), refocusMenu())} />
+      <DeleteAudioDialog recording={rec} isOpen={deleteAudio} onOpenChange={(open) => (setDeleteAudio(open), !open && refocusMenu())} />
     </>
   );
 
@@ -526,8 +545,12 @@ function ProcessingState({ detail }: { detail: RecordingDetail }) {
   const rec = detail.recording;
   const label = progressLabel(rec.status, progress);
   return (
-    <div className={s.processing} aria-busy="true">
-      <p className={s.processingTitle}>{label}</p>
+    // The label is a live status (announced as it moves on); no aria-busy around it, which
+    // would let screen readers hold the announcements back for as long as processing runs.
+    <div className={s.processing}>
+      <p className={s.processingTitle} role="status">
+        {label}
+      </p>
       {progress?.progress != null && <Progress value={progress.progress} label="처리 진행률" valueLabel={label} />}
       <p className={uiStyles.hint}>처리가 끝나면 전사와 문서가 이 화면에 바로 표시됩니다.</p>
     </div>
